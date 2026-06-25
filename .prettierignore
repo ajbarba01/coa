@@ -1,0 +1,7 @@
+**/dist/**
+**/*.tsbuildinfo
+pnpm-lock.yaml
+
+# Markdown is authored prose (handoff docs carry hand-aligned tables Prettier
+# would collapse). Formatting docs is a deliberate separate pass, not a gate.
+**/*.md

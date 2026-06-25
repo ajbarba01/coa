@@ -1,0 +1,16 @@
+# Workspace globs. apps/* are created at their build phase (M10); the glob is
+# inert until then. Libraries (the logical modules) live under packages/*.
+packages:
+  - packages/*
+  - apps/*
+
+# Native addons that legitimately need build scripts. Everything else runs with
+# scripts ignored by default (supply-chain hygiene). These rebuild for the
+# daemon's Node ABI.
+allowBuilds:
+  better-sqlite3: true
+  '@parcel/watcher': true
+
+# @types/node 26 is newer than the default minimum-release-age window; allow it.
+minimumReleaseAgeExclude:
+  - '@types/node@26.0.1'

@@ -1,0 +1,31 @@
+{
+  "name": "@coa/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@coa/code-intel": "workspace:*",
+    "@coa/shared": "workspace:*",
+    "@parcel/watcher": "^2.5.6",
+    "better-sqlite3": "^12.11.1",
+    "ulid": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
+  }
+}

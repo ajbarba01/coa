@@ -1,0 +1,9 @@
+{
+  "// note": "Solution file: holds no sources, only references. `tsc -b` builds the packages in dependency order.",
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/code-intel" },
+    { "path": "packages/core" }
+  ]
+}
