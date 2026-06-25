@@ -35,7 +35,7 @@ Product work follows the **topological build order** ([IMPL-SPEC-BRIEF.md §2](d
 | Mid-build, non-trivial logic                        | Test-first, then implement; keep the logic pure.                                       | `superpowers:test-driven-development`                       |
 | Think it's done                                     | **Verify** — `tsc`/lint/tests, `/code-review`, then exercise the running daemon/CLI.   | `verification-before-completion` → `requesting-code-review` → `/code-review` → `verify` |
 | Got code-review feedback                            | Triage before implementing — verify, don't perform agreement.                          | `superpowers:receiving-code-review`                         |
-| Verified                                            | **Ship** — conventional commit to `master`.                                           | —                                                           |
+| Verified                                            | **Ship** — conventional commit to `main`.                                           | —                                                           |
 | Hit a bug / unexpected behavior                     | Reproduce and find root cause _before_ proposing a fix; don't patch symptoms.          | `superpowers:systematic-debugging`                          |
 | Sub-spec change (bugfix, contained edit)            | **Lightweight lane** — skip spec/plan; one agent owns it end-to-end; build + verify.   | role-appropriate debugging/TDD skills                       |
 | Unsure what a module should do                      | Read its SPEC section. Still ambiguous → stop and ask the maintainer; don't assume.    | —                                                           |
@@ -51,7 +51,7 @@ Product work follows the **topological build order** ([IMPL-SPEC-BRIEF.md §2](d
 4. **Build** — implement against the plan. **Test-first for non-trivial logic** (the pure core especially).
 5. **Verify** — a _fresh_ pass grades the work: `/code-review`, then exercise the running daemon/CLI. The author
    never grades itself.
-6. **Ship** — conventional commit on `master`.
+6. **Ship** — conventional commit on `main`.
 
 ## Skill workflow (execution policy)
 
@@ -62,7 +62,7 @@ directly. Process skills first (brainstorming, debugging), then implementation.
 - **Execution may be subagent-driven.** When the active agent exposes subagents and the maintainer requests
   in-session execution, use `superpowers:subagent-driven-development`; otherwise `executing-plans` or sequential
   execution with native task tracking.
-- **No worktrees by default.** Execution runs against `master` unless the maintainer asks for isolation.
+- **No worktrees by default.** Execution runs against `main` unless the maintainer asks for isolation.
 - **Skip threshold (knob).** Brainstorm + spec + plan are required for anything non-trivial or scope-uncertain;
   **skipped** for sub-spec work (Lightweight lane). The maintainer moves this line per session. Unsure → ask.
 
@@ -117,7 +117,7 @@ File-based handoff has no live channel: escalation is **written**.
 
 ## Version control & quality gates
 
-- **Single `master` branch**, commit-as-you-go. No PRs / worktrees / branch ceremony yet — revisit when the repo
+- **Single `main` branch**, commit-as-you-go. No PRs / worktrees / branch ceremony yet — revisit when the repo
   opens to outside contributors (the OSS PR flow is described in [REPO_LAYOUT.md](REPO_LAYOUT.md)).
 - **Commit only after verification.** Assume the tree is broken until verified; no broken commits.
 - **Stage files by name** (never `git add -A` / `.`) — avoids accidental secret/binary inclusion.
@@ -142,7 +142,7 @@ to click through until M10; until then verification is the test suite + the CLI 
 ## Definition of Done
 
 Tests green → types/lint/format clean → `/code-review` clean (a fresh pass, not the author) → manual `verify` of the
-running daemon/CLI → conventional commit on `master`.
+running daemon/CLI → conventional commit on `main`.
 
 ---
 

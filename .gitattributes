@@ -1,0 +1,32 @@
+# Normalize line endings: store text as LF in the repo, check out native.
+# Prevents CRLF churn between Windows checkouts and the repo.
+* text=auto eol=lf
+
+# Explicit text types (defensive; covered by text=auto but documents intent).
+*.ts    text
+*.tsx   text
+*.js    text
+*.json  text
+*.md    text
+*.yml   text
+*.yaml  text
+*.css   text
+
+# Scripts that must stay LF regardless of platform.
+*.sh    text eol=lf
+
+# Binary files: never normalize or diff as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.avif  binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.node  binary
+
+# Lockfile: keep diffs intact, mark as generated to collapse in reviews.
+pnpm-lock.yaml -diff linguist-generated

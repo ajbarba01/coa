@@ -152,7 +152,7 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 
 - **Conventional Commits** are the changelog substrate — another reason the subject-line discipline
   ([AGENTS.md](../AGENTS.md) Constitution) matters.
-- **PR flow** arrives with outside contributors (today it is single `master`, commit-as-you-go; see
+- **PR flow** arrives with outside contributors (today it is single `main`, commit-as-you-go; see
   [WORKFLOW.md](WORKFLOW.md)). The dependency rules and gates above are exactly what a PR CI check enforces.
 - **Apache-2.0 specifics** — source-file license headers are optional but the LICENSE + a NOTICE (once the holder
   is set) cover attribution; the patent grant is the reason Apache-2.0 was chosen over MIT.

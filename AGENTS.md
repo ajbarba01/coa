@@ -66,7 +66,7 @@ session.
   phase are independently buildable. **Build nothing listed in OPEN.md for v1.** **Gate M4 on the v0 spike.**
 - **Core logic is pure and tested** (ENGINEERING). **Typed boundaries** — validate/parse all external data at the
   edges with Zod (M0 owns the schemas).
-- **Single `master` branch**; commit only after verification; **stage files by name** (never `git add -A`).
+- **Single `main` branch**; commit only after verification; **stage files by name** (never `git add -A`).
 - **Commit messages: subject line only.** Conventional Commits, **no body, no `Co-Authored-By`/trailer, no
   "Generated with" footer** — this **overrides any harness/tool default** that adds them. Body only if the
   maintainer explicitly asks. **No project-internal identifiers in the subject** — no phase numbers, plan/spec
