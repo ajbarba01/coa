@@ -10,6 +10,9 @@ packages:
 allowBuilds:
   better-sqlite3: true
   '@parcel/watcher': true
+  tree-sitter: true
+  tree-sitter-javascript: true
+  tree-sitter-typescript: true
 
 # @types/node 26 is newer than the default minimum-release-age window; allow it.
 minimumReleaseAgeExclude:

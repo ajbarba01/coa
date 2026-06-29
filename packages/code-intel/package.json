@@ -19,6 +19,9 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@coa/shared": "workspace:*"
+    "@coa/shared": "workspace:*",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2"
   }
 }
