@@ -193,6 +193,11 @@ export {
   type SessionAdapterInit,
 } from './session/session.js';
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
+export {
+  createDaemonCore,
+  type DaemonCoreOptions,
+  type DaemonCoreHandle,
+} from './session/daemon.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
