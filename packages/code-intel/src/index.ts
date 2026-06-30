@@ -10,5 +10,5 @@ export { canonicalize } from './canonicalize.js';
 export { extractSymbols } from './extract-symbols.js';
 export { extractMetrics } from './extract-metrics.js';
 export { hasGrammar, langFromPath, type GrammaredLang } from './languages.js';
-export { type SerializedNode, type Point } from './cst.js';
+export { walk, type SerializedNode, type Point } from './cst.js';
 export { handleParseRequest } from './parser-process.js';

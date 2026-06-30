@@ -14,7 +14,25 @@ export { TypedGraph } from './graph/graph.js';
 export { SymbolTable } from './graph/symbol-table.js';
 export { FuzzyIndex } from './graph/fuzzy-index.js';
 export { PieceStore, resolvePiece } from './graph/resolve-piece.js';
-export { reparseSymbols } from './graph/reparse.js';
+export { reparseSymbols, reparseFile } from './graph/reparse.js';
+export { findCycles, type CycleComponent } from './graph/cycles.js';
+export { computeCoupling, type CouplingFan } from './graph/coupling.js';
+export {
+  temporal,
+  type FileTouch,
+  type TemporalView,
+  type TemporalOptions,
+} from './graph/temporal.js';
+export { extractImports } from './graph/extract-imports.js';
+export { exportScip, buildScipIndex, type ScipIndex, type ScipOptions } from './graph/scip.js';
+export {
+  ExtractorRegistry,
+  STARTER_EXTRACTORS,
+  codegenMarkerExtractor,
+  registrySingletonExtractor,
+  type ConventionExtractor,
+  type ExtractionResult,
+} from './graph/conventions.js';
 export { Reconciler, scanWorktree, type ReconcilerDeps } from './reconcile/reconciler.js';
 export {
   classifyObservation,

@@ -1,4 +1,6 @@
 import type { EdgeProvenance, EdgeType, GraphEdge, GraphNodeKind } from '@coa/shared';
+import { findCycles, type CycleComponent } from './cycles.js';
+import { computeCoupling, type CouplingFan } from './coupling.js';
 
 /**
  * The in-memory typed dependency graph — M1's central projection (P4), the hot
@@ -72,6 +74,37 @@ export class TypedGraph {
 
   edges(): GraphEdge[] {
     return [...this.outgoing.values()].flat();
+  }
+
+  /** GRF-1 — the retained-cycle view (SCC condensation + back-edges to cut). */
+  cycles(): CycleComponent[] {
+    return findCycles(this.edges());
+  }
+
+  /** GRF-4 — the typed/weighted coupling fan around a node. */
+  coupling(node: string): CouplingFan {
+    return computeCoupling(node, this.edges());
+  }
+
+  /** GRF-3 — per-provenance edge counts (the honest coverage substrate). */
+  provenanceCounts(): Record<EdgeProvenance, number> {
+    const counts: Record<EdgeProvenance, number> = {
+      declared: 0,
+      inferred: 0,
+      convention: 0,
+      gated: 0,
+    };
+    for (const edge of this.edges()) counts[edge.provenance]++;
+    return counts;
+  }
+
+  /** Drop a file's derived (inferred/convention) outgoing edges before a reparse re-adds them. */
+  removeDerivedEdgesFrom(from: string): void {
+    for (const edge of this.outEdges(from)) {
+      if (edge.provenance === 'inferred' || edge.provenance === 'convention') {
+        this.removeEdge(edge.from, edge.to, edge.type);
+      }
+    }
   }
 
   private reachesOverDeclaredLayer(start: string, goal: string): boolean {

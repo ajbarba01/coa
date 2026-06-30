@@ -15,7 +15,22 @@ import { TypedGraph } from './graph/graph.js';
 import { SymbolTable } from './graph/symbol-table.js';
 import { FuzzyIndex } from './graph/fuzzy-index.js';
 import { PieceStore, resolvePiece } from './graph/resolve-piece.js';
-import { reparseSymbols } from './graph/reparse.js';
+import { reparseFile } from './graph/reparse.js';
+import { extractImports } from './graph/extract-imports.js';
+import {
+  ExtractorRegistry,
+  STARTER_EXTRACTORS,
+  type ConventionExtractor,
+} from './graph/conventions.js';
+import {
+  temporal,
+  type FileTouch,
+  type TemporalOptions,
+  type TemporalView,
+} from './graph/temporal.js';
+import { exportScip, type ScipOptions } from './graph/scip.js';
+import { posix } from 'node:path';
+import type { EdgeProvenance } from '@coa/shared';
 import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 import { SignalBus, type SignalEvent } from './signal-bus.js';
@@ -39,8 +54,9 @@ export interface ChangeKernelOptions {
  * D120 event-sourced order. On startup it replays the WAL to rebuild every
  * projection (the log is the source of truth; everything else is derived).
  *
- * This is the floor. The GRF-* graph hardening (cycle/coupling/temporal views,
- * convention extractors, SCIP) and the SCO-* scope tier are a follow-up batch.
+ * The graph carries the GRF-* hardening (cycle/coupling/temporal views,
+ * convention extractors, the inferred import graph, SCIP export). The SCO-*
+ * scope tier is the remaining follow-up.
  */
 export class ChangeKernel {
   readonly graph = new TypedGraph();
@@ -56,6 +72,9 @@ export class ChangeKernel {
   private readonly timeline = new Timeline();
   private readonly frames: ChangeEvent[] = [];
   private readonly consumers: ((event: ChangeEvent) => void)[] = [];
+  private readonly extractors = new ExtractorRegistry();
+  private readonly indexedFiles = new Set<string>();
+  private readonly unresolvedSites = new Set<string>();
   private nextSeq = 0;
   private fuzzyDirty = false;
 
@@ -64,6 +83,7 @@ export class ChangeKernel {
     this.root = options.root ?? process.cwd();
     this.wal = new Wal(options.walPath);
     this.projection = new ProjectionDb(options.projectionPath ?? ':memory:', PROJECTOR_VERSION);
+    for (const extractor of STARTER_EXTRACTORS) this.extractors.register(extractor);
 
     for (const frame of this.wal.read().frames) {
       this.frames.push(frame);
@@ -156,11 +176,53 @@ export class ChangeKernel {
 
   // --- index / resolve reads ---------------------------------------------------
 
-  /** Drive M2 to (re)index a file's symbols into the resident table. */
+  /**
+   * Drive M2 to (re)index a file: its symbols into the resident table, and its
+   * derived (inferred import + convention) edges into the graph (local/rebuilt,
+   * not WAL'd — D49). A reparse first clears the file's stale derived edges.
+   */
   indexFile(path: string, lang: string, bytes: string): void {
-    this.symbols.indexFile(path, reparseSymbols({ path, lang, bytes }));
+    const { symbols, cst } = reparseFile({ path, lang, bytes });
+    this.symbols.indexFile(path, symbols);
+    this.indexedFiles.add(path);
     this.fuzzyDirty = true;
     this.idle.scheduleIdle(() => this.rebuildFuzzy(), { priority: 1, preemptible: true });
+
+    this.graph.removeDerivedEdgesFrom(path);
+    clearPrefix(this.unresolvedSites, `${path}:`);
+    if (cst !== null) {
+      for (const edge of extractImports(cst, path, (spec, from) =>
+        this.resolveImport(spec, from),
+      )) {
+        this.graph.applyEdge(edge);
+      }
+    }
+    const conventions = this.extractors.run({ path, lang, bytes });
+    for (const edge of conventions.edges) this.graph.applyEdge(edge);
+    for (const site of conventions.unresolved) this.unresolvedSites.add(`${path}:${site}`);
+  }
+
+  /** GRF-3 — admit a deterministic per-ecosystem convention extractor (runs on reparse). */
+  registerExtractor(extractor: ConventionExtractor): void {
+    this.extractors.register(extractor);
+  }
+
+  /** GRF-5 — the WAL⨝structure temporal view for a node. */
+  temporal(node: string, options?: TemporalOptions): TemporalView {
+    const touches: FileTouch[] = this.frames
+      .filter((f): f is Extract<ChangeEvent, { path: string }> => 'path' in f)
+      .map((f) => ({ seq: f.seq, path: f.path, ts: f.ts }));
+    return temporal(node, touches, options ?? {});
+  }
+
+  /** GRF-3 — the anti-false-graph honesty read: per-provenance counts + unresolved sites. */
+  coverage(): Record<EdgeProvenance, number> & { unresolved: number } {
+    return { ...this.graph.provenanceCounts(), unresolved: this.unresolvedSites.size };
+  }
+
+  /** GRF-6 — the one-way SCIP export of the indexed symbol layer. */
+  exportScip(options: ScipOptions): Uint8Array {
+    return exportScip(this.symbols.all(), options);
   }
 
   lookup(name: string): SymbolRecord | undefined {
@@ -259,6 +321,22 @@ export class ChangeKernel {
     this.fuzzy.build(this.symbols.all());
     this.fuzzyDirty = false;
   }
+
+  /** Resolve an import specifier to a repo path: relative → file (extension-completed), bare → external. */
+  private resolveImport(specifier: string, fromPath: string): string {
+    if (!specifier.startsWith('.')) return specifier;
+    const base = posix.normalize(posix.join(posix.dirname(fromPath), specifier));
+    if (this.indexedFiles.has(base)) return base;
+    for (const ext of ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.js']) {
+      if (this.indexedFiles.has(base + ext)) return base + ext;
+    }
+    return /\.[cm]?[jt]sx?$/.test(base) ? base : `${base}.ts`;
+  }
+}
+
+/** Remove every set member starting with `prefix`. */
+function clearPrefix(set: Set<string>, prefix: string): void {
+  for (const value of set) if (value.startsWith(prefix)) set.delete(value);
 }
 
 /** Build a graph edge from an assert-edge frame/draft. */
