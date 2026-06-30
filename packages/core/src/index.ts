@@ -107,6 +107,7 @@ export {
   type EvalResult,
 } from './governance/selfmod.js';
 export { compile } from './compiler/compile.js';
+export { importBundle } from './compiler/import-bundle.js';
 export {
   versionGate,
   type SemverBump,
