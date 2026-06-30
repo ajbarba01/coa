@@ -37,6 +37,14 @@ module.exports = {
       to: { path: '^apps/' },
     },
     {
+      name: 'core-consumer-rings-no-sideways',
+      severity: 'error',
+      comment:
+        'Inside core, only the spine is shared mutable substrate. Consumer rings (flags = M3, governance = M7, …) import the spine + shared, never sideways from each other (REPO_LAYOUT intra-core rule).',
+      from: { path: '^packages/core/src/(flags|governance)/' },
+      to: { path: '^packages/core/src/(flags|governance)/', pathNot: '^packages/core/src/$1/' },
+    },
+    {
       name: 'no-orphans',
       severity: 'warn',
       comment: 'A module imported by nothing is usually dead code (or a missing wiring).',

@@ -82,6 +82,30 @@ export {
   type ValidatorRun,
 } from './flags/validator.js';
 export { AutoPatcher, type AutoPatchPlan } from './flags/autopatch.js';
+export { Governance, type GovernanceOptions } from './governance/governance.js';
+export { CostCap, type CapState, type CostCapOptions } from './governance/cost-cap.js';
+export { Ledger, redactLedgerEvent, type LedgerRecord } from './governance/ledger.js';
+export {
+  GovernanceLog,
+  type GovernanceSpine,
+  type DecisionEntry,
+  type VouchEntry,
+  type SubtractiveEntry,
+  type Principal,
+} from './governance/governance-log.js';
+export {
+  sandboxPolicy,
+  DENY_READ_GLOBS,
+  SECRETS_GLOB,
+  type SessionTrustCtx,
+  type SandboxOptions,
+} from './governance/sandbox.js';
+export {
+  selfModGuard,
+  type SelfModVerdict,
+  type Promotion,
+  type EvalResult,
+} from './governance/selfmod.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
