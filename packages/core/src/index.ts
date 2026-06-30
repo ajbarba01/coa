@@ -45,7 +45,13 @@ export { matchGlob, globToRegExp } from './scope/glob.js';
 export { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
 export { validateScopesConfig, loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
 export { lintScopes, type ScopeLintFinding, type ScopeLintContext } from './scope/scope-linter.js';
-export { FlagPipeline, type FlagPipelineOptions } from './flags/pipeline.js';
+export {
+  FlagPipeline,
+  type FlagPipelineOptions,
+  type GateResult,
+  type ToolDenyRule,
+  type ToolDenyVerdict,
+} from './flags/pipeline.js';
 export {
   validateProducer,
   type Producer,
@@ -59,6 +65,23 @@ export {
   type FlagSignals,
 } from './flags/severity.js';
 export { mergeConcern } from './flags/dedup.js';
+export {
+  resolutionFor,
+  type FeedbackReason,
+  type FeedbackRecord,
+  type FeedbackResolution,
+} from './flags/feedback.js';
+export { ReminderPolicy, type AuthorityRule } from './flags/reminder.js';
+export {
+  groupSelection,
+  contextKeyOf,
+  type Verdict,
+  type ValidatorJudge,
+  type ValidatorGroup,
+  type ValidatorVerdict,
+  type ValidatorRun,
+} from './flags/validator.js';
+export { AutoPatcher, type AutoPatchPlan } from './flags/autopatch.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
