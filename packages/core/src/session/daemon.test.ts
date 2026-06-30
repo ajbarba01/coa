@@ -41,4 +41,13 @@ describe('createDaemonCore', () => {
     expect(handle.core.catalogue.length).toBeGreaterThan(0);
     expect(handle.core.compile([], { allow: [], deny: [] }).prefixHead).toEqual([]);
   });
+
+  it('wires the catalogue to the real kernel: get_symbol resolves a declared symbol', async () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    const record = { name: 'parseConfig', definedIn: 'src/config.ts' };
+    handle.kernel.declareSymbols([record], 'src/config.ts');
+    const getSymbol = handle.core.catalogue.find((t) => t.name === 'get_symbol');
+    const res = await getSymbol!.invoke({ ref: { name: 'parseConfig' } });
+    expect(res.result).toEqual({ found: true, symbol: record });
+  });
 });

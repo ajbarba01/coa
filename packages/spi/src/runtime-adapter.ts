@@ -88,8 +88,8 @@ export interface SymbolReference {
   column: number;
 }
 
-/** The governed tool catalogue M6 registers into the loop (M6 owns the rich shape). */
-export type ToolCatalogue = readonly { readonly name: string }[];
+/** The governed tool catalogue M6 registers into the loop — the rich, callable shape. */
+export type ToolCatalogue = readonly RegisteredTool[];
 
 /** Where a registered tool's schema sits in the D100 budget: always-loaded vs pulled on demand. */
 export type ToolPartition = 'kernel' | 'on-demand';

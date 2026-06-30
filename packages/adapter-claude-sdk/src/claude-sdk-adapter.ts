@@ -26,6 +26,7 @@ import type { McpServerConfig, SDKMessage, SDKUserMessage } from '@anthropic-ai/
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
+import { mcpToolNames, toCoaMcpServer } from './mcp-tools.js';
 
 /** The session-construction I/O M8 injects (D121) — defined here as M9's seam, not known by the core. */
 export interface ClaudeSdkAdapterInit {
@@ -58,6 +59,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
   #canUseTool: CanUseTool | undefined;
   #stopPredicate: StopPredicate | undefined;
   #mcpServers: Record<string, McpServerConfig> = {};
+  #mcpToolNames: string[] = [];
   #disallowedBuiltins: string[] = [];
   #lastUsage: RuntimeUsage = NO_USAGE;
 
@@ -70,10 +72,14 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     return this.#backend;
   }
 
-  registerTools(_catalogue: ToolCatalogue): void {
-    // The MCP surface is built from M6's real tool handlers (createSdkMcpServer +
-    // `tool(...)`); the `ToolCatalogue` port shape carries only names until M6
-    // exists, so registration is a no-op floor (the loop runs with built-ins).
+  registerTools(catalogue: ToolCatalogue): void {
+    // Build M6's governed tools into one in-process `coa` MCP server and record
+    // their `mcp__coa__*` names so `runLoop` can allow them. Each tool stays
+    // governed (Zod-validate → dispatch → enrich) inside the core; M9 only
+    // transports. An empty catalogue leaves the loop on built-ins (D85 floor).
+    if (catalogue.length === 0) return;
+    this.#mcpServers = { coa: toCoaMcpServer(catalogue) };
+    this.#mcpToolNames = mcpToolNames(catalogue);
   }
 
   denyBuiltins(): void {
@@ -144,6 +150,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       sessionId: this.#init.sessionId,
       backend: {
         ...backend,
+        allowedTools: [...backend.allowedTools, ...this.#mcpToolNames],
         disallowedTools: [...backend.disallowedTools, ...this.#disallowedBuiltins],
       },
       sandbox: this.#init.sandbox,
