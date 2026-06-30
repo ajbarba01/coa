@@ -108,6 +108,14 @@ export {
 } from './governance/selfmod.js';
 export { compile } from './compiler/compile.js';
 export { ground, type SymbolOracle } from './context/grounding.js';
+export {
+  createSsotConstraintProducer,
+  type GenerationRelation,
+  type GenerationRunner,
+  type RegenOutput,
+  type DegradedRelation,
+  type SsotConstraintProducer,
+} from './context/ssot-constraint.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
