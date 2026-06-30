@@ -46,6 +46,14 @@ describe('redactLedgerEvent (D135 — strict allow-list, not a deny-list)', () =
   it('drops a field present with the wrong type', () => {
     expect(redactLedgerEvent({ tokensIn: 'lots' })).toEqual({});
   });
+
+  it('keeps the account label for per-account spend attribution', () => {
+    expect(redactLedgerEvent({ costUsd: 0.1, account: 'work' })).toEqual({
+      costUsd: 0.1,
+      account: 'work',
+    });
+    expect(redactLedgerEvent({ account: 'ambient' })).toEqual({ account: 'ambient' });
+  });
 });
 
 describe('Ledger.record (the local-only, secret-clean audit projection)', () => {

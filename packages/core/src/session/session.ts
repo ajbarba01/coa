@@ -61,6 +61,13 @@ export interface SessionDeps {
   capState: () => { capHit: boolean; remaining: number | null };
   /** M7.charge — settle cost exactly once per result. */
   charge: (sessionId: string, usage: RuntimeUsage) => void;
+  /** M7 audit-ledger append, attributed to the active account; absent ⇒ spend recording not wired. */
+  recordSpend?: (record: {
+    costUsd: number;
+    tokensIn: number;
+    tokensOut: number;
+    account?: string;
+  }) => void;
   /** M3.perToolDeny — the per-tool deny-rule check. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
   /** M3.gate — the close-gate verdict. */
@@ -92,11 +99,23 @@ export async function createSession(
   const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);
   const account = deps.activeAccount?.();
 
+  // Settle once per result: charge the cap, then append the account-attributed
+  // spend to the audit ledger (when wired). M9 calls this exactly once per result.
+  const onSettle = (sid: string, usage: RuntimeUsage): void => {
+    deps.charge(sid, usage);
+    deps.recordSpend?.({
+      costUsd: usage.costUsd,
+      tokensIn: usage.tokensIn,
+      tokensOut: usage.tokensOut,
+      ...(account ? { account: account.label } : {}),
+    });
+  };
+
   const adapter = deps.createAdapter({
     sessionId,
     sandbox,
     input: req.input,
-    onSettle: deps.charge,
+    onSettle,
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(account?.locator ? { locator: account.locator } : {}),
   });

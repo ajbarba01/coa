@@ -26,6 +26,8 @@ export interface DaemonCore {
   capState: () => { capHit: boolean; remaining: number | null };
   /** M7 — settle cost (USD) exactly once per result. */
   charge: (sessionId: string, costUsd: number) => void;
+  /** M7 — append a spend record to the audit ledger (allow-list redacted). */
+  record: (event: Record<string, unknown>) => void;
   /** M7 — the per-session capability set. */
   sandboxPolicy: (ctx: {
     sessionId: string;
@@ -69,6 +71,7 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     sandboxPolicy: core.sandboxPolicy,
     capState: core.capState,
     charge: (sessionId, usage) => core.charge(sessionId, usage.costUsd),
+    recordSpend: (record) => core.record(record),
     perToolDeny: core.perToolDeny,
     gate: core.gate,
     catalogue: core.catalogue,

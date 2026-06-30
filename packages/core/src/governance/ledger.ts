@@ -27,6 +27,8 @@ export interface LedgerRecord {
   ruleId?: string | string[];
   /** A coarse scope name. */
   scope?: string;
+  /** The account label the session ran under (incl. `'ambient'`) — the per-account spend attribution. */
+  account?: string;
 }
 
 /**
@@ -42,6 +44,7 @@ export function redactLedgerEvent(event: Record<string, unknown>): LedgerRecord 
   if (typeof event['cacheHit'] === 'boolean') out.cacheHit = event['cacheHit'];
   copyPathSafeString(event, 'nodeId', out);
   copyPathSafeString(event, 'scope', out);
+  copyPathSafeString(event, 'account', out);
   const ruleId = event['ruleId'];
   if (typeof ruleId === 'string') out.ruleId = ruleId;
   else if (Array.isArray(ruleId) && ruleId.every((r) => typeof r === 'string')) {
@@ -78,7 +81,7 @@ function copyNumber(
 
 function copyPathSafeString(
   event: Record<string, unknown>,
-  key: 'nodeId' | 'scope',
+  key: 'nodeId' | 'scope' | 'account',
   out: LedgerRecord,
 ): void {
   const value = event[key];

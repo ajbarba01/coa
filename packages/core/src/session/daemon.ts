@@ -70,6 +70,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     gate: () => flags.gate(),
     capState: () => governance.capState(),
     charge: (sessionId, costUsd) => governance.charge(sessionId, costUsd),
+    record: (event) => governance.record(event),
     sandboxPolicy: (ctx) => governance.sandboxPolicy(ctx),
     compile: (pieces, frame) => {
       const { config, findings } = compile(pieces, frame, {

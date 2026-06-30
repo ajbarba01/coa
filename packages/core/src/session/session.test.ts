@@ -180,6 +180,16 @@ describe('createSession', () => {
     expect(h.adapter()?.init.locator).toBeUndefined();
     expect(session.account).toBeUndefined();
   });
+
+  it('records settled spend attributed to the active account label', async () => {
+    const spend: unknown[] = [];
+    const h = harness({
+      activeAccount: () => ({ label: 'work', locator: { type: 'config-dir', dir: '/d' } }),
+      recordSpend: (record) => spend.push(record),
+    });
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect(spend).toEqual([{ costUsd: 0.5, tokensIn: 1, tokensOut: 2, account: 'work' }]);
+  });
 });
 
 describe('closeSession', () => {
