@@ -107,6 +107,12 @@ export {
   type EvalResult,
 } from './governance/selfmod.js';
 export { compile } from './compiler/compile.js';
+export {
+  versionGate,
+  type SemverBump,
+  type VersionGateDeps,
+  type VersionGateResult,
+} from './compiler/version-gate.js';
 export { ground, type SymbolOracle } from './context/grounding.js';
 export {
   governanceFor,
