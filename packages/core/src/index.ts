@@ -122,6 +122,7 @@ export {
   type SeamPublisher,
   type GenerationSeam,
 } from './context/generation-seam.js';
+export { composeProfile, type WorstPredicate } from './context/health-profile.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
