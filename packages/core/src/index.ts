@@ -45,6 +45,20 @@ export { matchGlob, globToRegExp } from './scope/glob.js';
 export { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
 export { validateScopesConfig, loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
 export { lintScopes, type ScopeLintFinding, type ScopeLintContext } from './scope/scope-linter.js';
+export { FlagPipeline, type FlagPipelineOptions } from './flags/pipeline.js';
+export {
+  validateProducer,
+  type Producer,
+  type ProducerInput,
+  type ValidationResult,
+} from './flags/producer.js';
+export {
+  assignSeverity,
+  assignConfidence,
+  maxSeverity,
+  type FlagSignals,
+} from './flags/severity.js';
+export { mergeConcern } from './flags/dedup.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
