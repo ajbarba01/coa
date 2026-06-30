@@ -92,7 +92,7 @@ describe('changeEventSchema — non-file kinds carry a non-null op_id and declar
       ...envelope,
       kind: 'governance' as const,
       cause: { kind: 'regenerate' as const, sourceEventSeq: 3 },
-      payload: { sub: 'decision' as const },
+      payload: { sub: 'decision' as const, target: 'rule:x', entry: 'why x changed' },
     };
     expect(changeEventSchema.parse(ev)).toMatchObject({ kind: 'governance' });
   });
