@@ -11,3 +11,5 @@
 
 export * from './render-native.js';
 export * from './sdk-options.js';
+export * from './session-options.js';
+export * from './claude-sdk-adapter.js';

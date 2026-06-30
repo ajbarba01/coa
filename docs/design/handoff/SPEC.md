@@ -1142,7 +1142,9 @@ M6 carry it.
 **The close-session gate (D108 enforcement authority + D17 baseline/suppress).** Locked. The gate IS the one place
 coa blocks "done." It blocks **only** on unresolved **Type-1 ∧ high-severity** flags; Type-2 — however confident —
 advises, never blocks. **Mechanism (verified SDK fact):** there is no "finish" tool to deny, so the block is the
-**SDK `Stop` hook** returning `{continue:false, systemMessage: <M3's message>}`, wired by M9's `interceptStop`. (The
+**SDK `Stop` hook** returning `{decision:'block', reason: <M3's message>}` — which blocks the close and feeds the
+message back so the agent keeps working (build-verified against `@anthropic-ai/claude-agent-sdk` 0.3.196; the earlier
+`{continue:false, systemMessage}` draft was inverted — `continue:false` *ends* the turn). Wired by M9's `interceptStop`. (The
 cost-cap, the *other* block, rides `canUseTool` instead — two SDK hooks, one owner M9; sitting on different hooks,
 there is no predicate-composition problem.) `gate()` checking spends zero model tokens (a deterministic step-bound,
 not a cost-cap). D17 baseline/suppress lets a pre-existing violation be excluded so only new divergence blocks.
@@ -2609,7 +2611,8 @@ implementation is handed in at runtime. Every port a future backend might lack h
   M3's `perToolDeny`, first-deny-wins, fail-closed. M9 holds no policy.
 - `interceptStop(stopPredicate)` — wires the SDK **`Stop` hook** (RX-1): the **close-gate** rides here, not
   `canUseTool` (there is no "finish" tool to deny). M9 calls `M3.gate()` on each Stop event and, on `{allow:false}`,
-  returns `{continue:false, systemMessage: <M3's message>}`. The two SC-1 blocks thus sit on **two SDK hooks, one
+  returns `{decision:'block', reason: <M3's message>}` (build-verified against the SDK; `continue:false` would end the
+  turn instead of blocking the close). The two SC-1 blocks thus sit on **two SDK hooks, one
   owner (M9)** — and because they are different hooks there is no predicate-composition problem.
 - `deliverReminder(r: Reminder, at: 'session-start'|'prompt'|'post-tool')` — deliver the reminder M3 decides
   (D108/D133). **There is no programmatic mid-session `role:system` channel (verified SDK fact)**, so: `session-start`
