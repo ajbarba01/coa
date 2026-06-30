@@ -172,6 +172,14 @@ export {
   type GetDecisionResult,
   type GetSpecResult,
 } from './workbench/inspect.js';
+export {
+  TOOL_CATALOGUE,
+  kernelTools,
+  findTools,
+  loadTool,
+  type ToolPartition,
+  type ToolManifestEntry,
+} from './workbench/catalogue.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
