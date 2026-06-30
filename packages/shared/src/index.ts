@@ -15,6 +15,7 @@ export * from './capability.js';
 export * from './patch.js';
 export * from './tool.js';
 export * from './flag.js';
+export * from './producer.js';
 export * from './piece.js';
 export * from './bundle.js';
 export * from './context.js';
