@@ -1,4 +1,11 @@
-import type { CapabilityFrame, CapabilitySet, NeutralConfig, Piece, Session } from '@coa/shared';
+import type {
+  CapabilityFrame,
+  CapabilitySet,
+  Locator,
+  NeutralConfig,
+  Piece,
+  Session,
+} from '@coa/shared';
 import type { RuntimeAdapter, RuntimeUsage, StopDecision, ToolCatalogue } from '@coa/spi';
 import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
 
@@ -23,6 +30,14 @@ export interface SessionAdapterInit {
   maxBudgetUsd?: number;
   /** M9's settlement step → M7.charge, called once per settled result. */
   onSettle: (sessionId: string, usage: RuntimeUsage) => void;
+  /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
+  locator?: Locator;
+}
+
+/** The active-account resolution M8 supplies per session: a label (incl. `'ambient'`) + the optional login pointer. */
+export interface ActiveAccountResolution {
+  label: string;
+  locator?: Locator;
 }
 
 /** The live core references M8 holds and wires per session (all injected; M8 sorts last). */
@@ -60,6 +75,8 @@ export interface SessionDeps {
   perSessionCeiling?: number;
   /** Session trust (D148); defaults to local. */
   trust?: 'local' | 'imported';
+  /** Resolve the active account (login pointer + label) at session start; absent ⇒ account selection not wired. */
+  activeAccount?: () => ActiveAccountResolution;
 }
 
 /** Start a session: bind, compile, render, wire both SC-1 hooks, and run the loop. */
@@ -73,6 +90,7 @@ export async function createSession(
   const neutral = deps.compile(pieces, frame);
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
   const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);
+  const account = deps.activeAccount?.();
 
   const adapter = deps.createAdapter({
     sessionId,
@@ -80,6 +98,7 @@ export async function createSession(
     input: req.input,
     onSettle: deps.charge,
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
+    ...(account?.locator ? { locator: account.locator } : {}),
   });
 
   adapter.renderNative(neutral);
@@ -92,7 +111,7 @@ export async function createSession(
 
   const config = { role: req.role, scope: req.scope, worktree, capabilityFrame: frame };
   await adapter.runLoop(config);
-  return { id: sessionId, config, worktree };
+  return { id: sessionId, config, worktree, ...(account ? { account: account.label } : {}) };
 }
 
 /** Tear a session down: checkpoint at the boundary (M1), then release the worktree. */

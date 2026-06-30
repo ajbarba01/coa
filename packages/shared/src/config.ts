@@ -31,5 +31,7 @@ export const sessionSchema = z.object({
   id: z.string(),
   config: sessionConfigSchema,
   worktree: z.string(),
+  /** The account label this session ran under (incl. `'ambient'`); absent ⇒ account selection not wired. */
+  account: z.string().optional(),
 });
 export type Session = z.infer<typeof sessionSchema>;

@@ -33,3 +33,20 @@ export function resolveAuthEnv(
   for (const name of clearVars) overlay[name] = undefined;
   return overlay;
 }
+
+/**
+ * The full `Options.env` value for a session: the base environment (the daemon's
+ * `process.env`) with the locator overlay applied on top. `Options.env` REPLACES
+ * the subprocess env, so the base MUST be spread in. Returns `undefined` (leave
+ * `Options.env` unset ⇒ inherit `process.env`) when there is no locator or the
+ * locator is `ambient` — both are today's zero-auth behavior. `base` is injectable
+ * for tests.
+ */
+export function sessionAuthEnv(
+  locator: Locator | undefined,
+  base: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> | undefined {
+  if (locator === undefined) return undefined;
+  const overlay = resolveAuthEnv(locator);
+  return overlay === undefined ? undefined : { ...base, ...overlay };
+}

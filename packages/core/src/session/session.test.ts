@@ -157,6 +157,29 @@ describe('createSession', () => {
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
     expect(h.adapter()?.init.maxBudgetUsd).toBe(4);
   });
+
+  it('threads the active account locator into the adapter init and stamps the session label', async () => {
+    const h = harness({
+      activeAccount: () => ({ label: 'work', locator: { type: 'config-dir', dir: '/d' } }),
+    });
+    const session = await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect(h.adapter()?.init.locator).toEqual({ type: 'config-dir', dir: '/d' });
+    expect(session.account).toBe('work');
+  });
+
+  it('stamps ambient and passes no locator when the active account is ambient', async () => {
+    const h = harness({ activeAccount: () => ({ label: 'ambient' }) });
+    const session = await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect(h.adapter()?.init.locator).toBeUndefined();
+    expect(session.account).toBe('ambient');
+  });
+
+  it('omits the account entirely when account selection is not wired (strict superset)', async () => {
+    const h = harness();
+    const session = await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect(h.adapter()?.init.locator).toBeUndefined();
+    expect(session.account).toBeUndefined();
+  });
 });
 
 describe('closeSession', () => {

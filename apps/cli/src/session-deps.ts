@@ -1,6 +1,9 @@
+import { homedir } from 'node:os';
 import {
+  AccountsRegistry,
   composeSessionDeps,
   createDaemonCore,
+  type ActiveAccountResolution,
   type DaemonCoreHandle,
   type SessionDeps,
 } from '@coa/core';
@@ -43,9 +46,19 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
+  const registry = new AccountsRegistry(homedir());
   const deps = composeSessionDeps(handle.core, {
     createAdapter: createClaudeAdapter,
     bindWorktree: () => root,
+    activeAccount: () => resolveActiveAccount(registry),
   });
   return { deps, handle };
+}
+
+/** Resolve the active account from the registry into the session's login pointer + label. */
+function resolveActiveAccount(registry: AccountsRegistry): ActiveAccountResolution {
+  const active = registry.getActive();
+  return active.kind === 'account'
+    ? { label: active.account.label, locator: active.account.locator }
+    : { label: 'ambient' };
 }

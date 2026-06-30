@@ -1,6 +1,7 @@
 import type {
   CapabilitySet,
   ContextPackage,
+  Locator,
   NeutralConfig,
   Piece,
   Reminder,
@@ -27,6 +28,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
 import { mcpToolNames, toCoaMcpServer } from './mcp-tools.js';
+import { sessionAuthEnv } from './auth-env.js';
 
 /** The session-construction I/O M8 injects (D121) — defined here as M9's seam, not known by the core. */
 export interface ClaudeSdkAdapterInit {
@@ -41,6 +43,8 @@ export interface ClaudeSdkAdapterInit {
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** The native mid-loop hard stop: `min(perSessionCeiling?, M7.capState().remaining)`. */
   maxBudgetUsd?: number;
+  /** The active account's neutral login pointer (M8 from the registry); absent ⇒ ambient (today's auth). */
+  locator?: Locator;
 }
 
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -146,6 +150,10 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     }
 
     const mcpServers = Object.keys(this.#mcpServers).length > 0 ? this.#mcpServers : undefined;
+    // The M9 auth seam: map the active account's locator to the loop's login env
+    // (select CLAUDE_CONFIG_DIR, clear the API-key/ambient-token vars). Absent
+    // locator ⇒ no overlay ⇒ the subprocess inherits process.env (today's auth).
+    const env = sessionAuthEnv(this.#init.locator);
     const options = assembleSessionOptions({
       sessionId: this.#init.sessionId,
       backend: {
@@ -158,6 +166,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       stopPredicate: this.#stopPredicate,
       ...(mcpServers ? { mcpServers } : {}),
       ...(this.#init.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.#init.maxBudgetUsd } : {}),
+      ...(env ? { env } : {}),
     });
 
     for await (const message of query({

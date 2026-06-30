@@ -25,8 +25,11 @@ export function assembleSessionOptions(args: {
   stopPredicate: StopPredicate;
   mcpServers?: Record<string, McpServerConfig>;
   maxBudgetUsd?: number;
+  /** The full subprocess env (M9 auth seam) — REPLACES process.env, so it's pre-spread by the caller. */
+  env?: Record<string, string | undefined>;
 }): Options {
-  const { sessionId, backend, sandbox, canUseTool, stopPredicate, mcpServers, maxBudgetUsd } = args;
+  const { sessionId, backend, sandbox, canUseTool, stopPredicate, mcpServers, maxBudgetUsd, env } =
+    args;
 
   const sdkCanUseTool: SdkCanUseTool = async (toolName, input) => {
     const call: ToolCall = { tool: toolName, args: input, sessionId };
@@ -41,5 +44,6 @@ export function assembleSessionOptions(args: {
     },
     ...(mcpServers ? { mcpServers } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
+    ...(env ? { env } : {}),
   };
 }

@@ -1,7 +1,7 @@
 import { ulid } from 'ulid';
 import type { CapabilityFrame, CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type { RuntimeAdapter, StopDecision, ToolCatalogue } from '@coa/spi';
-import type { SessionAdapterInit, SessionDeps } from './session.js';
+import type { ActiveAccountResolution, SessionAdapterInit, SessionDeps } from './session.js';
 
 /**
  * M8 composition root (R-1) — bind the daemon-singleton core surfaces into the
@@ -52,6 +52,8 @@ export interface SessionWiring {
   newSessionId?: () => string;
   trust?: 'local' | 'imported';
   perSessionCeiling?: number;
+  /** Resolve the active account (login pointer + label) at session start; absent ⇒ account selection not wired. */
+  activeAccount?: () => ActiveAccountResolution;
 }
 
 const EMPTY_FRAME: CapabilityFrame = { allow: [], deny: [] };
@@ -76,5 +78,6 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     ...(wiring.perSessionCeiling !== undefined
       ? { perSessionCeiling: wiring.perSessionCeiling }
       : {}),
+    ...(wiring.activeAccount ? { activeAccount: wiring.activeAccount } : {}),
   };
 }

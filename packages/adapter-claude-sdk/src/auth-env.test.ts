@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CLEAR_VARS, resolveAuthEnv } from './auth-env.js';
+import { DEFAULT_CLEAR_VARS, resolveAuthEnv, sessionAuthEnv } from './auth-env.js';
 
 describe('resolveAuthEnv', () => {
   it('returns no overlay for ambient (byte-identical to today)', () => {
@@ -27,5 +27,27 @@ describe('resolveAuthEnv', () => {
       'ANTHROPIC_AUTH_TOKEN',
       'CLAUDE_CODE_OAUTH_TOKEN',
     ]);
+  });
+});
+
+describe('sessionAuthEnv', () => {
+  it('returns undefined with no locator (inherit process.env)', () => {
+    expect(sessionAuthEnv(undefined)).toBeUndefined();
+  });
+
+  it('returns undefined for ambient (inherit process.env)', () => {
+    expect(sessionAuthEnv({ type: 'ambient' })).toBeUndefined();
+  });
+
+  it('spreads the base env then applies the config-dir overlay (clearing an inherited key)', () => {
+    const base = { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'leak', KEEP: '1' };
+    expect(sessionAuthEnv({ type: 'config-dir', dir: '/home/u/.claude-work' }, base)).toEqual({
+      PATH: '/usr/bin',
+      KEEP: '1',
+      CLAUDE_CONFIG_DIR: '/home/u/.claude-work',
+      ANTHROPIC_API_KEY: undefined,
+      ANTHROPIC_AUTH_TOKEN: undefined,
+      CLAUDE_CODE_OAUTH_TOKEN: undefined,
+    });
   });
 });

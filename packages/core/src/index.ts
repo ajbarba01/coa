@@ -219,6 +219,7 @@ export {
   closeSession,
   type SessionDeps,
   type SessionAdapterInit,
+  type ActiveAccountResolution,
 } from './session/session.js';
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
 export {
