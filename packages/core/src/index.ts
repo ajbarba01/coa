@@ -218,6 +218,7 @@ export {
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
 export {
   createDaemonCore,
+  buildDaemonConsoleHandlers,
   type DaemonCoreOptions,
   type DaemonCoreHandle,
 } from './session/daemon.js';

@@ -6,6 +6,8 @@ import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
+import { buildConsoleHandlers } from '../rpc/console-handlers.js';
+import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
 
 /**
@@ -79,6 +81,22 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   };
 
   return { core, kernel, flags, governance };
+}
+
+/**
+ * Bind the daemon's live singletons to the read-only inspector handler map the
+ * JSON-RPC router serves — the seam between the daemon core and the console's
+ * CON-CAT reads. Pure projection wiring: each port reads an existing surface
+ * (M7 cap + Decision log, M3 user feed), no new behavior. The transport layer
+ * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
+ */
+export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandlers {
+  return buildConsoleHandlers({
+    capState: (sessionId) => handle.governance.capState(sessionId),
+    flagsForUser: (scope) => handle.flags.flagsForUser(scope),
+    readDecision: (id) => handle.governance.decisionLog.read(id),
+    decisionsByTarget: (target) => handle.governance.decisionLog.findByTarget(target),
+  });
 }
 
 /** The sweep scope for a reconciling producer's full-set recompute (any non-golden scope). */
