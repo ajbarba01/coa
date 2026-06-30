@@ -33,16 +33,16 @@ describe('runAuthCommand', () => {
   });
 
   it('list prints registered accounts with the active marker', () => {
-    runAuthCommand(['add', 'work', '--profile', 'work-profile'], io(), home);
+    runAuthCommand(['add', 'work', '--config-dir', '/home/u/.claude-work'], io(), home);
     runAuthCommand(['use', 'work'], io(), home);
     out = [];
     expect(runAuthCommand(['list'], io(), home)).toBe(0);
-    expect(out.join('\n')).toMatch(/\*\s+work\b.*ant-profile/);
+    expect(out.join('\n')).toMatch(/\*\s+work\b.*config-dir/);
   });
 
-  it('add requires exactly one of --config-dir / --profile', () => {
+  it('add requires --config-dir', () => {
     expect(runAuthCommand(['add', 'x'], io(), home)).toBe(1);
-    expect(err.join('')).toMatch(/--config-dir|--profile/);
+    expect(err.join('')).toMatch(/--config-dir/);
   });
 
   it('use ambient resets active', () => {

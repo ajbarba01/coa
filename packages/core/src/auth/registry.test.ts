@@ -38,7 +38,7 @@ describe('AccountsRegistry', () => {
 
   it('rejects a duplicate label', () => {
     const reg = new AccountsRegistry(home);
-    reg.add('work', { type: 'ant-profile', profile: 'p' });
+    reg.add('work', { type: 'config-dir', dir: '/p' });
     expect(() => reg.add('work', { type: 'ambient' })).toThrow(/already exists/);
   });
 

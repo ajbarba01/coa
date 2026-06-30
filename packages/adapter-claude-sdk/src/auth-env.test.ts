@@ -16,16 +16,6 @@ describe('resolveAuthEnv', () => {
     });
   });
 
-  it('sets ANTHROPIC_PROFILE and clears the same vars for ant-profile', () => {
-    const env = resolveAuthEnv({ type: 'ant-profile', profile: 'work' });
-    expect(env).toEqual({
-      ANTHROPIC_PROFILE: 'work',
-      ANTHROPIC_API_KEY: undefined,
-      ANTHROPIC_AUTH_TOKEN: undefined,
-      CLAUDE_CODE_OAUTH_TOKEN: undefined,
-    });
-  });
-
   it('takes the clear list as data (spike output)', () => {
     const env = resolveAuthEnv({ type: 'config-dir', dir: '/d' }, ['ANTHROPIC_API_KEY']);
     expect(env).toEqual({ CLAUDE_CONFIG_DIR: '/d', ANTHROPIC_API_KEY: undefined });

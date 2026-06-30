@@ -3,8 +3,8 @@ import type { Locator } from '@coa/shared';
 /**
  * The locator → SDK env overlay (the backend seam, subscription-aware). coa's
  * neutral account locator becomes an environment overlay for the rented loop:
- * select the login (CLAUDE_CONFIG_DIR / ANTHROPIC_PROFILE) and CLEAR the vars
- * that would otherwise outrank a subscription OAuth login — the API-key vars
+ * select the login (CLAUDE_CONFIG_DIR) and CLEAR the vars that would otherwise
+ * outrank a subscription OAuth login — the API-key vars
  * (which force API billing) and the ambient OAuth-token var that a headless
  * daemon shell may carry and would otherwise pin every session to one login.
  *
@@ -29,10 +29,7 @@ export function resolveAuthEnv(
 ): Record<string, string | undefined> | undefined {
   if (locator.type === 'ambient') return undefined;
 
-  const overlay: Record<string, string | undefined> = {};
-  if (locator.type === 'config-dir') overlay['CLAUDE_CONFIG_DIR'] = locator.dir;
-  else overlay['ANTHROPIC_PROFILE'] = locator.profile;
-
+  const overlay: Record<string, string | undefined> = { CLAUDE_CONFIG_DIR: locator.dir };
   for (const name of clearVars) overlay[name] = undefined;
   return overlay;
 }

@@ -6,8 +6,11 @@ describe('auth schema', () => {
     expect(locatorSchema.parse({ type: 'config-dir', dir: '/home/u/.claude-work' }).type).toBe(
       'config-dir',
     );
-    expect(locatorSchema.parse({ type: 'ant-profile', profile: 'work' }).type).toBe('ant-profile');
     expect(locatorSchema.parse({ type: 'ambient' }).type).toBe('ambient');
+  });
+
+  it('rejects the dropped ant-profile locator', () => {
+    expect(() => locatorSchema.parse({ type: 'ant-profile', profile: 'work' })).toThrow();
   });
 
   it('defaults provider to claude', () => {

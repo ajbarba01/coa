@@ -31,14 +31,11 @@ export function runAuthCommand(args: string[], io: CliIo, home: string = homedir
       case 'add': {
         const [label, flag, value] = rest;
         if (label === undefined) {
-          return fail(io, 'usage: coa auth add <label> --config-dir <dir> | --profile <name>');
+          return fail(io, 'usage: coa auth add <label> --config-dir <dir>');
         }
         const locator = parseAddLocator(flag, value);
         if (locator === undefined) {
-          return fail(
-            io,
-            'coa auth add requires exactly one of --config-dir <dir> or --profile <name>',
-          );
+          return fail(io, 'coa auth add requires --config-dir <dir>');
         }
         reg.add(label, locator);
         return 0;
@@ -66,7 +63,6 @@ export function runAuthCommand(args: string[], io: CliIo, home: string = homedir
 function parseAddLocator(flag: string | undefined, value: string | undefined): Locator | undefined {
   if (value === undefined) return undefined;
   if (flag === '--config-dir') return { type: 'config-dir', dir: value };
-  if (flag === '--profile') return { type: 'ant-profile', profile: value };
   return undefined;
 }
 
@@ -74,8 +70,6 @@ function describeLocator(locator: Locator): string {
   switch (locator.type) {
     case 'config-dir':
       return `config-dir ${locator.dir}`;
-    case 'ant-profile':
-      return `ant-profile ${locator.profile}`;
     case 'ambient':
       return 'ambient';
   }

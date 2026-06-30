@@ -34,7 +34,7 @@ describe('buildAuthHandlers', () => {
     const handlers = buildAuthHandlers(new AccountsRegistry(home));
     await call(handlers, 'addAccount', {
       label: 'work',
-      locator: { type: 'ant-profile', profile: 'p' },
+      locator: { type: 'config-dir', dir: '/d' },
     });
     const res = await call(handlers, 'listAccounts');
     expect(res).toMatchObject({ result: { accounts: [{ label: 'work', provider: 'claude' }] } });
