@@ -10,3 +10,4 @@
  */
 
 export * from './render-native.js';
+export * from './sdk-options.js';
