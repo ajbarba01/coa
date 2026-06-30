@@ -110,6 +110,8 @@ export { compile } from './compiler/compile.js';
 export { importBundle } from './compiler/import-bundle.js';
 export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
 export { buildConsoleHandlers, type ConsoleReadPorts } from './rpc/console-handlers.js';
+export { encodeLine, FrameDecoder } from './rpc/codec.js';
+export { serveOverStream, type DuplexLike, type StreamServer } from './rpc/stream.js';
 export {
   versionGate,
   type SemverBump,
