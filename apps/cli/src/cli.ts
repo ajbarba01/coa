@@ -9,6 +9,7 @@ import {
   defaultDaemonPath,
   type RpcServer,
 } from '@coa/core';
+import { runAuthCommand } from './auth-cli.js';
 
 /**
  * The `coa` CLI entrypoint logic. `runCli` serves the read commands a human runs
@@ -44,9 +45,10 @@ const READS: Record<string, (args: string[]) => { method: string; params?: RpcPa
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   const [command, ...args] = argv;
   if (command === undefined) {
-    io.err('usage: coa <cap|flags|why|decision> [args]');
+    io.err('usage: coa <auth|cap|flags|why|decision> [args]');
     return 1;
   }
+  if (command === 'auth') return runAuthCommand(args, io);
   const build = READS[command];
   if (build === undefined) {
     io.err(`unknown command: ${command}`);
