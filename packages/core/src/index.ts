@@ -106,6 +106,7 @@ export {
   type Promotion,
   type EvalResult,
 } from './governance/selfmod.js';
+export { compile } from './compiler/compile.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';

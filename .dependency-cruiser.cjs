@@ -41,8 +41,11 @@ module.exports = {
       severity: 'error',
       comment:
         'Inside core, only the spine is shared mutable substrate. Consumer rings (flags = M3, governance = M7, …) import the spine + shared, never sideways from each other (REPO_LAYOUT intra-core rule).',
-      from: { path: '^packages/core/src/(flags|governance)/' },
-      to: { path: '^packages/core/src/(flags|governance)/', pathNot: '^packages/core/src/$1/' },
+      from: { path: '^packages/core/src/(flags|governance|compiler)/' },
+      to: {
+        path: '^packages/core/src/(flags|governance|compiler)/',
+        pathNot: '^packages/core/src/$1/',
+      },
     },
     {
       name: 'no-orphans',
