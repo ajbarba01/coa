@@ -142,6 +142,12 @@ export {
   type ConfinementPolicy,
   type ConfineResult,
 } from './workbench/confine.js';
+export {
+  editSymbol,
+  applyPatch,
+  type WorkbenchDeps,
+  type MutateResult,
+} from './workbench/mutate.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';

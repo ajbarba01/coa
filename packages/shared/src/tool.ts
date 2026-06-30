@@ -34,7 +34,7 @@ export type ToolCall = z.infer<typeof toolCallSchema>;
 export const toolRequestSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('get_symbol'), ref: symbolRefSchema }),
   z.object({ tool: z.literal('edit_symbol'), ref: symbolRefSchema, diff: diffSpecSchema }),
-  z.object({ tool: z.literal('apply_patch'), diff: diffSpecSchema }),
+  z.object({ tool: z.literal('apply_patch'), target: z.string(), diff: diffSpecSchema }),
   z.object({ tool: z.literal('run_checks'), scope: z.string().optional() }),
   z.object({ tool: z.literal('invoke_asset'), bundleRef: z.string() }),
   z.object({ tool: z.literal('why'), target: z.string() }),
