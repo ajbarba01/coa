@@ -6,6 +6,7 @@
     { "path": "packages/code-intel" },
     { "path": "packages/core" },
     { "path": "packages/spi" },
-    { "path": "packages/adapter-claude-sdk" }
+    { "path": "packages/adapter-claude-sdk" },
+    { "path": "apps/cli" }
   ]
 }

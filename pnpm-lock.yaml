@@ -36,6 +36,25 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@26.0.1)(vite@8.1.0(@types/node@26.0.1)(yaml@2.9.0))
 
+  apps/cli:
+    dependencies:
+      '@coa/adapter-claude-sdk':
+        specifier: workspace:*
+        version: link:../../packages/adapter-claude-sdk
+      '@coa/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@coa/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@coa/spi':
+        specifier: workspace:*
+        version: link:../../packages/spi
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
+
   packages/adapter-claude-sdk:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':

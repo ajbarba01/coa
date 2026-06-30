@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config';
 const workspaceAlias = {
   '@coa/shared': fileURLToPath(new URL('./packages/shared/src/index.ts', import.meta.url)),
   '@coa/code-intel': fileURLToPath(new URL('./packages/code-intel/src/index.ts', import.meta.url)),
+  '@coa/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
   '@coa/spi': fileURLToPath(new URL('./packages/spi/src/index.ts', import.meta.url)),
   '@coa/adapter-claude-sdk': fileURLToPath(
     new URL('./packages/adapter-claude-sdk/src/index.ts', import.meta.url),
@@ -16,6 +17,10 @@ const workspaceAlias = {
 export default defineConfig({
   resolve: { alias: workspaceAlias },
   test: {
-    include: ['packages/*/src/**/*.test.ts', 'packages/*/test/**/*.test.ts'],
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'packages/*/test/**/*.test.ts',
+      'apps/*/src/**/*.test.ts',
+    ],
   },
 });
