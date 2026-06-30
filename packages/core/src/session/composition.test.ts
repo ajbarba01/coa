@@ -27,7 +27,7 @@ function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } 
     capState: () => governance.capState(),
     charge: (sessionId, costUsd) => governance.charge(sessionId, costUsd),
     sandboxPolicy: (ctx) => governance.sandboxPolicy(ctx),
-    compile,
+    compile: (pieces, frame) => compile(pieces, frame).config,
     catalogue: TOOL_CATALOGUE,
   };
 }

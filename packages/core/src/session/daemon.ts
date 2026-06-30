@@ -66,7 +66,15 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     capState: () => governance.capState(),
     charge: (sessionId, costUsd) => governance.charge(sessionId, costUsd),
     sandboxPolicy: (ctx) => governance.sandboxPolicy(ctx),
-    compile,
+    compile: (pieces, frame) => {
+      const { config, findings } = compile(pieces, frame, {
+        isRegistered: (id) => flags.registeredProducer(id) !== undefined,
+        hasGeneratedFrom: (name) =>
+          kernel.graph.outEdges(name).some((edge) => edge.type === 'generated-from'),
+      });
+      for (const finding of findings) flags.ingest(finding); // TAX-4 coercions are feed items, never silent
+      return config;
+    },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
   };
 
