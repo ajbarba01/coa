@@ -43,6 +43,20 @@ function stubProducer(state: { flags: FlagRecord[] }, reconciling: boolean): Pro
 const hasConcern = (handle: DaemonCoreHandle, key: string): boolean =>
   handle.flags.flagsForUser().collapsed.some((c) => c.concernKey === key);
 
+/** A minimal registered constraint (an M3 producer) that emits nothing on normal runs. */
+function namedConstraint(id: string): Producer {
+  return {
+    id,
+    kind: 'deterministic',
+    activation: 'manual',
+    run: (input) => (input.kind === 'scope' && input.scope === GOLDEN_BAD ? [stubFlag('x')] : []),
+    golden: {
+      good: { kind: 'scope', scope: GOLDEN_GOOD },
+      bad: { kind: 'scope', scope: GOLDEN_BAD },
+    },
+  };
+}
+
 /** A real M4 SSOT producer whose target drifts from its regenerated source. */
 function driftingSsotProducer() {
   const relation = { name: 'gen', source: 'src/a.ts', target: 'gen/a.ts', lang: 'typescript' };
@@ -177,6 +191,57 @@ describe('createDaemonCore', () => {
     state.flags = [];
     handle.kernel.emit(MODIFY_SRC);
     expect(hasConcern(handle, 'stub:docA')).toBe(true); // stays — append-only
+  });
+
+  it('wires the dangling-governance detector live: an edge to an unregistered constraint flags', () => {
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      producers: [namedConstraint('my-rule')],
+    });
+    handle.kernel.assertEdge({
+      from: 'docA',
+      to: 'my-rule',
+      type: 'governed-by',
+      provenance: 'declared',
+    });
+    expect(hasConcern(handle, 'dangling-governance:docA→my-rule')).toBe(false);
+
+    handle.kernel.assertEdge({
+      from: 'docB',
+      to: 'ghost',
+      type: 'governed-by',
+      provenance: 'declared',
+    });
+    expect(hasConcern(handle, 'dangling-governance:docB→ghost')).toBe(true);
+  });
+
+  it('self-heals a dangling-governance flag once the claim is retracted', () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle.kernel.assertEdge({
+      from: 'docB',
+      to: 'ghost',
+      type: 'governed-by',
+      provenance: 'declared',
+    });
+    expect(hasConcern(handle, 'dangling-governance:docB→ghost')).toBe(true);
+
+    handle.kernel.retractEdge('docB', 'ghost', 'governed-by');
+    expect(hasConcern(handle, 'dangling-governance:docB→ghost')).toBe(false);
+  });
+
+  it('surfaces a pre-existing dangling edge at wiring via the convergence sweep', () => {
+    const walPath = join(dir, 'log.ndjson');
+    const first = createDaemonCore({ walPath });
+    first.kernel.assertEdge({
+      from: 'docB',
+      to: 'ghost',
+      type: 'governed-by',
+      provenance: 'declared',
+    });
+    first.kernel.close();
+
+    handle = createDaemonCore({ walPath }); // replays the edge from the WAL; no constraint registered
+    expect(hasConcern(handle, 'dangling-governance:docB→ghost')).toBe(true);
   });
 
   it('stays inert with no producers configured (strict-superset floor)', () => {

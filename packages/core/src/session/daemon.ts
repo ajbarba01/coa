@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { PieceRef, Producer, ProducerInput, SymbolRef } from '@coa/shared';
 import { compile } from '../compiler/compile.js';
+import { createGovernanceAnchorProducer } from '../context/governance-anchor.js';
 import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
@@ -50,7 +51,11 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const flags = new FlagPipeline();
-  wireProducers(kernel, flags, options.producers ?? []);
+  const governanceAnchor = createGovernanceAnchorProducer({
+    governedByEdges: () => kernel.graph.governedByEdges(),
+    isRegistered: (id) => flags.registeredProducer(id) !== undefined,
+  });
+  wireProducers(kernel, flags, [...(options.producers ?? []), governanceAnchor]);
 
   const core: DaemonCore = {
     checkpoint: () => {
