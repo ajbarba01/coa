@@ -109,6 +109,11 @@ export {
 export { compile } from './compiler/compile.js';
 export { ground, type SymbolOracle } from './context/grounding.js';
 export {
+  governanceFor,
+  type GovernanceCoverage,
+  type GovernanceOracle,
+} from './context/spec-tier.js';
+export {
   createSsotConstraintProducer,
   type GenerationRelation,
   type GenerationRunner,
