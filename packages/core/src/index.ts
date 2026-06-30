@@ -137,6 +137,10 @@ export {
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
 export { assembleProducers } from './context/producers.js';
 export { createOriginAnchorProducer, type UnverifiableRelation } from './context/origin-anchor.js';
+export {
+  createGovernanceAnchorProducer,
+  type GovernanceGraph,
+} from './context/governance-anchor.js';
 export { composeProfile, type WorstPredicate } from './context/health-profile.js';
 export {
   health,

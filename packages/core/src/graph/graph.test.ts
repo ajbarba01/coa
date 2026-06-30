@@ -51,4 +51,22 @@ describe('TypedGraph', () => {
     g.applyEdge(edge('a', 'b', { provenance: 'gated' }));
     expect(g.provenanceOf('a', 'b', 'depends-on')).toBe('gated');
   });
+
+  it('lists every governed-by edge as referrer ⇒ constraint, excluding other edge types', () => {
+    const g = new TypedGraph();
+    g.applyEdge(edge('docA', 'no-raw-sql', { type: 'governed-by' }));
+    g.applyEdge(edge('docB', 'no-raw-sql', { type: 'governed-by' }));
+    g.applyEdge(edge('docA', 'mod', { type: 'depends-on' }));
+    expect(g.governedByEdges().map((e) => [e.from, e.to])).toEqual([
+      ['docA', 'no-raw-sql'],
+      ['docB', 'no-raw-sql'],
+    ]);
+  });
+
+  it('drops a governed-by edge from the listing once it is retracted', () => {
+    const g = new TypedGraph();
+    g.applyEdge(edge('docA', 'no-raw-sql', { type: 'governed-by' }));
+    g.retractEdge('docA', 'no-raw-sql', 'governed-by');
+    expect(g.governedByEdges()).toEqual([]);
+  });
 });

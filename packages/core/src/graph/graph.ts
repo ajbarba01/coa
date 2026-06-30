@@ -63,6 +63,11 @@ export class TypedGraph {
       .map((e) => e.from);
   }
 
+  /** Every current `governed-by` edge (referrer ⇒ governing constraint) — the dangling-check substrate. */
+  governedByEdges(): GraphEdge[] {
+    return this.edges().filter((e) => e.type === 'governed-by');
+  }
+
   provenanceOf(from: string, to: string, type: EdgeType): EdgeProvenance | undefined {
     return (this.outgoing.get(from) ?? []).find((e) => e.to === to && e.type === type)?.provenance;
   }
