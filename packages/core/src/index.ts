@@ -160,6 +160,18 @@ export {
   type ReferencesResult,
   type GetPieceResult,
 } from './workbench/retrieve.js';
+export {
+  runChecks,
+  contextStatus,
+  why,
+  getDecision,
+  getSpec,
+  type InspectDeps,
+  type ContextStatusResult,
+  type WhyResult,
+  type GetDecisionResult,
+  type GetSpecResult,
+} from './workbench/inspect.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
