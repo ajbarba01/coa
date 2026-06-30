@@ -75,6 +75,48 @@ describe('compile — TAX-3 axis→slot routing', () => {
   });
 });
 
+describe('compile — D105 most-stable-first prefix ordering', () => {
+  it('leads the prefix with authored Pieces ahead of derived-from-code (volatility order)', () => {
+    const { config } = compile(
+      [
+        piece('gen', { delivery: 'push', provenance: 'derived-from-code' }),
+        piece('doc', { delivery: 'push', provenance: 'authored' }),
+      ],
+      EMPTY_FRAME,
+    );
+
+    expect(config.prefixHead.map((o) => o.piece.name)).toEqual(['doc', 'gen']);
+    expect(config.prefixHead.map((o) => o.order)).toEqual([0, 1]);
+  });
+
+  it('is a STABLE sort — equal-stability Pieces keep input order (byte-stable prefix)', () => {
+    const { config } = compile(
+      [
+        piece('a', { delivery: 'push', provenance: 'authored' }),
+        piece('b', { delivery: 'push', provenance: 'authored' }),
+        piece('c', { delivery: 'push', provenance: 'derived-from-code' }),
+        piece('d', { delivery: 'push', provenance: 'derived-from-code' }),
+      ],
+      EMPTY_FRAME,
+    );
+
+    expect(config.prefixHead.map((o) => o.piece.name)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('orders systemReminders to follow the most-stable-first prefix sequence', () => {
+    const salience = { cadenceTokens: 100 };
+    const { config } = compile(
+      [
+        piece('gen', { delivery: 'push', provenance: 'derived-from-code', salience }),
+        piece('doc', { delivery: 'push', provenance: 'authored', salience }),
+      ],
+      EMPTY_FRAME,
+    );
+
+    expect(config.systemReminders.map((r) => r.rule)).toEqual(['doc', 'gen']);
+  });
+});
+
 describe('compile — TAX-4 normalization + coercion', () => {
   const deps = (over: Partial<CompileDeps> = {}): CompileDeps => ({
     isRegistered: () => true,

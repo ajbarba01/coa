@@ -55,18 +55,14 @@ export function compile(
   const findings: FlagRecord[] = [];
   const normalized = pieces.map((piece) => normalize(piece, deps, findings));
 
-  const prefixHead: OrderedPiece[] = [];
-  const systemReminders: Reminder[] = [];
+  const prefixCandidates: Piece[] = [];
   const onDemandPullable: string[] = [];
   const scopePushed: Piece[] = [];
 
   for (const piece of normalized) {
-    const { delivery, scope, salience } = piece.axes;
+    const { delivery, scope } = piece.axes;
     if (delivery === 'push' && scope === undefined) {
-      prefixHead.push({ piece, order: prefixHead.length });
-      if (salience !== 'never') {
-        systemReminders.push({ rule: piece.name, reason: piece.description, tier: 0 });
-      }
+      prefixCandidates.push(piece);
     } else if (delivery === 'push') {
       scopePushed.push(piece);
     } else {
@@ -74,10 +70,30 @@ export function compile(
     }
   }
 
+  // D105 clause 1 — most-stable-first: order the byte-stable prefix head by content
+  // volatility so the least-likely-to-change Pieces lead. `provenance` is the trust/
+  // volatility axis (TAX-1): `authored` content is human-stable, `derived-from-code`
+  // changes whenever the code does. A STABLE sort keeps equal-stability Pieces in input
+  // order, so the prefix never reorders without a real change (clause 2, byte-stability).
+  const ordered = prefixCandidates
+    .map((piece, index) => ({ piece, index }))
+    .sort((a, b) => stabilityRank(a.piece) - stabilityRank(b.piece) || a.index - b.index)
+    .map(({ piece }) => piece);
+
+  const prefixHead: OrderedPiece[] = ordered.map((piece, order) => ({ piece, order }));
+  const systemReminders: Reminder[] = ordered
+    .filter((piece) => piece.axes.salience !== 'never')
+    .map((piece) => ({ rule: piece.name, reason: piece.description, tier: 0 }));
+
   return {
     config: { prefixHead, systemReminders, onDemandPullable, scopePushed, toolIntents: frame },
     findings,
   };
+}
+
+/** D105 — lower rank leads the prefix. Authored content is the most stable; derived-from-code is volatile. */
+function stabilityRank(piece: Piece): number {
+  return piece.axes.provenance === 'authored' ? 0 : 1;
 }
 
 /** TAX-4 — coerce one Piece's incoherent axis combinations, pushing a finding per coercion. */
