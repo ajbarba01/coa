@@ -136,6 +136,7 @@ export {
 } from './context/generate-config.js';
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
 export { assembleProducers } from './context/producers.js';
+export { createOriginAnchorProducer, type UnverifiableRelation } from './context/origin-anchor.js';
 export { composeProfile, type WorstPredicate } from './context/health-profile.js';
 export {
   health,
