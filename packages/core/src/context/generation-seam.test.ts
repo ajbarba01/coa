@@ -115,6 +115,35 @@ describe('publishGenerationSeam — the L-GEN→L-GND seam (declared_symbols + g
     expect(edges).toHaveLength(1);
   });
 
+  it('asserts a governed-by edge to the registered governing constraint (the unforgeable link)', () => {
+    const { publisher, edges } = recorder();
+    publishGenerationSeam(
+      [rel()],
+      runner({ 'api-types': { kind: 'text', bytes: '...' } }),
+      extractFrom({ 'api-types': ['Pet'] }),
+      publisher,
+      () => 'generated-stale:api-types',
+    );
+    expect(edges).toContainEqual({
+      from: 'src/api.ts',
+      to: 'generated-stale:api-types',
+      type: 'governed-by',
+      provenance: 'declared',
+    });
+  });
+
+  it('asserts no governed-by edge when no registered constraint governs the relation', () => {
+    const { publisher, edges } = recorder();
+    publishGenerationSeam(
+      [rel()],
+      runner({ 'api-types': { kind: 'text', bytes: '...' } }),
+      extractFrom({ 'api-types': ['Pet'] }),
+      publisher,
+      () => undefined,
+    );
+    expect(edges.some((e) => e.type === 'governed-by')).toBe(false);
+  });
+
   it('unions declared symbols across all relations', () => {
     const { publisher } = recorder();
     const seam = publishGenerationSeam(

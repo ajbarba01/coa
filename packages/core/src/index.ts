@@ -120,6 +120,7 @@ export {
   publishGenerationSeam,
   type SymbolExtractor,
   type SeamPublisher,
+  type GoverningConstraint,
   type GenerationSeam,
 } from './context/generation-seam.js';
 export { composeProfile, type WorstPredicate } from './context/health-profile.js';
