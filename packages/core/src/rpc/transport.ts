@@ -1,4 +1,6 @@
 import { createServer } from 'node:net';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { serveOverStream } from './stream.js';
 import type { RpcHandlers } from './router.js';
 
@@ -24,6 +26,19 @@ export interface RpcServer {
   readonly path: string;
   /** Stop accepting connections and release the endpoint. */
   close: () => Promise<void>;
+}
+
+/**
+ * The default daemon endpoint (D140 placement). Windows → a named pipe; Unix →
+ * `$XDG_RUNTIME_DIR/coa/coa.sock` when set, else `~/.coa/run/coa.sock`. The Unix
+ * parent dir must be created `0700` before binding (the daemon host does this).
+ */
+export function defaultDaemonPath(): string {
+  if (process.platform === 'win32') return '\\\\.\\pipe\\coa';
+  const runtime = process.env['XDG_RUNTIME_DIR'];
+  return runtime !== undefined && runtime !== ''
+    ? join(runtime, 'coa', 'coa.sock')
+    : join(homedir(), '.coa', 'run', 'coa.sock');
 }
 
 /** Bind `path` and serve `handlers` over every connection. Rejects if the path is already in use. */

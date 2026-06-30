@@ -7,3 +7,4 @@
 
 export { createClaudeAdapter } from './adapter-factory.js';
 export { buildSessionDeps, type DaemonSessionOptions, type BuiltSession } from './session-deps.js';
+export { runCli, startDaemon, type CliIo, type DaemonOptions } from './cli.js';
