@@ -112,6 +112,7 @@ export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/rou
 export { buildConsoleHandlers, type ConsoleReadPorts } from './rpc/console-handlers.js';
 export { encodeLine, FrameDecoder } from './rpc/codec.js';
 export { serveOverStream, type DuplexLike, type StreamServer } from './rpc/stream.js';
+export { listen, type RpcServer } from './rpc/transport.js';
 export {
   versionGate,
   type SemverBump,
