@@ -1,0 +1,138 @@
+import { z } from 'zod';
+import {
+  diffSpecSchema,
+  symbolRefSchema,
+  type CoaError,
+  type SymbolRef,
+  type ToolCall,
+  type ToolResponse,
+} from '@coa/shared';
+import type { RegisteredTool } from '@coa/spi';
+import { TOOL_CATALOGUE } from './catalogue.js';
+import { enrich, type EnrichDeps } from './enrich.js';
+import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
+import { applyPatch, editSymbol, type WorkbenchDeps } from './mutate.js';
+import {
+  contextStatus,
+  getDecision,
+  getSpec,
+  runChecks,
+  why,
+  type InspectDeps,
+} from './inspect.js';
+
+/**
+ * M6 — the governed tool-dispatch boundary. This is the seam M9 registers into
+ * the rented loop: it turns M6's pure handlers into the {@link RegisteredTool}
+ * port shape by wiring each to its live M1/M3/M4/M7 read/write ports and
+ * decorating every return with `enrich` (grounding + gated flags). The dispatch
+ * is where the two cross-cutting invariants land — inputs are Zod-validated
+ * before a handler touches shared state (D141(c)), and every return is enriched
+ * (F6) — so the backend adapter (M9) only has to wrap each as an SDK MCP tool.
+ *
+ * It is honestly partial: it builds exactly the v1 catalogue (the buildable set),
+ * and `invoke` never throws and never denies (SC-1) — a malformed input or a
+ * confinement/diff failure comes back as an unapplied result the agent can retry.
+ */
+export interface GovernedToolDeps {
+  /** The owning session — stamped on each dispatched {@link ToolCall} for enrichment. */
+  sessionId: string;
+  /** M6 Retrieve ports (M1 reads). */
+  retrieve: RetrieveDeps;
+  /** M6 Mutate ports (producer ① writes). */
+  mutate: WorkbenchDeps;
+  /** M6 Inspect ports (M3/M4/M7 reads). */
+  inspect: InspectDeps;
+  /** The cross-cutting return enrichment (M4.ground + M3.flagsForAgent). */
+  enrich: EnrichDeps;
+}
+
+/** One tool's input schema + its dispatch into the M6 handler, typed against the shape. */
+interface ToolSpec {
+  shape: z.ZodRawShape;
+  dispatch: (args: unknown, deps: GovernedToolDeps) => ToolResponse<unknown>;
+  refOf?: (args: unknown) => SymbolRef | undefined;
+}
+
+/** Bind a tool spec, preserving the parsed-args type from the Zod shape. */
+function spec<S extends z.ZodRawShape>(
+  shape: S,
+  dispatch: (args: z.infer<z.ZodObject<S>>, deps: GovernedToolDeps) => ToolResponse<unknown>,
+  refOf?: (args: z.infer<z.ZodObject<S>>) => SymbolRef | undefined,
+): ToolSpec {
+  return {
+    shape,
+    dispatch: (args, deps) => dispatch(args as z.infer<z.ZodObject<S>>, deps),
+    ...(refOf ? { refOf: (args: unknown) => refOf(args as z.infer<z.ZodObject<S>>) } : {}),
+  };
+}
+
+/** The buildable v1 catalogue's dispatch table, keyed by the manifest tool name. */
+const SPECS: Record<string, ToolSpec> = {
+  get_symbol: spec(
+    { ref: symbolRefSchema },
+    (a, d) => getSymbol(a.ref, d.retrieve),
+    (a) => a.ref,
+  ),
+  outline: spec({ path: z.string() }, (a, d) => outline(a, d.retrieve)),
+  find_references: spec({ symbol: z.string() }, (a, d) => findReferences(a, d.retrieve)),
+  get_piece: spec({ ref: z.string() }, (a, d) => getPiece(a, d.retrieve)),
+  edit_symbol: spec(
+    { ref: symbolRefSchema, diff: diffSpecSchema },
+    (a, d) => editSymbol(a, d.mutate),
+    (a) => a.ref,
+  ),
+  apply_patch: spec({ target: z.string(), diff: diffSpecSchema }, (a, d) =>
+    applyPatch(a, d.mutate),
+  ),
+  run_checks: spec({ scope: z.string().optional() }, (a, d) =>
+    runChecks(a.scope !== undefined ? { scope: a.scope } : {}, d.inspect),
+  ),
+  context_status: spec({}, (_a, d) => contextStatus(d.inspect)),
+  why: spec({ target: z.string() }, (a, d) => why(a, d.inspect)),
+  get_spec: spec({ ref: z.string() }, (a, d) => getSpec(a, d.inspect)),
+  get_decision: spec({ id: z.number() }, (a, d) => getDecision(a, d.inspect)),
+};
+
+/** Validate, dispatch, and enrich one tool call (SC-1: never throws, never denies). */
+function invokeSpec(
+  name: string,
+  toolSpec: ToolSpec,
+  raw: unknown,
+  deps: GovernedToolDeps,
+): ToolResponse<unknown> {
+  const parsed = z.object(toolSpec.shape).safeParse(raw);
+  if (!parsed.success) {
+    const error: CoaError = { code: 'invalid-args', message: parsed.error.message };
+    return { result: { applied: false, error }, handle: `${name}:invalid-args`, pointer: name };
+  }
+  const response = toolSpec.dispatch(parsed.data, deps);
+  const ref = toolSpec.refOf?.(parsed.data);
+  const call: ToolCall = {
+    tool: name,
+    args: raw as Record<string, unknown>,
+    sessionId: deps.sessionId,
+    ...(ref ? { ref } : {}),
+  };
+  return enrich(call, response, deps.enrich);
+}
+
+/**
+ * Build the governed tool surface for a session: the v1 catalogue, each wired to
+ * the live handler ports and ready for M9 to register as in-process MCP tools.
+ */
+export function buildGovernedTools(deps: GovernedToolDeps): RegisteredTool[] {
+  return TOOL_CATALOGUE.map((entry) => {
+    const toolSpec = SPECS[entry.name];
+    if (toolSpec === undefined) {
+      throw new Error(`buildGovernedTools: no dispatch spec for catalogue tool '${entry.name}'`);
+    }
+    return {
+      name: entry.name,
+      description: entry.description,
+      partition: entry.partition,
+      inputSchema: toolSpec.shape,
+      invoke: (raw: unknown) => invokeSpec(entry.name, toolSpec, raw, deps),
+    };
+  });
+}

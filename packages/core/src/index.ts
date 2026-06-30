@@ -180,6 +180,7 @@ export {
   type ToolPartition,
   type ToolManifestEntry,
 } from './workbench/catalogue.js';
+export { buildGovernedTools, type GovernedToolDeps } from './workbench/governed-tools.js';
 export {
   buildCanUseTool,
   buildStopGate,

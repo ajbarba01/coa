@@ -7,7 +7,9 @@ import type {
   SessionConfig,
   SymbolRef,
   ToolCall,
+  ToolResponse,
 } from '@coa/shared';
+import type { ZodRawShape } from 'zod';
 
 /**
  * The M9 capability-port contract (D109): the narrow interface the core calls,
@@ -88,6 +90,31 @@ export interface SymbolReference {
 
 /** The governed tool catalogue M6 registers into the loop (M6 owns the rich shape). */
 export type ToolCatalogue = readonly { readonly name: string }[];
+
+/** Where a registered tool's schema sits in the D100 budget: always-loaded vs pulled on demand. */
+export type ToolPartition = 'kernel' | 'on-demand';
+
+/**
+ * One governed M6 tool, ready for M9 to register as an in-process MCP tool. M6
+ * (in the core) builds these by wiring its handlers to the live M1/M3/M4/M7 ports
+ * and decorating each return with `enrich`; M9 turns each into an SDK
+ * `tool(name, description, inputSchema, handler)` inside a `createSdkMcpServer`.
+ * The handler dispatch is the boundary at which `enrich` is applied (every return
+ * carries grounding + gated flags) and at which inputs are Zod-validated before
+ * the handler touches shared state (D141(c)). `invoke` never throws and never
+ * denies (SC-1): a bad input or a confinement/diff failure comes back as an
+ * unapplied result the agent can retry.
+ */
+export interface RegisteredTool {
+  name: string;
+  description: string;
+  /** D100 schema-budget partition — M9 marks the kernel set always-loaded, the rest deferred. */
+  partition: ToolPartition;
+  /** The Zod raw shape M9 hands the SDK `tool(...)` as the MCP input schema (D141(c) validate-before-touch). */
+  inputSchema: ZodRawShape;
+  /** The governed, enriched dispatch: validate args → route to the M6 handler → enrich the return. */
+  invoke: (args: unknown) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
+}
 
 /** The golden-corpus eval input/result (D138 mechanism; M8/M7 own the policy). */
 export interface EvalCorpus {
