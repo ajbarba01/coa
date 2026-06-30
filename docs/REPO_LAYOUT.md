@@ -74,6 +74,7 @@ core/src/
   workbench/     M6 — the Mutate producer + mcp/ tool surface
   governance/    M7 — cost ledger, provenance, decision log, policy
   session/ rpc/  M8 — daemon host, session/worktree managers, JSON-RPC server
+  auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
 ```
 
 **The intra-`core` rule** (mechanically enforced): only `spine/` is shared mutable substrate. `flags/`,

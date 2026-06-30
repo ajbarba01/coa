@@ -231,3 +231,4 @@ export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
 export { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
+export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
