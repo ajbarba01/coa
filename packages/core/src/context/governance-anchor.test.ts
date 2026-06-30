@@ -96,4 +96,8 @@ describe('createGovernanceAnchorProducer', () => {
     expect(producer.kind).toBe('deterministic');
     expect(validateProducer(producer)).toEqual({ ok: true });
   });
+
+  it('opts into rebuild-to-follow so the driver can self-heal a restored claim', () => {
+    expect(createGovernanceAnchorProducer(graph([])).reconciling).toBe(true);
+  });
 });

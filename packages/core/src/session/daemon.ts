@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { PieceRef, Producer, SymbolRef } from '@coa/shared';
+import type { PieceRef, Producer, ProducerInput, SymbolRef } from '@coa/shared';
 import { compile } from '../compiler/compile.js';
 import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
@@ -68,6 +68,9 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   return { core, kernel, flags, governance };
 }
 
+/** The sweep scope for a reconciling producer's full-set recompute (any non-golden scope). */
+const RECONCILE_SWEEP: ProducerInput = { kind: 'scope', scope: '' };
+
 /**
  * R-3 — register M4's producers into M3 (each gated by the CF-6 `validateProducer`
  * stamp inside `registerProducer`) and drive them off the kernel feed: M3 is a
@@ -77,6 +80,13 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
  * producers configured the pipeline stays inert (the D85 strict-superset floor:
  * the gate allows and no flag fires). Each producer's own `run` decides whether
  * the event is relevant; coarse activation-label filtering is a later optimization.
+ *
+ * A **reconciling** producer (rebuild-to-follow) is driven differently: it emits
+ * its complete current set, so the driver tracks the fingerprints it last emitted
+ * (per producer) and resolves any it no longer emits — the self-heal. A one-shot
+ * convergence sweep runs it at wiring so dangling state already present at startup
+ * surfaces even with no change events. Per-producer tracking keeps the diff scoped
+ * to that producer, never touching another's flags.
  */
 function wireProducers(
   kernel: ChangeKernel,
@@ -85,8 +95,27 @@ function wireProducers(
 ): void {
   if (producers.length === 0) return;
   for (const producer of producers) flags.registerProducer(producer);
+
+  const lastEmitted = new Map<string, Set<string>>();
+  const drive = (producer: Producer, input: ProducerInput): void => {
+    if (producer.reconciling !== true) {
+      flags.runProducer(producer.id, input);
+      return;
+    }
+    const fresh = producer.run(input);
+    for (const flag of fresh) flags.ingest(flag);
+    const freshFps = new Set(fresh.map((flag) => flag.fingerprint));
+    for (const fp of lastEmitted.get(producer.id) ?? []) {
+      if (!freshFps.has(fp)) flags.resolve(fp);
+    }
+    lastEmitted.set(producer.id, freshFps);
+  };
+
+  for (const producer of producers) {
+    if (producer.reconciling === true) drive(producer, RECONCILE_SWEEP);
+  }
   kernel.subscribe(0, (event) => {
-    for (const producer of producers) flags.runProducer(producer.id, { kind: 'change', event });
+    for (const producer of producers) drive(producer, { kind: 'change', event });
   });
 }
 

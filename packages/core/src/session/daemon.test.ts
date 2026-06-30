@@ -2,9 +2,46 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
 import type { ChangeEventDraft } from '../event.js';
 import { createSsotConstraintProducer } from '../context/ssot-constraint.js';
 import { createDaemonCore, type DaemonCoreHandle } from './daemon.js';
+
+const GOLDEN_GOOD = '__stub_good__';
+const GOLDEN_BAD = '__stub_bad__';
+
+const stubFlag = (key: string): FlagRecord => ({
+  ruleId: 'stub',
+  location: key,
+  severity: 'med',
+  message: 'm',
+  fingerprint: `stub:${key}`,
+  type: 2,
+  confidence: 'low',
+  concernKey: `stub:${key}`,
+});
+
+/** A controllable producer whose change/sweep output is whatever `state.flags` currently is. */
+function stubProducer(state: { flags: FlagRecord[] }, reconciling: boolean): Producer {
+  return {
+    id: reconciling ? 'stub-reconciling' : 'stub-incremental',
+    kind: 'deterministic',
+    activation: 'on-change',
+    reconciling,
+    run: (input: ProducerInput) => {
+      if (input.kind === 'scope' && input.scope === GOLDEN_GOOD) return [];
+      if (input.kind === 'scope' && input.scope === GOLDEN_BAD) return [stubFlag('golden')];
+      return state.flags;
+    },
+    golden: {
+      good: { kind: 'scope', scope: GOLDEN_GOOD },
+      bad: { kind: 'scope', scope: GOLDEN_BAD },
+    },
+  };
+}
+
+const hasConcern = (handle: DaemonCoreHandle, key: string): boolean =>
+  handle.flags.flagsForUser().collapsed.some((c) => c.concernKey === key);
 
 /** A real M4 SSOT producer whose target drifts from its regenerated source. */
 function driftingSsotProducer() {
@@ -85,6 +122,61 @@ describe('createDaemonCore', () => {
     expect(handle.core.gate()).toEqual({ allow: true });
     handle.kernel.emit(MODIFY_SRC);
     expect(handle.core.gate().allow).toBe(false);
+  });
+
+  it('raises a reconciling producer’s full set at wiring time, before any change event', () => {
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      producers: [stubProducer({ flags: [stubFlag('docA')] }, true)],
+    });
+    expect(hasConcern(handle, 'stub:docA')).toBe(true);
+  });
+
+  it('self-heals: a flag a reconciling producer stops emitting is resolved', () => {
+    const state = { flags: [stubFlag('docA')] };
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      producers: [stubProducer(state, true)],
+    });
+    expect(hasConcern(handle, 'stub:docA')).toBe(true);
+
+    state.flags = [];
+    handle.kernel.emit(MODIFY_SRC);
+    expect(hasConcern(handle, 'stub:docA')).toBe(false);
+  });
+
+  it('reconciles per producer: a heal does not resolve another producer’s flag', () => {
+    const reconciling = { flags: [stubFlag('docA')] };
+    const other = createSsotConstraintProducer(
+      [{ name: 'gen', source: 'src/a.ts', target: 'gen/a.ts', lang: 'typescript' }],
+      { regenerate: () => ({ kind: 'text', bytes: 'x' }), readTarget: () => 'y' },
+    ).producer;
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      producers: [stubProducer(reconciling, true), other],
+    });
+    handle.kernel.emit(MODIFY_SRC); // raises the ssot Type-1 (gen/a.ts drifts)
+    expect(hasConcern(handle, 'stub:docA')).toBe(true);
+    expect(handle.flags.flagsForUser('gen/a.ts').expanded).toHaveLength(1);
+
+    reconciling.flags = []; // the reconciling producer heals
+    handle.kernel.emit(MODIFY_SRC);
+    expect(hasConcern(handle, 'stub:docA')).toBe(false);
+    expect(handle.flags.flagsForUser('gen/a.ts').expanded).toHaveLength(1); // the other survives
+  });
+
+  it('does not diff-resolve a non-reconciling producer (append-only semantics preserved)', () => {
+    const state = { flags: [stubFlag('docA')] };
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      producers: [stubProducer(state, false)],
+    });
+    handle.kernel.emit(MODIFY_SRC);
+    expect(hasConcern(handle, 'stub:docA')).toBe(true);
+
+    state.flags = [];
+    handle.kernel.emit(MODIFY_SRC);
+    expect(hasConcern(handle, 'stub:docA')).toBe(true); // stays — append-only
   });
 
   it('stays inert with no producers configured (strict-superset floor)', () => {

@@ -37,6 +37,7 @@ export function createGovernanceAnchorProducer(graph: GovernanceGraph): Producer
     id: 'governance-anchor',
     kind: 'deterministic',
     activation: 'on-change',
+    reconciling: true,
     run: (input) => run(input, graph),
     golden: {
       good: { kind: 'scope', scope: GOLDEN_GOOD },
