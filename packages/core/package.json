@@ -21,6 +21,7 @@
   "dependencies": {
     "@coa/code-intel": "workspace:*",
     "@coa/shared": "workspace:*",
+    "@coa/spi": "workspace:*",
     "@parcel/watcher": "^2.5.6",
     "better-sqlite3": "^12.11.1",
     "ulid": "^3.0.2",

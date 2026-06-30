@@ -180,6 +180,12 @@ export {
   type ToolPartition,
   type ToolManifestEntry,
 } from './workbench/catalogue.js';
+export {
+  buildCanUseTool,
+  buildStopGate,
+  sessionBudget,
+  type PermissionDeps,
+} from './session/permission.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';

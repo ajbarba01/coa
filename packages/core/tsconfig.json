@@ -6,7 +6,7 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "types": ["node"]
   },
-  "references": [{ "path": "../shared" }, { "path": "../code-intel" }],
+  "references": [{ "path": "../shared" }, { "path": "../code-intel" }, { "path": "../spi" }],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
 }

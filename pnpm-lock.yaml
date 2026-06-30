@@ -91,6 +91,9 @@ importers:
       '@coa/shared':
         specifier: workspace:*
         version: link:../shared
+      '@coa/spi':
+        specifier: workspace:*
+        version: link:../spi
       '@parcel/watcher':
         specifier: ^2.5.6
         version: 2.5.6
