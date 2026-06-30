@@ -149,6 +149,17 @@ export {
   type MutateResult,
 } from './workbench/mutate.js';
 export { enrich, type EnrichDeps } from './workbench/enrich.js';
+export {
+  getSymbol,
+  findReferences,
+  outline,
+  getPiece,
+  type RetrieveDeps,
+  type GetSymbolResult,
+  type OutlineResult,
+  type ReferencesResult,
+  type GetPieceResult,
+} from './workbench/retrieve.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
