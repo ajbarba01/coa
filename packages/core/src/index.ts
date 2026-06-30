@@ -135,6 +135,7 @@ export {
   type HealthSource,
   type HealthThresholds,
 } from './context/health.js';
+export { applyDiff, type DiffResult } from './workbench/apply-diff.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
