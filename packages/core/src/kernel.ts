@@ -29,8 +29,12 @@ import {
   type TemporalView,
 } from './graph/temporal.js';
 import { exportScip, type ScipOptions } from './graph/scip.js';
+import { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
+import { lintScopes, type ScopeLintFinding } from './scope/scope-linter.js';
+import { loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
+import { matchGlob } from './scope/glob.js';
 import { posix } from 'node:path';
-import type { EdgeProvenance } from '@coa/shared';
+import type { EdgeProvenance, ScopeRef, ScopeResolution } from '@coa/shared';
 import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 import { SignalBus, type SignalEvent } from './signal-bus.js';
@@ -55,8 +59,8 @@ export interface ChangeKernelOptions {
  * projection (the log is the source of truth; everything else is derived).
  *
  * The graph carries the GRF-* hardening (cycle/coupling/temporal views,
- * convention extractors, the inferred import graph, SCIP export). The SCO-*
- * scope tier is the remaining follow-up.
+ * convention extractors, the inferred import graph, SCIP export) and the SCO-*
+ * scope tier (composable membership resolution, the scope linter).
  */
 export class ChangeKernel {
   readonly graph = new TypedGraph();
@@ -74,7 +78,11 @@ export class ChangeKernel {
   private readonly consumers: ((event: ChangeEvent) => void)[] = [];
   private readonly extractors = new ExtractorRegistry();
   private readonly indexedFiles = new Set<string>();
+  private readonly knownPaths = new Set<string>();
   private readonly unresolvedSites = new Set<string>();
+  private scopesConfig: ScopesConfig = { scopes: new Map(), tags: new Map() };
+  private readonly scopeCache = new Map<string, { version: number; resolution: ScopeResolution }>();
+  private materialVersion = 0;
   private nextSeq = 0;
   private fuzzyDirty = false;
 
@@ -185,6 +193,8 @@ export class ChangeKernel {
     const { symbols, cst } = reparseFile({ path, lang, bytes });
     this.symbols.indexFile(path, symbols);
     this.indexedFiles.add(path);
+    this.knownPaths.add(path);
+    this.materialVersion++;
     this.fuzzyDirty = true;
     this.idle.scheduleIdle(() => this.rebuildFuzzy(), { priority: 1, preemptible: true });
 
@@ -223,6 +233,48 @@ export class ChangeKernel {
   /** GRF-6 — the one-way SCIP export of the indexed symbol layer. */
   exportScip(options: ScipOptions): Uint8Array {
     return exportScip(this.symbols.all(), options);
+  }
+
+  // --- scope tier (SCO-*) ------------------------------------------------------
+
+  /** Install a validated scope/tag config (the loaded `.coa/scopes.yaml`). */
+  loadScopes(config: ScopesConfig): void {
+    this.scopesConfig = config;
+    this.materialVersion++;
+  }
+
+  /** Load + validate `.coa/scopes.yaml` from disk and install it. */
+  loadScopesFromFile(path: string): void {
+    this.loadScopes(loadScopesFile(path));
+  }
+
+  /** SCO-2 — resolve a scope to its member set, cached and re-resolved only on material change. */
+  resolveScope(ref: ScopeRef): ScopeResolution {
+    const scope = this.scopesConfig.scopes.get(ref);
+    if (!scope) throw new Error(`scope not found: ${ref}`);
+    const cached = this.scopeCache.get(ref);
+    if (cached && cached.version === this.materialVersion) return cached.resolution;
+    const resolution = resolveScope(scope, this.scopeContext());
+    this.scopeCache.set(ref, { version: this.materialVersion, resolution });
+    return resolution;
+  }
+
+  /** SCO-1 — the inverse membership read: which scopes a path belongs to. */
+  scopesFor(path: string): ScopeRef[] {
+    const names: ScopeRef[] = [];
+    for (const name of this.scopesConfig.scopes.keys()) {
+      if (this.resolveScope(name).members.includes(path)) names.push(name);
+    }
+    return names;
+  }
+
+  /** SCO-5 — lint the scope set for silent-failure leaves and rot. */
+  lintScopes(): ScopeLintFinding[] {
+    return lintScopes(this.scopesConfig.scopes.values(), {
+      resolve: (scope) => this.resolveScope(scope.name),
+      isPiece: (piece) => this.pieces.get(piece) !== undefined,
+      isNode: (id) => this.graph.hasNode(id) || this.knownPaths.has(id),
+    });
   }
 
   lookup(name: string): SymbolRecord | undefined {
@@ -312,6 +364,9 @@ export class ChangeKernel {
       default:
         this.graph.setNode(frame.path, 'file');
         this.projection.applyEvent(frame);
+        if (frame.kind === 'delete') this.knownPaths.delete(frame.path);
+        else this.knownPaths.add(frame.path);
+        this.materialVersion++;
         break;
     }
     this.signals.record(signalOf(frame));
@@ -331,6 +386,37 @@ export class ChangeKernel {
       if (this.indexedFiles.has(base + ext)) return base + ext;
     }
     return /\.[cm]?[jt]sx?$/.test(base) ? base : `${base}.ts`;
+  }
+
+  /** Build the live evaluation context the pure scope resolver reads. */
+  private scopeContext(): ScopeContext {
+    return {
+      walPosition: this.nextSeq,
+      paths: [...this.knownPaths],
+      tagMembers: (tag) => {
+        const globs = this.scopesConfig.tags.get(tag) ?? [];
+        return [...this.knownPaths].filter((p) => globs.some((g) => matchGlob(g, p)));
+      },
+      forwardClosure: (node) => this.forwardClosure(node),
+      getScope: (name) => this.scopesConfig.scopes.get(name),
+    };
+  }
+
+  /** A node plus its transitive forward dependencies (depends-on/imports). */
+  private forwardClosure(node: string): string[] {
+    const seen = new Set<string>([node]);
+    const stack = [node];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (current === undefined) continue;
+      for (const dep of this.graph.dependencies(current)) {
+        if (!seen.has(dep)) {
+          seen.add(dep);
+          stack.push(dep);
+        }
+      }
+    }
+    return [...seen];
   }
 }
 

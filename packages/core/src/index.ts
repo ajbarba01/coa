@@ -40,6 +40,10 @@ export {
   type PreciseOp,
   type PathState,
 } from './reconcile/dedup.js';
+export { matchGlob, globToRegExp } from './scope/glob.js';
+export { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
+export { validateScopesConfig, loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
+export { lintScopes, type ScopeLintFinding, type ScopeLintContext } from './scope/scope-linter.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
