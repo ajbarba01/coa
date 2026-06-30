@@ -2,11 +2,11 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { RpcParams } from '@coa/shared';
 import {
+  bindDaemon,
   buildDaemonConsoleHandlers,
   connectClient,
   createDaemonCore,
   defaultDaemonPath,
-  listen,
   type RpcServer,
 } from '@coa/core';
 
@@ -84,7 +84,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
 
   const handle = createDaemonCore({ walPath });
-  const server = await listen(path, buildDaemonConsoleHandlers(handle));
+  const server = await bindDaemon(path, buildDaemonConsoleHandlers(handle));
   options.out(`coa daemon listening on ${path}`);
   return server;
 }

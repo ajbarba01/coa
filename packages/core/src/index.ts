@@ -114,6 +114,7 @@ export { encodeLine, FrameDecoder } from './rpc/codec.js';
 export { serveOverStream, type DuplexLike, type StreamServer } from './rpc/stream.js';
 export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
 export { connectClient, type RpcClient } from './rpc/client.js';
+export { bindDaemon, probeDaemon } from './rpc/lifecycle.js';
 export {
   versionGate,
   type SemverBump,
