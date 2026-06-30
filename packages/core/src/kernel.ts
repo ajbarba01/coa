@@ -17,6 +17,7 @@ import { FuzzyIndex } from './graph/fuzzy-index.js';
 import { PieceStore, resolvePiece } from './graph/resolve-piece.js';
 import { reparseFile } from './graph/reparse.js';
 import { extractImports } from './graph/extract-imports.js';
+import { resolveImportSpecifier } from './graph/resolve-import.js';
 import {
   ExtractorRegistry,
   STARTER_EXTRACTORS,
@@ -33,7 +34,6 @@ import { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
 import { lintScopes, type ScopeLintFinding } from './scope/scope-linter.js';
 import { loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
 import { matchGlob } from './scope/glob.js';
-import { posix } from 'node:path';
 import type { EdgeProvenance, ScopeRef, ScopeResolution } from '@coa/shared';
 import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
@@ -202,7 +202,7 @@ export class ChangeKernel {
     clearPrefix(this.unresolvedSites, `${path}:`);
     if (cst !== null) {
       for (const edge of extractImports(cst, path, (spec, from) =>
-        this.resolveImport(spec, from),
+        resolveImportSpecifier(spec, from, (p) => this.indexedFiles.has(p)),
       )) {
         this.graph.applyEdge(edge);
       }
@@ -375,17 +375,6 @@ export class ChangeKernel {
   private rebuildFuzzy(): void {
     this.fuzzy.build(this.symbols.all());
     this.fuzzyDirty = false;
-  }
-
-  /** Resolve an import specifier to a repo path: relative → file (extension-completed), bare → external. */
-  private resolveImport(specifier: string, fromPath: string): string {
-    if (!specifier.startsWith('.')) return specifier;
-    const base = posix.normalize(posix.join(posix.dirname(fromPath), specifier));
-    if (this.indexedFiles.has(base)) return base;
-    for (const ext of ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.js']) {
-      if (this.indexedFiles.has(base + ext)) return base + ext;
-    }
-    return /\.[cm]?[jt]sx?$/.test(base) ? base : `${base}.ts`;
   }
 
   /** Build the live evaluation context the pure scope resolver reads. */

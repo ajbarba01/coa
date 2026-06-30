@@ -24,6 +24,7 @@ export {
   type TemporalOptions,
 } from './graph/temporal.js';
 export { extractImports } from './graph/extract-imports.js';
+export { resolveImportSpecifier, importCandidates } from './graph/resolve-import.js';
 export { exportScip, buildScipIndex, type ScipIndex, type ScipOptions } from './graph/scip.js';
 export {
   ExtractorRegistry,

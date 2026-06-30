@@ -81,6 +81,12 @@ describe('ChangeKernel GRF views', () => {
     expect(parsed.documents[0]?.symbols.some((s) => s.descriptor === 'foo')).toBe(true);
   });
 
+  it('connects NodeNext .js import specifiers to their .ts source (real-repo resolution)', () => {
+    kernel.indexFile('src/a.ts', 'typescript', "import './b.js';");
+    kernel.indexFile('src/b.ts', 'typescript', 'export const b = 1;');
+    expect(kernel.graph.dependencies('src/a.ts')).toContain('src/b.ts');
+  });
+
   it('clears a file’s stale derived edges on reparse', () => {
     kernel.indexFile('a.ts', 'typescript', "import './b';");
     kernel.indexFile('a.ts', 'typescript', 'const x = 1;'); // import removed
