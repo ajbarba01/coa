@@ -113,6 +113,7 @@ export { buildConsoleHandlers, type ConsoleReadPorts } from './rpc/console-handl
 export { encodeLine, FrameDecoder } from './rpc/codec.js';
 export { serveOverStream, type DuplexLike, type StreamServer } from './rpc/stream.js';
 export { listen, type RpcServer } from './rpc/transport.js';
+export { connectClient, type RpcClient } from './rpc/client.js';
 export {
   versionGate,
   type SemverBump,
