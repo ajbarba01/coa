@@ -116,6 +116,12 @@ export {
   type DegradedRelation,
   type SsotConstraintProducer,
 } from './context/ssot-constraint.js';
+export {
+  publishGenerationSeam,
+  type SymbolExtractor,
+  type SeamPublisher,
+  type GenerationSeam,
+} from './context/generation-seam.js';
 export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
