@@ -281,6 +281,11 @@ export class ChangeKernel {
     return this.symbols.lookup(name);
   }
 
+  /** The current WAL frontier — a monotonic freshness stamp (e.g. L-GND's `checked_against`). */
+  walPosition(): number {
+    return this.nextSeq;
+  }
+
   fuzzyMatch(name: string, limit?: number): RankedCandidate[] {
     if (this.fuzzyDirty) this.rebuildFuzzy();
     return this.fuzzy.match(name, limit);

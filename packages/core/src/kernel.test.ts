@@ -56,6 +56,13 @@ describe('ChangeKernel', () => {
     expect(s1).toBe(1);
   });
 
+  it('reports a WAL position that advances past the last applied seq (the freshness stamp)', () => {
+    const k = open();
+    expect(k.walPosition()).toBe(0);
+    const seq = k.emit(fileDraft('a.ts', 'h1'));
+    expect(k.walPosition()).toBe(seq + 1);
+  });
+
   it('rejects a declared edge that would cycle the graph (no WAL write)', () => {
     const k = open();
     k.assertEdge({ from: 'a', to: 'b', type: 'depends-on', provenance: 'declared' });
