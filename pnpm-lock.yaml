@@ -75,10 +75,16 @@ importers:
       ulid:
         specifier: ^3.0.2
         version: 3.0.2
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
 
   packages/shared:
     dependencies:
