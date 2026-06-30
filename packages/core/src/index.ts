@@ -135,6 +135,7 @@ export {
   type RunTrigger,
 } from './context/generate-config.js';
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
+export { assembleProducers } from './context/producers.js';
 export { composeProfile, type WorstPredicate } from './context/health-profile.js';
 export {
   health,

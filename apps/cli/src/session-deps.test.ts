@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ChangeEventDraft } from '@coa/core';
 import { buildSessionDeps, type BuiltSession } from './session-deps.js';
 
 let dir: string;
@@ -33,5 +34,44 @@ describe('buildSessionDeps', () => {
     built = buildSessionDeps({ walPath: join(dir, 'log.ndjson'), root: dir, ceilingUsd: 1 });
     built.deps.charge('s1', { tokensIn: 0, tokensOut: 0, costUsd: 1 });
     expect(built.handle.governance.capState().capHit).toBe(true);
+  });
+
+  it('drives the committed generation registry: a drifted target makes the close-gate live', () => {
+    mkdirSync(join(dir, '.coa'), { recursive: true });
+    writeFileSync(
+      join(dir, '.coa', 'generate.yaml'),
+      [
+        'relations:',
+        '  gen:',
+        '    source: src/a.ts',
+        '    target: gen/a.ts',
+        '    lang: typescript',
+        '    command: node gen.js',
+        "    version: '1'",
+      ].join('\n'),
+      'utf8',
+    );
+    writeFileSync(join(dir, 'gen.js'), "process.stdout.write('export const x = 1;');", 'utf8');
+    mkdirSync(join(dir, 'gen'), { recursive: true });
+    writeFileSync(join(dir, 'gen', 'a.ts'), 'export const x = 2;', 'utf8');
+
+    built = buildSessionDeps({ walPath: join(dir, 'log.ndjson'), root: dir });
+    expect(built.deps.gate()).toEqual({ allow: true });
+
+    const modify: ChangeEventDraft = {
+      worktree: 'main',
+      actor: 'session',
+      op_id: 'op-1',
+      provenance: 'declared',
+      cause: null,
+      kind: 'modify',
+      path: 'src/a.ts',
+      pre_hash: 'a',
+      post_hash: 'b',
+      generated: false,
+    };
+    built.handle.kernel.emit(modify);
+
+    expect(built.deps.gate().allow).toBe(false);
   });
 });

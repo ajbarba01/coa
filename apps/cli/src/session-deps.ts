@@ -5,6 +5,7 @@ import {
   type SessionDeps,
 } from '@coa/core';
 import { createClaudeAdapter } from './adapter-factory.js';
+import { buildGenerationProducers } from './generation.js';
 
 /**
  * The app-side spike harness — assemble runnable {@link SessionDeps} from the
@@ -13,6 +14,8 @@ import { createClaudeAdapter } from './adapter-factory.js';
  * `createSession(req, deps)` to drive the rented loop end to end. The worktree
  * binder is the current floor (the session worktree is the configured root);
  * the coupling-aware worktree manager and the OS-socket daemon host are later.
+ * M4's generation producers are assembled from the worktree's committed
+ * `.coa/generate.yaml`, so the SSOT-constraint producer fires on real relations.
  */
 export interface DaemonSessionOptions {
   /** The WAL path (M1); its parent directory must exist. */
@@ -36,6 +39,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   const handle = createDaemonCore({
     walPath: options.walPath,
     root,
+    producers: buildGenerationProducers(root),
     ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
