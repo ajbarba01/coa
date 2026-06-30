@@ -40,8 +40,8 @@ module.exports = {
       name: 'core-consumer-rings-no-sideways',
       severity: 'error',
       comment:
-        'Inside core, only the spine is shared mutable substrate. Consumer rings (flags = M3, governance = M7, …) import the spine + shared, never sideways from each other (REPO_LAYOUT intra-core rule).',
-      from: { path: '^packages/core/src/(flags|governance|compiler|context|workbench)/' },
+        'Inside core, only the spine is shared mutable substrate. Consumer rings (flags = M3, governance = M7, …) import the spine + shared, never sideways from each other. The workbench (M6) is a producer that MAY read flags/context/governance per its SPEC deps, but no consumer ring imports it back (REPO_LAYOUT intra-core rule).',
+      from: { path: '^packages/core/src/(flags|governance|compiler|context)/' },
       to: {
         path: '^packages/core/src/(flags|governance|compiler|context|workbench)/',
         pathNot: '^packages/core/src/$1/',
