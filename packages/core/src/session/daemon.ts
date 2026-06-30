@@ -96,6 +96,7 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
     flagsForUser: (scope) => handle.flags.flagsForUser(scope),
     readDecision: (id) => handle.governance.decisionLog.read(id),
     decisionsByTarget: (target) => handle.governance.decisionLog.findByTarget(target),
+    listTimeline: () => handle.kernel.listTimeline(),
   });
 }
 

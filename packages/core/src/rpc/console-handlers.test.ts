@@ -14,6 +14,7 @@ function ports(over: Partial<ConsoleReadPorts> = {}): ConsoleReadPorts {
     flagsForUser: () => EMPTY_FEED,
     readDecision: () => undefined,
     decisionsByTarget: () => [],
+    listTimeline: () => [],
     ...over,
   };
 }
@@ -112,11 +113,23 @@ describe('console handlers — the read-only inspector verbs over the dispatch r
     expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: entries });
   });
 
+  it('serves listTimeline as the checkpoint list', async () => {
+    const checkpoints = [
+      { id: 'c1', seq: 3, ts: '2026-06-30T00:00:00Z', worktree: 'main', pinned: false },
+    ];
+    const handlers = buildConsoleHandlers(ports({ listTimeline: () => checkpoints }));
+
+    const res = await dispatch({ jsonrpc: '2.0', id: 1, method: 'listTimeline' }, handlers);
+
+    expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: checkpoints });
+  });
+
   it('registers exactly the read-only verb set', () => {
     expect(Object.keys(buildConsoleHandlers(ports())).sort()).toEqual([
       'capState',
       'flagsForUser',
       'getDecision',
+      'listTimeline',
       'why',
     ]);
   });

@@ -38,6 +38,7 @@ const READS: Record<string, (args: string[]) => { method: string; params?: RpcPa
   }),
   why: (args) => ({ method: 'why', params: { target: args[0] ?? '' } }),
   decision: (args) => ({ method: 'getDecision', params: { id: Number(args[0]) } }),
+  timeline: () => ({ method: 'listTimeline' }),
 };
 
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
