@@ -1,0 +1,28 @@
+{
+  "name": "@coa/adapter-claude-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@coa/shared": "workspace:*",
+    "@coa/spi": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1"
+  }
+}
