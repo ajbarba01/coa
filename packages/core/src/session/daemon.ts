@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { PieceRef, SymbolRef } from '@coa/shared';
+import type { PieceRef, Producer, SymbolRef } from '@coa/shared';
 import { compile } from '../compiler/compile.js';
 import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
@@ -27,6 +27,8 @@ export interface DaemonCoreOptions {
   ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
+  /** The M3 producers (M4's, injected) to register and drive off the kernel feed (R-3). */
+  producers?: readonly Producer[];
 }
 
 export interface DaemonCoreHandle {
@@ -48,6 +50,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const flags = new FlagPipeline();
+  wireProducers(kernel, flags, options.producers ?? []);
 
   const core: DaemonCore = {
     checkpoint: () => {
@@ -63,6 +66,28 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   };
 
   return { core, kernel, flags, governance };
+}
+
+/**
+ * R-3 — register M4's producers into M3 (each gated by the CF-6 `validateProducer`
+ * stamp inside `registerProducer`) and drive them off the kernel feed: M3 is a
+ * projection-owning consumer, so it subscribes **from cursor 0** (replay-from-0)
+ * and every change-event — historical on replay, then live — runs each producer
+ * over `{ kind: 'change', event }`, ingesting the flags it emits. With no
+ * producers configured the pipeline stays inert (the D85 strict-superset floor:
+ * the gate allows and no flag fires). Each producer's own `run` decides whether
+ * the event is relevant; coarse activation-label filtering is a later optimization.
+ */
+function wireProducers(
+  kernel: ChangeKernel,
+  flags: FlagPipeline,
+  producers: readonly Producer[],
+): void {
+  if (producers.length === 0) return;
+  for (const producer of producers) flags.registerProducer(producer);
+  kernel.subscribe(0, (event) => {
+    for (const producer of producers) flags.runProducer(producer.id, { kind: 'change', event });
+  });
 }
 
 /** Resolve a Piece, degrading a missing/ambiguous ref to `undefined` (SC-1, never a throw). */
