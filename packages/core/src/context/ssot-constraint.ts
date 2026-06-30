@@ -39,6 +39,13 @@ export interface GenerationRelation {
   readonly lang: string;
   /** GEN-8 `strip-banner` normalization (drops a volatile leading codegen banner). */
   readonly stripBanner?: boolean;
+  /**
+   * GEN-8 `sort-keys` normalization (parse → re-serialize sorted, defeats unstable ordering).
+   * Threaded to the M2 canonicalization profile; canonicalize defers the actual reorder to a
+   * later tier, so until then a relation that relies on it self-tests as non-reproducible and
+   * degrades to detection-only — never a false Type-1.
+   */
+  readonly sortKeys?: boolean;
   /** GEN-8 named, bounded ignore-regions (blanked before canonicalization). */
   readonly ignoreRegions?: ReadonlyArray<readonly [number, number]>;
 }
@@ -197,6 +204,7 @@ function canon(relation: GenerationRelation, bytes: string): string {
   const profile: CanonicalizationProfile = {
     lang: relation.lang,
     ...(relation.stripBanner !== undefined ? { stripBanner: relation.stripBanner } : {}),
+    ...(relation.sortKeys !== undefined ? { sortKeys: relation.sortKeys } : {}),
     ...(relation.ignoreRegions !== undefined
       ? {
           ignoreRegions: relation.ignoreRegions.map(

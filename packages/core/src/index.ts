@@ -128,6 +128,12 @@ export {
   type GoverningConstraint,
   type GenerationSeam,
 } from './context/generation-seam.js';
+export {
+  loadGenerateFile,
+  validateGenerateConfig,
+  type GenerationEntry,
+  type RunTrigger,
+} from './context/generate-config.js';
 export { composeProfile, type WorstPredicate } from './context/health-profile.js';
 export {
   health,
