@@ -108,6 +108,7 @@ export {
 } from './governance/selfmod.js';
 export { compile } from './compiler/compile.js';
 export { importBundle } from './compiler/import-bundle.js';
+export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
 export {
   versionGate,
   type SemverBump,
