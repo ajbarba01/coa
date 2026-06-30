@@ -6,7 +6,10 @@ import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
+import { homedir } from 'node:os';
 import { buildConsoleHandlers } from '../rpc/console-handlers.js';
+import { buildAuthHandlers } from '../rpc/auth-handlers.js';
+import { AccountsRegistry } from '../auth/registry.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
 
@@ -91,13 +94,16 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
  * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
  */
 export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandlers {
-  return buildConsoleHandlers({
-    capState: (sessionId) => handle.governance.capState(sessionId),
-    flagsForUser: (scope) => handle.flags.flagsForUser(scope),
-    readDecision: (id) => handle.governance.decisionLog.read(id),
-    decisionsByTarget: (target) => handle.governance.decisionLog.findByTarget(target),
-    listTimeline: () => handle.kernel.listTimeline(),
-  });
+  return {
+    ...buildConsoleHandlers({
+      capState: (sessionId) => handle.governance.capState(sessionId),
+      flagsForUser: (scope) => handle.flags.flagsForUser(scope),
+      readDecision: (id) => handle.governance.decisionLog.read(id),
+      decisionsByTarget: (target) => handle.governance.decisionLog.findByTarget(target),
+      listTimeline: () => handle.kernel.listTimeline(),
+    }),
+    ...buildAuthHandlers(new AccountsRegistry(homedir())),
+  };
 }
 
 /** The sweep scope for a reconciling producer's full-set recompute (any non-golden scope). */
