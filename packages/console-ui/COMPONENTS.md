@@ -1,0 +1,402 @@
+# Component catalogue
+
+_Generated from each component's intent declaration. Do not edit by hand._
+
+## Actions
+
+### Button
+
+Triggers an action the user commits to.
+
+- **Use it when:** Submitting, confirming, running, or cancelling an action. A view has one primary action (use variant=primary once).
+- **Don't use it when:** Navigating to another location — use Link. Toggling a boolean — use Switch or Checkbox. The trigger is icon-only in a dense toolbar — use IconButton.
+- **Anatomy:** Optional leading Icon, label, optional trailing Icon; one border-box control.
+- **Variants & states:** primary, secondary, tertiary, danger, sizes sm/md, rest, hover, active, focus, loading, disabled
+- **Accessibility:** Native <button> (Enter/Space activate); loading sets aria-busy and disables; visible focus ring; asChild preserves the child role.
+- **Related:** IconButton, ButtonGroup, Link
+
+### ButtonGroup
+
+Groups related buttons as one labelled cluster.
+
+- **Use it when:** Two or more actions belong together (confirm/cancel, segmented choices).
+- **Don't use it when:** The buttons are unrelated — lay them out separately.
+- **Anatomy:** A role=group wrapper around Button/IconButton children.
+- **Variants & states:** rest
+- **Accessibility:** role=group with an aria-label naming the cluster.
+- **Related:** Button, Toolbar
+
+### IconButton
+
+An icon-only button for dense toolbars where a text label would not fit.
+
+- **Use it when:** A recognizable action fits a compact toolbar (rewind, copy, expand).
+- **Don't use it when:** The action is primary or ambiguous — use a labelled Button.
+- **Anatomy:** A square button wrapping one Icon; label is the accessible name.
+- **Variants & states:** primary, secondary, tertiary, danger, sizes sm/md, hover, focus, loading, disabled
+- **Accessibility:** label is required and becomes aria-label; native button keyboard model; visible focus ring.
+- **Related:** Button, Menu
+
+### Link
+
+Navigates to another location or resource.
+
+- **Use it when:** Moving to a route, doc, or external resource.
+- **Don't use it when:** Committing an action — use Button.
+- **Anatomy:** A styled anchor, optionally external.
+- **Variants & states:** default, muted, hover, focus, external
+- **Accessibility:** Native anchor; external links get rel=noopener noreferrer; visible focus ring.
+- **Related:** Button
+
+### Menu
+
+A dropdown of secondary actions behind a trigger.
+
+- **Use it when:** Overflow or contextual actions that do not warrant always-visible buttons.
+- **Don't use it when:** Selecting a value from options — use Select. A single primary action — use Button.
+- **Anatomy:** A trigger and a portalled list of items with optional icons.
+- **Variants & states:** closed, open, item hover/highlight, item disabled
+- **Accessibility:** Radix menu semantics: roving focus, Escape closes, arrow keys navigate, type-ahead.
+- **Related:** Button, IconButton, Select
+
+## Data-display
+
+### Badge
+
+A small toned label for a status, count, or category.
+
+- **Use it when:** Tagging severity, plan, or a small count next to a heading.
+- **Don't use it when:** It is an interactive filter — use a Button/Toggle.
+- **Anatomy:** A rounded pill with a tone and short text.
+- **Variants & states:** neutral, info, success, warning, danger
+- **Accessibility:** Tone is conveyed by text, not color alone; data-tone for styling.
+- **Related:** Stat, Icon
+
+### Code
+
+Renders code or identifiers verbatim in monospace.
+
+- **Use it when:** Showing a symbol, path, command, or byte-faithful block.
+- **Don't use it when:** Prose — use normal text.
+- **Anatomy:** Inline <code> or a whitespace-preserving <pre> block.
+- **Variants & states:** inline, block
+- **Accessibility:** Preserves bytes exactly; no truncation or normalization.
+- **Related:** KeyValue
+
+### KeyValue
+
+Shows term/value pairs for a single record.
+
+- **Use it when:** Displaying metadata of one thing (model, turns, mode).
+- **Don't use it when:** Many records — use Table.
+- **Anatomy:** A description list of term/description pairs on a two-column grid.
+- **Variants & states:** rest
+- **Accessibility:** Semantic dl/dt/dd.
+- **Related:** Table, Stat
+
+### List
+
+Renders a simple sequence of items with a custom item renderer.
+
+- **Use it when:** A flat sequence (flags, files) without columnar structure.
+- **Don't use it when:** Records with multiple aligned fields — use Table.
+- **Anatomy:** A semantic list of rendered items.
+- **Variants & states:** rest
+- **Accessibility:** role=list/listitem; optional aria-label.
+- **Related:** Table, KeyValue
+
+### Stat
+
+A single labelled metric with an optional sub-line.
+
+- **Use it when:** Surfacing a headline number (cost, turns) in the dashboard rail.
+- **Don't use it when:** Several related fields — use KeyValue.
+- **Anatomy:** An eyebrow label, a large tabular value, an optional sub-line.
+- **Variants & states:** default, info, success, warning, danger
+- **Accessibility:** Value is labelled by its eyebrow id; numbers use tabular figures.
+- **Related:** KeyValue, Badge
+
+### Table
+
+Presents rows of records with aligned columns, empty state first.
+
+- **Use it when:** Showing the ledger, decisions, or timeline as scannable rows.
+- **Don't use it when:** Two fields of one record — use KeyValue. A simple sequence — use List.
+- **Anatomy:** A caption, column headers, and rows with per-column render + alignment; an empty slot.
+- **Variants & states:** populated, empty
+- **Accessibility:** Semantic table with scoped column headers and an sr-only caption.
+- **Related:** List, KeyValue
+
+## Feedback
+
+### Banner
+
+Shows a persistent, in-flow status message tied to a region or view.
+
+- **Use it when:** A condition persists and the operator needs to keep seeing it (degraded mode, stale data).
+- **Don't use it when:** The message is transient — use Toast. It is a validation error on a control — use the Field error. It is a system deny — use DenyNotice.
+- **Anatomy:** Tone icon, title, optional body, optional dismiss.
+- **Variants & states:** info, success, warning, danger, dismissible
+- **Accessibility:** role=status (danger uses role=alert); dismiss has an accessible label; never color alone (tone icon).
+- **Related:** Toast, InlineMessage, DenyNotice
+
+### DenyNotice
+
+Surfaces a denial the daemon already issued — the close-gate or the cost-cap.
+
+- **Use it when:** Rendering a deny returned by the single deny channel (the only two real blocks).
+- **Don't use it when:** You are tempted to block or gate an action in the UI — the console never denies; only the daemon does. The message is a non-blocking warning — use Banner.
+- **Anatomy:** Deny-kind eyebrow, the verbatim reason, optional next-step detail.
+- **Variants & states:** close-gate, cost-cap
+- **Accessibility:** role=alert; the kind is named in text, not color alone.
+- **Related:** Banner, InlineMessage
+
+### EmptyState
+
+Explains why a region is empty and what to do next.
+
+- **Use it when:** A list/table/pane has no content yet — designed before the happy path.
+- **Don't use it when:** It is loading — use Skeleton. It is an error — use Banner/InlineMessage.
+- **Anatomy:** An icon, a title, a description, and an optional action.
+- **Variants & states:** with action, without action
+- **Accessibility:** Icon is decorative; meaning is in the text.
+- **Related:** Skeleton, Banner
+
+### InlineMessage
+
+A compact toned message shown inline with content.
+
+- **Use it when:** A short status next to a control or row (unsaved, syncing).
+- **Don't use it when:** A region-level condition — use Banner. A validation error on a field — use the Field error.
+- **Anatomy:** A tone icon and short text.
+- **Variants & states:** info, success, warning, danger
+- **Accessibility:** Danger uses role=alert; tone carried by icon, not color alone.
+- **Related:** Banner, Toast
+
+### Progress
+
+A determinate bar for a measurable long operation.
+
+- **Use it when:** An operation over ~10s with known completion (>10s triage step).
+- **Don't use it when:** Duration is unknown — use Spinner. A structured region is loading — use Skeleton.
+- **Anatomy:** A track with a filled bar sized to the value.
+- **Variants & states:** 0–100%
+- **Accessibility:** role=progressbar with aria-valuenow/min/max and a label.
+- **Related:** Spinner, Skeleton
+
+### Skeleton
+
+A placeholder block for structured content that is loading.
+
+- **Use it when:** A pane with known shape (timeline, ledger) is loading 2–10s.
+- **Don't use it when:** A single control is busy — use Spinner.
+- **Anatomy:** A pulsing rounded block sized to the incoming content.
+- **Variants & states:** pulsing
+- **Accessibility:** aria-hidden (decorative); honors reduced motion.
+- **Related:** Spinner, EmptyState
+
+### Spinner
+
+An indeterminate busy indicator for a single module.
+
+- **Use it when:** A short (~1–2s) wait with unknown duration on one control/module.
+- **Don't use it when:** A structured pane is loading — use Skeleton. Completion is measurable — use Progress.
+- **Anatomy:** A rotating loader glyph in a live status.
+- **Variants & states:** spinning
+- **Accessibility:** role=status, aria-live=polite, labelled; honors reduced motion.
+- **Related:** Progress, Skeleton
+
+### Toast
+
+A transient confirmation that auto-dismisses.
+
+- **Use it when:** Confirming a completed local action (saved, copied).
+- **Don't use it when:** The condition persists — use Banner. It is a system deny — use DenyNotice.
+- **Anatomy:** A provider + viewport hosting toast roots with title, body, and close.
+- **Variants & states:** info, success, warning, danger, open/closed
+- **Accessibility:** Radix toast live region; close has an accessible label.
+- **Related:** Banner, InlineMessage
+
+## Foundations
+
+### Icon
+
+Renders a single Lucide glyph at a consistent stroke and grid size.
+
+- **Use it when:** A glyph reinforces a label, status, or action.
+- **Don't use it when:** A glyph would stand alone as the only meaning — pair it with text. You need an emoji — emoji are banned.
+- **Anatomy:** A Lucide icon component sized to the icon grid.
+- **Variants & states:** decorative (aria-hidden), labelled (role=img)
+- **Accessibility:** Decorative by default (aria-hidden, not focusable); pass label to announce it as an image.
+- **Related:** IconButton, Badge
+
+## Inputs
+
+### Checkbox
+
+Toggles a single independent boolean.
+
+- **Use it when:** One on/off option that stands alone (enable verbose logging).
+- **Don't use it when:** Choosing one of several — use Radio. An immediate-effect setting toggle reads better as a Switch.
+- **Anatomy:** A Radix checkbox box with a check indicator and a clickable label.
+- **Variants & states:** unchecked, checked, focus, disabled
+- **Accessibility:** role=checkbox, Space toggles, label associated by id; visible focus ring.
+- **Related:** Switch, Radio
+
+### Combobox
+
+Chooses one value from a long list by typing to filter.
+
+- **Use it when:** Selecting from many options where filtering by text helps (a symbol, an account).
+- **Don't use it when:** The list is short — use Select or Radio. Free-text with no fixed set — use TextField.
+- **Anatomy:** A text input (role=combobox) over a filtered listbox of options.
+- **Variants & states:** collapsed, expanded, filtered, option hover/selected
+- **Accessibility:** Input is role=combobox with aria-expanded/aria-controls/aria-autocomplete; options are role=option in a role=listbox.
+- **Related:** Select, TextField
+
+### Field
+
+Wraps a control with an associated label, description, and error.
+
+- **Use it when:** Building a custom control that needs label/description/error wiring.
+- **Don't use it when:** You want a ready-made text input — use TextField.
+- **Anatomy:** Label, optional description, the control (render-prop), optional error alert.
+- **Variants & states:** rest, invalid (error present)
+- **Accessibility:** Associates label via id and description/error via aria-describedby; error uses role=alert.
+- **Related:** TextField, Select, Combobox
+
+### Radio
+
+Chooses exactly one option from a small, visible set.
+
+- **Use it when:** 2–5 mutually exclusive options that benefit from being all visible.
+- **Don't use it when:** Many options — use Select. Independent booleans — use Checkbox.
+- **Anatomy:** A labelled radiogroup of labelled radio items.
+- **Variants & states:** unselected, selected, focus, item disabled
+- **Accessibility:** role=radiogroup with roving focus; arrow keys move selection; group labelled by id.
+- **Related:** Select, Checkbox
+
+### Select
+
+Chooses one value from a fixed list via a dropdown.
+
+- **Use it when:** A single choice from a known, closed set that is too long for Radio.
+- **Don't use it when:** The set is short and worth showing at once — use Radio. The user should be able to filter/type — use Combobox.
+- **Anatomy:** A labelled trigger showing the current value and a portalled option list.
+- **Variants & states:** closed, open, highlighted item, selected item, disabled
+- **Accessibility:** Radix select: trigger is role=combobox labelled by id, listbox with role=option, full keyboard + type-ahead.
+- **Related:** Combobox, Radio, Menu
+
+### Switch
+
+Toggles a setting that takes effect immediately.
+
+- **Use it when:** An immediate on/off preference (reduce motion, compact density).
+- **Don't use it when:** The value is only applied on submit — use Checkbox. Choosing among options — use Radio.
+- **Anatomy:** A Radix switch track and thumb with a clickable label.
+- **Variants & states:** off, on, focus, disabled
+- **Accessibility:** role=switch, Space toggles, label associated by id; visible focus ring.
+- **Related:** Checkbox
+
+### TextField
+
+A single-line text input with label, description, and error states.
+
+- **Use it when:** Collecting a short free-text value (a name, a path, a query).
+- **Don't use it when:** Choosing from a fixed set — use Select. Toggling a boolean — use Checkbox/Switch. Multi-line text — use a textarea variant (not in this kit yet).
+- **Anatomy:** A Field wrapping a native <input type=text>.
+- **Variants & states:** rest, hover, focus, disabled, error/invalid
+- **Accessibility:** Labelled input; error sets aria-invalid + role=alert message; visible focus ring.
+- **Related:** Field, Select, Combobox
+
+## Layout
+
+### Divider
+
+Separates content with the lightest visible rule.
+
+- **Use it when:** Whitespace and grouping are not enough to separate two regions.
+- **Don't use it when:** Space or a tint already reads as separated — prefer removing the border.
+- **Anatomy:** A one-pixel hairline, horizontal or vertical.
+- **Variants & states:** horizontal, vertical
+- **Accessibility:** role=separator with aria-orientation.
+- **Related:** Toolbar, Pane
+
+### NavList
+
+A vertical list of navigable sections with one active.
+
+- **Use it when:** Switching between primary sections in a rail (chat, decisions, timeline).
+- **Don't use it when:** Choosing a form value — use Radio/Select.
+- **Anatomy:** A vertical tablist of icon+label tabs.
+- **Variants & states:** item rest, hover, active, focus
+- **Accessibility:** role=tablist/tab with aria-selected and vertical orientation; visible focus ring.
+- **Related:** Pane, Menu
+
+### Pane
+
+A titled, bordered content region with an optional scrolling body.
+
+- **Use it when:** Framing a surface (cost rail, decision log) as a distinct region.
+- **Don't use it when:** Content needs no frame — compose plainly to reduce chrome.
+- **Anatomy:** Optional header (title + actions) and a body that can scroll.
+- **Variants & states:** untitled, titled, scroll
+- **Accessibility:** section labelled by its heading id when titled.
+- **Related:** Toolbar, Divider
+
+### Toolbar
+
+Groups a row of actions over a content region.
+
+- **Use it when:** A pane needs a cluster of buttons/toggles acting on its content.
+- **Don't use it when:** The actions are page-level — use the shell chrome.
+- **Anatomy:** A Radix toolbar row of buttons/controls.
+- **Variants & states:** rest
+- **Accessibility:** role=toolbar with an aria-label; roving focus across controls.
+- **Related:** ButtonGroup, IconButton
+
+## Overlays
+
+### Dialog
+
+A focused modal for a confirmation or a small focused task.
+
+- **Use it when:** Confirming a consequential action (rewind) or a short focused edit.
+- **Don't use it when:** A large side surface fits better — use Sheet. A hint suffices — use Tooltip/Popover.
+- **Anatomy:** A trigger, an overlay, and a titled content box with optional footer actions.
+- **Variants & states:** closed, open
+- **Accessibility:** Radix dialog: focus trap, Escape closes, labelled by its title; overlay scrim.
+- **Related:** Sheet, Popover
+
+### Popover
+
+Non-modal floating content anchored to a trigger.
+
+- **Use it when:** Showing supplemental detail or a small control cluster on demand.
+- **Don't use it when:** The interaction is modal/blocking — use Dialog. A one-line hint suffices — use Tooltip.
+- **Anatomy:** A trigger and a portalled, anchored content panel.
+- **Variants & states:** closed, open
+- **Accessibility:** Radix popover: focus management, Escape/outside-click dismiss.
+- **Related:** Tooltip, Dialog, Menu
+
+### Sheet
+
+A side drawer for a larger secondary surface.
+
+- **Use it when:** Settings, detail inspectors, or side forms that need room.
+- **Don't use it when:** A small confirmation — use Dialog.
+- **Anatomy:** A trigger and a side-anchored titled dialog with a scrim.
+- **Variants & states:** left, right, closed, open
+- **Accessibility:** Built on Radix dialog: focus trap, Escape closes, labelled by title.
+- **Related:** Dialog, Pane
+
+### Tooltip
+
+A brief hint revealed on hover or focus.
+
+- **Use it when:** Labelling an icon-only control or clarifying a term.
+- **Don't use it when:** The content is interactive — use Popover. It is essential info — put it in the UI, not a hover.
+- **Anatomy:** A provider, a trigger, and a small floating label.
+- **Variants & states:** hidden, visible
+- **Accessibility:** role=tooltip, shows on focus as well as hover; provider controls delay.
+- **Related:** Popover

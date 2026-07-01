@@ -23,6 +23,13 @@
 - **Catalogue-only, byte-faithful.** The GUI is a second _client_ of the M8 catalogue, not a second source of
   truth; the artifacts it renders (graph, diffs, ledger) are byte-stable and diffable — the GUI presents them, it
   does not recompute or re-interpret them.
+- **Component kit with declared intent.** The standardized component families live in
+  [`packages/console-ui`](../packages/console-ui) (design tokens + components over Radix primitives, styled from the
+  tokens). Every component ships a typed `intent` declaration (Intent / Use-it-when / Don't-use-it-when / Anatomy /
+  Variants & States / Accessibility / Related); presence and completeness are enforced, and all intents compile into
+  the generated [`COMPONENTS.md`](../packages/console-ui/COMPONENTS.md) catalogue — the one doc to consult when
+  choosing a component. The SC-1 single deny channel is surfaced by the `DenyNotice` member, which only renders a
+  daemon-issued block (close-gate / cost-cap) and never invents one.
 - **Accessibility floor.** Semantic structure, sufficient contrast, visible focus, full keyboard navigation —
   non-negotiable, re-verified per surface.
 - **Honest surfacing (CF-1).** The user sees **everything** via progressive disclosure (crit/high expanded;
