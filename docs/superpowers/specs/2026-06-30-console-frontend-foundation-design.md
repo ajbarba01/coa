@@ -362,9 +362,10 @@ view-model**: it imports `react` + `react-resizable-panels` + `zod` only — nev
 - **Engine port is imperative** — `mount({container, …}) => LayoutHandle` (the engine owns its React root), matching
   dockview's imperative api + `dispose()`, so it is a true swappable seam rather than a React component.
 - **Plan-3 scope = the four seams + StaticEngine + tests**, including the serialize/parse/migrate machinery (the
-  validation half of persistence). **Deferred to the shell plan:** concrete panels, the daemon persistence verb +
-  per-workspace storage + IPC wiring, and the `apps/desktop` consumption (vite alias / tsconfig reference /
-  `globals.css` `@source`). **Deferred to its own spec:** `DockviewEngine`.
+  validation half of persistence). **Deferred to the shell plan:** concrete panels, layout persistence +
+  per-workspace storage + IPC wiring (resolved in §21 as Electron-**main** file storage, not a daemon verb), and the
+  `apps/desktop` consumption (vite alias / tsconfig reference / `globals.css` `@source`). **Deferred to its own
+  spec:** `DockviewEngine`.
 
 ## 12. Surface inventory & information architecture
 
@@ -493,6 +494,84 @@ Butterick's Practical Typography · Linear redesign writeups · Emil Kowalski (m
 Okabe-Ito · Viridis · ColorBrewer · Carbon Data-Viz. Layout: VS Code `SerializableGrid` · dockview · FlexLayout ·
 golden-layout · react-resizable-panels. (Full URLs captured in the four research briefs produced during
 brainstorming.)
+
+## 21. Plan 4 — the mock-first shell: decomposition & locked build decisions
+
+The §12 "mock-first full shell" is built as **three sub-plans, each shipping working, testable software** (the
+repo's bite-sized-plan + developer-sized-commit norm). Every decision below is locked; each sub-plan draws from this
+section rather than re-deciding.
+
+**Decomposition.**
+
+- **4a — the walking skeleton.** The AppShell chrome + `StaticEngine` mounted in `apps/desktop` + a `PanelRegistry`
+  + the **cost/cap** surface live end-to-end, proving every seam of the composition (chrome → mount → registry →
+  panel → shared-registry IPC bridge → pure view-model → main-process persistence). All other content regions are
+  placeholders. Nothing here is refactored when 4b/4c land.
+- **4b — the remaining buildable-now surfaces.** Flags (CF-1 `flagsForUser`), decision log (`why`/`getDecision`),
+  timeline (`listTimeline`), account selector (the auth verbs), `coa raw` + Settings (pure client). Each surface =
+  a `console-viewmodel` `selectVm` + a bridge-registry entry + a `console-ui` panel. All verbs already exist and are
+  bound in the daemon console-handler map.
+- **4c — the design-now MOCK surfaces.** Structured chat stream, approval cards, agent-config, compiled-prompt view,
+  graph/scope viz — realistic mock rendered through the same registry + selector seam, each swapping mock→verb via
+  the registry with **no shell or panel refactor** as its M8 seam (its own later spec) lands (§16).
+
+**Locked cross-cutting decisions.**
+
+- **Layout persistence = Electron-main file, no daemon verb.** The **main** process reads/writes a per-workspace
+  `layout.json`; preload exposes `getLayout()` / `saveLayout(descriptor)`; the renderer validates on read via
+  `parseDescriptor(raw, registry, DEFAULT_DESCRIPTOR)` (never throws → default on any corruption) and persists on
+  `onChange`. This honors §11.2/§11.6 ("persisted per-workspace by the daemon/**main**… the daemon persists it
+  opaquely") and the §2 non-goal of **no new M8 verbs**; the descriptor is console-local and non-authoritative, so
+  main-side storage does not breach "M10 computes nothing authoritative." The daemon-verb alternative is rejected
+  for v1.
+- **IPC bridge = named methods over a shared Zod method registry.** One named `contextBridge` method per verb
+  (`coa.capState()`, …) — enumerable and matching §10.2's one-method-per-channel posture — backed by a single
+  registry mapping each verb → `{ params, result }` Zod schemas that **both** main-side validation and the renderer
+  view-model consume (reusing the `console-viewmodel` edge schemas). Adding a verb = one registry entry + a thin
+  passthrough; schemas cannot drift across transport/preload/view-model.
+- **Live-data seam = a small `console-layout` extension.** Because the imperative engine owns its **own** React root
+  (§11.3/§11.6), React context cannot reach panels — live daemon data must flow through the handle. The engine store
+  gains a `daemonState` slot and `LayoutHandle` gains **`setDaemonState(state)`**; `PanelBody` reads it live so a
+  panel's pure `selectVm` re-runs on each update, while descriptor/drag state stays in its separate slot (a resize is
+  not clobbered by a data tick). Established in 4a because every surface needs it — deferring it would force a 4b
+  refactor, breaking the §16 no-refactor guarantee.
+
+**AppShell composition (the §7 Layout family member deferred from Plan 2).**
+
+- **Fixed chrome = the custom title bar only** — window controls / platform-flag insets (§9), the wordmark, the
+  account/session context, and the persistent **`raw`** affordance (D85). This is the OS window-frame region and is
+  genuinely not rearrangeable. AppShell = the title bar + a content slot into which the app mounts the engine.
+- **The nav rail is a layout region in the descriptor, not fixed chrome** — a `nav` panel, VS Code activity-bar
+  style (VS Code itself makes the activity bar movable/hideable). Keeping it inside the composable seam means a later
+  reposition/hide is a **descriptor change, not a shell refactor**. The serializable descriptor therefore arranges
+  the whole workbench body (nav + conversation + dashboard rail); only the title bar sits outside it.
+- **Nav-rail routing semantics are deferred.** Direction B is conversation-centric, so until 4b/4c there is only one
+  section's worth of content; 4a renders the nav rail as real, accessible chrome (Lucide icon buttons with full
+  rest/hover/active/focus states, one active, settings gear pinned bottom) but section **switching** is a stub. The
+  routing model (secondary-area swap vs. full-surface takeover) is pinned once more than one surface exists.
+
+**Default direction-B descriptor (MVP — §11.4 "all static except chat").**
+
+```text
+root = split(row, static)[
+  leaf(nav)  @ fixed-narrow,                       // the activity-bar-style rail (no drag handle in MVP)
+  split(row, resizable)[                           // the one draggable boundary: conversation <-> rail
+    leaf(conversation) @ 70,
+    split(column, static)[ leaf(cost), …rail leaves ] @ 30
+  ]
+]
+```
+
+4a registers **three** panels — `nav`, `conversation` (a placeholder surface), and `cost` (live) — which also
+exercises a real nested static+resizable tree in the skeleton. A reusable `PlaceholderPanel` covers the not-yet-built
+surfaces for 4b/4c.
+
+**Panels live in `apps/desktop`** (§11.6 "concrete panels are the shell's job") — `apps/desktop/src/renderer/panels/`,
+each = a `console-viewmodel` `selectVm` + a `console-ui` `render`, jsdom-tested in-app. No new package.
+
+**States-first is demonstrated in 4a, not deferred (§5.1 #12).** The cost panel ships real **loading** (skeleton),
+**error** (inline message), and **empty / "no ceiling"** states before its happy path — for an audit tool these
+states are the credibility, and 4a sets the pattern 4b/4c copy.
 
 ---
 
