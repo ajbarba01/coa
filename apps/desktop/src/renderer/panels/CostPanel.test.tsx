@@ -7,7 +7,7 @@ import type { ConsoleState } from './state.js';
 const CostView = costPanel.render;
 
 const stateWith = (cap: ConsoleState['data']['cap']): ConsoleState => ({
-  data: { cap },
+  data: { cap, flags: { status: 'loading' }, timeline: { status: 'loading' } },
   ui: { activeMainPanelId: 'cost' },
   actions: { setRoute: () => {}, refresh: () => {} },
 });

@@ -1,4 +1,4 @@
-import type { CapState } from '@coa/console-viewmodel';
+import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
 
 /** A single async read's UI state — carries loading/error/value through the
  *  pure selectors so panels can render states-first. */
@@ -10,6 +10,8 @@ export type Remote<T> =
 /** The daemon reads the console has fetched. Widened in later parts. */
 export interface ConsoleData {
   cap: Remote<CapState>;
+  flags: Remote<FeedView>;
+  timeline: Remote<Checkpoint[]>;
 }
 
 /** Local view state (not daemon data). Widened in later parts. */
@@ -37,7 +39,11 @@ export const DEFAULT_MAIN_PANEL_ID = 'cost';
 
 export function initialState(actions: ConsoleActions): ConsoleState {
   return {
-    data: { cap: { status: 'loading' } },
+    data: {
+      cap: { status: 'loading' },
+      flags: { status: 'loading' },
+      timeline: { status: 'loading' },
+    },
     ui: { activeMainPanelId: DEFAULT_MAIN_PANEL_ID },
     actions,
   };

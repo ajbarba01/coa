@@ -1,4 +1,4 @@
-import { CapStateSchema } from '@coa/console-viewmodel';
+import { CapStateSchema, FeedViewSchema, TimelineSchema } from '@coa/console-viewmodel';
 import { z } from 'zod';
 
 /**
@@ -13,10 +13,12 @@ export interface MethodSpec {
   result: z.ZodType;
 }
 
-export type MethodName = 'capState' | 'getLayout' | 'saveLayout';
+export type MethodName = 'capState' | 'flagsForUser' | 'listTimeline' | 'getLayout' | 'saveLayout';
 
 export const METHODS: Record<MethodName, MethodSpec> = {
   capState: { result: CapStateSchema },
+  flagsForUser: { result: FeedViewSchema },
+  listTimeline: { result: TimelineSchema },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },
 };

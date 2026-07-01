@@ -6,6 +6,8 @@ import { startConsole, type ConsoleBridge } from './console.js';
 function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   return {
     capState: vi.fn().mockResolvedValue({ remaining: 2.5, capHit: false }),
+    flagsForUser: vi.fn().mockResolvedValue({ expanded: [], collapsed: [] }),
+    listTimeline: vi.fn().mockResolvedValue([]),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),
     ...over,

@@ -1,4 +1,4 @@
-import type { CapState } from '@coa/console-viewmodel';
+import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
 
 export {};
 declare global {
@@ -7,6 +7,8 @@ declare global {
       /** 'darwin' | 'win32' | other. */
       platform: string;
       capState(): Promise<CapState>;
+      flagsForUser(): Promise<FeedView>;
+      listTimeline(): Promise<Checkpoint[]>;
       getLayout(): Promise<unknown>;
       saveLayout(descriptor: unknown): Promise<void>;
     };

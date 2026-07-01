@@ -25,6 +25,9 @@ export default defineConfig({
         '@coa/console-ui': fileURLToPath(
           new URL('../../packages/console-ui/src/index.ts', import.meta.url),
         ),
+        '@coa/shared': fileURLToPath(
+          new URL('../../packages/shared/src/index.ts', import.meta.url),
+        ),
         '@coa/console-viewmodel': fileURLToPath(
           new URL('../../packages/console-viewmodel/src/index.ts', import.meta.url),
         ),

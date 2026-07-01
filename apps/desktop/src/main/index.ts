@@ -92,13 +92,21 @@ function layoutFile(): string {
   return join(app.getPath('userData'), 'coa', 'layout.json');
 }
 
+/** Forward a read to the daemon, surfacing a JSON-RPC error as a coded IPC error. */
+async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
+  const res = await (await ensureClient()).request(method, params);
+  if ('error' in res && res.error) throw new DaemonError(res.error.message, res.error.code);
+  return res.result;
+}
+
 async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
   switch (name) {
-    case 'capState': {
-      const res = await (await ensureClient()).request('capState');
-      if ('error' in res && res.error) throw new DaemonError(res.error.message, res.error.code);
-      return res.result;
-    }
+    case 'capState':
+      return proxyDaemon('capState');
+    case 'flagsForUser':
+      return proxyDaemon('flagsForUser');
+    case 'listTimeline':
+      return proxyDaemon('listTimeline');
     case 'getLayout':
       return readLayout(layoutFile());
     case 'saveLayout':

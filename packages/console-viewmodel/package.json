@@ -19,6 +19,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@coa/shared": "workspace:*",
     "zod": "^4.4.3"
   }
 }

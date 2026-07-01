@@ -1,6 +1,6 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { IconButton } from '@coa/console-ui';
-import { Settings, Wallet } from 'lucide-react';
+import { Flag, History, Settings, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
@@ -12,7 +12,11 @@ export interface NavSection {
 
 /** The nav-driven main surfaces. Grows as surfaces land (Flags/Timeline P2, the
  *  Settings gear P3). */
-export const NAV_SECTIONS: readonly NavSection[] = [{ id: 'cost', label: 'Cost', icon: Wallet }];
+export const NAV_SECTIONS: readonly NavSection[] = [
+  { id: 'cost', label: 'Cost', icon: Wallet },
+  { id: 'flags', label: 'Flags', icon: Flag },
+  { id: 'timeline', label: 'Timeline', icon: History },
+];
 
 export interface NavVm {
   activeId: string;

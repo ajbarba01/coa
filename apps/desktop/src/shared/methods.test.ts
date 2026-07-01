@@ -16,4 +16,10 @@ describe('IPC method registry', () => {
     expect(() => METHODS.saveLayout.params?.parse({ any: 'json' })).not.toThrow();
     expect(METHODS.getLayout.result.parse({ any: 'json' })).toBeTruthy();
   });
+
+  it('validates the flags and timeline results', () => {
+    expect(METHODS.flagsForUser.result.parse({ expanded: [], collapsed: [] })).toBeTruthy();
+    expect(METHODS.listTimeline.result.parse([])).toBeTruthy();
+    expect(() => METHODS.listTimeline.result.parse({})).toThrow();
+  });
 });

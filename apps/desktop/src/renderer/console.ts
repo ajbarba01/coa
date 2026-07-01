@@ -1,12 +1,14 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
-import type { CapState } from '@coa/console-viewmodel';
+import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { LAYOUT_EPOCH, setMainPanelId } from './panels/routing.js';
-import { initialState, type ConsoleState } from './panels/state.js';
+import { initialState, type ConsoleState, type Remote } from './panels/state.js';
 
 /** The subset of `window.coa` the controller needs (injected for testing). */
 export interface ConsoleBridge {
   capState(): Promise<CapState>;
+  flagsForUser(): Promise<FeedView>;
+  listTimeline(): Promise<Checkpoint[]>;
   getLayout(): Promise<unknown>;
   saveLayout(descriptor: unknown): Promise<void>;
 }
@@ -14,6 +16,15 @@ export interface ConsoleBridge {
 export interface ConsoleController {
   refresh(): Promise<void>;
   dispose(): void;
+}
+
+/** Run a read, mapping success/failure into a Remote (never throws). */
+async function settle<T>(read: () => Promise<T>): Promise<Remote<T>> {
+  try {
+    return { status: 'ok', value: await read() };
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** Persisted layout is wrapped with the arrangement epoch so a stale arrangement
@@ -65,13 +76,12 @@ export async function startConsole(
   };
 
   async function refresh(): Promise<void> {
-    try {
-      const value = await bridge.capState();
-      state = { ...state, data: { ...state.data, cap: { status: 'ok', value } } };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      state = { ...state, data: { ...state.data, cap: { status: 'error', message } } };
-    }
+    const [cap, flags, timeline] = await Promise.all([
+      settle(() => bridge.capState()),
+      settle(() => bridge.flagsForUser()),
+      settle(() => bridge.listTimeline()),
+    ]);
+    state = { ...state, data: { ...state.data, cap, flags, timeline } };
     push();
   }
 
