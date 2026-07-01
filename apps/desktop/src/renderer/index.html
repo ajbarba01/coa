@@ -2,10 +2,14 @@
 <html lang="en" data-theme="dark" data-density="compact">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'"
-    />
+    <!--
+      No CSP <meta> here: the main process's `onHeadersReceived` response
+      header (apps/desktop/src/main/index.ts) is the single, dev-aware
+      source of truth. A hardcoded meta tag would diverge from it (e.g. it
+      cannot relax `connect-src` for Vite's HMR websocket in dev) and, per
+      the CSP spec, the stricter of two policies wins anyway, so it would
+      have silently broken dev without ever helping production.
+    -->
     <title>coa</title>
   </head>
   <body>

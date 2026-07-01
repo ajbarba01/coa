@@ -2,7 +2,7 @@ export interface DaemonClient {
   request(
     method: string,
     params?: unknown,
-  ): Promise<{ result?: unknown; error?: { message: string } }>;
+  ): Promise<{ result?: unknown; error?: { code: number; message: string } }>;
   close(): Promise<void>;
 }
 

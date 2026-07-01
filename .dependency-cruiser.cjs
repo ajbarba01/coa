@@ -62,6 +62,14 @@ module.exports = {
       from: { path: '^packages/console-viewmodel/src' },
       to: { path: 'node_modules/(electron|react|react-dom)/|^packages/core/' },
     },
+    {
+      name: 'renderer-isolation',
+      severity: 'error',
+      comment:
+        'The sandboxed renderer must import no electron and no daemon core; only main/preload may.',
+      from: { path: '^apps/desktop/src/renderer' },
+      to: { path: 'node_modules/electron/|^packages/core/' },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },

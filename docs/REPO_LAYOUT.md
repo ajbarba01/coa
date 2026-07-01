@@ -96,8 +96,8 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
 - **Apps depend on libraries, never the reverse** — `apps/*` import `packages/*`; no package imports an app.
 - **M9 fan-in is injected, not imported** — `core` does not compile-time-depend on `adapter-claude-sdk`; M8 wires
   the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.
-- **`console-viewmodel` stays pure** — it imports only `zod`/`@coa/shared`, never `electron`/`react`/`core`
-  (enforced: `viewmodel-no-electron-react`).
+- **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
+  `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
 
 A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
 **same commit** (the same-commit doc rule).

@@ -10,6 +10,7 @@ describe('resolveDaemon', () => {
     const client = await resolveDaemon({ connect, spawn, path: '\\\\.\\pipe\\coa' });
     expect(client).toBe(okClient);
     expect(spawn).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenCalledTimes(1);
   });
 
   it('spawns the daemon then connects when first connect fails', async () => {
@@ -21,5 +22,6 @@ describe('resolveDaemon', () => {
     const client = await resolveDaemon({ connect, spawn, path: '\\\\.\\pipe\\coa' });
     expect(spawn).toHaveBeenCalledOnce();
     expect(client).toBe(okClient);
+    expect(connect).toHaveBeenCalledTimes(2);
   });
 });

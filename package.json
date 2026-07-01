@@ -17,7 +17,7 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "test": "vitest run",
-    "depcruise": "depcruise packages --config .dependency-cruiser.cjs",
+    "depcruise": "depcruise packages apps --config .dependency-cruiser.cjs",
     "check": "pnpm typecheck && pnpm lint && pnpm format && pnpm test && pnpm depcruise"
   },
   "devDependencies": {
