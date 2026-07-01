@@ -31,6 +31,6 @@ describe('routing', () => {
   it('declares the routable set and a bumped layout epoch', () => {
     expect(ROUTABLE_IDS.has('cost')).toBe(true);
     expect(ROUTABLE_IDS.has('nav')).toBe(false);
-    expect(LAYOUT_EPOCH).toBe(2);
+    expect(LAYOUT_EPOCH).toBe(3);
   });
 });

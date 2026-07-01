@@ -5,8 +5,8 @@ import { LAYOUT_VERSION, type LayoutDescriptor, type Region } from '@coa/console
 export const ROUTABLE_IDS: ReadonlySet<string> = new Set(['cost', 'flags', 'timeline', 'settings']);
 
 /** Bump when the default arrangement changes so a persisted older layout is
- *  ignored (a 4a layout.json has no matching epoch → the new default is used). */
-export const LAYOUT_EPOCH = 2;
+ *  ignored (a stale layout.json has no matching epoch → the new default is used). */
+export const LAYOUT_EPOCH = 3;
 
 /**
  * Inspector-first (spec §21.1): a thin static nav rail beside the workbench body;
@@ -34,9 +34,11 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
               direction: 'column',
               adjustability: 'static',
               children: [
-                { type: 'leaf', panelId: 'conversation' },
-                { type: 'leaf', panelId: 'agent' },
-                { type: 'leaf', panelId: 'account' },
+                // Chat is the always-present companion, so it dominates the dock;
+                // the agent summary and account context are compact below it.
+                { type: 'leaf', panelId: 'conversation', size: 3 },
+                { type: 'leaf', panelId: 'agent', size: 1 },
+                { type: 'leaf', panelId: 'account', size: 1 },
               ],
             },
           ],
