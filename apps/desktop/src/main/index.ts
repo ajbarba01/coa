@@ -3,20 +3,25 @@ import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, Menu, session } from 'electron';
 import { connectClient, defaultDaemonPath } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
-import { titleBarConfig } from './titlebar.js';
+import { overlayForTheme, titleBarConfig, windowBackground } from './titlebar.js';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
 import { readJson, writeJson } from './persistence.js';
 import { METHODS, channel, type MethodName } from '../shared/methods.js';
-import { parseSettings } from '../shared/settings.js';
+import { parseSettings, type ConsoleSettings } from '../shared/settings.js';
+
+/** The single console window, tracked so a theme change can recolor its native chrome. */
+let mainWindow: BrowserWindow | undefined;
 
 function createWindow(): void {
+  const theme = parseSettings(readJson(settingsFile())).theme;
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 860,
     minHeight: 540,
     show: false,
-    ...titleBarConfig(process.platform),
+    backgroundColor: windowBackground(theme),
+    ...titleBarConfig(process.platform, theme),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -24,6 +29,10 @@ function createWindow(): void {
       nodeIntegration: false,
       webSecurity: true,
     },
+  });
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = undefined;
   });
   win.once('ready-to-show', () => win.show());
 
@@ -131,8 +140,17 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return parseSettings(readJson(settingsFile()));
     case 'saveSettings':
       writeJson(settingsFile(), params);
+      applyChromeTheme(parseSettings(params).theme);
       return undefined;
   }
+}
+
+/** Re-theme the native window chrome (background + Windows caption overlay) so the
+ *  OS-drawn controls track light/dark. macOS traffic lights re-theme via the OS. */
+function applyChromeTheme(theme: ConsoleSettings['theme']): void {
+  if (!mainWindow) return;
+  mainWindow.setBackgroundColor(windowBackground(theme));
+  if (process.platform === 'win32') mainWindow.setTitleBarOverlay(overlayForTheme(theme));
 }
 
 for (const name of Object.keys(METHODS) as MethodName[]) {
