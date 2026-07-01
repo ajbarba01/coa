@@ -139,3 +139,52 @@ describe('StaticEngine handle', () => {
     expect(container.querySelectorAll('[role="separator"]').length).toBe(1);
   });
 });
+
+describe('StaticEngine live data (setDaemonState)', () => {
+  function dataPanel(id: string): PanelDefinition<number, { n: number }> {
+    return {
+      id,
+      displayName: id.toUpperCase(),
+      selectVm: (s) => s.n,
+      render: ({ vm }: { vm: number; host: PanelHostApi }) => <div>value:{vm}</div>,
+    };
+  }
+
+  function mountData(descriptor: LayoutDescriptor, initial: { n: number }) {
+    const registry = createPanelRegistry();
+    registry.register(dataPanel('nav'));
+    registry.register(dataPanel('chat'));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const engine = createStaticEngine();
+    let handle!: ReturnType<typeof engine.mount>;
+    act(() => {
+      handle = engine.mount({
+        container,
+        descriptor,
+        registry,
+        daemonState: initial,
+        onChange: vi.fn(),
+      });
+    });
+    return { container, handle };
+  }
+
+  it('re-renders panels when daemon state changes', () => {
+    const { container, handle } = mountData(staticSplit, { n: 1 });
+    expect(container.textContent).toContain('value:1');
+    act(() => handle.setDaemonState({ n: 2 }));
+    expect(container.textContent).toContain('value:2');
+    expect(container.textContent).not.toContain('value:1');
+  });
+
+  it('does not remount the resizable group on a data tick (drag state preserved)', () => {
+    const { container, handle } = mountData(resizableSplit, { n: 1 });
+    const before = container.querySelector('[role="separator"]');
+    expect(before).not.toBeNull();
+    act(() => handle.setDaemonState({ n: 2 }));
+    const after = container.querySelector('[role="separator"]');
+    // Same DOM node identity => React reconciled in place => group not remounted.
+    expect(after).toBe(before);
+  });
+});

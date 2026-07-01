@@ -8,10 +8,15 @@ import type { LayoutEngine, LayoutHandle, LayoutMountArgs } from './port.js';
 const SUPPORTED: ReadonlySet<Adjustability> = new Set<Adjustability>(['static', 'resizable']);
 
 /** Mutable, React-external state so the imperative handle can drive/read the tree
- *  without React re-rendering on every drag (which would fight the resize lib). */
+ *  without React re-rendering on every drag (which would fight the resize lib).
+ *  `layoutRevision` keys the resize groups (bumped only on a descriptor swap);
+ *  `version` is the render trigger (bumped on ANY change, incl. a data tick), so
+ *  fresh data re-renders panels without remounting — and resetting — the groups. */
 interface LayoutStore {
   current: LayoutDescriptor;
-  revision: number;
+  daemonState: unknown;
+  layoutRevision: number;
+  version: number;
   focusTargets: Map<string, HTMLElement>;
   listeners: Set<() => void>;
 }
@@ -23,7 +28,6 @@ function notify(store: LayoutStore): void {
 interface RenderCtx {
   store: LayoutStore;
   registry: PanelRegistry;
-  daemonState: unknown;
   onChange: (d: LayoutDescriptor) => void;
 }
 
@@ -81,7 +85,7 @@ function PanelBody({
 }): React.JSX.Element | null {
   const def = ctx.registry.resolve(region.panelId);
   if (!def) return null; // defensive: parseDescriptor already dropped unknowns
-  const vm = def.selectVm(ctx.daemonState);
+  const vm = def.selectVm(ctx.store.daemonState);
   const Render = def.render;
   const host: PanelHostApi = {
     title: def.displayName,
@@ -141,7 +145,7 @@ function renderRegion(region: Region, ctx: RenderCtx, path: string): React.JSX.E
   }
   return (
     <PanelGroup
-      key={`${path}:${ctx.store.revision}`}
+      key={`${path}:${ctx.store.layoutRevision}`}
       direction={region.direction === 'row' ? 'horizontal' : 'vertical'}
       onLayout={(sizes: number[]) => {
         ctx.store.current = updateSizesAtPath(ctx.store.current, path, sizes);
@@ -165,16 +169,16 @@ function renderRegion(region: Region, ctx: RenderCtx, path: string): React.JSX.E
 }
 
 function StaticRoot({ ctx }: { ctx: RenderCtx }): React.JSX.Element {
-  const descriptor = useSyncExternalStore(
+  useSyncExternalStore(
     (cb) => {
       ctx.store.listeners.add(cb);
       return () => ctx.store.listeners.delete(cb);
     },
-    () => ctx.store.current,
+    () => ctx.store.version,
   );
   return (
     <div style={{ height: '100%', width: '100%' }}>
-      {renderRegion(descriptor.root, ctx, 'root')}
+      {renderRegion(ctx.store.current.root, ctx, 'root')}
     </div>
   );
 }
@@ -192,18 +196,26 @@ export function createStaticEngine(): LayoutEngine {
     }: LayoutMountArgs): LayoutHandle {
       const store: LayoutStore = {
         current: descriptor,
-        revision: 0,
+        daemonState,
+        layoutRevision: 0,
+        version: 0,
         focusTargets: new Map(),
         listeners: new Set(),
       };
-      const ctx: RenderCtx = { store, registry, daemonState, onChange };
+      const ctx: RenderCtx = { store, registry, onChange };
       const root = createRoot(container);
       root.render(<StaticRoot ctx={ctx} />);
       return {
         serialize: () => store.current,
         applyDescriptor: (d) => {
           store.current = d;
-          store.revision += 1;
+          store.layoutRevision += 1;
+          store.version += 1;
+          notify(store);
+        },
+        setDaemonState: (state) => {
+          store.daemonState = state;
+          store.version += 1;
           notify(store);
         },
         focusPanel: (id) => store.focusTargets.get(id)?.focus(),

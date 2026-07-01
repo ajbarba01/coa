@@ -13,6 +13,10 @@ export interface LayoutMountArgs {
 export interface LayoutHandle {
   serialize(): LayoutDescriptor;
   applyDescriptor(descriptor: LayoutDescriptor): void;
+  /** Push fresh daemon state into the mounted panels. Re-runs each panel's
+   *  pure selectVm and re-renders WITHOUT remounting the resize groups (drag
+   *  state is preserved). */
+  setDaemonState(state: unknown): void;
   focusPanel(id: string): void;
   dispose(): void;
 }
