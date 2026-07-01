@@ -13,7 +13,8 @@
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/core" },
-    { "path": "../../packages/console-viewmodel" }
+    { "path": "../../packages/console-viewmodel" },
+    { "path": "../../packages/console-ui" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
