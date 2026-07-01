@@ -1,7 +1,7 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { InlineMessage, Pane, Skeleton } from '@coa/console-ui';
 import { toCapViewModel, type CapViewModel } from '@coa/console-viewmodel';
-import type { DaemonState } from './state.js';
+import type { ConsoleState } from './state.js';
 
 export type CostVm =
   | { status: 'loading' }
@@ -9,8 +9,8 @@ export type CostVm =
   | { status: 'ok'; vm: CapViewModel };
 
 /** Pure: maps the polled cap read into a render state. */
-export function selectCostVm(state: DaemonState): CostVm {
-  const r = state.cap;
+export function selectCostVm(state: ConsoleState): CostVm {
+  const r = state.data.cap;
   if (r.status === 'ok') return { status: 'ok', vm: toCapViewModel(r.value) };
   return r;
 }
@@ -43,7 +43,7 @@ function CostView({ vm }: { vm: CostVm; host: PanelHostApi }): React.JSX.Element
   );
 }
 
-export const costPanel: PanelDefinition<CostVm, DaemonState> = {
+export const costPanel: PanelDefinition<CostVm, ConsoleState> = {
   id: 'cost',
   displayName: 'Cost',
   render: CostView,

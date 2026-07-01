@@ -1,24 +1,27 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { IconButton } from '@coa/console-ui';
-import { GitGraph, MessagesSquare, ScrollText, Settings } from 'lucide-react';
+import { Settings, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { DaemonState } from './state.js';
+import type { ConsoleState } from './state.js';
+
+export interface NavSection {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+/** The nav-driven main surfaces. Grows as surfaces land (Flags/Timeline P2, the
+ *  Settings gear P3). */
+export const NAV_SECTIONS: readonly NavSection[] = [{ id: 'cost', label: 'Cost', icon: Wallet }];
 
 export interface NavVm {
   activeId: string;
+  setRoute: (id: string) => void;
 }
 
-/** 4a has one section's worth of content, so the active section is fixed;
- *  real routing lands when a second surface exists. */
-export function selectNavVm(_state: DaemonState): NavVm {
-  return { activeId: 'conversation' };
+export function selectNavVm(state: ConsoleState): NavVm {
+  return { activeId: state.ui.activeMainPanelId, setRoute: state.actions.setRoute };
 }
-
-const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: 'conversation', label: 'Conversation', icon: MessagesSquare },
-  { id: 'decisions', label: 'Decisions', icon: ScrollText },
-  { id: 'graph', label: 'Graph', icon: GitGraph },
-];
 
 function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
   return (
@@ -27,7 +30,7 @@ function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
       className="flex h-full flex-col items-center gap-1 border-r border-hairline bg-subtle py-2"
     >
       <div className="flex flex-col gap-1">
-        {SECTIONS.map((s) => (
+        {NAV_SECTIONS.map((s) => (
           <IconButton
             key={s.id}
             icon={s.icon}
@@ -35,17 +38,18 @@ function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
             variant="tertiary"
             aria-current={s.id === vm.activeId ? 'page' : undefined}
             data-active={s.id === vm.activeId ? 'true' : undefined}
+            onClick={() => vm.setRoute(s.id)}
           />
         ))}
       </div>
       <div className="mt-auto">
-        <IconButton icon={Settings} label="Settings" variant="tertiary" />
+        <IconButton icon={Settings} label="Settings" variant="tertiary" disabled />
       </div>
     </nav>
   );
 }
 
-export const navPanel: PanelDefinition<NavVm, DaemonState> = {
+export const navPanel: PanelDefinition<NavVm, ConsoleState> = {
   id: 'nav',
   displayName: 'Navigation',
   render: NavRail,

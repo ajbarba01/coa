@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest';
+import { LAYOUT_EPOCH, ROUTABLE_IDS, makeDescriptor, setMainPanelId } from './routing.js';
+
+describe('routing', () => {
+  it('builds the inspector tree with the given main panel', () => {
+    const d = makeDescriptor('cost');
+    expect(d.root).toMatchObject({ type: 'split', direction: 'row', adjustability: 'static' });
+    const leaves = JSON.stringify(d);
+    expect(leaves).toContain('"panelId":"nav"');
+    expect(leaves).toContain('"panelId":"cost"');
+    expect(leaves).toContain('"panelId":"conversation"');
+    expect(leaves).toContain('"panelId":"agent"');
+  });
+
+  it('swaps only the routable main leaf, preserving other panels and sizes', () => {
+    const d = makeDescriptor('cost');
+    const swapped = setMainPanelId(d, 'flags');
+    const s = JSON.stringify(swapped);
+    expect(s).toContain('"panelId":"flags"');
+    expect(s).not.toContain('"panelId":"cost"');
+    expect(s).toContain('"panelId":"conversation"');
+    expect(s).toContain('"panelId":"nav"');
+  });
+
+  it('leaves the descriptor unchanged when no routable leaf is present', () => {
+    const d = makeDescriptor('cost');
+    const noRoutable = { version: d.version, root: { type: 'leaf', panelId: 'nav' } as const };
+    expect(setMainPanelId(noRoutable, 'flags')).toEqual(noRoutable);
+  });
+
+  it('declares the routable set and a bumped layout epoch', () => {
+    expect(ROUTABLE_IDS.has('cost')).toBe(true);
+    expect(ROUTABLE_IDS.has('nav')).toBe(false);
+    expect(LAYOUT_EPOCH).toBe(2);
+  });
+});

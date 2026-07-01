@@ -1,7 +1,8 @@
-import { createStaticEngine, parseDescriptor, type LayoutHandle } from '@coa/console-layout';
+import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import type { CapState } from '@coa/console-viewmodel';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
-import { INITIAL_STATE, type DaemonState } from './panels/state.js';
+import { LAYOUT_EPOCH, setMainPanelId } from './panels/routing.js';
+import { initialState, type ConsoleState } from './panels/state.js';
 
 /** The subset of `window.coa` the controller needs (injected for testing). */
 export interface ConsoleBridge {
@@ -11,43 +12,71 @@ export interface ConsoleBridge {
 }
 
 export interface ConsoleController {
-  /** Poll the daemon once and push the result into the mounted panels. */
   refresh(): Promise<void>;
   dispose(): void;
 }
 
-/** Mount the layout engine into `container`, restore the persisted layout (falling
- *  back to the default on any corruption), and return a controller that polls the
- *  daemon and persists layout changes. */
+/** Persisted layout is wrapped with the arrangement epoch so a stale arrangement
+ *  (e.g. a pre-inspector layout) is ignored rather than pinning the old shape. */
+function readPersistedDescriptor(raw: unknown): unknown {
+  if (
+    raw !== null &&
+    typeof raw === 'object' &&
+    (raw as { epoch?: unknown }).epoch === LAYOUT_EPOCH
+  ) {
+    return (raw as { descriptor?: unknown }).descriptor;
+  }
+  return undefined;
+}
+
 export async function startConsole(
   container: HTMLElement,
   bridge: ConsoleBridge,
 ): Promise<ConsoleController> {
   const registry = buildPanelRegistry();
-  const raw = await bridge.getLayout();
-  const descriptor = parseDescriptor(raw, registry, DEFAULT_DESCRIPTOR);
-  let state: DaemonState = INITIAL_STATE;
+  const descriptor = parseDescriptor(
+    readPersistedDescriptor(await bridge.getLayout()),
+    registry,
+    DEFAULT_DESCRIPTOR,
+  );
   const engine = createStaticEngine();
-  const handle: LayoutHandle = engine.mount({
+  const persist = (d: unknown): void =>
+    void bridge.saveLayout({ epoch: LAYOUT_EPOCH, descriptor: d });
+
+  // Mount with placeholder actions; the real actions (which capture `handle`) are
+  // installed just below and pushed before any interaction.
+  let state: ConsoleState = initialState({ setRoute: () => {}, refresh: () => {} });
+  const handle = engine.mount({
     container,
     descriptor,
     registry,
     daemonState: state,
-    onChange: (d) => {
-      void bridge.saveLayout(d);
-    },
+    onChange: (d) => persist(d),
   });
+
+  const push = (): void => handle.setDaemonState(state);
+
+  const setRoute = (panelId: string): void => {
+    const next = setMainPanelId(handle.serialize(), panelId);
+    handle.applyDescriptor(next); // sizes live in the descriptor, so they survive
+    persist(next);
+    state = { ...state, ui: { ...state.ui, activeMainPanelId: panelId } };
+    push();
+  };
+
   async function refresh(): Promise<void> {
     try {
       const value = await bridge.capState();
-      state = { ...state, cap: { status: 'ok', value } };
+      state = { ...state, data: { ...state.data, cap: { status: 'ok', value } } };
     } catch (e) {
-      state = {
-        ...state,
-        cap: { status: 'error', message: e instanceof Error ? e.message : String(e) },
-      };
+      const message = e instanceof Error ? e.message : String(e);
+      state = { ...state, data: { ...state.data, cap: { status: 'error', message } } };
     }
-    handle.setDaemonState(state);
+    push();
   }
+
+  state = { ...state, actions: { setRoute, refresh: () => void refresh() } };
+  push();
+
   return { refresh, dispose: () => handle.dispose() };
 }

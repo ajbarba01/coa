@@ -16,17 +16,27 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('startConsole', () => {
-  it('mounts the default layout and shows the cost surface loading, then live', async () => {
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    let controller!: Awaited<ReturnType<typeof startConsole>>;
-    await act(async () => {
-      controller = await startConsole(container, fakeBridge());
-    });
-    // nav + conversation placeholder + cost pane all present; cost starts loading.
-    expect(container.querySelector('[data-panel-id="cost"]')).not.toBeNull();
+async function mount(bridge = fakeBridge()) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  let controller!: Awaited<ReturnType<typeof startConsole>>;
+  await act(async () => {
+    controller = await startConsole(container, bridge);
+  });
+  return { container, controller };
+}
+
+describe('startConsole (inspector-first)', () => {
+  it('mounts the inspector layout: nav rail, cost main, chat+agent dock', async () => {
+    const { container } = await mount();
     expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="cost"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="conversation"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="agent"]')).not.toBeNull();
+  });
+
+  it('shows cost loading then live after refresh', async () => {
+    const { container, controller } = await mount();
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
     await act(async () => {
       await controller.refresh();
@@ -34,17 +44,10 @@ describe('startConsole', () => {
     expect(container.textContent).toContain('$2.50 left');
   });
 
-  it('falls back to the default layout when persisted layout is corrupt', async () => {
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    await act(async () => {
-      await startConsole(
-        container,
-        fakeBridge({ getLayout: vi.fn().mockResolvedValue('{ not json') }),
-      );
-    });
-    // still the full default tree (conversation + cost present).
+  it('ignores a persisted layout from a different arrangement epoch', async () => {
+    const stale = { version: 1, root: { type: 'leaf', panelId: 'cost' } };
+    const { container } = await mount(fakeBridge({ getLayout: vi.fn().mockResolvedValue(stale) }));
     expect(container.querySelector('[data-panel-id="conversation"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="cost"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
   });
 });

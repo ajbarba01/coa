@@ -3,9 +3,9 @@ import { parseDescriptor } from '@coa/console-layout';
 import { DEFAULT_DESCRIPTOR, buildPanelRegistry } from './registry.js';
 
 describe('panel registry', () => {
-  it('registers the three skeleton panels', () => {
+  it('registers the nav rail, cost, and the dock placeholders', () => {
     const reg = buildPanelRegistry();
-    for (const id of ['nav', 'conversation', 'cost']) expect(reg.has(id)).toBe(true);
+    for (const id of ['nav', 'cost', 'conversation', 'agent']) expect(reg.has(id)).toBe(true);
   });
 
   it('the default descriptor survives parseDescriptor unchanged (all panels known)', () => {
