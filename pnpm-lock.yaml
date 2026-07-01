@@ -57,6 +57,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@coa/console-viewmodel':
+        specifier: workspace:*
+        version: link:../../packages/console-viewmodel
       '@coa/core':
         specifier: workspace:*
         version: link:../../packages/core

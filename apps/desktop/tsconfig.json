@@ -10,7 +10,11 @@
     "composite": true,
     "emitDeclarationOnly": true
   },
-  "references": [{ "path": "../../packages/shared" }, { "path": "../../packages/core" }],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/core" },
+    { "path": "../../packages/console-viewmodel" }
+  ],
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
 }

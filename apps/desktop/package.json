@@ -10,6 +10,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@coa/console-viewmodel": "workspace:*",
     "@coa/core": "workspace:*",
     "@coa/shared": "workspace:*",
     "react": "^19.0.0",
