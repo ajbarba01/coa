@@ -8,4 +8,6 @@
 }
 body {
   margin: 0;
+  background: var(--color-bg-base);
+  color: var(--color-fg-default);
 }

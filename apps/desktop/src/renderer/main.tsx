@@ -1,7 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
+import { tokensToCss } from '../tokens/tokens.js';
 import './globals.css';
+
+const style = document.createElement('style');
+style.textContent = tokensToCss('dark', 'compact');
+document.head.appendChild(style);
 
 const root = document.getElementById('root');
 if (root)
