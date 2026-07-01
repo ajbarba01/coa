@@ -22,6 +22,7 @@ const stateWith = (
     flags: { status: 'loading' },
     timeline: { status: 'loading' },
     accounts,
+    turns: { status: 'loading' },
   },
   ui: { activeMainPanelId: 'cost', settings: DEFAULT_SETTINGS },
   actions: { setRoute: () => {}, refresh: () => {}, switchAccount, setSettings: () => {} },

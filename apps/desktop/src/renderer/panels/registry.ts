@@ -4,6 +4,7 @@ import {
   createPanelRegistry,
 } from '@coa/console-layout';
 import { accountPanel } from './AccountPanel.js';
+import { chatPanel } from './ChatPanel.js';
 import { costPanel } from './CostPanel.js';
 import { flagsPanel } from './FlagsPanel.js';
 import { navPanel } from './NavPanel.js';
@@ -24,13 +25,7 @@ export function buildPanelRegistry(): PanelRegistry {
   registry.register(timelinePanel);
   registry.register(settingsPanel);
   registry.register(accountPanel);
-  registry.register(
-    makePlaceholderPanel(
-      'conversation',
-      'Chat',
-      'The live conversation stream arrives with a later build.',
-    ),
-  );
+  registry.register(chatPanel);
   registry.register(
     makePlaceholderPanel('agent', 'Agent', 'Agent configuration arrives with a later build.'),
   );

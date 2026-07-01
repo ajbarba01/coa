@@ -51,6 +51,15 @@ describe('startConsole (inspector-first)', () => {
     expect(container.textContent).toContain('$2.50 left');
   });
 
+  it('renders the mock chat transcript in the dock', async () => {
+    const { container } = await mount();
+    const dock = container.querySelector('[data-panel-id="conversation"]');
+    expect(dock).not.toBeNull();
+    // The transcript log only renders when the (seeded) mock stream has frames, so its
+    // presence proves the mock flowed state -> selectVm -> Transcript.
+    expect(dock?.querySelector('[role="log"]')).not.toBeNull();
+  });
+
   it('ignores a persisted layout from a different arrangement epoch', async () => {
     const stale = { version: 1, root: { type: 'leaf', panelId: 'cost' } };
     const { container } = await mount(fakeBridge({ getLayout: vi.fn().mockResolvedValue(stale) }));

@@ -8,6 +8,11 @@ describe('panel registry', () => {
     for (const id of ['nav', 'cost', 'conversation', 'agent']) expect(reg.has(id)).toBe(true);
   });
 
+  it('registers the live chat panel at the conversation id', () => {
+    const reg = buildPanelRegistry();
+    expect(reg.resolve('conversation')?.displayName).toBe('Chat');
+  });
+
   it('the default descriptor survives parseDescriptor unchanged (all panels known)', () => {
     const reg = buildPanelRegistry();
     expect(parseDescriptor(DEFAULT_DESCRIPTOR, reg, DEFAULT_DESCRIPTOR)).toEqual(

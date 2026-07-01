@@ -13,6 +13,7 @@ const stateWith = (cap: ConsoleState['data']['cap']): ConsoleState => ({
     flags: { status: 'loading' },
     timeline: { status: 'loading' },
     accounts: { status: 'loading' },
+    turns: { status: 'loading' },
   },
   ui: { activeMainPanelId: 'cost', settings: DEFAULT_SETTINGS },
   actions: {

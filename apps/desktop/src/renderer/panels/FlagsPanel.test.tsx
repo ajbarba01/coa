@@ -19,6 +19,7 @@ const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState => ({
     flags,
     timeline: { status: 'loading' },
     accounts: { status: 'loading' },
+    turns: { status: 'loading' },
   },
   ui: { activeMainPanelId: 'flags', settings: DEFAULT_SETTINGS },
   actions: {

@@ -1,4 +1,4 @@
-import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
+import type { CapState, Checkpoint, FeedView, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
@@ -21,6 +21,7 @@ export interface ConsoleData {
   flags: Remote<FeedView>;
   timeline: Remote<Checkpoint[]>;
   accounts: Remote<AccountsInfo>;
+  turns: Remote<TurnFrame[]>;
 }
 
 /** Local view state (not daemon data). */
@@ -56,6 +57,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       flags: { status: 'loading' },
       timeline: { status: 'loading' },
       accounts: { status: 'loading' },
+      turns: { status: 'loading' },
     },
     ui: { activeMainPanelId: DEFAULT_MAIN_PANEL_ID, settings: DEFAULT_SETTINGS },
     actions,

@@ -1,6 +1,7 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
+import { MOCK_TURNS } from './panels/mockConversation.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { LAYOUT_EPOCH, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
@@ -73,6 +74,10 @@ export async function startConsole(
     setSettings: () => {},
   });
   state = { ...state, ui: { ...state.ui, settings } };
+  // The conversation stream is a shell-owned mock (its daemon verb is unbuilt); seed
+  // it ready so the dock chat renders on first paint. Swapping this for the verb is a
+  // one-line data-source change.
+  state = { ...state, data: { ...state.data, turns: { status: 'ok', value: MOCK_TURNS } } };
   const handle = engine.mount({
     container,
     descriptor,
