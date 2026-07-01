@@ -21,9 +21,10 @@ coa/
     core/                    M1,M3–M8 — @coa/core     (the spine + consumers + services; see below)
     spi/                     M9 ports — @coa/spi       (capability port types; null-fallback contracts)
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
+    console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
-    desktop/                 M10 — the Electron pull/inspector ("app" in SPEC §A.4); stack decided at M10
+    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer, tokens)
   docs/
     design/handoff/          SPEC.md · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
     superpowers/specs/       per-topic design specs (decision records)
@@ -55,7 +56,7 @@ shippable apps.
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
 | M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
 | M9 Runtime Adapter           | `packages/spi` + `packages/adapter-claude-sdk` | Ports (types) + the one backend impl.                                      |
-| M10 Console                  | `apps/cli` + `apps/desktop`            | CLI first; the Electron inspector is "app" in SPEC §A.4.                            |
+| M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer. |
 
 **Why M1 and M3–M8 share one `core` package.** They are the daemon's rings around the spine; they share the
 in-process graph and the single-writer WAL, and the SPEC keeps them co-located. The discipline that prevents this
@@ -95,6 +96,8 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
 - **Apps depend on libraries, never the reverse** — `apps/*` import `packages/*`; no package imports an app.
 - **M9 fan-in is injected, not imported** — `core` does not compile-time-depend on `adapter-claude-sdk`; M8 wires
   the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.
+- **`console-viewmodel` stays pure** — it imports only `zod`/`@coa/shared`, never `electron`/`react`/`core`
+  (enforced: `viewmodel-no-electron-react`).
 
 A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
 **same commit** (the same-commit doc rule).
@@ -167,4 +170,4 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 
 ---
 
-_Last reviewed: 2026-06-24_
+_Last reviewed: 2026-06-30_

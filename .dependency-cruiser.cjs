@@ -54,6 +54,14 @@ module.exports = {
       from: { orphan: true, pathNot: '(\\.d\\.ts$|index\\.ts$|\\.config\\.(ts|js|cjs|mjs)$)' },
       to: {},
     },
+    {
+      name: 'viewmodel-no-electron-react',
+      severity: 'error',
+      comment:
+        'The pure console view-model maps daemon data to props; it never imports electron, react, or core.',
+      from: { path: '^packages/console-viewmodel/src' },
+      to: { path: 'node_modules/(electron|react|react-dom)/|^packages/core/' },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
