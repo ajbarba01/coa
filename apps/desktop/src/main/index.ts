@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { connectClient, defaultDaemonPath } from '@coa/core/rpc';
+import { contentSecurityPolicy } from './csp.js';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
 import { readJson, writeJson } from './persistence.js';
 import { METHODS, channel, type MethodName } from '../shared/methods.js';
@@ -140,24 +141,15 @@ for (const name of Object.keys(METHODS) as MethodName[]) {
   });
 }
 
-/**
- * The response-header CSP is the single source of truth (dev-aware); the
- * renderer's `index.html` carries no competing hardcoded policy. In dev the
- * renderer is served from `ELECTRON_RENDERER_URL` by Vite, whose HMR needs a
- * websocket, so `connect-src` is relaxed only in that mode. Production keeps
- * the strict policy, including `connect-src 'none'`.
- */
-function contentSecurityPolicy(): string {
-  const connectSrc = process.env['ELECTRON_RENDERER_URL'] ? "'self' ws: wss:" : "'none'";
-  return `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ${connectSrc}`;
-}
-
 app.whenReady().then(() => {
+  // Dev is served from `ELECTRON_RENDERER_URL` by Vite (HMR + Fast Refresh);
+  // production loads from file. The CSP relaxes only in dev (see `csp.ts`).
+  const isDev = Boolean(process.env['ELECTRON_RENDERER_URL']);
   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
     cb({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [contentSecurityPolicy()],
+        'Content-Security-Policy': [contentSecurityPolicy(isDev)],
       },
     });
   });
