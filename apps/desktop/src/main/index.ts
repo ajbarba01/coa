@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
-import { connectClient, defaultDaemonPath } from '@coa/core';
+import { connectClient, defaultDaemonPath } from '@coa/core/rpc';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
 import { readJson, writeJson } from './persistence.js';
 import { METHODS, channel, type MethodName } from '../shared/methods.js';
