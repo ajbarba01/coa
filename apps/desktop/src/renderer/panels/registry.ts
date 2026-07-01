@@ -10,6 +10,7 @@ import { costPanel } from './CostPanel.js';
 import { flagsPanel } from './FlagsPanel.js';
 import { navPanel } from './NavPanel.js';
 import { settingsPanel } from './SettingsPanel.js';
+import { showcasePanel } from './ShowcasePanel.js';
 import { timelinePanel } from './TimelinePanel.js';
 import { makeDescriptor } from './routing.js';
 import { DEFAULT_MAIN_PANEL_ID } from './state.js';
@@ -23,6 +24,7 @@ export function buildPanelRegistry(): PanelRegistry {
   registry.register(flagsPanel);
   registry.register(timelinePanel);
   registry.register(settingsPanel);
+  registry.register(showcasePanel);
   registry.register(accountPanel);
   registry.register(chatPanel);
   registry.register(agentPanel);

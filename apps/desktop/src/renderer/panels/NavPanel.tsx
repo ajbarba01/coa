@@ -1,6 +1,6 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { Icon, cx, focusRing } from '@coa/console-ui';
-import { Flag, History, Settings, Wallet } from 'lucide-react';
+import { Blocks, Flag, History, Settings, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
@@ -10,11 +10,13 @@ export interface NavSection {
   icon: LucideIcon;
 }
 
-/** The nav-driven main surfaces. Grows as surfaces land (Prompt/Graph in 4c-3). */
+/** The nav-driven main surfaces. Grows as surfaces land (Prompt/Graph in 4c-3).
+ *  `showcase` is a dev-facing reference of the component kit (temporary). */
 export const NAV_SECTIONS: readonly NavSection[] = [
   { id: 'cost', label: 'Cost', icon: Wallet },
   { id: 'flags', label: 'Flags', icon: Flag },
   { id: 'timeline', label: 'Timeline', icon: History },
+  { id: 'showcase', label: 'Components', icon: Blocks },
 ];
 
 export interface NavVm {
@@ -47,13 +49,15 @@ function NavButton({
       data-active={active ? 'true' : undefined}
       onClick={onSelect}
       className={cx(
-        'relative flex h-9 w-9 items-center justify-center rounded-control transition-colors duration-fast',
+        'relative flex h-10 w-10 items-center justify-center rounded-control transition-[color,background-color,transform] duration-fast active:scale-95',
         active ? 'bg-raised text-accent' : 'text-muted hover:bg-raised hover:text-fg',
         focusRing,
       )}
     >
+      {/* The brass selection marker sits in the gutter to the LEFT of the rail card
+          (negative offset clears the button's centering margin + the card border). */}
       {active && (
-        <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-accent" aria-hidden />
+        <span className="absolute inset-y-2 -left-2 w-0.75 rounded-full bg-accent" aria-hidden />
       )}
       <Icon name={icon} size={20} />
     </button>
