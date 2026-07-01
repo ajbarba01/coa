@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startConsole, type ConsoleBridge } from './console.js';
+import { LAYOUT_EPOCH, makeDescriptor } from './panels/routing.js';
 
 function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   return {
@@ -67,6 +68,19 @@ describe('startConsole (inspector-first)', () => {
       controller.toggleRaw();
     });
     expect(container.textContent).toContain('Chat · raw');
+  });
+
+  it('syncs the nav selection to the restored main panel (not the hard default)', async () => {
+    const persisted = { epoch: LAYOUT_EPOCH, descriptor: makeDescriptor('flags') };
+    const { container } = await mount(
+      fakeBridge({ getLayout: vi.fn().mockResolvedValue(persisted) }),
+    );
+    // The restored layout shows Flags in the main region…
+    expect(container.querySelector('[data-panel-id="flags"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="cost"]')).toBeNull();
+    // …and the nav rail marks Flags active, not the DEFAULT_MAIN_PANEL_ID (Cost).
+    const active = container.querySelector('nav [aria-current="page"]');
+    expect(active?.getAttribute('aria-label')).toBe('Flags');
   });
 
   it('ignores a persisted layout from a different arrangement epoch', async () => {

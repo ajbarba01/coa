@@ -147,6 +147,55 @@ describe('StaticEngine handle', () => {
     expect(container.textContent).not.toContain('panel:nav');
   });
 
+  it('remounts the resize groups by default (structural swap)', () => {
+    const { handle, container } = mountInto(resizableSplit);
+    const before = container.querySelector('[role="separator"]');
+    act(() =>
+      handle.applyDescriptor({
+        version: LAYOUT_VERSION,
+        root: {
+          type: 'split',
+          direction: 'row',
+          adjustability: 'resizable',
+          children: [
+            { type: 'leaf', panelId: 'chat', size: 30 },
+            { type: 'leaf', panelId: 'nav', size: 70 },
+          ],
+        },
+      }),
+    );
+    // Default remounts the group => fresh separator node identity.
+    expect(container.querySelector('[role="separator"]')).not.toBe(before);
+  });
+
+  it('applies a leaf swap WITHOUT remounting the group when remountGroups is false', () => {
+    const { handle, container } = mountInto(resizableSplit);
+    const before = container.querySelector('[role="separator"]');
+    expect(before).not.toBeNull();
+    // Same-structure swap (a route change): only the second leaf's panelId changes.
+    act(() =>
+      handle.applyDescriptor(
+        {
+          version: LAYOUT_VERSION,
+          root: {
+            type: 'split',
+            direction: 'row',
+            adjustability: 'resizable',
+            children: [
+              { type: 'leaf', panelId: 'nav', size: 30 },
+              { type: 'leaf', panelId: 'nav', size: 70 },
+            ],
+          },
+        },
+        false,
+      ),
+    );
+    // The swapped leaf re-rendered its new panel…
+    expect(container.textContent).not.toContain('panel:chat');
+    // …but the separator node is the same => group reconciled in place, no flicker.
+    expect(container.querySelector('[role="separator"]')).toBe(before);
+  });
+
   it('dispose unmounts the tree', () => {
     const { handle, container } = mountInto(staticSplit);
     act(() => handle.dispose());

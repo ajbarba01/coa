@@ -1,8 +1,16 @@
 import { LAYOUT_VERSION, type LayoutDescriptor, type Region } from '@coa/console-layout';
+import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
 /** Panels that occupy the nav-driven main region (never the rail or dock). Grows
- *  as surfaces land: cost (now) · flags · timeline (P2) · settings (P3). */
-export const ROUTABLE_IDS: ReadonlySet<string> = new Set(['cost', 'flags', 'timeline', 'settings']);
+ *  as surfaces land: cost (now) · flags · timeline (P2) · settings (P3) · the
+ *  component showcase (a dev-facing kit reference). */
+export const ROUTABLE_IDS: ReadonlySet<string> = new Set([
+  'cost',
+  'flags',
+  'timeline',
+  'settings',
+  'showcase',
+]);
 
 /** Bump when the default arrangement changes so a persisted older layout is
  *  ignored (a stale layout.json has no matching epoch → the new default is used). */
@@ -47,6 +55,23 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
       ],
     },
   };
+}
+
+/** Read back which panel currently fills the routable main region, so the nav
+ *  selection can sync to a restored layout instead of the hard default. Returns
+ *  DEFAULT_MAIN_PANEL_ID if the descriptor holds no routable leaf. */
+export function getMainPanelId(descriptor: LayoutDescriptor): string {
+  function recur(region: Region): string | undefined {
+    if (region.type === 'leaf') {
+      return ROUTABLE_IDS.has(region.panelId) ? region.panelId : undefined;
+    }
+    for (const child of region.children) {
+      const found = recur(child);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  return recur(descriptor.root) ?? DEFAULT_MAIN_PANEL_ID;
 }
 
 /** Replace the single routable leaf's panelId (the main region), preserving every

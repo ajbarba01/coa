@@ -3,7 +3,7 @@ import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { MOCK_TURNS } from './panels/mockConversation.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
-import { LAYOUT_EPOCH, setMainPanelId } from './panels/routing.js';
+import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
 import { applySettings } from './theme.js';
 
@@ -76,7 +76,12 @@ export async function startConsole(
     toggleRaw: () => {},
     respondApproval: () => {},
   });
-  state = { ...state, ui: { ...state.ui, settings } };
+  // Seed the nav selection from the restored layout so the highlighted tab matches
+  // the panel actually shown (a persisted layout may open on a non-default surface).
+  state = {
+    ...state,
+    ui: { ...state.ui, settings, activeMainPanelId: getMainPanelId(descriptor) },
+  };
   // The conversation stream is a shell-owned mock (its daemon verb is unbuilt); seed
   // it ready so the dock chat renders on first paint. Swapping this for the verb is a
   // one-line data-source change.
@@ -93,7 +98,9 @@ export async function startConsole(
 
   const setRoute = (panelId: string): void => {
     const next = setMainPanelId(handle.serialize(), panelId);
-    handle.applyDescriptor(next); // sizes live in the descriptor, so they survive
+    // A route only swaps one leaf's panelId — the tree shape is identical, so skip the
+    // group remount (which would tear down and rebuild the whole window → flicker).
+    handle.applyDescriptor(next, false); // sizes live in the descriptor, so they survive
     persist(next);
     state = { ...state, ui: { ...state.ui, activeMainPanelId: panelId } };
     push();

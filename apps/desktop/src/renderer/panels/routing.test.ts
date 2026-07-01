@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LAYOUT_EPOCH, ROUTABLE_IDS, makeDescriptor, setMainPanelId } from './routing.js';
+import {
+  LAYOUT_EPOCH,
+  ROUTABLE_IDS,
+  getMainPanelId,
+  makeDescriptor,
+  setMainPanelId,
+} from './routing.js';
+import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
 describe('routing', () => {
   it('builds the inspector tree with the given main panel', () => {
@@ -29,6 +36,16 @@ describe('routing', () => {
     const d = makeDescriptor('cost');
     const noRoutable = { version: d.version, root: { type: 'leaf', panelId: 'nav' } as const };
     expect(setMainPanelId(noRoutable, 'flags')).toEqual(noRoutable);
+  });
+
+  it('reads back the routable main leaf so the nav can sync to a restored layout', () => {
+    expect(getMainPanelId(makeDescriptor('flags'))).toBe('flags');
+    expect(getMainPanelId(makeDescriptor('timeline'))).toBe('timeline');
+  });
+
+  it('falls back to the default main panel when no routable leaf is present', () => {
+    const noRoutable = { version: 1, root: { type: 'leaf', panelId: 'nav' } as const };
+    expect(getMainPanelId(noRoutable)).toBe(DEFAULT_MAIN_PANEL_ID);
   });
 
   it('declares the routable set and a bumped layout epoch', () => {

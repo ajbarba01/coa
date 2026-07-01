@@ -231,9 +231,12 @@ export function createStaticEngine(): LayoutEngine {
       root.render(<StaticRoot ctx={ctx} />);
       return {
         serialize: () => store.current,
-        applyDescriptor: (d) => {
+        applyDescriptor: (d, remountGroups = true) => {
           store.current = d;
-          store.layoutRevision += 1;
+          // Only a structural swap bumps the revision (which re-keys → remounts the
+          // resize groups). A same-shape swap (a route change) skips it so the tree
+          // reconciles in place; `version` still ticks to trigger the re-render.
+          if (remountGroups) store.layoutRevision += 1;
           store.version += 1;
           notify(store);
         },
