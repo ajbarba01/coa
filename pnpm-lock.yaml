@@ -72,6 +72,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@coa/console-layout':
+        specifier: workspace:*
+        version: link:../../packages/console-layout
       '@coa/console-ui':
         specifier: workspace:*
         version: link:../../packages/console-ui
@@ -84,6 +87,9 @@ importers:
       '@coa/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      lucide-react:
+        specifier: ^0.400.0
+        version: 0.400.0(react@19.2.7)
       react:
         specifier: ^19.0.0
         version: 19.2.7
