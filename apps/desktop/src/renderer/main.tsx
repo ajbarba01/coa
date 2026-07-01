@@ -5,6 +5,7 @@ import { tokensToCss } from '@coa/console-ui';
 import './globals.css';
 
 const style = document.createElement('style');
+style.id = 'coa-tokens';
 style.textContent = tokensToCss('dark', 'compact');
 document.head.appendChild(style);
 

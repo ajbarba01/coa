@@ -3,10 +3,12 @@ import {
   type PanelRegistry,
   createPanelRegistry,
 } from '@coa/console-layout';
+import { accountPanel } from './AccountPanel.js';
 import { costPanel } from './CostPanel.js';
 import { flagsPanel } from './FlagsPanel.js';
 import { navPanel } from './NavPanel.js';
 import { makePlaceholderPanel } from './PlaceholderPanel.js';
+import { settingsPanel } from './SettingsPanel.js';
 import { timelinePanel } from './TimelinePanel.js';
 import { makeDescriptor } from './routing.js';
 import { DEFAULT_MAIN_PANEL_ID } from './state.js';
@@ -20,6 +22,8 @@ export function buildPanelRegistry(): PanelRegistry {
   registry.register(costPanel);
   registry.register(flagsPanel);
   registry.register(timelinePanel);
+  registry.register(settingsPanel);
+  registry.register(accountPanel);
   registry.register(
     makePlaceholderPanel(
       'conversation',

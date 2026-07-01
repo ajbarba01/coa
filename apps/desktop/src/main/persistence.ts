@@ -1,10 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-/** Read the persisted layout descriptor as opaque JSON. Returns `undefined` on a
- *  missing or corrupt file; the renderer validates the shape via `parseDescriptor`
- *  and falls back to its default, so persistence never throws on bad input. */
-export function readLayout(file: string): unknown {
+/** Read opaque JSON; `undefined` on a missing/corrupt file (callers validate). */
+export function readJson(file: string): unknown {
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
   } catch {
@@ -12,8 +10,8 @@ export function readLayout(file: string): unknown {
   }
 }
 
-/** Persist the descriptor opaquely (creating its parent directory). */
-export function writeLayout(file: string, descriptor: unknown): void {
+/** Write a value as JSON, creating its parent directory. */
+export function writeJson(file: string, value: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(descriptor), 'utf8');
+  writeFileSync(file, JSON.stringify(value), 'utf8');
 }

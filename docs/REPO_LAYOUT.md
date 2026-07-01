@@ -26,7 +26,7 @@ coa/
     console-layout/          M10 — @coa/console-layout (panel registry + versioned layout descriptor + engine port + StaticEngine; pure react/react-resizable-panels/zod, no electron/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
-    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer composes the AppShell chrome + the StaticEngine (console-layout) + concrete panels (nav rail, conversation placeholder, live cost) in `src/renderer/panels/`; the IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); layout is persisted per-user by the main process (`src/main/persistence.ts`).
+    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer composes the AppShell chrome + the StaticEngine (console-layout) + concrete panels (nav rail, conversation placeholder, live cost) in `src/renderer/panels/`; the IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); layout is persisted per-user by the main process (`src/main/persistence.ts`). The nav rail drives the main region (Cost/Flags/Timeline/Settings) while a persistent right dock holds chat/agent placeholders + the live account selector; console settings (theme/density/motion) persist per-user in `settings.json` beside `layout.json`.
   docs/
     design/handoff/          SPEC.md · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
     superpowers/specs/       per-topic design specs (decision records)

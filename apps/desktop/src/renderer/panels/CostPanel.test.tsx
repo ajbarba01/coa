@@ -3,13 +3,24 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { costPanel, selectCostVm, type CostVm } from './CostPanel.js';
 import type { ConsoleState } from './state.js';
+import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 const CostView = costPanel.render;
 
 const stateWith = (cap: ConsoleState['data']['cap']): ConsoleState => ({
-  data: { cap, flags: { status: 'loading' }, timeline: { status: 'loading' } },
-  ui: { activeMainPanelId: 'cost' },
-  actions: { setRoute: () => {}, refresh: () => {} },
+  data: {
+    cap,
+    flags: { status: 'loading' },
+    timeline: { status: 'loading' },
+    accounts: { status: 'loading' },
+  },
+  ui: { activeMainPanelId: 'cost', settings: DEFAULT_SETTINGS },
+  actions: {
+    setRoute: () => {},
+    refresh: () => {},
+    switchAccount: () => {},
+    setSettings: () => {},
+  },
 });
 
 describe('selectCostVm', () => {

@@ -8,8 +8,13 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     capState: vi.fn().mockResolvedValue({ remaining: 2.5, capHit: false }),
     flagsForUser: vi.fn().mockResolvedValue({ expanded: [], collapsed: [] }),
     listTimeline: vi.fn().mockResolvedValue([]),
+    listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
+    currentAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
+    useAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),
+    getSettings: vi.fn().mockResolvedValue({ theme: 'dark', density: 'compact', motion: 'full' }),
+    saveSettings: vi.fn().mockResolvedValue(undefined),
     ...over,
   };
 }

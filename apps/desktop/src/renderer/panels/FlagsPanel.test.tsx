@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { flagsPanel, selectFlagsVm } from './FlagsPanel.js';
 import type { ConsoleState } from './state.js';
+import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 const FlagsView = flagsPanel.render;
 const host = {
@@ -13,9 +14,19 @@ const host = {
 };
 
 const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState => ({
-  data: { cap: { status: 'loading' }, flags, timeline: { status: 'loading' } },
-  ui: { activeMainPanelId: 'flags' },
-  actions: { setRoute: () => {}, refresh: () => {} },
+  data: {
+    cap: { status: 'loading' },
+    flags,
+    timeline: { status: 'loading' },
+    accounts: { status: 'loading' },
+  },
+  ui: { activeMainPanelId: 'flags', settings: DEFAULT_SETTINGS },
+  actions: {
+    setRoute: () => {},
+    refresh: () => {},
+    switchAccount: () => {},
+    setSettings: () => {},
+  },
 });
 
 describe('selectFlagsVm', () => {

@@ -13,3 +13,10 @@ body {
   background: var(--color-bg-base);
   color: var(--color-fg-default);
 }
+
+[data-motion='reduce'] *,
+[data-motion='reduce'] *::before,
+[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}

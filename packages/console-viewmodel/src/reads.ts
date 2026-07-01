@@ -18,3 +18,14 @@ export const CheckpointSchema = z.object({
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
 
 export const TimelineSchema = z.array(CheckpointSchema);
+
+/** An account pointer as the console needs it (label only; the daemon's provider/
+ *  locator are stripped). */
+export const AccountSummarySchema = z.object({ label: z.string() });
+export type AccountSummary = z.infer<typeof AccountSummarySchema>;
+
+export const AccountsSchema = z.object({ accounts: z.array(AccountSummarySchema) });
+export type Accounts = z.infer<typeof AccountsSchema>;
+
+export const ActiveAccountSchema = z.object({ active: z.string() });
+export type ActiveAccount = z.infer<typeof ActiveAccountSchema>;

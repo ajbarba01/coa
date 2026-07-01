@@ -47,7 +47,14 @@ function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
         ))}
       </div>
       <div className="mt-auto">
-        <IconButton icon={Settings} label="Settings" variant="tertiary" disabled />
+        <IconButton
+          icon={Settings}
+          label="Settings"
+          variant="tertiary"
+          aria-current={vm.activeId === 'settings' ? 'page' : undefined}
+          data-active={vm.activeId === 'settings' ? 'true' : undefined}
+          onClick={() => vm.setRoute('settings')}
+        />
       </div>
     </nav>
   );

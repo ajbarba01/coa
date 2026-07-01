@@ -36,6 +36,7 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
               children: [
                 { type: 'leaf', panelId: 'conversation' },
                 { type: 'leaf', panelId: 'agent' },
+                { type: 'leaf', panelId: 'account' },
               ],
             },
           ],

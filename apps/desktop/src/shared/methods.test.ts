@@ -22,4 +22,10 @@ describe('IPC method registry', () => {
     expect(METHODS.listTimeline.result.parse([])).toBeTruthy();
     expect(() => METHODS.listTimeline.result.parse({})).toThrow();
   });
+
+  it('validates the account verbs', () => {
+    expect(METHODS.listAccounts.result.parse({ accounts: [{ label: 'a' }] })).toBeTruthy();
+    expect(METHODS.currentAccount.result.parse({ active: 'a' })).toBeTruthy();
+    expect(() => METHODS.useAccount.params?.parse({})).toThrow();
+  });
 });

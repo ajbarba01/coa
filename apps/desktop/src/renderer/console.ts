@@ -1,16 +1,23 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
+import type { ConsoleSettings } from '../shared/settings.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { LAYOUT_EPOCH, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
+import { applySettings } from './theme.js';
 
 /** The subset of `window.coa` the controller needs (injected for testing). */
 export interface ConsoleBridge {
   capState(): Promise<CapState>;
   flagsForUser(): Promise<FeedView>;
   listTimeline(): Promise<Checkpoint[]>;
+  listAccounts(): Promise<{ accounts: { label: string }[] }>;
+  currentAccount(): Promise<{ active: string }>;
+  useAccount(params: { label: string }): Promise<{ active: string }>;
   getLayout(): Promise<unknown>;
   saveLayout(descriptor: unknown): Promise<void>;
+  getSettings(): Promise<ConsoleSettings>;
+  saveSettings(settings: ConsoleSettings): Promise<void>;
 }
 
 export interface ConsoleController {
@@ -50,13 +57,22 @@ export async function startConsole(
     registry,
     DEFAULT_DESCRIPTOR,
   );
+  const settings = await bridge.getSettings();
+  applySettings(settings);
+
   const engine = createStaticEngine();
   const persist = (d: unknown): void =>
     void bridge.saveLayout({ epoch: LAYOUT_EPOCH, descriptor: d });
 
   // Mount with placeholder actions; the real actions (which capture `handle`) are
   // installed just below and pushed before any interaction.
-  let state: ConsoleState = initialState({ setRoute: () => {}, refresh: () => {} });
+  let state: ConsoleState = initialState({
+    setRoute: () => {},
+    refresh: () => {},
+    switchAccount: () => {},
+    setSettings: () => {},
+  });
+  state = { ...state, ui: { ...state.ui, settings } };
   const handle = engine.mount({
     container,
     descriptor,
@@ -85,8 +101,35 @@ export async function startConsole(
     push();
   }
 
-  state = { ...state, actions: { setRoute, refresh: () => void refresh() } };
+  async function loadAccounts(): Promise<void> {
+    const accounts = await settle(async () => {
+      const [list, current] = await Promise.all([bridge.listAccounts(), bridge.currentAccount()]);
+      return { accounts: list.accounts, active: current.active };
+    });
+    state = { ...state, data: { ...state.data, accounts } };
+    push();
+  }
+
+  const switchAccount = (label: string): void =>
+    void (async () => {
+      await bridge.useAccount({ label });
+      await loadAccounts();
+    })();
+
+  const setSettings = (patch: Partial<ConsoleSettings>): void => {
+    const next = { ...state.ui.settings, ...patch };
+    applySettings(next);
+    void bridge.saveSettings(next);
+    state = { ...state, ui: { ...state.ui, settings: next } };
+    push();
+  };
+
+  state = {
+    ...state,
+    actions: { setRoute, refresh: () => void refresh(), switchAccount, setSettings },
+  };
   push();
+  void loadAccounts();
 
   return { refresh, dispose: () => handle.dispose() };
 }

@@ -3,8 +3,9 @@ import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { connectClient, defaultDaemonPath } from '@coa/core';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
-import { readLayout, writeLayout } from './persistence.js';
+import { readJson, writeJson } from './persistence.js';
 import { METHODS, channel, type MethodName } from '../shared/methods.js';
+import { parseSettings } from '../shared/settings.js';
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -92,6 +93,10 @@ function layoutFile(): string {
   return join(app.getPath('userData'), 'coa', 'layout.json');
 }
 
+function settingsFile(): string {
+  return join(app.getPath('userData'), 'coa', 'settings.json');
+}
+
 /** Forward a read to the daemon, surfacing a JSON-RPC error as a coded IPC error. */
 async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
   const res = await (await ensureClient()).request(method, params);
@@ -107,10 +112,21 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('flagsForUser');
     case 'listTimeline':
       return proxyDaemon('listTimeline');
+    case 'listAccounts':
+      return proxyDaemon('listAccounts');
+    case 'currentAccount':
+      return proxyDaemon('currentAccount');
+    case 'useAccount':
+      return proxyDaemon('useAccount', params);
     case 'getLayout':
-      return readLayout(layoutFile());
+      return readJson(layoutFile());
     case 'saveLayout':
-      writeLayout(layoutFile(), params);
+      writeJson(layoutFile(), params);
+      return undefined;
+    case 'getSettings':
+      return parseSettings(readJson(settingsFile()));
+    case 'saveSettings':
+      writeJson(settingsFile(), params);
       return undefined;
   }
 }
