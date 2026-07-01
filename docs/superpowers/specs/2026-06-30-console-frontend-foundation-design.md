@@ -343,6 +343,29 @@ value attrs); label splitters via `aria-labelledby` to the pane heading. Static 
 The dockview upgrade turns on its AccessibilityModule (LiveRegion + keyboard docking). `focusPanel` ships in the
 handle from day one.
 
+### 11.6 Plan-3 concretization (locked)
+
+The layout core ships as a standalone package **`@coa/console-layout`** (`packages/console-layout`). It renders React
+so it is not "pure," but it is **Electron-free and jsdom-unit-testable**, mirroring the console-viewmodel/console-ui
+split (a `console-layout-no-electron-core` dependency-cruiser rule enforces it). It stays **generic over the panel
+view-model**: it imports `react` + `react-resizable-panels` + `zod` only — never `console-ui`, `console-viewmodel`, or
+`core`. Concrete panels (which import the UI kit + view-model selectors) are the shell's job, not the core's.
+
+- **Descriptor schema home = console-local, not M0.** The versioned `LayoutDescriptor` Zod schema and its migration
+  ladder / drop-unknown-panelId logic live in `console-layout`. The descriptor is a console-only concept (panelIds,
+  geometry, adjustability); the daemon persists it **opaquely** and the console **validates-on-read** at its edge. This
+  keeps M0 pure to its cross-module wire-type charter while honoring "validate the persisted layout with Zod."
+- **Region model.** A descriptor is `{ version, root }` where `Region = Leaf | Split`; the `adjustability` dial lives on
+  the **split** region (the node that owns the boundary between its children), mapping 1:1 onto a
+  react-resizable-panels group. `StaticEngine.supports = {static, resizable}`; a `dockable` region **degrades to
+  resizable** (never loses functionality).
+- **Engine port is imperative** — `mount({container, …}) => LayoutHandle` (the engine owns its React root), matching
+  dockview's imperative api + `dispose()`, so it is a true swappable seam rather than a React component.
+- **Plan-3 scope = the four seams + StaticEngine + tests**, including the serialize/parse/migrate machinery (the
+  validation half of persistence). **Deferred to the shell plan:** concrete panels, the daemon persistence verb +
+  per-workspace storage + IPC wiring, and the `apps/desktop` consumption (vite alias / tsconfig reference /
+  `globals.css` `@source`). **Deferred to its own spec:** `DockviewEngine`.
+
 ## 12. Surface inventory & information architecture
 
 **Three zones (D128)** + surrounding own-UI-parts, mapped to backend readiness:
@@ -473,4 +496,4 @@ brainstorming.)
 
 ---
 
-_Last reviewed: 2026-06-30_
+_Last reviewed: 2026-07-01_
