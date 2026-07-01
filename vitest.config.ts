@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 // Resolve workspace packages to their TypeScript source so tests run without a
@@ -19,12 +20,16 @@ const workspaceAlias = {
 };
 
 export default defineConfig({
+  plugins: [react()],
   resolve: { alias: workspaceAlias },
   test: {
+    setupFiles: ['./vitest.setup.ts'],
     include: [
       'packages/*/src/**/*.test.ts',
+      'packages/*/src/**/*.test.tsx',
       'packages/*/test/**/*.test.ts',
       'apps/*/src/**/*.test.ts',
+      'apps/*/src/**/*.test.tsx',
     ],
   },
 });
