@@ -127,6 +127,19 @@ Presents rows of records with aligned columns, empty state first.
 - **Accessibility:** Semantic table with scoped column headers and an sr-only caption.
 - **Related:** List, KeyValue
 
+## Dense/Viz
+
+### Transcript
+
+A virtualized turn stream of role-tagged conversation frames.
+
+- **Use it when:** Showing the agent conversation — text, tool calls, approvals, denies, or the raw loop.
+- **Don't use it when:** Showing one long document — use Longform/PromptView. Showing tabular records — use Table.
+- **Anatomy:** A labelled log region virtualizing per-kind rows (text, tool-use, tool-result, approval, deny, raw).
+- **Variants & states:** text, tool-use, tool-result, approval, approval-resolved, deny, raw, empty
+- **Accessibility:** role=log with an aria-label; approval actions are native focusable buttons; payloads render byte-faithfully.
+- **Related:** DenyNotice, Code, Table
+
 ## Feedback
 
 ### Banner

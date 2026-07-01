@@ -25,6 +25,7 @@ describe('component registry', () => {
       'Data-display',
       'Feedback',
       'Overlays',
+      'Dense/Viz',
     ]) {
       expect(families.has(f)).toBe(true);
     }

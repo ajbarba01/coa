@@ -26,7 +26,8 @@
   },
   "dependencies": {
     "lucide-react": "^0.400.0",
-    "radix-ui": "^1.1.0"
+    "radix-ui": "^1.1.0",
+    "react-virtuoso": "^4.18.10"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

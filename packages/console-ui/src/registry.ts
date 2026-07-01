@@ -35,6 +35,7 @@ import { keyValueIntent } from './data/KeyValue.intent.js';
 import { codeIntent } from './data/Code.intent.js';
 import { badgeIntent } from './data/Badge.intent.js';
 import { statIntent } from './data/Stat.intent.js';
+import { transcriptIntent } from './dense/Transcript.intent.js';
 
 /** Every component appends its intent here. Feeds COMPONENTS.md + the coverage test. */
 export const allIntents: ComponentIntent[] = [
@@ -74,4 +75,5 @@ export const allIntents: ComponentIntent[] = [
   codeIntent,
   badgeIntent,
   statIntent,
+  transcriptIntent,
 ];

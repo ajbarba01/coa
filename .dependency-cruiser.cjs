@@ -66,7 +66,7 @@ module.exports = {
       name: 'console-ui-no-electron-core',
       severity: 'error',
       comment:
-        'The UI kit is a pure renderer-side library; it never imports electron or the daemon core (only react/radix/lucide).',
+        'The UI kit is a pure renderer-side library; it never imports electron or the daemon core (only react/radix/lucide/react-virtuoso).',
       from: { path: '^packages/console-ui/src' },
       to: { path: 'node_modules/electron/|^packages/core/' },
     },

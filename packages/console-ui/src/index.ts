@@ -37,3 +37,11 @@ export { KeyValue, type KeyValueProps, type KeyValuePair } from './data/KeyValue
 export { Code, type CodeProps } from './data/Code.js';
 export { Badge, type BadgeProps, type BadgeTone } from './data/Badge.js';
 export { Stat, type StatProps } from './data/Stat.js';
+export {
+  Transcript,
+  TranscriptRow,
+  type TranscriptProps,
+  type TranscriptFrame,
+  type TranscriptRole,
+  type RespondFn,
+} from './dense/Transcript.js';

@@ -100,8 +100,8 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
   the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.
 - **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
   `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
-- **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react` (+ its own tokens), never
-  `electron`/`core` (enforced: `console-ui-no-electron-core`).
+- **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react`/`react-virtuoso` (+ its own
+  tokens), never `electron`/`core` (enforced: `console-ui-no-electron-core`).
 - **`console-layout` is the pure layout core** — it imports only `react`/`react-resizable-panels`/`zod`, never
   `electron`/`core` (enforced: `console-layout-no-electron-core`). It stays generic over the panel view-model (no
   `console-ui`/`console-viewmodel` import); concrete panels live in the shell.
