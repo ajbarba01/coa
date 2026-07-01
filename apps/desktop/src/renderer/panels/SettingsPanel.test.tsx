@@ -21,8 +21,20 @@ const state = (setSettings = vi.fn()): ConsoleState => ({
     accounts: { status: 'loading' },
     turns: { status: 'loading' },
   },
-  ui: { activeMainPanelId: 'settings', settings: DEFAULT_SETTINGS },
-  actions: { setRoute: () => {}, refresh: () => {}, switchAccount: () => {}, setSettings },
+  ui: {
+    activeMainPanelId: 'settings',
+    settings: DEFAULT_SETTINGS,
+    rawMode: false,
+    resolvedApprovals: {},
+  },
+  actions: {
+    setRoute: () => {},
+    refresh: () => {},
+    switchAccount: () => {},
+    setSettings,
+    toggleRaw: () => {},
+    respondApproval: () => {},
+  },
 });
 
 describe('SettingsView', () => {

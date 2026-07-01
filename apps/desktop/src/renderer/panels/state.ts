@@ -29,6 +29,11 @@ export interface ConsoleUi {
   /** Which surface panel currently fills the nav-driven main region. */
   activeMainPanelId: string;
   settings: ConsoleSettings;
+  /** When true the conversation renders the unfiltered loop (D85). */
+  rawMode: boolean;
+  /** Inert local record of mock approvals the operator resolved (SC-1: surfacing
+   *  only — the daemon owns the real decision). */
+  resolvedApprovals: Record<string, 'approved' | 'denied'>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -37,6 +42,8 @@ export interface ConsoleActions {
   refresh: () => void;
   switchAccount: (label: string) => void;
   setSettings: (patch: Partial<ConsoleSettings>) => void;
+  toggleRaw: () => void;
+  respondApproval: (requestId: string, decision: 'approve' | 'deny') => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -59,7 +66,12 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       accounts: { status: 'loading' },
       turns: { status: 'loading' },
     },
-    ui: { activeMainPanelId: DEFAULT_MAIN_PANEL_ID, settings: DEFAULT_SETTINGS },
+    ui: {
+      activeMainPanelId: DEFAULT_MAIN_PANEL_ID,
+      settings: DEFAULT_SETTINGS,
+      rawMode: false,
+      resolvedApprovals: {},
+    },
     actions,
   };
 }

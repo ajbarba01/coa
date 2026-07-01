@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { TurnFrame } from '@coa/console-viewmodel';
-import { chatPanel, selectChatVm, toGovernedFrame } from './ChatPanel.js';
+import { chatPanel, frameToRawLine, selectChatVm, toGovernedFrame } from './ChatPanel.js';
 import type { ConsoleState } from './state.js';
 
 const ChatView = chatPanel.render;
@@ -13,7 +13,10 @@ const host = {
   requestFocus: () => {},
 };
 
-const stateWith = (turns: ConsoleState['data']['turns']): ConsoleState => ({
+const stateWith = (
+  turns: ConsoleState['data']['turns'],
+  ui: Partial<ConsoleState['ui']> = {},
+): ConsoleState => ({
   data: {
     cap: { status: 'loading' },
     flags: { status: 'loading' },
@@ -24,12 +27,17 @@ const stateWith = (turns: ConsoleState['data']['turns']): ConsoleState => ({
   ui: {
     activeMainPanelId: 'cost',
     settings: { theme: 'dark', density: 'comfortable', motion: 'full' },
+    rawMode: false,
+    resolvedApprovals: {},
+    ...ui,
   },
   actions: {
     setRoute: () => {},
     refresh: () => {},
     switchAccount: () => {},
     setSettings: () => {},
+    toggleRaw: () => {},
+    respondApproval: () => {},
   },
 });
 
@@ -68,6 +76,38 @@ describe('selectChatVm', () => {
     if (vm.status === 'ready') {
       expect(vm.rawMode).toBe(false);
       expect(vm.frames).toHaveLength(1);
+    }
+  });
+});
+
+describe('raw + approval projection', () => {
+  const stream: TurnFrame[] = [
+    { id: '1', role: 'agent', kind: 'text', text: 'hi' },
+    { id: '2', kind: 'approval', requestId: 'r1', tool: 'write_file', summary: 's' },
+  ];
+
+  it('serializes each frame to a verbatim raw line', () => {
+    const line = frameToRawLine({ id: '1', role: 'agent', kind: 'text', text: 'hi' });
+    expect(line).toContain('agent');
+    expect(line).toContain('hi');
+  });
+
+  it('reprojects the stream to raw frames in raw mode', () => {
+    const vm = selectChatVm(stateWith({ status: 'ok', value: stream }, { rawMode: true }));
+    expect(vm.status).toBe('ready');
+    if (vm.status === 'ready') {
+      expect(vm.rawMode).toBe(true);
+      expect(vm.frames.every((f) => f.kind === 'raw')).toBe(true);
+    }
+  });
+
+  it('overlays a resolved approval from ui state', () => {
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: stream }, { resolvedApprovals: { r1: 'approved' } }),
+    );
+    if (vm.status === 'ready') {
+      const approval = vm.frames.find((f) => f.kind === 'approval');
+      expect(approval).toMatchObject({ resolved: 'approved' });
     }
   });
 });

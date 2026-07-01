@@ -49,17 +49,40 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
   }
 }
 
-/** Pure: projects the polled turn stream into transcript frames. A later part adds the
- *  raw reprojection and approval-resolution overlay. */
+/** The verbatim (unfiltered-loop) projection of one frame. Mock stand-in for the
+ *  turn store's raw bytes; rendered byte-faithfully via the Code block (D128). */
+export function frameToRawLine(f: TurnFrame): string {
+  switch (f.kind) {
+    case 'text':
+      return `> ${f.role}: ${f.text}`;
+    case 'tool-use':
+      return `> ${f.role}: tool_use ${f.tool} ${f.input}`;
+    case 'tool-result':
+      return `> ${f.role}: tool_result ${f.tool} ${f.ok ? 'ok' : 'error'} ${f.output}`;
+    case 'approval':
+      return `> control: approval_request ${f.tool} (${f.requestId})`;
+    case 'deny':
+      return `> control: deny ${f.denyKind} ${f.reason}`;
+  }
+}
+
+/** Pure: projects the polled turn stream into transcript frames. In raw mode every
+ *  frame becomes its verbatim line (D85); otherwise a resolved approval is overlaid
+ *  from ui state. */
 export function selectChatVm(state: ConsoleState): ChatVm {
   const r = state.data.turns;
   if (r.status !== 'ok') return r;
-  return {
-    status: 'ready',
-    rawMode: false,
-    frames: r.value.map(toGovernedFrame),
-    onRespond: () => {},
-  };
+  const { rawMode, resolvedApprovals } = state.ui;
+  const frames: TranscriptFrame[] = rawMode
+    ? r.value.map((f) => ({ id: f.id, kind: 'raw', text: frameToRawLine(f) }))
+    : r.value.map((f) => {
+        const g = toGovernedFrame(f);
+        if (g.kind === 'approval' && resolvedApprovals[g.requestId] !== undefined) {
+          return { ...g, resolved: resolvedApprovals[g.requestId] };
+        }
+        return g;
+      });
+  return { status: 'ready', rawMode, frames, onRespond: state.actions.respondApproval };
 }
 
 function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {

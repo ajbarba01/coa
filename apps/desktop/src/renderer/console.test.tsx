@@ -60,6 +60,15 @@ describe('startConsole (inspector-first)', () => {
     expect(dock?.querySelector('[role="log"]')).not.toBeNull();
   });
 
+  it('toggles the conversation into raw mode', async () => {
+    const { container, controller } = await mount();
+    expect(container.textContent).not.toContain('Chat · raw');
+    await act(async () => {
+      controller.toggleRaw();
+    });
+    expect(container.textContent).toContain('Chat · raw');
+  });
+
   it('ignores a persisted layout from a different arrangement epoch', async () => {
     const stale = { version: 1, root: { type: 'leaf', panelId: 'cost' } };
     const { container } = await mount(fakeBridge({ getLayout: vi.fn().mockResolvedValue(stale) }));

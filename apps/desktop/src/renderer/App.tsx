@@ -6,6 +6,7 @@ const POLL_MS = 2000;
 
 export function App(): React.JSX.Element {
   const slotRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<ConsoleController | undefined>(undefined);
 
   useEffect(() => {
     const container = slotRef.current;
@@ -15,6 +16,7 @@ export function App(): React.JSX.Element {
     let disposed = false;
     void (async () => {
       controller = await startConsole(container, window.coa);
+      controllerRef.current = controller;
       if (disposed) {
         controller.dispose();
         return;
@@ -24,6 +26,7 @@ export function App(): React.JSX.Element {
     })();
     return () => {
       disposed = true;
+      controllerRef.current = undefined;
       if (timer) clearInterval(timer);
       controller?.dispose();
     };
@@ -33,10 +36,7 @@ export function App(): React.JSX.Element {
     <AppShell
       platform={window.coa.platform}
       workspaceName="myproject"
-      onRaw={() => {
-        // The `coa raw` transparency view is a later surface; the affordance is
-        // always present and focusable in the chrome (D85).
-      }}
+      onRaw={() => controllerRef.current?.toggleRaw()}
     >
       <div ref={slotRef} style={{ height: '100%' }} />
     </AppShell>

@@ -21,12 +21,19 @@ const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState => ({
     accounts: { status: 'loading' },
     turns: { status: 'loading' },
   },
-  ui: { activeMainPanelId: 'flags', settings: DEFAULT_SETTINGS },
+  ui: {
+    activeMainPanelId: 'flags',
+    settings: DEFAULT_SETTINGS,
+    rawMode: false,
+    resolvedApprovals: {},
+  },
   actions: {
     setRoute: () => {},
     refresh: () => {},
     switchAccount: () => {},
     setSettings: () => {},
+    toggleRaw: () => {},
+    respondApproval: () => {},
   },
 });
 

@@ -23,6 +23,7 @@ export interface ConsoleBridge {
 
 export interface ConsoleController {
   refresh(): Promise<void>;
+  toggleRaw(): void;
   dispose(): void;
 }
 
@@ -72,6 +73,8 @@ export async function startConsole(
     refresh: () => {},
     switchAccount: () => {},
     setSettings: () => {},
+    toggleRaw: () => {},
+    respondApproval: () => {},
   });
   state = { ...state, ui: { ...state.ui, settings } };
   // The conversation stream is a shell-owned mock (its daemon verb is unbuilt); seed
@@ -129,12 +132,36 @@ export async function startConsole(
     push();
   };
 
+  const toggleRaw = (): void => {
+    state = { ...state, ui: { ...state.ui, rawMode: !state.ui.rawMode } };
+    push();
+  };
+
+  const respondApproval = (requestId: string, decision: 'approve' | 'deny'): void => {
+    const resolved = decision === 'approve' ? 'approved' : 'denied';
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        resolvedApprovals: { ...state.ui.resolvedApprovals, [requestId]: resolved },
+      },
+    };
+    push();
+  };
+
   state = {
     ...state,
-    actions: { setRoute, refresh: () => void refresh(), switchAccount, setSettings },
+    actions: {
+      setRoute,
+      refresh: () => void refresh(),
+      switchAccount,
+      setSettings,
+      toggleRaw,
+      respondApproval,
+    },
   };
   push();
   void loadAccounts();
 
-  return { refresh, dispose: () => handle.dispose() };
+  return { refresh, toggleRaw, dispose: () => handle.dispose() };
 }
