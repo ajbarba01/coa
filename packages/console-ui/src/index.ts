@@ -30,6 +30,7 @@ export { Divider, type DividerProps } from './layout/Divider.js';
 export { Toolbar, type ToolbarProps } from './layout/Toolbar.js';
 export { Pane, type PaneProps } from './layout/Pane.js';
 export { NavList, type NavListProps, type NavItem } from './layout/NavList.js';
+export { AppShell, type AppShellProps } from './layout/AppShell.js';
 export { Table, type TableProps, type Column } from './data/Table.js';
 export { List, type ListProps } from './data/List.js';
 export { KeyValue, type KeyValueProps, type KeyValuePair } from './data/KeyValue.js';

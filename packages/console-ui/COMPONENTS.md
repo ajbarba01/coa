@@ -311,6 +311,17 @@ A single-line text input with label, description, and error states.
 
 ## Layout
 
+### AppShell
+
+The window chrome: a custom title bar above a content slot the layout engine mounts into.
+
+- **Use it when:** Framing the desktop console — the one top-level shell around the panel layout.
+- **Don't use it when:** Arranging content regions — that is the layout descriptor and engine, not the shell.
+- **Anatomy:** A draggable custom title bar (platform-inset wordmark, workspace label, account context, persistent raw affordance) above a single content slot.
+- **Variants & states:** darwin (traffic-light inset), win32 (window-controls inset), with-account, without-account
+- **Accessibility:** The title bar is a labelled banner; the raw control is a real focusable button; the content slot is the main region.
+- **Related:** Pane, Toolbar, NavList
+
 ### Divider
 
 Separates content with the lightest visible rule.
