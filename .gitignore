@@ -24,3 +24,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# visual-companion brainstorm scratch
+.superpowers/
