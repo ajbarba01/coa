@@ -7,6 +7,7 @@
     { "path": "packages/core" },
     { "path": "packages/spi" },
     { "path": "packages/adapter-claude-sdk" },
-    { "path": "apps/cli" }
+    { "path": "apps/cli" },
+    { "path": "apps/desktop" }
   ]
 }

@@ -6,13 +6,19 @@ packages:
 
 # Native addons that legitimately need build scripts. Everything else runs with
 # scripts ignored by default (supply-chain hygiene). These rebuild for the
-# daemon's Node ABI.
+# daemon's Node ABI. electron/esbuild are explicitly pinned to false: their
+# postinstalls only fetch runtime/prebuilt binaries (Electron's app binary,
+# esbuild's own native binary) — not required to typecheck or bundle the
+# desktop app, so they stay off by default; flip to true if interactive
+# `dev`/packaging needs the fetched binaries.
 allowBuilds:
   better-sqlite3: true
   '@parcel/watcher': true
   tree-sitter: true
   tree-sitter-javascript: true
   tree-sitter-typescript: true
+  electron: false
+  esbuild: false
 
 # @types/node 26 is newer than the default minimum-release-age window; allow it.
 minimumReleaseAgeExclude:
