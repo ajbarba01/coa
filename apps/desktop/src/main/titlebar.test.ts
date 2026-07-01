@@ -8,7 +8,7 @@ describe('titleBarConfig', () => {
     expect(c.titleBarOverlay).toMatchObject({
       color: '#1b1511',
       symbolColor: '#a89180',
-      height: 36,
+      height: 40,
     });
   });
 

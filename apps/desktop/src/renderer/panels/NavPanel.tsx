@@ -1,5 +1,5 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
-import { IconButton } from '@coa/console-ui';
+import { Icon, cx, focusRing } from '@coa/console-ui';
 import { Flag, History, Settings, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConsoleState } from './state.js';
@@ -10,8 +10,7 @@ export interface NavSection {
   icon: LucideIcon;
 }
 
-/** The nav-driven main surfaces. Grows as surfaces land (Flags/Timeline P2, the
- *  Settings gear P3). */
+/** The nav-driven main surfaces. Grows as surfaces land (Prompt/Graph in 4c-3). */
 export const NAV_SECTIONS: readonly NavSection[] = [
   { id: 'cost', label: 'Cost', icon: Wallet },
   { id: 'flags', label: 'Flags', icon: Flag },
@@ -27,33 +26,61 @@ export function selectNavVm(state: ConsoleState): NavVm {
   return { activeId: state.ui.activeMainPanelId, setRoute: state.actions.setRoute };
 }
 
+/** A rail item — the active one carries a brass icon, a raised ground, and a brass
+ *  edge marker so the selected section is unmistakable (P5 feedback). */
+function NavButton({
+  icon,
+  label,
+  active,
+  onSelect,
+}: {
+  icon: LucideIcon;
+  label: string;
+  active: boolean;
+  onSelect: () => void;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      data-active={active ? 'true' : undefined}
+      onClick={onSelect}
+      className={cx(
+        'relative flex h-9 w-9 items-center justify-center rounded-control transition-colors duration-fast',
+        active ? 'bg-raised text-accent' : 'text-muted hover:bg-raised hover:text-fg',
+        focusRing,
+      )}
+    >
+      {active && (
+        <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-accent" aria-hidden />
+      )}
+      <Icon name={icon} size={20} />
+    </button>
+  );
+}
+
 function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
   return (
     <nav
       aria-label="Sections"
-      className="flex h-full flex-col items-center gap-1 border-r border-hairline bg-subtle py-2"
+      className="flex h-full flex-col items-center gap-1.5 rounded-surface border border-border-default bg-surface py-2.5"
     >
-      <div className="flex flex-col gap-1">
-        {NAV_SECTIONS.map((s) => (
-          <IconButton
-            key={s.id}
-            icon={s.icon}
-            label={s.label}
-            variant="tertiary"
-            aria-current={s.id === vm.activeId ? 'page' : undefined}
-            data-active={s.id === vm.activeId ? 'true' : undefined}
-            onClick={() => vm.setRoute(s.id)}
-          />
-        ))}
-      </div>
+      {NAV_SECTIONS.map((s) => (
+        <NavButton
+          key={s.id}
+          icon={s.icon}
+          label={s.label}
+          active={s.id === vm.activeId}
+          onSelect={() => vm.setRoute(s.id)}
+        />
+      ))}
       <div className="mt-auto">
-        <IconButton
+        <NavButton
           icon={Settings}
           label="Settings"
-          variant="tertiary"
-          aria-current={vm.activeId === 'settings' ? 'page' : undefined}
-          data-active={vm.activeId === 'settings' ? 'true' : undefined}
-          onClick={() => vm.setRoute('settings')}
+          active={vm.activeId === 'settings'}
+          onSelect={() => vm.setRoute('settings')}
         />
       </div>
     </nav>

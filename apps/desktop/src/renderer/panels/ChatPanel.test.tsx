@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import { chatPanel, frameToRawLine, selectChatVm, toGovernedFrame } from './ChatPanel.js';
 import type { ConsoleState } from './state.js';
@@ -126,11 +126,31 @@ describe('ChatView states-first', () => {
   it('empty state when the stream is empty', () => {
     render(
       <ChatView
-        vm={{ status: 'ready', rawMode: false, frames: [], onRespond: () => {} }}
+        vm={{
+          status: 'ready',
+          rawMode: false,
+          frames: [],
+          onRespond: () => {},
+          toggleRaw: () => {},
+        }}
         host={host}
       />,
     );
     expect(screen.getByText(/no conversation/i)).toBeTruthy();
+  });
+
+  it('shows a stateful raw toggle in the header and fires it', () => {
+    const toggleRaw = vi.fn();
+    render(
+      <ChatView
+        vm={{ status: 'ready', rawMode: false, frames: [], onRespond: () => {}, toggleRaw }}
+        host={host}
+      />,
+    );
+    const raw = screen.getByRole('button', { name: 'raw' });
+    expect(raw.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(raw);
+    expect(toggleRaw).toHaveBeenCalledTimes(1);
   });
 
   it('renders the transcript log when there are frames', () => {
@@ -141,6 +161,7 @@ describe('ChatView states-first', () => {
           rawMode: false,
           frames: [{ id: '1', role: 'you', kind: 'text', text: 'hi' }],
           onRespond: () => {},
+          toggleRaw: () => {},
         }}
         host={host}
       />,

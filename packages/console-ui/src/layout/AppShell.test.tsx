@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { AppShell } from './AppShell.js';
 
 describe('AppShell', () => {
   it('renders the wordmark, workspace name, and the content slot', () => {
     render(
-      <AppShell platform="win32" workspaceName="myproject" onRaw={() => {}}>
+      <AppShell platform="win32" workspaceName="myproject">
         <div data-testid="slot">content</div>
       </AppShell>,
     );
@@ -16,23 +15,9 @@ describe('AppShell', () => {
     expect(screen.getByTestId('slot')).toBeTruthy();
   });
 
-  it('always exposes a focusable raw affordance that fires onRaw', async () => {
-    const onRaw = vi.fn();
-    render(
-      <AppShell platform="win32" workspaceName="p" onRaw={onRaw}>
-        <div />
-      </AppShell>,
-    );
-    const raw = screen.getByRole('button', { name: 'raw' });
-    raw.focus();
-    expect(document.activeElement).toBe(raw);
-    await userEvent.click(raw);
-    expect(onRaw).toHaveBeenCalledTimes(1);
-  });
-
   it('applies the macOS traffic-light inset', () => {
     const { container } = render(
-      <AppShell platform="darwin" workspaceName="p" onRaw={() => {}}>
+      <AppShell platform="darwin" workspaceName="p">
         <div />
       </AppShell>,
     );
@@ -42,13 +27,13 @@ describe('AppShell', () => {
 
   it('shows account context only when provided', () => {
     const { rerender } = render(
-      <AppShell platform="win32" workspaceName="p" onRaw={() => {}}>
+      <AppShell platform="win32" workspaceName="p">
         <div />
       </AppShell>,
     );
     expect(screen.queryByTestId('account-context')).toBeNull();
     rerender(
-      <AppShell platform="win32" workspaceName="p" account="Pro·acct-1" onRaw={() => {}}>
+      <AppShell platform="win32" workspaceName="p" account="Pro·acct-1">
         <div />
       </AppShell>,
     );

@@ -1,5 +1,5 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
-import { EmptyState, InlineMessage, Pane, Skeleton, Transcript } from '@coa/console-ui';
+import { Button, EmptyState, InlineMessage, Pane, Skeleton, Transcript } from '@coa/console-ui';
 import type { RespondFn, TranscriptFrame } from '@coa/console-ui';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import { MessageSquare } from 'lucide-react';
@@ -8,7 +8,13 @@ import type { ConsoleState } from './state.js';
 export type ChatVm =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; rawMode: boolean; frames: TranscriptFrame[]; onRespond: RespondFn };
+  | {
+      status: 'ready';
+      rawMode: boolean;
+      frames: TranscriptFrame[];
+      onRespond: RespondFn;
+      toggleRaw: () => void;
+    };
 
 /** Map a daemon turn frame to its governed transcript frame. Approvals/denies pass
  *  their fields straight through; `resolved` is layered on in a later part from ui state. */
@@ -82,13 +88,31 @@ export function selectChatVm(state: ConsoleState): ChatVm {
         }
         return g;
       });
-  return { status: 'ready', rawMode, frames, onRespond: state.actions.respondApproval };
+  return {
+    status: 'ready',
+    rawMode,
+    frames,
+    onRespond: state.actions.respondApproval,
+    toggleRaw: state.actions.toggleRaw,
+  };
+}
+
+/** The `raw` escape lives on the always-visible chat pane (D85). It is a stateful
+ *  toggle — brass/pressed when the unfiltered loop is showing (P5 feedback). */
+function RawToggle({ on, onToggle }: { on: boolean; onToggle: () => void }): React.JSX.Element {
+  return (
+    <Button variant={on ? 'primary' : 'tertiary'} size="sm" aria-pressed={on} onClick={onToggle}>
+      raw
+    </Button>
+  );
 }
 
 function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {
   const title = vm.status === 'ready' && vm.rawMode ? 'Chat · raw' : 'Chat';
+  const actions =
+    vm.status === 'ready' ? <RawToggle on={vm.rawMode} onToggle={vm.toggleRaw} /> : undefined;
   return (
-    <Pane title={title} className="h-full">
+    <Pane title={title} actions={actions}>
       {vm.status === 'loading' && (
         <div className="flex flex-col gap-2">
           <Skeleton className="w-2/3" />

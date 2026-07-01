@@ -6,7 +6,6 @@ const POLL_MS = 2000;
 
 export function App(): React.JSX.Element {
   const slotRef = useRef<HTMLDivElement>(null);
-  const controllerRef = useRef<ConsoleController | undefined>(undefined);
 
   useEffect(() => {
     const container = slotRef.current;
@@ -16,7 +15,6 @@ export function App(): React.JSX.Element {
     let disposed = false;
     void (async () => {
       controller = await startConsole(container, window.coa);
-      controllerRef.current = controller;
       if (disposed) {
         controller.dispose();
         return;
@@ -26,18 +24,13 @@ export function App(): React.JSX.Element {
     })();
     return () => {
       disposed = true;
-      controllerRef.current = undefined;
       if (timer) clearInterval(timer);
       controller?.dispose();
     };
   }, []);
 
   return (
-    <AppShell
-      platform={window.coa.platform}
-      workspaceName="myproject"
-      onRaw={() => controllerRef.current?.toggleRaw()}
-    >
+    <AppShell platform={window.coa.platform} workspaceName="myproject">
       <div ref={slotRef} style={{ height: '100%' }} />
     </AppShell>
   );

@@ -4,19 +4,18 @@ import {
   createPanelRegistry,
 } from '@coa/console-layout';
 import { accountPanel } from './AccountPanel.js';
+import { agentPanel } from './AgentPanel.js';
 import { chatPanel } from './ChatPanel.js';
 import { costPanel } from './CostPanel.js';
 import { flagsPanel } from './FlagsPanel.js';
 import { navPanel } from './NavPanel.js';
-import { makePlaceholderPanel } from './PlaceholderPanel.js';
 import { settingsPanel } from './SettingsPanel.js';
 import { timelinePanel } from './TimelinePanel.js';
 import { makeDescriptor } from './routing.js';
 import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
-/** The 4b surfaces registered so far: the nav rail, the live Cost surface, and the
- *  right-dock placeholders (chat + agent). Flags/Timeline/Account/Settings register
- *  here as they land. */
+/** The registered surfaces: the nav rail, the nav-driven main windows
+ *  (cost/flags/timeline/settings), and the right dock (chat + agent + account). */
 export function buildPanelRegistry(): PanelRegistry {
   const registry = createPanelRegistry();
   registry.register(navPanel);
@@ -26,9 +25,7 @@ export function buildPanelRegistry(): PanelRegistry {
   registry.register(settingsPanel);
   registry.register(accountPanel);
   registry.register(chatPanel);
-  registry.register(
-    makePlaceholderPanel('agent', 'Agent', 'Agent configuration arrives with a later build.'),
-  );
+  registry.register(agentPanel);
   return registry;
 }
 

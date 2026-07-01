@@ -7,12 +7,12 @@ import type { BrowserWindowConstructorOptions } from 'electron';
  *  Colors are the forge dark tokens (main cannot read CSS vars). */
 export function titleBarConfig(platform: NodeJS.Platform): BrowserWindowConstructorOptions {
   if (platform === 'darwin') {
-    return { titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 11 } };
+    return { titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 13 } };
   }
   if (platform === 'win32') {
     return {
       titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#1b1511', symbolColor: '#a89180', height: 36 },
+      titleBarOverlay: { color: '#1b1511', symbolColor: '#a89180', height: 40 },
     };
   }
   return {};
