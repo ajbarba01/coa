@@ -708,6 +708,66 @@ wiring (rides R-12) · the **DiffView** and **Timeline** Dense/Viz members (§7)
 · dockview docking (§18). After 4c the mock-first shell is complete; remaining M10 work is swapping each
 mock→verb as its M8 seam lands.
 
+## 22. Shell chrome & layout responsiveness (post-4c-1 compliance pass)
+
+Once the shell rendered end-to-end, an audit against the design principles (§5 P1–P12, §5.1 #1–#16) surfaced
+gaps between the built shell and the locked intent — the principles bind every surface, so these are corrected
+rather than deferred. This section pins the corrections; the visual direction (§13) and inspector-first
+arrangement (§21.1) are unchanged.
+
+### 22.1 Separation model — floating panes (chosen over hairline dividers)
+
+The workbench body is a **recessed canvas** (`bg-base`); each region (nav, the main surface, and every dock
+pane) is a **surface card with a gutter between**, sized on the 8pt system. **Space is the primary separator**
+(§5.1 #5 space→tint→divider→border→box; #7 macro-whitespace generous; #10 maximize data-ink) — this replaces
+the built shell's edge-to-edge stacked bordered boxes (double borders / false-floors / zero macro-whitespace,
+which read as "cramped"). Borders drop to the lightest weight that still reads; a pane is a single card, not a
+box-inside-a-box. The alternative (flush panes + 1px hairline dividers, denser "IDE") was mocked and rejected
+for v1.
+
+### 22.2 Seamless title bar; no native menu (P7 native, P8 parity, P9 anti-slop)
+
+The custom title bar (§9) becomes the **only** window chrome. On Windows the frame is removed and the OS window
+controls are **overlaid into our bar** (`titleBarStyle: 'hidden'` + `titleBarOverlay { color, symbolColor,
+height }`), matching the already-wired `env(titlebar-area-*)` right inset in `AppShell`; macOS keeps
+`titleBarStyle: 'hidden'` + traffic lights. The **native application menu is removed**
+(`Menu.setApplicationMenu(null)`) — a File/Edit/View bar is not part of this product's surface. The title bar is
+a **flat surface** (no gradient, per §14), `-webkit-app-region: drag` with `no-drag` controls, and chrome uses
+`cursor: default` (§9). This closes the gap where the built window showed the native frame **and** the native
+menu **and** our bar stacked.
+
+### 22.3 Fixed-width nav + honored resize constraints (P6 never-weird responsive)
+
+The built nav rail is sized by a **flex ratio**, so it scaled with window width (non-standard — an activity bar
+is fixed). Corrections:
+
+- **The nav is a fixed-px region.** The layout descriptor gains a **fixed-size leaf** concept (a leaf whose
+  size is pixels, not a proportional weight); the `StaticEngine` renders it `flex: 0 0 <px>` so it never grows
+  or shrinks with the window. Only the main↔dock boundary stays proportional/resizable.
+- **Min sizes are honored, not a flat 5%.** Each region carries a **min size** (the `PanelDefinition`
+  `defaultConstraints` seam, §11.1, wired through the descriptor into the engine); the resizable split enforces
+  per-pane pixel minimums so a pane stops before its content crushes (§5.1 min-content floors), and the
+  `BrowserWindow` gets a sensible `minWidth`/`minHeight`. Container-query-first adaptation (§8) keeps in-pane
+  content legible at any splitter position.
+- **The resize handle reads as draggable** — a visible grip that turns **brass on hover** (P5 motion-as-feedback;
+  the built handle had no affordance).
+
+### 22.4 Themed scrollbars & cohesion (P1 cohesion via tokens)
+
+Native OS scrollbars are replaced by **themed thin scrollbars** (transparent track, `border`-toned thumb → `fg`
+on hover), applied globally from the token set so every scroll surface (transcript, long panes) is cohesive.
+This is a token-driven global rule, not a per-component style.
+
+### 22.5 Implementation surface
+
+The corrections span: **`console-layout`** (the descriptor schema gains fixed-size + min-size on regions; the
+`StaticEngine` renders fixed-px leaves and enforces min sizes — the tested pure core, the meatiest change),
+**`console-ui`** (`Pane` border/gutter treatment for the floating model; the `AppShell` flat title bar; a
+scrollbar utility), **`apps/desktop`** (`main` — `titleBarOverlay` + `Menu.setApplicationMenu(null)` +
+`minWidth`/`minHeight`; the default descriptor — fixed nav width + dock/main min sizes; `globals.css` — the
+recessed-canvas background + global scrollbar rule). Same-commit doc obligations (§19) apply where a package
+surface changes.
+
 ---
 
 _Last reviewed: 2026-07-01_
