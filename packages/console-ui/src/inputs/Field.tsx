@@ -38,17 +38,17 @@ export function Field({
       className={cx('flex flex-col gap-1', className)}
       data-invalid={invalid ? 'true' : undefined}
     >
-      <Label.Root id={labelId} className="text-[12px] font-medium text-fg">
+      <Label.Root id={labelId} className="text-label font-medium text-fg">
         {label}
       </Label.Root>
       {description !== undefined && (
-        <span id={descId} className="text-[11px] text-muted">
+        <span id={descId} className="text-caption text-muted">
           {description}
         </span>
       )}
       {children({ labelId, describedBy, invalid })}
       {error !== undefined && (
-        <span id={errId} role="alert" className="text-[11px] text-danger-text">
+        <span id={errId} role="alert" className="text-caption text-danger-text">
           {error}
         </span>
       )}

@@ -30,13 +30,13 @@ function CostView({ vm }: { vm: CostVm; host: PanelHostApi }): React.JSX.Element
           <div
             className={
               vm.vm.tone === 'danger'
-                ? 'text-[18px] font-semibold text-danger-text'
-                : 'text-[18px] font-semibold text-fg'
+                ? 'text-metric font-semibold text-danger-text'
+                : 'text-metric font-semibold text-fg'
             }
           >
             {vm.vm.headline}
           </div>
-          <div className="text-[11px] text-muted">{vm.vm.sub}</div>
+          <div className="text-caption text-muted">{vm.vm.sub}</div>
         </div>
       )}
     </Pane>

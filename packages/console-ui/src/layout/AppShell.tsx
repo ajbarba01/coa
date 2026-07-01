@@ -37,9 +37,12 @@ export function AppShell({
       <header
         aria-label="Application title bar"
         style={titleBarStyle(platform)}
-        className="flex h-10 shrink-0 select-none items-center gap-3 border-b border-hairline bg-subtle text-[12px]"
+        // Absolute px (not a rem-based `h-*`) so the bar is pinned to the Windows
+        // overlay's pixel `height` (main-process `TITLE_BAR_HEIGHT`) independent of the
+        // root font-size — a rem height could drift from it and overflow the controls.
+        className="flex h-[44px] shrink-0 select-none items-center gap-3 border-b border-hairline bg-subtle text-label"
       >
-        <span className="font-semibold tracking-[-0.01em] text-fg">co&middot;a</span>
+        <span className="font-bold tracking-[-0.01em] text-accent">co&middot;a</span>
         <span className="text-muted">{workspaceName}</span>
         {account !== undefined && (
           <span data-testid="account-context" className="ml-auto text-muted" style={noDrag}>

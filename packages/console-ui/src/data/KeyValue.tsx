@@ -12,7 +12,7 @@ export interface KeyValueProps {
 
 export function KeyValue({ pairs, className }: KeyValueProps): React.JSX.Element {
   return (
-    <dl className={cx('grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]', className)}>
+    <dl className={cx('grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-body', className)}>
       {pairs.map((p) => (
         <div key={p.key} className="contents">
           <dt className="text-muted">{p.key}</dt>

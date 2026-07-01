@@ -42,7 +42,7 @@ export function Combobox({
 
   return (
     <div className={cx('flex flex-col gap-1', className)}>
-      <span id={labelId} className="text-[12px] font-medium text-fg">
+      <span id={labelId} className="text-label font-medium text-fg">
         {label}
       </span>
       <div className="relative">
@@ -61,7 +61,7 @@ export function Combobox({
           onFocus={() => setOpen(true)}
           onBlur={() => window.setTimeout(() => setOpen(false), 120)}
           className={cx(
-            'h-7 w-full rounded-control border border-border-default bg-element px-2 text-[13px] text-fg placeholder:text-faint',
+            'h-control-md w-full rounded-control border border-border-default bg-element px-2.5 text-body text-fg placeholder:text-faint transition-colors duration-fast enabled:hover:border-accent',
             focusRing,
           )}
         />
@@ -70,7 +70,7 @@ export function Combobox({
             id={listId}
             role="listbox"
             aria-label={label}
-            className="absolute z-[200] mt-1 max-h-56 w-full overflow-auto rounded-surface border border-border-default bg-raised p-1 text-[13px] text-fg shadow-lg"
+            className="absolute z-[200] mt-1 max-h-56 w-full overflow-auto rounded-surface border border-border-default bg-raised p-1 text-body text-fg shadow-lg"
           >
             {filtered.map((opt) => (
               <li
@@ -82,7 +82,7 @@ export function Combobox({
                   e.preventDefault();
                   choose(opt);
                 }}
-                className="cursor-default rounded-control px-2 py-1 hover:bg-element-hover aria-selected:bg-element-active"
+                className="cursor-default rounded-control px-2 py-1 transition-colors duration-fast hover:bg-element-hover aria-selected:bg-element-active"
               >
                 {opt.label}
               </li>

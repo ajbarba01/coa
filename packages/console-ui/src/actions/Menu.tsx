@@ -24,7 +24,7 @@ export function Menu({ trigger, items }: MenuProps): React.JSX.Element {
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           sideOffset={4}
-          className="z-[200] min-w-40 rounded-surface border border-border-default bg-raised p-1 text-[13px] text-fg shadow-lg"
+          className="overlay-content z-[200] min-w-40 rounded-surface border border-border-default bg-raised p-1 text-body text-fg shadow-lg"
         >
           {items.map((item) => (
             <DropdownMenu.Item
@@ -32,7 +32,7 @@ export function Menu({ trigger, items }: MenuProps): React.JSX.Element {
               disabled={item.disabled ?? false}
               onSelect={item.onSelect ?? (() => {})}
               className={cx(
-                'flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none',
+                'flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none transition-colors duration-fast',
                 'data-[highlighted]:bg-element-hover data-[disabled]:opacity-50',
               )}
             >

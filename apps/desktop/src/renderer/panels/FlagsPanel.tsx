@@ -50,12 +50,12 @@ function FlagsView({ vm }: { vm: FlagsVm; host: PanelHostApi }): React.JSX.Eleme
               <div className="flex items-center gap-2">
                 <Badge tone={SEVERITY_TONE[f.severity] ?? 'neutral'}>{f.severity}</Badge>
                 <span className="min-w-0 flex-1 truncate">{f.message}</span>
-                <span className="text-[11px] text-faint">{f.location}</span>
+                <span className="text-caption text-faint">{f.location}</span>
               </div>
             )}
           />
           {vm.value.collapsed.map((c) => (
-            <div key={c.concernKey} className="px-2 py-1 text-[12px] text-muted">
+            <div key={c.concernKey} className="px-2 py-1 text-label text-muted">
               {c.count} more {c.severity}
             </div>
           ))}

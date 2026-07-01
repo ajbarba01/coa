@@ -34,9 +34,9 @@ export function InlineMessage({
       data-testid="inline-message"
       data-tone={tone}
       role={tone === 'danger' ? 'alert' : undefined}
-      className={cx('inline-flex items-center gap-1 text-[12px]', toneText[tone], className)}
+      className={cx('inline-flex items-center gap-1.5 text-body', toneText[tone], className)}
     >
-      <Icon name={toneIcon[tone]} size={13} />
+      <Icon name={toneIcon[tone]} size={14} />
       {children}
     </span>
   );

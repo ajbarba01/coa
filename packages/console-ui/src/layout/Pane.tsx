@@ -31,7 +31,7 @@ export function Pane({
         <header className="flex min-h-9 items-center justify-between border-b border-hairline px-3.5 py-2">
           <h2
             id={headingId}
-            className="text-[11px] font-semibold uppercase tracking-[0.06em] text-faint"
+            className="text-caption font-semibold uppercase tracking-[0.06em] text-faint"
           >
             {title}
           </h2>

@@ -28,16 +28,16 @@ export function Stat({
   const labelId = useId();
   return (
     <div className={cx('flex flex-col gap-0.5', className)}>
-      <span id={labelId} className="text-[10px] font-medium uppercase tracking-[0.06em] text-faint">
+      <span id={labelId} className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
         {label}
       </span>
       <span
         aria-labelledby={labelId}
-        className={cx('text-[18px] font-semibold tabular-nums', valueTone[tone])}
+        className={cx('text-metric font-semibold tabular-nums', valueTone[tone])}
       >
         {value}
       </span>
-      {sub !== undefined && <span className="text-[11px] text-muted">{sub}</span>}
+      {sub !== undefined && <span className="text-caption text-muted">{sub}</span>}
     </div>
   );
 }

@@ -22,7 +22,7 @@ export function List<T>({
       className={cx('flex flex-col', className)}
     >
       {items.map((item) => (
-        <li key={getKey(item)} className="px-2 py-1 text-[13px] text-fg">
+        <li key={getKey(item)} className="px-2 py-1 text-body text-fg">
           {renderItem(item)}
         </li>
       ))}

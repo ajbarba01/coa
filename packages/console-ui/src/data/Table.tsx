@@ -28,13 +28,13 @@ export function Table<T>({
 }: TableProps<T>): React.JSX.Element {
   if (rows.length === 0 && empty !== undefined) {
     return (
-      <div role="status" className="p-4 text-center text-[12px] text-muted">
+      <div role="status" className="p-4 text-center text-label text-muted">
         {empty}
       </div>
     );
   }
   return (
-    <table className={cx('w-full border-collapse text-[13px]', className)}>
+    <table className={cx('w-full border-collapse text-body', className)}>
       <caption className="sr-only">{caption}</caption>
       <thead>
         <tr>

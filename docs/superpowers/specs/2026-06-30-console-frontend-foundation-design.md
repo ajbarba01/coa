@@ -768,6 +768,52 @@ scrollbar utility), **`apps/desktop`** (`main` — `titleBarOverlay` + `Menu.set
 recessed-canvas background + global scrollbar rule). Same-commit doc obligations (§19) apply where a package
 surface changes.
 
+## 23. Implementation conventions (as-built — the framework every surface reuses)
+
+Conventions that emerged while building the kit + shell. They are binding on every future surface;
+[UI.md](../../UI.md) states them as the short "authoring rules" and routes here for the detail. The
+intent is that agents **reuse this framework** — never hand-rolled components or raw values. Exact
+token values live in `console-ui/src/theme.css` + `tokens/semantic.ts` (grep, don't restate).
+
+### 23.1 Token system (as-built)
+- **Type is a 6-role tokenized scale** — `text-{eyebrow,caption,label,body,heading,metric}`. Raw
+  `text-[Npx]` is banned; the first build leaked ~65 raw sizes that were swept into these tokens.
+- **Density drives everything.** The scale + control heights are density-remapped runtime vars
+  (`--fs-*`, `--control-h-sm|md`, `--control-indicator`), mapped into the Tailwind `--text-*` /
+  `--spacing-control-*` tokens. The density toggle scales the whole UI *because components consume the
+  tokens, not literals* — a component that hardcodes a size silently opts out of density.
+- **Control heights are shared, not per-component.** `h-control-md` (button = input = select = icon
+  button), `h-control-sm`, `h-control-indicator` (checkbox/radio box). Reuse a height token rather than
+  pick a number — a Menu trigger is the same height as a Select.
+- **The 8pt grid sits on a 16px root.** The document root is `16px` so rem spacing keeps its intended
+  pixels; UI text is 13–14px via `--fs-body` on `body`. Shrinking the root to "make it dense" scales
+  every control/pad/gap ~19% too small — it did, until fixed.
+
+### 23.2 Feedback & motion contract (as-built)
+- **Every clickable owns its feedback**: its own hover **and** its own press. Buttons use
+  `active:scale-*`; overlay **triggers** additionally use `data-[state=open]:` so the close-click also
+  animates (Radix suppresses the native `:active` on that click). **No hover when disabled** — guarded
+  by the `enabled:` variant, or by only attaching the hover `group` when enabled.
+- **Motion split**: CSS **transitions** for interruptible/reversible state (they reverse mid-flight);
+  CSS **keyframes** only for mount/unmount, where Radix's Presence owns the lifecycle. Shared overlay
+  animations (`overlay-scrim`, `overlay-content`, `overlay-fade`, `dialog-content`, `sheet-content`,
+  `toast-root`) live in `apps/desktop`'s `globals.css`. Reduced-motion is neutralized globally.
+- **Tooltip**: `TooltipProvider skipDelayDuration={0}` — Radix's default skip-window re-shows a tooltip
+  instantly (no enter animation) on quick re-hover; zeroing it makes every hover consistent.
+
+### 23.3 Platform gotchas (durable warnings)
+- **Chromium scrollbars**: never set the standard `scrollbar-width` / `scrollbar-color` — in Electron's
+  Chromium they take precedence and **disable** all `::-webkit-scrollbar` styling (width, hover,
+  grow-on-hover). Style scrollbars only via the `::-webkit-scrollbar*` pseudo-elements.
+- **Title bar**: the CSS bar height is absolute px, kept in lockstep with the main-process
+  `TITLE_BAR_HEIGHT` (a rem height drifts from the OS overlay and overflows the controls). Window
+  controls stay **native** and are recolored via `setTitleBarOverlay` on theme change — not
+  re-implemented as custom buttons.
+
+### 23.4 Living reference
+A **Components** nav tab (`apps/desktop`, `ShowcasePanel`) renders every kit primitive by family,
+states-first — the working catalogue to check a component against before wiring it into a surface.
+
 ---
 
 _Last reviewed: 2026-07-01_

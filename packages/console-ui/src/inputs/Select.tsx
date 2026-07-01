@@ -34,7 +34,7 @@ export function Select({
   const labelId = useId();
   return (
     <div className={cx('flex flex-col gap-1', className)}>
-      <span id={labelId} className="text-[12px] font-medium text-fg">
+      <span id={labelId} className="text-label font-medium text-fg">
         {label}
       </span>
       <RxSelect.Root
@@ -46,7 +46,7 @@ export function Select({
         <RxSelect.Trigger
           aria-labelledby={labelId}
           className={cx(
-            'inline-flex h-7 items-center justify-between gap-2 rounded-control border border-border-default bg-element px-2 text-[13px] text-fg disabled:opacity-50',
+            'inline-flex h-control-md items-center justify-between gap-2 rounded-control border border-border-default bg-element px-2.5 text-body text-fg transition-colors duration-fast enabled:hover:border-accent enabled:active:bg-element-hover data-[state=open]:border-accent disabled:opacity-50',
             focusRing,
           )}
         >
@@ -56,14 +56,21 @@ export function Select({
           </RxSelect.Icon>
         </RxSelect.Trigger>
         <RxSelect.Portal>
-          <RxSelect.Content className="z-[200] overflow-hidden rounded-surface border border-border-default bg-raised text-[13px] text-fg shadow-lg">
+          {/* Popper (not the default item-aligned) positioning: item-aligned re-aligns
+              the panel to the freshly-selected item as it closes, which flashes the
+              panel to a new spot before the fade. Popper anchors it to the trigger. */}
+          <RxSelect.Content
+            position="popper"
+            sideOffset={4}
+            className="overlay-fade z-[200] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-surface border border-border-default bg-raised text-body text-fg shadow-lg"
+          >
             <RxSelect.Viewport className="p-1">
               {options.map((opt) => (
                 <RxSelect.Item
                   key={opt.value}
                   value={opt.value}
                   disabled={opt.disabled ?? false}
-                  className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-[highlighted]:bg-element-hover data-[disabled]:opacity-50"
+                  className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none transition-colors duration-fast data-[highlighted]:bg-element-hover data-[disabled]:opacity-50"
                 >
                   <RxSelect.ItemText>{opt.label}</RxSelect.ItemText>
                   <RxSelect.ItemIndicator className="ml-auto">

@@ -21,7 +21,7 @@ function AccountView({ vm }: { vm: AccountVm; host: PanelHostApi }): React.JSX.E
       {vm.status === 'loading' && <Skeleton className="w-32" />}
       {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
       {vm.status === 'ok' && vm.value.accounts.length === 0 && (
-        <div className="text-[12px] text-muted">Ambient login (no accounts configured).</div>
+        <div className="text-label text-muted">Ambient login (no accounts configured).</div>
       )}
       {vm.status === 'ok' && vm.value.accounts.length > 0 && (
         <Select

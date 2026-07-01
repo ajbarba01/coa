@@ -39,7 +39,7 @@ export function Banner({
       role={tone === 'danger' ? 'alert' : 'status'}
       data-tone={tone}
       className={cx(
-        'flex items-start gap-2 rounded-surface border px-3 py-2 text-[12px]',
+        'flex items-start gap-2 rounded-surface border px-3 py-2 text-label',
         toneClass[tone],
         className,
       )}
@@ -54,7 +54,10 @@ export function Banner({
           type="button"
           aria-label="Dismiss"
           onClick={onDismiss}
-          className={cx('shrink-0 rounded-control p-0.5 hover:bg-element-hover', focusRing)}
+          className={cx(
+            'shrink-0 rounded-control p-0.5 transition-colors hover:bg-element-hover active:scale-90',
+            focusRing,
+          )}
         >
           <Icon name={X} size={14} />
         </button>

@@ -22,7 +22,7 @@ function AgentView({ vm }: { vm: AgentVm; host: PanelHostApi }): React.JSX.Eleme
           { key: 'scope', value: vm.scope },
         ]}
       />
-      <p className="mt-3 text-[11px] text-faint">
+      <p className="mt-3 text-caption text-faint">
         Role and piece configuration arrives with a later build.
       </p>
     </Pane>

@@ -26,7 +26,7 @@ truth. The docs below are a portable engineering framework; keep them project-ag
 | [docs/ENGINEERING.md](docs/ENGINEERING.md)                          | Architecture & code-quality principles                                        | writing/refactoring non-trivial code  |
 | [docs/CODE_STYLE.md](docs/CODE_STYLE.md)                            | Formatting, naming, documentation                                             | writing any code                      |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md)                                | Dev loop, version control, handoff & escalation                              | starting work / committing            |
-| [docs/UI.md](docs/UI.md)                                            | Inspector-UI intent (GUI stack decided at M10)                               | touching the GUI (M10)                |
+| [docs/UI.md](docs/UI.md)                                            | GUI design system + **authoring rules** (kit · tokens · feedback contract)   | touching the GUI (M10)                |
 
 ## Operating rules (always on)
 

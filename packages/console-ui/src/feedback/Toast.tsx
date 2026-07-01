@@ -39,10 +39,13 @@ export function Toast({
   return (
     <RxToast.Root
       open={open}
+      duration={4000}
       {...(onOpenChange !== undefined ? { onOpenChange } : {})}
       data-tone={tone}
+      // Dismiss on a click anywhere on the toast, not just the close affordance.
+      onClick={() => onOpenChange?.(false)}
       className={cx(
-        'flex items-start gap-2 rounded-surface border bg-raised px-3 py-2 text-[12px] shadow-lg',
+        'toast-root flex cursor-pointer items-start gap-2 rounded-surface border bg-raised px-3 py-2 text-label shadow-lg',
         toneClass[tone],
       )}
     >
@@ -54,7 +57,10 @@ export function Toast({
       </div>
       <RxToast.Close
         aria-label="Dismiss"
-        className={cx('shrink-0 rounded-control p-0.5 hover:bg-element-hover', focusRing)}
+        className={cx(
+          'shrink-0 rounded-control p-0.5 transition-colors hover:bg-element-hover active:scale-90',
+          focusRing,
+        )}
       >
         <Icon name={X} size={14} />
       </RxToast.Close>

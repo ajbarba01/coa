@@ -13,7 +13,7 @@ export function Popover({ trigger, children }: PopoverProps): React.JSX.Element 
       <RxPopover.Portal>
         <RxPopover.Content
           sideOffset={6}
-          className="z-[500] max-w-xs rounded-surface border border-border-default bg-raised p-3 text-[13px] text-fg shadow-lg focus:outline-none"
+          className="overlay-content z-[500] max-w-xs rounded-surface border border-border-default bg-raised p-3 text-body text-fg shadow-lg focus:outline-none"
         >
           {children}
         </RxPopover.Content>

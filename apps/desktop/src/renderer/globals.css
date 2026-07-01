@@ -6,7 +6,11 @@
   color-scheme: dark;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-  font-size: 13px;
+  /* 16px root so the rem-based 8pt grid resolves to its spec pixel values
+     (§6.2: base 0.25rem = 4px requires a 16px root). Default UI text is set to
+     13px on `body` below — NOT by shrinking the root, which would silently
+     scale down every control height, padding, and gap. */
+  font-size: 16px;
   /* floating-panes canvas: 8px gutters/padding the layout engine reads (§22.1) */
   --layout-gap: 8px;
   --layout-pad: 8px;
@@ -23,6 +27,8 @@ body,
 body {
   margin: 0;
   overflow: hidden;
+  /* The dense UI text default (density-aware); the 16px root drives spacing only. */
+  font-size: var(--fs-body, 14px);
   background: var(--color-bg-base);
   color: var(--color-fg-default);
 }
@@ -34,33 +40,45 @@ body {
   transition-duration: 0.01ms !important;
 }
 
-/* Themed scrollbars (spec §22.4) — cohesive with the forge tokens, not the OS default. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-}
+/* Themed scrollbars (spec §22.4) — cohesive with the forge tokens, not the OS default.
+   Electron is Chromium-only, so we style via the fully-customizable ::-webkit-scrollbar
+   pseudo-elements. We deliberately do NOT set the standard `scrollbar-width` /
+   `scrollbar-color`: in modern Chromium (Electron 34 ≈ Chromium 132) those take
+   precedence and DISABLE ::-webkit-scrollbar styling — which is exactly why none of the
+   thumb width/hover customizations were taking effect. */
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+/* The square where a horizontal and vertical scrollbar meet. Unstyled it paints the
+   OS default (a white box); match the transparent track so the pane shows through. */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* The thumb fills the full 14px track (that whole width is the grab/hit area), but its
+   visible bar is painted inside a transparent border (background-clip: padding-box).
+   Shrinking the border on hover grows the visible bar ~4px → ~10px and tints it. */
 *::-webkit-scrollbar-thumb {
   background: var(--color-border);
-  border-radius: 6px;
-  border: 2px solid transparent;
+  border-radius: 999px;
+  border: 5px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--color-fg-faint);
+  background: var(--color-fg-muted);
+  border-width: 2px;
   background-clip: padding-box;
 }
 
-/* The main<->dock resize handle: an 8px gutter with a brass-on-hover grip (§22.3, P5). */
+/* The main<->dock resize handle: a wide, grabbable seam (wider than the 8px static
+   gutters so it reads as draggable) with a brass-on-hover grip (§22.3, P5). */
 .resize-handle {
   position: relative;
-  width: var(--layout-gap);
+  width: 14px;
+  flex: 0 0 14px;
   align-self: stretch;
 }
 .resize-handle::after {
@@ -68,12 +86,17 @@ body {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 3px;
-  height: 34px;
+  width: 4px;
+  height: 42px;
   border-radius: 3px;
   background: var(--color-border);
+  transition: background var(--duration-fast, 120ms) ease;
 }
-.resize-handle:hover::after {
+/* Light the grip off the resize library's own hit-area state — the same detection
+   that swaps in the ↔ cursor — so the brass appears over exactly the grabbable zone
+   (which reaches a few px beyond the visible 14px seam), not just literal CSS :hover. */
+.resize-handle[data-resize-handle-state='hover']::after,
+.resize-handle[data-resize-handle-state='drag']::after {
   background: var(--color-accent);
 }
 
@@ -85,4 +108,132 @@ pre,
 code,
 [role='log'] {
   cursor: auto;
+}
+
+/* Toast enter/exit (§8 Carbon productive easings). Radix keeps the node mounted
+   through data-state='closed' so the exit animation plays before removal. Reduced
+   motion is neutralized by the [data-motion='reduce'] rule above. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(0.5rem);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(0.5rem);
+  }
+}
+.toast-root[data-state='open'] {
+  animation: toast-in 150ms cubic-bezier(0, 0, 0.38, 0.9);
+}
+.toast-root[data-state='closed'] {
+  animation: toast-out 120ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
+}
+
+/* Shared overlay motion. Radix keeps the node mounted through data-state='closed',
+   so the exit animation plays before removal. Reduced motion is neutralized by the
+   [data-motion='reduce'] rule above. */
+
+/* Scrim fade (Dialog/Sheet backdrops). */
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes overlay-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.overlay-scrim[data-state='open'] {
+  animation: overlay-fade-in 150ms ease-out;
+}
+.overlay-scrim[data-state='closed'] {
+  animation: overlay-fade-out 120ms ease-in forwards;
+}
+
+/* Opacity-only fade (Select — popper positions via a wrapper, so a plain fade reads
+   cleanly without competing with the anchor transform). */
+.overlay-fade[data-state='open'] {
+  animation: overlay-fade-in 120ms ease-out;
+}
+.overlay-fade[data-state='closed'] {
+  animation: overlay-fade-out 100ms ease-in forwards;
+}
+
+/* Popper overlays (Popover/Menu/Tooltip): Radix positions the wrapper, so animating
+   the content's transform is safe. */
+@keyframes overlay-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+@keyframes overlay-pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+.overlay-content[data-state='open'] {
+  animation: overlay-pop-in 150ms cubic-bezier(0, 0, 0.38, 0.9);
+}
+.overlay-content[data-state='closed'] {
+  animation: overlay-pop-out 120ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
+}
+
+/* Centered Dialog — preserve the -50%/-50% centering transform through the scale. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+}
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+}
+.dialog-content[data-state='open'] {
+  animation: dialog-in 150ms cubic-bezier(0, 0, 0.38, 0.9);
+}
+.dialog-content[data-state='closed'] {
+  animation: dialog-out 120ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
+}
+
+/* Side Sheet slides from its anchored edge. */
+@keyframes sheet-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes sheet-out-right {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes sheet-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes sheet-out-left {
+  to {
+    transform: translateX(-100%);
+  }
+}
+.sheet-content[data-side='right'][data-state='open'] {
+  animation: sheet-in-right 200ms cubic-bezier(0, 0, 0.38, 0.9);
+}
+.sheet-content[data-side='right'][data-state='closed'] {
+  animation: sheet-out-right 160ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
+}
+.sheet-content[data-side='left'][data-state='open'] {
+  animation: sheet-in-left 200ms cubic-bezier(0, 0, 0.38, 0.9);
+}
+.sheet-content[data-side='left'][data-state='closed'] {
+  animation: sheet-out-left 160ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
 }

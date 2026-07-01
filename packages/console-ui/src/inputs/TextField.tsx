@@ -12,7 +12,7 @@ export interface TextFieldProps extends Omit<
 }
 
 const inputClass =
-  'h-7 rounded-control border border-border-default bg-element px-2 text-[13px] text-fg ' +
+  'h-control-md rounded-control border border-border-default bg-element px-2.5 text-body text-fg ' +
   'placeholder:text-faint disabled:opacity-50 disabled:pointer-events-none ' +
   'data-[invalid=true]:border-danger';
 

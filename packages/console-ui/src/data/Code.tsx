@@ -8,7 +8,7 @@ export interface CodeProps {
   className?: string;
 }
 
-const mono = 'font-mono text-[12px] text-fg';
+const mono = 'font-mono text-label text-fg';
 
 export function Code({ block = false, children, className }: CodeProps): React.JSX.Element {
   return block ? (

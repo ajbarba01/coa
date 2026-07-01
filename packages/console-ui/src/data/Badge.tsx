@@ -23,7 +23,7 @@ export function Badge({ tone = 'neutral', children, className }: BadgeProps): Re
     <span
       data-tone={tone}
       className={cx(
-        'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[11px] font-medium leading-none',
+        'inline-flex items-center rounded-full border px-2 py-1 text-label font-medium leading-none',
         byTone[tone],
         className,
       )}

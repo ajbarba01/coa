@@ -28,7 +28,7 @@ export function Radio({
   const labelId = useId();
   return (
     <div className={cx('flex flex-col gap-1.5', className)}>
-      <span id={labelId} className="text-[12px] font-medium text-fg">
+      <span id={labelId} className="text-label font-medium text-fg">
         {label}
       </span>
       <RadioGroup.Root
@@ -41,19 +41,25 @@ export function Radio({
         {options.map((opt) => {
           const id = `${labelId}-${opt.value}`;
           return (
-            <div key={opt.value} className="flex items-center gap-2">
+            <div key={opt.value} className={cx('flex items-center gap-2', !opt.disabled && 'group')}>
               <RadioGroup.Item
                 id={id}
                 value={opt.value}
                 disabled={opt.disabled ?? false}
                 className={cx(
-                  'flex h-4 w-4 items-center justify-center rounded-full border border-border-default bg-element data-[state=checked]:border-accent disabled:opacity-50',
+                  "relative flex h-control-indicator w-control-indicator shrink-0 cursor-pointer items-center justify-center rounded-full border border-border-default bg-element transition-colors duration-fast before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-accent disabled:cursor-not-allowed disabled:opacity-50",
                   focusRing,
                 )}
               >
-                <RadioGroup.Indicator className="h-2 w-2 rounded-full bg-accent" />
+                <RadioGroup.Indicator className="h-2.5 w-2.5 rounded-full bg-accent" />
               </RadioGroup.Item>
-              <label htmlFor={id} className="text-[13px] text-fg">
+              <label
+                htmlFor={id}
+                className={cx(
+                  'text-body text-fg',
+                  opt.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                )}
+              >
                 {opt.label}
               </label>
             </div>

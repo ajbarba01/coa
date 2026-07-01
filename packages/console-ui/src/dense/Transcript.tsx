@@ -58,7 +58,7 @@ const roleTint: Record<TranscriptRole, string> = {
 
 function RoleGutter({ role }: { role: TranscriptRole }): React.JSX.Element {
   return (
-    <span className={cx('w-16 shrink-0 text-[11px] uppercase tracking-[0.04em]', roleTint[role])}>
+    <span className={cx('w-16 shrink-0 text-caption uppercase tracking-[0.04em]', roleTint[role])}>
       {role}
     </span>
   );
@@ -80,18 +80,18 @@ export function TranscriptRow({
     return (
       <div style={indent} className="px-2 py-1.5">
         <div className="rounded-surface border border-border-default bg-raised p-2">
-          <div className="flex items-center gap-2 text-[12px]">
-            <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-faint">
+          <div className="flex items-center gap-2 text-label">
+            <span className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
               approval
             </span>
             <span className="font-medium text-fg">{frame.tool}</span>
             <span className="min-w-0 flex-1 truncate text-muted">{frame.summary}</span>
             {frame.diffStat !== undefined && (
-              <span className="text-[11px] text-faint">{frame.diffStat}</span>
+              <span className="text-caption text-faint">{frame.diffStat}</span>
             )}
           </div>
           {frame.resolved !== undefined ? (
-            <div className="mt-1.5 text-[11px] text-muted">Request {frame.resolved}.</div>
+            <div className="mt-1.5 text-caption text-muted">Request {frame.resolved}.</div>
           ) : (
             <div className="mt-1.5 flex justify-end gap-2">
               <Button
@@ -136,17 +136,17 @@ export function TranscriptRow({
       <RoleGutter role={frame.role} />
       <div className="min-w-0 flex-1">
         {frame.kind === 'text' && (
-          <div className="text-[13px] leading-[1.5] text-fg">{frame.text}</div>
+          <div className="text-body leading-[1.5] text-fg">{frame.text}</div>
         )}
         {frame.kind === 'tool-use' && (
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted">{frame.tool}</span>
+            <span className="text-caption text-muted">{frame.tool}</span>
             <Code block>{frame.input}</Code>
           </div>
         )}
         {frame.kind === 'tool-result' && (
           <div className="flex flex-col gap-1">
-            <span className="text-[11px] text-muted">
+            <span className="text-caption text-muted">
               {frame.tool} · {frame.ok ? 'ok' : 'error'}
             </span>
             <Code block>{frame.output}</Code>

@@ -68,10 +68,35 @@ const light = {
   '--color-info-text': palette.infoTextLight,
 } as const;
 
-/** Density remaps spacing/type steps (compact = dev-tool dense default). */
+/** Density drives the whole type ramp + control heights + inset spacing, so the
+ *  toggle scales every `text-*` and `h-control-*` utility at once (theme.css maps
+ *  the `--fs-*` / `--control-h-*` runtime vars into the Tailwind tokens). compact =
+ *  the dev-tool dense default. */
 const density = {
-  compact: { '--text-body': '13px', '--space-inset': '8px' },
-  comfortable: { '--text-body': '14px', '--space-inset': '12px' },
+  compact: {
+    '--fs-eyebrow': '11px',
+    '--fs-caption': '12px',
+    '--fs-label': '13px',
+    '--fs-body': '14px',
+    '--fs-heading': '16px',
+    '--fs-metric': '20px',
+    '--control-h-sm': '28px',
+    '--control-h-md': '36px',
+    '--control-indicator': '18px',
+    '--space-inset': '8px',
+  },
+  comfortable: {
+    '--fs-eyebrow': '12px',
+    '--fs-caption': '13px',
+    '--fs-label': '14px',
+    '--fs-body': '15px',
+    '--fs-heading': '18px',
+    '--fs-metric': '22px',
+    '--control-h-sm': '32px',
+    '--control-h-md': '40px',
+    '--control-indicator': '20px',
+    '--space-inset': '12px',
+  },
 } as const;
 
 export const SEMANTIC_TOKEN_NAMES = [

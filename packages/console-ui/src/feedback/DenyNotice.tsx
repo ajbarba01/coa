@@ -33,13 +33,13 @@ export function DenyNotice({
       role="alert"
       data-deny-kind={kind}
       className={cx(
-        'flex items-start gap-2 rounded-surface border border-danger/50 bg-danger-tint px-3 py-2 text-[12px] text-danger-text',
+        'flex items-start gap-2 rounded-surface border border-danger/50 bg-danger-tint px-3 py-2 text-label text-danger-text',
         className,
       )}
     >
       <Icon name={kindIcon[kind]} size={16} className="mt-0.5 shrink-0" />
       <div className="flex-1">
-        <div className="text-[10px] font-medium uppercase tracking-[0.06em] text-faint">
+        <div className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
           {kindSource[kind]}
         </div>
         <div className="font-medium text-fg">{reason}</div>

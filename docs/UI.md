@@ -37,4 +37,38 @@
 
 ---
 
-_Last reviewed: 2026-06-30_
+## Authoring rules (framework-first — read before writing any console UI)
+
+The M10 foundation exists so surfaces **reuse one system** instead of each reinventing it. These rules are
+binding; full detail + exact token values live in the design spec
+([§6 tokens](superpowers/specs/2026-06-30-console-frontend-foundation-design.md),
+[§7 component families](superpowers/specs/2026-06-30-console-frontend-foundation-design.md),
+[§23 as-built conventions](superpowers/specs/2026-06-30-console-frontend-foundation-design.md)) and
+`console-ui/src/theme.css` / `tokens/semantic.ts`; per-component usage intent is in
+[`COMPONENTS.md`](../packages/console-ui/COMPONENTS.md).
+
+- **Build from the kit, never hand-roll.** Every control, surface, and piece of feedback is a
+  `@coa/console-ui` component — pick one via `COMPONENTS.md`. If nothing fits, add a member **to the kit**
+  with its lint-enforced intent block; do not inline a bespoke component inside a panel. A panel is kit
+  composition + a pure `selectVm`, with no styling of its own.
+- **No raw values.** No literal hex/px/rem/duration/radius in a component. Text →
+  `text-{eyebrow…metric}` (never `text-[Npx]`); control height → `h-control-{sm,md}` /
+  `h-control-indicator`; color/space/radius/z → the semantic tokens (`bg-surface`, `text-fg`,
+  `rounded-control`, the named z bands). The one sanctioned raw px is a value that must match a
+  main-process pixel (the title bar) — and it says so in a comment.
+- **Sizing is density-driven.** Extend the `--fs-*` / `--control-h-*` tokens to add a size; never
+  hardcode, or the density toggle silently skips your component. The 8pt grid assumes a 16px root — don't
+  shrink it to "make things dense."
+- **Feedback contract.** Every clickable ships its own **hover** *and* its own **press** (`active:` — plus
+  `data-[state=open]:` on overlay triggers so the close-click responds), and shows **no hover when
+  disabled**. Motion: transitions for interruptible state, keyframes only for mount/unmount; honor
+  reduced-motion.
+- **Two Electron/Chromium gotchas.** Don't set the standard `scrollbar-width`/`scrollbar-color` (it
+  disables all `::-webkit-scrollbar` styling); keep the title-bar height in px lockstep with
+  `TITLE_BAR_HEIGHT`.
+- **Check the Components tab** — a live, states-first catalogue of every primitive — before wiring a
+  component into a surface.
+
+---
+
+_Last reviewed: 2026-07-01_

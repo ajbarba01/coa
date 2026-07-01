@@ -38,8 +38,8 @@ function TimelineView({ vm }: { vm: TimelineVm; host: PanelHostApi }): React.JSX
           getKey={(c) => c.id}
           renderItem={(c) => (
             <div className="flex items-center gap-2">
-              <span className="text-[12px] text-muted">seq {c.seq}</span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-faint">{c.ts}</span>
+              <span className="text-label text-muted">seq {c.seq}</span>
+              <span className="min-w-0 flex-1 truncate text-caption text-faint">{c.ts}</span>
               {c.pinned && <Badge tone="info">pinned</Badge>}
             </div>
           )}

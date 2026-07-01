@@ -23,8 +23,8 @@ export function EmptyState({
       <span className="text-faint">
         <Icon name={icon} size={24} />
       </span>
-      <div className="text-[13px] font-medium text-fg">{title}</div>
-      <div className="max-w-xs text-[12px] text-muted">{description}</div>
+      <div className="text-body font-medium text-fg">{title}</div>
+      <div className="max-w-xs text-label text-muted">{description}</div>
       {action !== undefined && <div className="mt-1">{action}</div>}
     </div>
   );

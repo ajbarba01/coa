@@ -8,7 +8,14 @@ export function TooltipProvider({
   children: ReactNode;
   delayDuration?: number;
 }): React.JSX.Element {
-  return <RxTooltip.Provider delayDuration={delayDuration}>{children}</RxTooltip.Provider>;
+  // skipDelayDuration=0 closes Radix's "skip the delay on quick re-hover" window,
+  // which otherwise re-shows a tooltip instantly without replaying the enter
+  // animation (a flash). Every hover now uses the same delay + transition.
+  return (
+    <RxTooltip.Provider delayDuration={delayDuration} skipDelayDuration={0}>
+      {children}
+    </RxTooltip.Provider>
+  );
 }
 
 export interface TooltipProps {
@@ -23,7 +30,7 @@ export function Tooltip({ content, children }: TooltipProps): React.JSX.Element 
       <RxTooltip.Portal>
         <RxTooltip.Content
           sideOffset={4}
-          className="z-[700] rounded-control bg-raised px-2 py-1 text-[12px] text-fg shadow-md"
+          className="overlay-content z-[700] rounded-control bg-raised px-2 py-1 text-label text-fg shadow-md"
         >
           {content}
           <RxTooltip.Arrow className="fill-[var(--color-bg-raised)]" />

@@ -17,11 +17,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const base =
   'inline-flex items-center justify-center gap-1.5 rounded-control border font-medium select-none ' +
-  'transition-[background-color,border-color,color] duration-fast disabled:opacity-50 disabled:pointer-events-none';
+  'transition-[background-color,border-color,color,transform] duration-fast active:scale-[0.98] data-[state=open]:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none';
 
 const bySize: Record<ButtonSize, string> = {
-  sm: 'h-7 px-2.5 text-[12px]',
-  md: 'h-8 px-3.5 text-[13px]',
+  sm: 'h-control-sm px-2.5 text-label',
+  md: 'h-control-md px-3.5 text-body',
 };
 
 const byVariant: Record<ButtonVariant, string> = {

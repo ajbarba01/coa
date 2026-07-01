@@ -31,4 +31,26 @@
   --radius-control: 4px;
   --radius-surface: 6px;
   --radius-overlay: 8px;
+  /* Type scale (§6.2) as first-class tokens → a size change is one edit. Each maps
+     to a density-driven runtime var (semantic.ts) with a static fallback, so the
+     density toggle scales every `text-*` utility. Roles, largest to smallest:
+       metric   headline numbers (cost, stat value)
+       heading  dialog / sheet / section titles
+       body     default UI text
+       label    control labels + secondary text
+       caption  captions, faint metadata, pill text
+       eyebrow  uppercase micro-labels */
+  --text-metric: var(--fs-metric, 20px);
+  --text-heading: var(--fs-heading, 16px);
+  --text-body: var(--fs-body, 14px);
+  --text-label: var(--fs-label, 13px);
+  --text-caption: var(--fs-caption, 12px);
+  --text-eyebrow: var(--fs-eyebrow, 11px);
+  /* Shared control heights (density-driven) → every control-like component reuses
+     one height. Exposed on the spacing namespace so `h-control-md` / `w-control-md`
+     exist for buttons, inputs, selects, icon buttons alike. */
+  --spacing-control-sm: var(--control-h-sm, 28px);
+  --spacing-control-md: var(--control-h-md, 36px);
+  /* Checkbox / radio box size — one shared, density-driven indicator dimension. */
+  --spacing-control-indicator: var(--control-indicator, 18px);
 }
