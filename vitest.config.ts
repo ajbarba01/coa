@@ -12,6 +12,9 @@ const workspaceAlias = {
   '@coa/adapter-claude-sdk': fileURLToPath(
     new URL('./packages/adapter-claude-sdk/src/index.ts', import.meta.url),
   ),
+  '@coa/console-viewmodel': fileURLToPath(
+    new URL('./packages/console-viewmodel/src/index.ts', import.meta.url),
+  ),
 };
 
 export default defineConfig({
