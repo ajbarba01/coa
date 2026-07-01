@@ -24,6 +24,16 @@ import { dialogIntent } from './overlays/Dialog.intent.js';
 import { popoverIntent } from './overlays/Popover.intent.js';
 import { tooltipIntent } from './overlays/Tooltip.intent.js';
 import { sheetIntent } from './overlays/Sheet.intent.js';
+import { dividerIntent } from './layout/Divider.intent.js';
+import { toolbarIntent } from './layout/Toolbar.intent.js';
+import { paneIntent } from './layout/Pane.intent.js';
+import { navListIntent } from './layout/NavList.intent.js';
+import { tableIntent } from './data/Table.intent.js';
+import { listIntent } from './data/List.intent.js';
+import { keyValueIntent } from './data/KeyValue.intent.js';
+import { codeIntent } from './data/Code.intent.js';
+import { badgeIntent } from './data/Badge.intent.js';
+import { statIntent } from './data/Stat.intent.js';
 
 /** Every component appends its intent here. Feeds COMPONENTS.md + the coverage test. */
 export const allIntents: ComponentIntent[] = [
@@ -52,4 +62,14 @@ export const allIntents: ComponentIntent[] = [
   popoverIntent,
   tooltipIntent,
   sheetIntent,
+  dividerIntent,
+  toolbarIntent,
+  paneIntent,
+  navListIntent,
+  tableIntent,
+  listIntent,
+  keyValueIntent,
+  codeIntent,
+  badgeIntent,
+  statIntent,
 ];
