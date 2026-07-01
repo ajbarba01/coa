@@ -12,6 +12,18 @@ import { radioIntent } from './inputs/Radio.intent.js';
 import { switchIntent } from './inputs/Switch.intent.js';
 import { selectIntent } from './inputs/Select.intent.js';
 import { comboboxIntent } from './inputs/Combobox.intent.js';
+import { bannerIntent } from './feedback/Banner.intent.js';
+import { denyNoticeIntent } from './feedback/DenyNotice.intent.js';
+import { toastIntent } from './feedback/Toast.intent.js';
+import { inlineMessageIntent } from './feedback/InlineMessage.intent.js';
+import { progressIntent } from './feedback/Progress.intent.js';
+import { spinnerIntent } from './feedback/Spinner.intent.js';
+import { skeletonIntent } from './feedback/Skeleton.intent.js';
+import { emptyStateIntent } from './feedback/EmptyState.intent.js';
+import { dialogIntent } from './overlays/Dialog.intent.js';
+import { popoverIntent } from './overlays/Popover.intent.js';
+import { tooltipIntent } from './overlays/Tooltip.intent.js';
+import { sheetIntent } from './overlays/Sheet.intent.js';
 
 /** Every component appends its intent here. Feeds COMPONENTS.md + the coverage test. */
 export const allIntents: ComponentIntent[] = [
@@ -28,4 +40,16 @@ export const allIntents: ComponentIntent[] = [
   switchIntent,
   selectIntent,
   comboboxIntent,
+  bannerIntent,
+  denyNoticeIntent,
+  toastIntent,
+  inlineMessageIntent,
+  progressIntent,
+  spinnerIntent,
+  skeletonIntent,
+  emptyStateIntent,
+  dialogIntent,
+  popoverIntent,
+  tooltipIntent,
+  sheetIntent,
 ];

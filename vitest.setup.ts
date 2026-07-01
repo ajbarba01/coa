@@ -10,6 +10,15 @@ if (typeof Element !== 'undefined') {
   Element.prototype.scrollIntoView ??= () => {};
 }
 
+// jsdom lacks ResizeObserver; Radix's floating primitives (Tooltip/Popover) use it.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+}
+
 afterEach(() => {
   cleanup();
 });
