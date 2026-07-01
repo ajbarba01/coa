@@ -5,11 +5,16 @@ import { z } from 'zod';
 export const AdjustabilitySchema = z.enum(['static', 'resizable', 'dockable']);
 export type Adjustability = z.infer<typeof AdjustabilitySchema>;
 
-/** A leaf hosts exactly one panel; `size` is its fractional size within its parent split. */
+/** A leaf hosts exactly one panel. `size` is its proportional size within its parent
+ *  split (percent under a resizable split, flex weight under a static one). `fixedPx`
+ *  makes it a fixed pixel region instead (the nav rail); `minPx` is a min size along
+ *  the parent's main axis so it stops before its content crushes. */
 export interface LeafRegion {
   type: 'leaf';
   panelId: string;
   size?: number | undefined;
+  fixedPx?: number | undefined;
+  minPx?: number | undefined;
 }
 
 /** A split arranges children along an axis; the resize dial lives here (it owns
@@ -27,6 +32,8 @@ const LeafRegionSchema: z.ZodType<LeafRegion> = z.object({
   type: z.literal('leaf'),
   panelId: z.string().min(1),
   size: z.number().positive().optional(),
+  fixedPx: z.number().positive().optional(),
+  minPx: z.number().positive().optional(),
 });
 
 const SplitRegionSchema: z.ZodType<SplitRegion> = z.lazy(() =>

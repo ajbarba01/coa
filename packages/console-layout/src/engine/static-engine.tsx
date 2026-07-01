@@ -7,6 +7,10 @@ import type { LayoutEngine, LayoutHandle, LayoutMountArgs } from './port.js';
 
 const SUPPORTED: ReadonlySet<Adjustability> = new Set<Adjustability>(['static', 'resizable']);
 
+/** Floor each resizable pane well above the old flat 5% so a pane can't collapse into
+ *  nonsense; combined with the window min size and fixed static regions (spec §22.3). */
+const MIN_RESIZE_PERCENT = 20;
+
 /** Mutable, React-external state so the imperative handle can drive/read the tree
  *  without React re-rendering on every drag (which would fight the resize lib).
  *  `layoutRevision` keys the resize groups (bumped only on a descriptor swap);
@@ -117,29 +121,38 @@ function renderRegion(region: Region, ctx: RenderCtx, path: string): React.JSX.E
   // A `dockable` region degrades to `resizable` under the StaticEngine.
   const resizable = region.adjustability !== 'static';
   if (!resizable) {
+    const isRow = region.direction === 'row';
     return (
       <div
         style={{
           display: 'flex',
-          flexDirection: region.direction === 'row' ? 'row' : 'column',
+          flexDirection: isRow ? 'row' : 'column',
           minWidth: 0,
           minHeight: 0,
           height: '100%',
           width: '100%',
+          gap: 'var(--layout-gap, 0)',
         }}
       >
-        {region.children.map((child, i) => (
-          <div
-            key={i}
-            style={{
-              flex: child.type === 'leaf' && child.size ? `${child.size} 1 0` : '1 1 0',
-              minWidth: 0,
-              minHeight: 0,
-            }}
-          >
-            {renderRegion(child, ctx, `${path}.${i}`)}
-          </div>
-        ))}
+        {region.children.map((child, i) => {
+          const leaf = child.type === 'leaf' ? child : undefined;
+          const style: React.CSSProperties = { minWidth: 0, minHeight: 0 };
+          style.flex =
+            leaf?.fixedPx !== undefined
+              ? `0 0 ${leaf.fixedPx}px`
+              : leaf?.size
+                ? `${leaf.size} 1 0`
+                : '1 1 0';
+          if (leaf?.minPx !== undefined) {
+            if (isRow) style.minWidth = leaf.minPx;
+            else style.minHeight = leaf.minPx;
+          }
+          return (
+            <div key={i} style={style}>
+              {renderRegion(child, ctx, `${path}.${i}`)}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -156,10 +169,14 @@ function renderRegion(region: Region, ctx: RenderCtx, path: string): React.JSX.E
         <Fragment key={i}>
           {i > 0 && (
             <PanelResizeHandle
+              className="resize-handle"
               aria-label={separatorLabel(ctx, region.children[i - 1] as Region, child)}
             />
           )}
-          <Panel defaultSize={child.type === 'leaf' ? child.size : undefined} minSize={5}>
+          <Panel
+            defaultSize={child.type === 'leaf' ? child.size : undefined}
+            minSize={MIN_RESIZE_PERCENT}
+          >
             {renderRegion(child, ctx, `${path}.${i}`)}
           </Panel>
         </Fragment>
@@ -177,7 +194,14 @@ function StaticRoot({ ctx }: { ctx: RenderCtx }): React.JSX.Element {
     () => ctx.store.version,
   );
   return (
-    <div style={{ height: '100%', width: '100%' }}>
+    <div
+      style={{
+        height: '100%',
+        width: '100%',
+        padding: 'var(--layout-pad, 0)',
+        boxSizing: 'border-box',
+      }}
+    >
       {renderRegion(ctx.store.current.root, ctx, 'root')}
     </div>
   );

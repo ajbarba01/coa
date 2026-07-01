@@ -92,6 +92,37 @@ describe('StaticEngine', () => {
   });
 });
 
+describe('StaticEngine fixed + min sizing', () => {
+  it('renders a fixedPx leaf as a non-growing fixed-basis flex child', () => {
+    const d: LayoutDescriptor = {
+      version: LAYOUT_VERSION,
+      root: {
+        type: 'split',
+        direction: 'row',
+        adjustability: 'static',
+        children: [
+          { type: 'leaf', panelId: 'nav', fixedPx: 48 },
+          { type: 'leaf', panelId: 'chat', minPx: 200 },
+        ],
+      },
+    };
+    const { container } = mountInto(d);
+    const navWrap = container.querySelector('[data-panel-id="nav"]')?.parentElement as HTMLElement;
+    expect(navWrap.style.flex).toContain('48px');
+    expect(navWrap.style.flexGrow === '0' || navWrap.style.flex.startsWith('0 0')).toBe(true);
+    const chatWrap = container.querySelector('[data-panel-id="chat"]')
+      ?.parentElement as HTMLElement;
+    expect(chatWrap.style.minWidth).toBe('200px'); // row split → min on the width axis
+  });
+
+  it('applies the gutter variable to a static flex container', () => {
+    const { container } = mountInto(staticSplit);
+    const navWrap = container.querySelector('[data-panel-id="nav"]')?.parentElement as HTMLElement;
+    const flexRow = navWrap.parentElement as HTMLElement;
+    expect(flexRow.style.gap).toContain('--layout-gap');
+  });
+});
+
 describe('StaticEngine handle', () => {
   it('serialize returns the current descriptor', () => {
     const { handle } = mountInto(resizableSplit);

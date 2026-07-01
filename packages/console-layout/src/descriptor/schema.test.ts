@@ -73,3 +73,29 @@ describe('LayoutDescriptorSchema', () => {
     expect(() => LayoutDescriptorSchema.parse(bad)).toThrow();
   });
 });
+
+describe('fixed-size and min-size leaves', () => {
+  it('accepts a leaf with fixedPx and minPx', () => {
+    const d = {
+      version: LAYOUT_VERSION,
+      root: {
+        type: 'split',
+        direction: 'row',
+        adjustability: 'static',
+        children: [
+          { type: 'leaf', panelId: 'nav', fixedPx: 48 },
+          { type: 'leaf', panelId: 'main', minPx: 240 },
+        ],
+      },
+    };
+    expect(LayoutDescriptorSchema.parse(d)).toEqual(d);
+  });
+
+  it('rejects a non-positive fixedPx', () => {
+    const d = {
+      version: LAYOUT_VERSION,
+      root: { type: 'leaf', panelId: 'nav', fixedPx: 0 },
+    };
+    expect(() => LayoutDescriptorSchema.parse(d)).toThrow();
+  });
+});
