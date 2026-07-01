@@ -573,6 +573,58 @@ each = a `console-viewmodel` `selectVm` + a `console-ui` `render`, jsdom-tested 
 **error** (inline message), and **empty / "no ceiling"** states before its happy path — for an audit tool these
 states are the credibility, and 4a sets the pattern 4b/4c copy.
 
+### 21.1 Plan 4b concretization (locked)
+
+Plan 4b builds the remaining buildable-now surfaces and, in doing so, pins the nav-rail **routing model** §21
+deferred ("once more than one surface exists").
+
+**Arrangement = inspector-first (a refinement of direction B's arrangement, not its identity).** The **nav rail
+drives the main region** — it swaps which surface panel fills the dominant center — while a **persistent right dock**
+holds chat (mock) + agent (mock) + the **live account/session selector**. The single resizable boundary is
+main↔dock; the nav rail stays a thin static region. Chat stays *prominent* (always visible) but is no longer
+*dominant-center*; the forge/brass visual identity (§13) is unchanged, and the layout stays fully descriptor-driven
+so any surface can be re-homed later (the §13 ASCII shows the earlier chat-center arrangement — 4b refines it). This
+was the maintainer's call: an audit tool's main job is *inspecting* surfaces, so the big area is the audit windows
+and chat is the always-present companion you drive from.
+
+**Mechanism = one state object down, actions up.** The renderer maintains a single **`ConsoleState = { data, ui,
+actions }`** pushed through the existing `setDaemonState` seam (generalizing 4a's `DaemonState`): `data` = the polled
+daemon reads (`cap`/`flags`/`timeline`) + `accounts` (fetched on demand); `ui` = `activeMainPanelId` + `settings`;
+`actions` = app-owned callbacks (`setRoute`/`switchAccount`/`setSettings`/`refresh`). Each surface is a **real
+`PanelDefinition`** whose pure `selectVm` picks only what it needs; interactive panels reach back across the engine's
+own React root by pulling a callback out of the pushed state (unidirectional: state down, actions up). **Nav routing**
+= `setRoute` sets `activeMainPanelId`; the app swaps the main leaf's `panelId` (preserving sizes via `serialize`) and
+persists — so every surface stays an independent, reorganizable panel rather than a sub-view of a monolith.
+
+**Surfaces live in 4b:** Cost (re-homed from 4a's right pane into a nav-driven window; renders `capState` honestly —
+subscription/no-ceiling · "$X under cap" · cap-reached), **Flags** (`flagsForUser` → `FeedView`, states-first),
+**Timeline** (`listTimeline` → checkpoints, read-only; the rewind verb is still TBD), **Account selector** (the auth
+verbs, in the right dock, interactive), **Settings** (§21.2). The **`raw`** affordance stays present and focusable
+(the 4a title-bar button) opening an honest placeholder — its real content is the *unfiltered loop*, which needs
+`coa run` + the turn store, so the real raw view lands in 4c on that same seam.
+
+**No persistent cost chip.** The M7 cap is **daemon-wide**, but v1 is subscription-locked so `capState.remaining` is
+usually `null` (no dollar figure to show); per-account cost is the *ledger*, a separate surface whose verb is still
+TBD. And a cap-hit is one of the two hard blocks, so it **self-announces via the SC-1 DenyNotice** when the live deny
+channel lands (4c) — no always-on chip is needed. The always-visible *context* is the account/session in the right
+dock.
+
+**Deferred out of 4b (with reasons):** Decisions (the read verbs are `getDecision(id)` / `why(target)` only — there
+is **no list-all-decisions verb**, so a chronological log isn't buildable; the targeted "why" explain-power waits
+with it) · agent-config (4c) · the ledger / model-usage detail (verb TBD) · a session-status chip (no session-state
+verb) · the SC-1 DenyNotice **banner** on cap-hit (wires with the live deny channel in 4c). Build order = three
+parts: (1) the inspector-first reshape (`ConsoleState` + nav routing + right-dock/nav-driven descriptor + re-home
+Cost), (2) the read surfaces (Flags + Timeline), (3) the interactive surfaces (Account selector + Settings).
+
+### 21.2 Console settings (locked)
+
+Settings is a **dedicated, extensible `ConsoleSettings`** object (a Zod schema with defaults + a merge-on-read, so
+future toggles just add a field), persisted by the **main** process in a `settings.json` via new `getSettings` /
+`saveSettings` registry methods — the same mechanism as `layout.json` (all console-local state on the trusted main
+side, no daemon verb). The first three fields are **theme · density · motion**, applied by setting
+`data-theme` / `data-density` on the document root plus a `motion-enabled` flag; loaded on boot, applied instantly on
+change, persisted async.
+
 ---
 
 _Last reviewed: 2026-07-01_
