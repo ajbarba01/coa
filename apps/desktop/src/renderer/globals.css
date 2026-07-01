@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+@import '../../../../packages/console-ui/src/theme.css';
+@source '../../../../packages/console-ui/src';
 
 :root {
   color-scheme: dark;
