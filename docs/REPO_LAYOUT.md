@@ -23,6 +23,7 @@ coa/
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
     console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core)
+    console-layout/          M10 — @coa/console-layout (panel registry + versioned layout descriptor + engine port + StaticEngine; pure react/react-resizable-panels/zod, no electron/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
     desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer)
@@ -57,7 +58,7 @@ shippable apps.
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
 | M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
 | M9 Runtime Adapter           | `packages/spi` + `packages/adapter-claude-sdk` | Ports (types) + the one backend impl.                                      |
-| M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-ui` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-ui` owns the design tokens + component kit. |
+| M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-ui` + `packages/console-layout` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-ui` owns the design tokens + component kit; `console-layout` owns the engine-agnostic layout core (registry + descriptor + engine port + StaticEngine). |
 
 **Why M1 and M3–M8 share one `core` package.** They are the daemon's rings around the spine; they share the
 in-process graph and the single-writer WAL, and the SPEC keeps them co-located. The discipline that prevents this
@@ -101,6 +102,9 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
   `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
 - **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react` (+ its own tokens), never
   `electron`/`core` (enforced: `console-ui-no-electron-core`).
+- **`console-layout` is the pure layout core** — it imports only `react`/`react-resizable-panels`/`zod`, never
+  `electron`/`core` (enforced: `console-layout-no-electron-core`). It stays generic over the panel view-model (no
+  `console-ui`/`console-viewmodel` import); concrete panels live in the shell.
 
 A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
 **same commit** (the same-commit doc rule).

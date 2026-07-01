@@ -17,6 +17,9 @@ const workspaceAlias = {
     new URL('./packages/console-viewmodel/src/index.ts', import.meta.url),
   ),
   '@coa/console-ui': fileURLToPath(new URL('./packages/console-ui/src/index.ts', import.meta.url)),
+  '@coa/console-layout': fileURLToPath(
+    new URL('./packages/console-layout/src/index.ts', import.meta.url),
+  ),
 };
 
 export default defineConfig({

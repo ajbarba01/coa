@@ -71,6 +71,14 @@ module.exports = {
       to: { path: 'node_modules/electron/|^packages/core/' },
     },
     {
+      name: 'console-layout-no-electron-core',
+      severity: 'error',
+      comment:
+        'The layout core is a pure renderer-side library; it never imports electron or the daemon core (only react/react-resizable-panels/zod).',
+      from: { path: '^packages/console-layout/src' },
+      to: { path: 'node_modules/electron/|^packages/core/' },
+    },
+    {
       name: 'renderer-isolation',
       severity: 'error',
       comment:
