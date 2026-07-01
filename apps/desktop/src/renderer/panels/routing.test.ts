@@ -10,6 +10,9 @@ describe('routing', () => {
     expect(leaves).toContain('"panelId":"cost"');
     expect(leaves).toContain('"panelId":"conversation"');
     expect(leaves).toContain('"panelId":"agent"');
+    // the nav is a fixed-width region, not a proportional one
+    expect(leaves).toContain('"fixedPx":48');
+    expect(leaves).not.toContain('"panelId":"nav","size"');
   });
 
   it('swaps only the routable main leaf, preserving other panels and sizes', () => {
@@ -31,6 +34,6 @@ describe('routing', () => {
   it('declares the routable set and a bumped layout epoch', () => {
     expect(ROUTABLE_IDS.has('cost')).toBe(true);
     expect(ROUTABLE_IDS.has('nav')).toBe(false);
-    expect(LAYOUT_EPOCH).toBe(3);
+    expect(LAYOUT_EPOCH).toBe(4);
   });
 });

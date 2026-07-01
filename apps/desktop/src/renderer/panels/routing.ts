@@ -6,7 +6,7 @@ export const ROUTABLE_IDS: ReadonlySet<string> = new Set(['cost', 'flags', 'time
 
 /** Bump when the default arrangement changes so a persisted older layout is
  *  ignored (a stale layout.json has no matching epoch → the new default is used). */
-export const LAYOUT_EPOCH = 3;
+export const LAYOUT_EPOCH = 4;
 
 /**
  * Inspector-first (spec §21.1): a thin static nav rail beside the workbench body;
@@ -22,7 +22,7 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
       direction: 'row',
       adjustability: 'static',
       children: [
-        { type: 'leaf', panelId: 'nav', size: 0.06 },
+        { type: 'leaf', panelId: 'nav', fixedPx: 48 },
         {
           type: 'split',
           direction: 'row',
@@ -35,10 +35,11 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
               adjustability: 'static',
               children: [
                 // Chat is the always-present companion, so it dominates the dock;
-                // the agent summary and account context are compact below it.
-                { type: 'leaf', panelId: 'conversation', size: 3 },
-                { type: 'leaf', panelId: 'agent', size: 1 },
-                { type: 'leaf', panelId: 'account', size: 1 },
+                // the agent summary and account context are compact below it. Min
+                // heights keep each pane usable when the dock is short (spec §22.3).
+                { type: 'leaf', panelId: 'conversation', size: 3, minPx: 160 },
+                { type: 'leaf', panelId: 'agent', size: 1, minPx: 88 },
+                { type: 'leaf', panelId: 'account', size: 1, minPx: 64 },
               ],
             },
           ],

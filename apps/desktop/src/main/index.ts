@@ -1,8 +1,9 @@
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, session } from 'electron';
 import { connectClient, defaultDaemonPath } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
+import { titleBarConfig } from './titlebar.js';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
 import { readJson, writeJson } from './persistence.js';
 import { METHODS, channel, type MethodName } from '../shared/methods.js';
@@ -12,8 +13,10 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    minWidth: 860,
+    minHeight: 540,
     show: false,
-    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+    ...titleBarConfig(process.platform),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -142,6 +145,8 @@ for (const name of Object.keys(METHODS) as MethodName[]) {
 }
 
 app.whenReady().then(() => {
+  // The custom AppShell title bar is the only chrome — no File/Edit/View menu (§22.2).
+  Menu.setApplicationMenu(null);
   // Dev is served from `ELECTRON_RENDERER_URL` by Vite (HMR + Fast Refresh);
   // production loads from file. The CSP relaxes only in dev (see `csp.ts`).
   const isDev = Boolean(process.env['ELECTRON_RENDERER_URL']);
