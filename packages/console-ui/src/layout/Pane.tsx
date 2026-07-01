@@ -23,22 +23,22 @@ export function Pane({
     <section
       {...(title !== undefined ? { 'aria-labelledby': headingId } : {})}
       className={cx(
-        'flex min-h-0 flex-col rounded-surface border border-border-default bg-surface',
+        'flex h-full min-h-0 flex-col rounded-surface border border-border-default bg-surface',
         className,
       )}
     >
       {title !== undefined && (
-        <header className="flex items-center justify-between border-b border-hairline px-3 py-2">
+        <header className="flex min-h-9 items-center justify-between border-b border-hairline px-3.5 py-2">
           <h2
             id={headingId}
-            className="text-[11px] font-semibold uppercase tracking-[0.04em] text-faint"
+            className="text-[11px] font-semibold uppercase tracking-[0.06em] text-faint"
           >
             {title}
           </h2>
           {actions}
         </header>
       )}
-      <div className={cx('min-h-0 flex-1 p-3', scroll && 'overflow-auto')}>{children}</div>
+      <div className={cx('min-h-0 flex-1 p-3.5', scroll && 'overflow-auto')}>{children}</div>
     </section>
   );
 }

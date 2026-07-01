@@ -20,8 +20,8 @@ const base =
   'transition-[background-color,border-color,color] duration-fast disabled:opacity-50 disabled:pointer-events-none';
 
 const bySize: Record<ButtonSize, string> = {
-  sm: 'h-6 px-2 text-[12px]',
-  md: 'h-7 px-3 text-[13px]',
+  sm: 'h-7 px-2.5 text-[12px]',
+  md: 'h-8 px-3.5 text-[13px]',
 };
 
 const byVariant: Record<ButtonVariant, string> = {
