@@ -625,6 +625,89 @@ side, no daemon verb). The first three fields are **theme · density · motion**
 `data-theme` / `data-density` on the document root plus a `motion-enabled` flag; loaded on boot, applied instantly on
 change, persisted async.
 
+### 21.3 Plan 4c concretization (locked)
+
+Plan 4c builds the **design-now MOCK surfaces** (§12): the structured chat stream, inline approval cards,
+`coa raw`, agent config, the compiled-prompt view, and the graph/scope viz. Each fronts an **unbuilt M8
+seam**, so each renders realistic mock through the same registry + selector seam and swaps mock→verb via the
+registry with **no shell or panel refactor** when its seam (its own later spec) lands (§16). Visual direction
+is unchanged (§13); the inspector-first arrangement of §21.1 is preserved, not re-opened.
+
+**Decomposition = three sub-plans, each shipping working, testable software** (mirroring 4b's plan-per-slice /
+commit-per-Part norm). The whole decomposition + per-surface mock shape is pinned here; the detailed TDD plans
+are authored one at a time (4c-1 first), each drawing from this section.
+
+| Sub-plan | Surfaces | New `console-ui` component | Fronts (unbuilt seam) |
+| --- | --- | --- | --- |
+| **4c-1 — conversation seam** | structured chat stream · inline approval cards · `coa raw` mode | **Transcript** (P11 Dense/Viz) | turn producer · R-7 store · CON-PUSH · approval Push / `respondApproval` · `coa run` |
+| **4c-2 — agent config** | Roles + Pieces config | — (existing Inputs + `Sheet`) | `listRoles` / `getRole` / `writeRole` |
+| **4c-3 — the P11 dense/viz pair** | compiled-prompt view · graph / scope viz | **Longform/PromptView** (react-virtuoso) · **Graph** (React Flow + Dagre) | an M8 read over M5 compiled output · graph read verbs |
+
+**Surface placement (faithful to §21.1).**
+
+- **Chat + approvals + raw** re-home the right-dock `conversation` slot. **Approval cards are a turn-frame
+  kind rendered inline** where the agent pauses for permission (matching how tool-approvals actually flow),
+  sharing the Transcript data model. **`coa raw` is the existing title-bar affordance made live as a mode
+  toggle** — it flips the same conversation panel between governed and verbatim frames (D85: the same loop,
+  unfiltered — one stream, no overlay, no second view). Wired as a `ui.rawMode` flag + a `toggleRaw` action
+  the title bar's `onRaw` invokes; the chat panel's pure `selectVm` reads it.
+- **Agent config** re-homes the dock `agent` slot as a compact **active-role summary** (role · scope) with a
+  *Configure* affordance that opens the full Roles + Pieces mock form in a **`Sheet`** (the kit's side-drawer
+  for "forms that need room"). This keeps §21.1's dock composition (chat + agent + account) and adds no nav
+  routing.
+- **Compiled-prompt** and **graph** are **routable main windows** — new nav sections (`prompt`, `graph`)
+  added to `ROUTABLE_IDS`, filling the dominant center like Cost/Flags/Timeline (the "big area = the audit
+  windows" model of §21.1). Nav rail after 4c: Cost · Flags · Timeline · Prompt · Graph, Settings gear pinned
+  bottom.
+
+**New Dense/Viz components (the deferred §7 P11 family — built real, mock-fed).** Building the real components
+now (not lighter placeholders) is what honors the §16 no-refactor guarantee and actually validates the design
+system against every surface type — the thesis of §12's mock-first posture. Each ships its colocated
+lint-enforced intent block (§7), a registry entry, a regenerated `COMPONENTS.md` (diff-checked), and
+states-first jsdom tests.
+
+- **Transcript** — a virtualized (react-virtuoso) turn stream: role-tagged frames (you / agent / nested
+  subagent), content blocks (text / tool-use / tool-result), a live/running affordance, and pluggable frame
+  kinds so the **approval card**, the **DenyNotice**, and the **verbatim (raw)** rendering are frame variants,
+  not separate widgets. Tool payloads render byte-faithful (D128).
+- **Longform/PromptView** — byte-faithful long-form (react-virtuoso) for the compiled prompt: verbatim
+  rendering with section anchors, no truncation/normalization, verbatim copy sourced from the canonical bytes,
+  not the DOM (D128, §11.4).
+- **Graph** — React Flow + Dagre auto-layout with semantic zoom, an **Okabe-Ito** categorical node palette and
+  redundant (non-color) encoding (§15), keyboard-navigable, degrading to a non-graph fallback list for a11y.
+  Sigma.js remains the documented >~5k-node fallback (§4/§18), not built here.
+
+New renderer-only dependencies: `react-virtuoso`, `reactflow` (+ `dagre`). Native-addon-free, so they live in
+the renderer with no main-process rebuild (§10.4). REPO_LAYOUT + the dependency-cruiser ruleset get the
+same-commit note where each lands (§19).
+
+**Mock shapes mirror their future verb, in `console-viewmodel` (pure, renderer-safe).** Each surface's mock is
+typed by a Zod edge schema in the view-model package (never `@coa/core`), shaped like the verb that will
+replace it so the swap is a one-line data-source change: a **turn frame** (role · kind
+text|tool-use|tool-result|approval|deny|raw · byte-faithful payload · subagent nesting · running/settled),
+an **approval request** (requestId · tool · args preview · diff stat · risk), an **agent role** (name · scope
+· pieces), a **compiled prompt** (verbatim bytes + section offsets), and a **scope graph** (nodes + edges).
+Fixture mock data lives in the shell, not the schema.
+
+**Mechanism (extends §21.1's `ConsoleState`, no new seam).** `data` gains the mock reads
+(`turns`/`agent`/`compiledPrompt`/`graph`, each a `Remote<T>`); `ui` gains `rawMode`; `actions` gains
+`toggleRaw` (and the inert mock approval/config callbacks). Every surface stays a real `PanelDefinition` with
+a pure `selectVm`; data flows down and actions up through the existing `setDaemonState` push (§21/§21.1). No
+`console-layout` change is required.
+
+**SC-1 — help, never cage (the load-bearing invariant here).** The approval card's Approve/Deny are **inert
+mock actions** — they only resolve the mock card locally; the card **surfaces** an approval the daemon would
+issue and **never originates a block** (the UI cannot deny). The two real blocks stay M3's close-gate and M7's
+cost-cap through M9's single deny channel, rendered by the `DenyNotice` frame kind. 4c renders a **mock**
+DenyNotice frame states-first (to design and validate the surface), but the **live deny channel wiring stays
+deferred** — it needs the R-12 push bridge; the console still denies nothing on its own.
+
+**Deferred out of 4c (with reasons).** Live turn / approval / deny **push** (needs the R-12 WAL→Push bridge) ·
+`coa run` and every real verb behind the five mocks (their own later specs) · the **live** SC-1 deny-channel
+wiring (rides R-12) · the **DiffView** and **Timeline** Dense/Viz members (§7) — not required by any 4c surface
+· dockview docking (§18). After 4c the mock-first shell is complete; remaining M10 work is swapping each
+mock→verb as its M8 seam lands.
+
 ---
 
 _Last reviewed: 2026-07-01_
