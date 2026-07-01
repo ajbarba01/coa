@@ -6,7 +6,7 @@
 
 **Architecture:** A new `@coa/console-layout` package holds four seams (spec §11). Panels are pure view modules held in a registry; arrangement is a serializable, versioned, drop-unknown-tolerant descriptor tree; a swappable `LayoutEngine` port owns whether arrangement is mutable; the MVP `StaticEngine` renders static regions as flexbox and resizable regions with `react-resizable-panels` (controlled). The package is generic over the panel view-model — it imports `react` + `react-resizable-panels` + `zod` only, never `console-ui`/`console-viewmodel`/`core`/`electron`.
 
-**Tech Stack:** TypeScript (strict), React 19, `react-resizable-panels@4.12.0`, Zod 4, Vitest + jsdom + @testing-library/react, tsdown, dependency-cruiser.
+**Tech Stack:** TypeScript (strict), React 19, `react-resizable-panels@^3.0.6` (the classic `PanelGroup`/`Panel`/`PanelResizeHandle` API the spec §11.4/11.5 targets — v4 is a ground-up rewrite that renames these to `Group`/`Separator`; the classic v3 line supports React 19 and is pinned to honor the repo's "don't chase unstable newest majors" norm), Zod 4, Vitest + jsdom + @testing-library/react, tsdown, dependency-cruiser.
 
 ## Global Constraints
 
@@ -48,7 +48,7 @@ Same-commit doc/config edits (Part A commit):
 - Modify: `tsconfig.json` (root) — add `{ "path": "packages/console-layout" }`.
 - Modify: `vitest.config.ts` — add the `@coa/console-layout` src alias.
 - Modify: `docs/REPO_LAYOUT.md` — add the package to the tree, the logical→physical map note, and the dependency-rules bullet.
-- Modify: `pnpm-workspace.yaml` — add `react-resizable-panels@4.12.0` to `minimumReleaseAgeExclude` **only if** the install is blocked by the release-age gate.
+- Modify: `pnpm-workspace.yaml` — add `react-resizable-panels@<resolved-version>` to `minimumReleaseAgeExclude` **only if** the install is blocked by the release-age gate. (In practice v3.0.6 installed without a block, so no entry was needed.)
 
 ---
 
@@ -98,7 +98,7 @@ Same-commit doc/config edits (Part A commit):
     "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "react-resizable-panels": "^4.12.0",
+    "react-resizable-panels": "^3.0.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -203,7 +203,7 @@ export {};
 - [ ] **Step 9: Install** (registers the new workspace package + its deps)
 
 Run: `pnpm_config_verify_deps_before_run=false corepack pnpm install`
-Expected: success. If blocked with a minimum-release-age error naming `react-resizable-panels`, add `react-resizable-panels@4.12.0` to `pnpm-workspace.yaml` → `minimumReleaseAgeExclude` (mirror the existing entries) and re-run.
+Expected: success. If blocked with a minimum-release-age error naming `react-resizable-panels`, add `react-resizable-panels@<resolved-version>` to `pnpm-workspace.yaml` → `minimumReleaseAgeExclude` (mirror the existing entries) and re-run.
 
 - [ ] **Step 10: Verify the scaffold typechecks and the graph is clean**
 

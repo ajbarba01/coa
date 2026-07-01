@@ -1,0 +1,141 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createStaticEngine } from './static-engine.js';
+import { createPanelRegistry, type PanelDefinition, type PanelHostApi } from '../panel/registry.js';
+import { LAYOUT_VERSION, type LayoutDescriptor } from '../descriptor/schema.js';
+
+function textPanel(id: string): PanelDefinition<string, unknown> {
+  return {
+    id,
+    displayName: id.toUpperCase(),
+    render: ({ vm }: { vm: string; host: PanelHostApi }) => <div>{vm}</div>,
+    selectVm: () => `panel:${id}`,
+  };
+}
+
+function mountInto(descriptor: LayoutDescriptor, onChange = vi.fn()) {
+  const registry = createPanelRegistry();
+  registry.register(textPanel('nav'));
+  registry.register(textPanel('chat'));
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const engine = createStaticEngine();
+  let handle!: ReturnType<typeof engine.mount>;
+  act(() => {
+    handle = engine.mount({ container, descriptor, registry, daemonState: {}, onChange });
+  });
+  return { registry, container, handle, onChange };
+}
+
+afterEach(() => {
+  document.body.innerHTML = '';
+});
+
+const staticSplit: LayoutDescriptor = {
+  version: LAYOUT_VERSION,
+  root: {
+    type: 'split',
+    direction: 'row',
+    adjustability: 'static',
+    children: [
+      { type: 'leaf', panelId: 'nav' },
+      { type: 'leaf', panelId: 'chat' },
+    ],
+  },
+};
+
+const resizableSplit: LayoutDescriptor = {
+  version: LAYOUT_VERSION,
+  root: {
+    type: 'split',
+    direction: 'row',
+    adjustability: 'resizable',
+    children: [
+      { type: 'leaf', panelId: 'nav', size: 30 },
+      { type: 'leaf', panelId: 'chat', size: 70 },
+    ],
+  },
+};
+
+describe('StaticEngine', () => {
+  it('advertises its identity and supported dials', () => {
+    const engine = createStaticEngine();
+    expect(engine.id).toBe('static');
+    expect(engine.supports.has('static')).toBe(true);
+    expect(engine.supports.has('resizable')).toBe(true);
+    expect(engine.supports.has('dockable')).toBe(false);
+  });
+
+  it('renders each panel body via its selectVm', () => {
+    const { container } = mountInto(staticSplit);
+    expect(container.textContent).toContain('panel:nav');
+    expect(container.textContent).toContain('panel:chat');
+  });
+
+  it('renders a labelled separator for a resizable split', () => {
+    const { container } = mountInto(resizableSplit);
+    const seps = container.querySelectorAll('[role="separator"]');
+    expect(seps.length).toBe(1);
+    expect(seps[0]?.getAttribute('aria-label')?.length).toBeGreaterThan(0);
+  });
+
+  it('renders NO separator for a static split', () => {
+    const { container } = mountInto(staticSplit);
+    expect(container.querySelectorAll('[role="separator"]').length).toBe(0);
+  });
+
+  it('exposes each panel body as a focus target keyed by panelId', () => {
+    const { container } = mountInto(staticSplit);
+    expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="chat"]')).not.toBeNull();
+  });
+});
+
+describe('StaticEngine handle', () => {
+  it('serialize returns the current descriptor', () => {
+    const { handle } = mountInto(resizableSplit);
+    expect(handle.serialize()).toEqual(resizableSplit);
+  });
+
+  it('focusPanel moves focus to the panel body', () => {
+    const { handle, container } = mountInto(staticSplit);
+    act(() => handle.focusPanel('chat'));
+    expect(document.activeElement).toBe(container.querySelector('[data-panel-id="chat"]'));
+  });
+
+  it('applyDescriptor re-renders and updates serialize', () => {
+    const { handle, container } = mountInto(staticSplit);
+    const next: LayoutDescriptor = {
+      version: LAYOUT_VERSION,
+      root: { type: 'leaf', panelId: 'chat' },
+    };
+    act(() => handle.applyDescriptor(next));
+    expect(handle.serialize()).toEqual(next);
+    expect(container.textContent).toContain('panel:chat');
+    expect(container.textContent).not.toContain('panel:nav');
+  });
+
+  it('dispose unmounts the tree', () => {
+    const { handle, container } = mountInto(staticSplit);
+    act(() => handle.dispose());
+    expect(container.textContent).toBe('');
+  });
+
+  it('degrades a dockable split to a resizable one (renders a separator)', () => {
+    const dockable: LayoutDescriptor = {
+      version: LAYOUT_VERSION,
+      root: {
+        type: 'split',
+        direction: 'row',
+        adjustability: 'dockable',
+        children: [
+          { type: 'leaf', panelId: 'nav' },
+          { type: 'leaf', panelId: 'chat' },
+        ],
+      },
+    };
+    const { container } = mountInto(dockable);
+    expect(container.querySelectorAll('[role="separator"]').length).toBe(1);
+  });
+});
