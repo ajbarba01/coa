@@ -11,7 +11,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     icon: 'search',
     color: 'teal',
     scope: 'project',
-    model: 'claude-sonnet-5',
+    model: 'sonnet',
   },
   {
     ref: 'roles/tdd-implementer',
@@ -19,7 +19,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     icon: 'flask',
     color: 'blue',
     scope: 'project',
-    model: 'claude-sonnet-5',
+    model: 'sonnet',
   },
   {
     ref: 'roles/refactor-bot',
@@ -27,7 +27,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     icon: 'wrench',
     color: 'coral',
     scope: 'project',
-    model: 'claude-opus-4-8',
+    model: 'opus',
   },
   {
     ref: 'personal/scratch-helper',
@@ -35,7 +35,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     icon: 'sparkles',
     color: 'violet',
     scope: 'personal',
-    model: 'claude-haiku-4-5',
+    model: 'haiku',
   },
 ];
 

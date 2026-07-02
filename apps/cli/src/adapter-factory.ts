@@ -41,5 +41,7 @@ export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.onTurn !== undefined ? { onTurn: init.onTurn } : {}),
     ...(init.maxBudgetUsd !== undefined ? { maxBudgetUsd: init.maxBudgetUsd } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
+    ...(init.resume !== undefined ? { resume: init.resume } : {}),
+    ...(init.onBackendSession !== undefined ? { onBackendSession: init.onBackendSession } : {}),
   });
 }

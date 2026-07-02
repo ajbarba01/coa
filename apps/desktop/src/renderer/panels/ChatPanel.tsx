@@ -194,7 +194,10 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
         return g;
       });
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const activeAgentRef = activeSession?.agentRef;
+  // With no active session (a fresh store), default the rail selection to the first
+  // agent so "New session" is enabled — otherwise the first session can never be
+  // created (it needs an active agent, which only a session provides).
+  const activeAgentRef = activeSession?.agentRef ?? agents[0]?.ref;
   return {
     status: 'ready',
     rawMode,

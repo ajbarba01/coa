@@ -2,10 +2,145 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { agentsPanel, buildAgentPickerGroups, selectAgentsVm } from './AgentsPanel.js';
+import {
+  agentsPanel,
+  buildAgentPickerGroups,
+  clampReasoning,
+  modelLabel,
+  modelReasoningCaps,
+  pickableModels,
+  selectAgentsVm,
+} from './AgentsPanel.js';
 import { makeState, type StateOverrides } from './fixtures.js';
 import { MOCK_AGENTS } from './mockAgents.js';
+import type { ModelDescriptor } from '@coa/console-viewmodel';
 import type { ConsoleState } from './state.js';
+
+/** The live SDK model list shape (aliases + version-in-description), per `supportedModels()`. */
+const OPUS: ModelDescriptor = {
+  id: 'opus',
+  displayName: 'Opus',
+  description: 'Opus 4.8 · Best for everyday, complex tasks · ~2× usage vs Sonnet',
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  supportsAdaptiveThinking: true,
+};
+const SONNET: ModelDescriptor = {
+  id: 'sonnet',
+  displayName: 'Sonnet',
+  description: 'Sonnet 4.6 · Efficient for routine tasks',
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+  supportsAdaptiveThinking: true,
+};
+const HAIKU: ModelDescriptor = {
+  id: 'haiku',
+  displayName: 'Haiku',
+  description: 'Haiku 4.5 · Fastest for quick answers',
+};
+const DEFAULT_MODEL: ModelDescriptor = {
+  id: 'default',
+  displayName: 'Default (recommended)',
+  description: 'Sonnet 4.6 · Efficient for routine tasks',
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+  supportsAdaptiveThinking: true,
+};
+const MODELS = [DEFAULT_MODEL, SONNET, OPUS, HAIKU];
+const FULL_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+describe('modelLabel', () => {
+  it('shows the version from the description when the name is already in it', () => {
+    expect(modelLabel(OPUS)).toBe('Opus 4.8');
+    expect(modelLabel(SONNET)).toBe('Sonnet 4.6');
+    expect(modelLabel(HAIKU)).toBe('Haiku 4.5');
+    expect(modelLabel({ id: 'claude-fable-5[1m]', displayName: 'Fable', description: 'Fable 5 · Most capable' })).toBe(
+      'Fable 5',
+    );
+  });
+
+  it('keeps a distinct display name alongside the version (the default alias)', () => {
+    expect(modelLabel(DEFAULT_MODEL)).toBe('Default (recommended) · Sonnet 4.6');
+  });
+
+  it('falls back to the display name, then the id, when there is no description', () => {
+    expect(modelLabel({ id: 'x', displayName: 'X' })).toBe('X');
+    expect(modelLabel({ id: 'raw-id' })).toBe('raw-id');
+  });
+});
+
+describe('modelReasoningCaps', () => {
+  it('uses the resolved model’s real effort levels and adaptive flag', () => {
+    expect(modelReasoningCaps(MODELS, 'opus')).toEqual({
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      includeBudget: true,
+    });
+    expect(modelReasoningCaps(MODELS, 'sonnet')).toEqual({
+      efforts: ['low', 'medium', 'high', 'max'],
+      includeBudget: true,
+    });
+  });
+
+  it('shows NO effort options for a resolved model that supports none (Haiku)', () => {
+    expect(modelReasoningCaps(MODELS, 'haiku')).toEqual({ efforts: [], includeBudget: false });
+  });
+
+  it('falls back to the full ladder while the model list is still loading', () => {
+    expect(modelReasoningCaps([], 'opus')).toEqual({ efforts: FULL_LADDER, includeBudget: true });
+  });
+
+  it('falls back to the full ladder for an unknown model id (never cages the choice)', () => {
+    expect(modelReasoningCaps(MODELS, 'claude-opus-4-8')).toEqual({
+      efforts: FULL_LADDER,
+      includeBudget: true,
+    });
+  });
+});
+
+describe('pickableModels', () => {
+  it('drops the duplicate "default" alias but keeps the named models in order', () => {
+    expect(pickableModels(MODELS).map((m) => m.id)).toEqual(['sonnet', 'opus', 'haiku']);
+  });
+
+  it('is a no-op on an empty list', () => {
+    expect(pickableModels([])).toEqual([]);
+  });
+});
+
+describe('clampReasoning', () => {
+  const opusCaps = { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] as const, includeBudget: true };
+  const sonnetCaps = { efforts: ['low', 'medium', 'high', 'max'] as const, includeBudget: true };
+  const haikuCaps = { efforts: [] as const, includeBudget: false };
+
+  it('keeps a reasoning the new model still supports', () => {
+    const r = { mode: 'effort', effort: 'high' } as const;
+    expect(clampReasoning(r, { ...sonnetCaps, efforts: [...sonnetCaps.efforts] })).toBe(r);
+  });
+
+  it('drops an effort the new model does not offer (xhigh → default)', () => {
+    const r = { mode: 'effort', effort: 'xhigh' } as const;
+    expect(clampReasoning(r, { ...sonnetCaps, efforts: [...sonnetCaps.efforts] })).toBeUndefined();
+  });
+
+  it('drops all effort/budget for a model with no reasoning (Haiku)', () => {
+    expect(clampReasoning({ mode: 'effort', effort: 'low' }, { ...haikuCaps, efforts: [] })).toBeUndefined();
+    expect(
+      clampReasoning({ mode: 'budget', budgetTokens: 8000 }, { ...haikuCaps, efforts: [] }),
+    ).toBeUndefined();
+  });
+
+  it('keeps budget when the new model supports adaptive thinking, drops it otherwise', () => {
+    const r = { mode: 'budget', budgetTokens: 8000 } as const;
+    expect(clampReasoning(r, { ...opusCaps, efforts: [...opusCaps.efforts] })).toBe(r);
+    expect(clampReasoning(r, { efforts: [...opusCaps.efforts], includeBudget: false })).toBeUndefined();
+  });
+
+  it('always keeps off and undefined (default)', () => {
+    const off = { mode: 'off' } as const;
+    expect(clampReasoning(off, { ...haikuCaps, efforts: [] })).toBe(off);
+    expect(clampReasoning(undefined, { ...opusCaps, efforts: [...opusCaps.efforts] })).toBeUndefined();
+  });
+});
 
 const AgentsView = agentsPanel.render;
 const host = {

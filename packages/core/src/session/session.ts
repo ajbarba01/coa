@@ -38,6 +38,10 @@ export interface SessionAdapterInit {
   onTurn?: (frame: TurnFrame) => void;
   /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
   locator?: Locator;
+  /** A prior backend session id to resume (R-7 continuity); absent ⇒ a fresh conversation. */
+  resume?: string;
+  /** Report the backend's own session id (for the next resume); M8 persists it against the conversation. */
+  onBackendSession?: (backendSessionId: string) => void;
 }
 
 /** The active-account resolution M8 supplies per session: a label (incl. `'ambient'`) + the optional login pointer. */
@@ -102,10 +106,16 @@ export async function createSession(
     onTurn?: (frame: TurnFrame) => void;
     /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
     onStart?: (started: { id: string; worktree: string }) => void;
+    /** The persistent conversation id to run within (R-7); absent ⇒ an ephemeral session (a fresh generated id). */
+    sessionId?: string;
+    /** A prior backend session id to resume this conversation's memory. */
+    resume?: string;
+    /** Report the backend's own session id once the loop learns it. */
+    onBackendSession?: (backendSessionId: string) => void;
   },
   deps: SessionDeps,
 ): Promise<Session> {
-  const sessionId = deps.newSessionId();
+  const sessionId = req.sessionId ?? deps.newSessionId();
   const worktree = deps.bindWorktree(sessionId, req.scope);
   req.onStart?.({ id: sessionId, worktree });
   const { pieces, frame } = deps.assemblePieces(req.role, req.scope);
@@ -135,6 +145,8 @@ export async function createSession(
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(account?.locator ? { locator: account.locator } : {}),
+    ...(req.resume !== undefined ? { resume: req.resume } : {}),
+    ...(req.onBackendSession ? { onBackendSession: req.onBackendSession } : {}),
   });
 
   adapter.renderNative(neutral);

@@ -4,6 +4,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startConsole, type ConsoleBridge } from './console.js';
 import { LAYOUT_EPOCH, makeDescriptor } from './panels/routing.js';
 
+/** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
+const FAKE_SESSIONS = [
+  { id: 'c1', agentRef: 'roles/reviewer', title: 'refactor auth module', updatedAt: '2026-07-02T00:00:00Z' },
+];
+const FAKE_TURNS = [
+  { seq: 0, frame: { t: 'text', text: 'Refactor the auth module', role: 'user' } },
+  { seq: 1, frame: { t: 'text', text: 'on it' } },
+];
+
 function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   return {
     capState: vi.fn().mockResolvedValue({ remaining: 2.5, capHit: false }),
@@ -12,8 +21,12 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
     currentAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
     useAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
-    startSession: vi.fn().mockResolvedValue({ sessionId: 's1', worktree: '/wt' }),
+    startSession: vi.fn().mockResolvedValue({ sessionId: 'c1', worktree: '/wt' }),
     listModels: vi.fn().mockResolvedValue([]),
+    listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
+    newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
+    reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
+    deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),
@@ -35,6 +48,10 @@ async function mount(bridge = fakeBridge()) {
   let controller!: Awaited<ReturnType<typeof startConsole>>;
   await act(async () => {
     controller = await startConsole(container, bridge);
+  });
+  // Flush the fire-and-forget initial loads (accounts / models / sessions+transcript).
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
   });
   return { container, controller };
 }
@@ -58,12 +75,12 @@ describe('startConsole (inspector-first)', () => {
     expect(container.textContent).toContain('$2.50 left');
   });
 
-  it('renders the mock chat transcript in the dock', async () => {
+  it('renders the reloaded conversation transcript in the dock', async () => {
     const { container } = await mount();
     const dock = container.querySelector('[data-panel-id="conversation"]');
     expect(dock).not.toBeNull();
-    // The transcript log only renders when the (seeded) mock stream has frames, so its
-    // presence proves the mock flowed state -> selectVm -> Transcript.
+    // The transcript log only renders when the reloaded (R-7) stream has frames, so its
+    // presence proves reloadConversation flowed state -> selectVm -> Transcript.
     expect(dock?.querySelector('[role="log"]')).not.toBeNull();
   });
 
@@ -107,13 +124,39 @@ describe('startConsole (inspector-first)', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('seeds the chat with the newest mock session and the agent rail', async () => {
-    const { container } = await mount();
+  it('opens the newest session from the daemon and renders the agent rail', async () => {
+    const bridge = fakeBridge();
+    const { container } = await mount(bridge);
     const dock = container.querySelector('[data-panel-id="conversation"]');
-    // the session switcher shows the seeded session's title in the pane header
+    // the session list + the active session's transcript were loaded from the daemon
+    expect(bridge.listSessions).toHaveBeenCalled();
+    expect(bridge.reloadConversation).toHaveBeenCalledWith({ id: 'c1' });
+    // the session switcher shows the loaded session's title in the pane header
     expect(dock?.textContent).toContain('refactor auth module');
     // the agent drawer renders beside the transcript
     expect(dock?.querySelector('[role="group"][aria-label="Agents"]')).not.toBeNull();
+  });
+
+  it('sends a composer message into the active session with its conversation id', async () => {
+    const bridge = fakeBridge();
+    const { container } = await mount(bridge);
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Message the agent"]');
+    const send = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Send');
+    expect(input).not.toBeNull();
+    expect(send).toBeDefined();
+    // React tracks the value internally, so set it via the native setter + input event.
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(input, 'add tests');
+      input!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      send!.click();
+    });
+    // The active session is the daemon's newest (c1); the send carries its conversation id.
+    expect(bridge.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ input: 'add tests', conversationId: 'c1' }),
+    );
   });
 
   it('toggles the conversation into raw mode', async () => {

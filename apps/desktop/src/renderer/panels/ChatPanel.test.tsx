@@ -87,6 +87,23 @@ describe('selectChatVm', () => {
     }
   });
 
+  it('falls back to the first agent with no active session, so New session works on a fresh start', () => {
+    const vm = selectChatVm(
+      makeState({
+        data: {
+          turns: { status: 'ok', value: [] },
+          agents: { status: 'ok', value: MOCK_AGENTS },
+          sessions: { status: 'ok', value: [] },
+        },
+        ui: {}, // no activeSessionId — the fresh-store case
+      }),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.activeAgentRef).toBe(MOCK_AGENTS[0]!.ref);
+      expect(vm.sessionTitle).toBe('No session');
+    }
+  });
+
   it('rail click switches to the agent’s most recent session — or a new one if none', () => {
     const selectSession = vi.fn();
     const newSession = vi.fn();

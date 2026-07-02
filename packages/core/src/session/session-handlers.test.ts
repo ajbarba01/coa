@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CapabilitySet, NeutralConfig, Push, RpcNotification, TurnFrame } from '@coa/shared';
 import {
   barebonesProfile,
@@ -10,6 +13,7 @@ import {
 } from '@coa/spi';
 import type { SessionAdapterInit, SessionDeps } from './session.js';
 import { buildSessionHandlers } from './session-handlers.js';
+import { createConversationStore, type ConversationStore } from './conversation-store.js';
 
 const NEUTRAL: NeutralConfig = {
   prefixHead: [],
@@ -36,6 +40,7 @@ class FrameAdapter implements RuntimeAdapter {
   interceptStop(_s: StopPredicate): void {}
   async runLoop(): Promise<void> {
     if (this.fail) throw new Error('loop blew up');
+    this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
     for (const frame of this.frames) this.init.onTurn?.(frame);
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
   }
@@ -146,6 +151,77 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     const conn = connection();
     const handlers = buildSessionHandlers(deps([]), conn);
     expect(handlers['createSession']!.params?.safeParse({}).success).toBe(false);
+  });
+});
+
+/** Deps whose adapter factory also records each init, so a test can assert `resume`. */
+function depsCapturing(frames: TurnFrame[], inits: SessionAdapterInit[]): SessionDeps {
+  return {
+    ...deps(frames),
+    createAdapter: (init) => {
+      inits.push(init);
+      return new FrameAdapter(init, frames);
+    },
+  };
+}
+
+describe('buildSessionHandlers — persistent conversation (R-7)', () => {
+  let dir: string;
+  let store: ConversationStore;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'coa-sh-'));
+    store = createConversationStore(dir);
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('persists the user prompt then the streamed frames, and auto-titles from the prompt', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'on it' }]), conn, store);
+    await handlers['createSession']!.handle({
+      input: 'Refactor the auth module',
+      role: 'roles/refactor',
+      scope: '',
+      conversationId: 'c1',
+    });
+    await conn.settled;
+
+    expect(store.reload('c1')).toEqual([
+      { seq: 0, frame: { t: 'text', text: 'Refactor the auth module', role: 'user' } },
+      { seq: 1, frame: { t: 'text', text: 'on it' } },
+    ]);
+    expect(store.getMeta('c1')).toMatchObject({ title: 'Refactor the auth module', agentRef: 'roles/refactor' });
+    // The user turn is persisted but NOT pushed (the console showed it optimistically).
+    const turns = pushesOf(conn.pushes).filter((p) => p.kind === 'turn');
+    expect(turns).toEqual([
+      expect.objectContaining({ sessionId: 'c1', seq: 1, frame: { t: 'text', text: 'on it' } }),
+    ]);
+  });
+
+  it('records the backend session id and resumes it on the next send, continuing the seq', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'reply' }], inits), connection(), store);
+
+    await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1' });
+    expect(store.getMeta('c1')?.backendSessionId).toBe('backend-c1');
+    expect(inits[0]?.resume).toBeUndefined(); // no prior memory on the first send
+
+    await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1' });
+    expect(inits[1]?.resume).toBe('backend-c1'); // resumes the captured backend session
+
+    expect(store.reload('c1').map((t) => ({ seq: t.seq, frame: t.frame }))).toEqual([
+      { seq: 0, frame: { t: 'text', text: 'first', role: 'user' } },
+      { seq: 1, frame: { t: 'text', text: 'reply' } },
+      { seq: 2, frame: { t: 'text', text: 'second', role: 'user' } },
+      { seq: 3, frame: { t: 'text', text: 'reply' } },
+    ]);
+  });
+
+  it('does not persist or resume an ephemeral session (no conversationId)', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'x' }], inits), connection(), store);
+    await handlers['createSession']!.handle({ input: 'go' });
+    expect(store.list()).toEqual([]);
+    expect(inits[0]?.resume).toBeUndefined();
   });
 });
 

@@ -1,5 +1,23 @@
-import type { Push, TurnFrame as WireTurnFrame } from '@coa/shared';
+import { z } from 'zod';
+import { turnFrameSchema, type Push, type TurnFrame as WireTurnFrame } from '@coa/shared';
 import type { TurnFrame } from './reads.js';
+
+/** A persisted turn as `reloadConversation` returns it (R-7): the M0 frame + its seq. */
+export const persistedTurnSchema = z.object({ seq: z.number(), frame: turnFrameSchema });
+export const persistedTurnsSchema = z.array(persistedTurnSchema);
+export type PersistedTurnWire = z.infer<typeof persistedTurnSchema>;
+
+/**
+ * Map a reloaded R-7 conversation (persisted M0 frames) to the view `TurnFrame`s the
+ * transcript renders — the durable analog of {@link pushToViewFrames}. Reuses the same
+ * per-frame translation, so a reopened session reads identically to the live stream.
+ */
+export function reloadToViewFrames(turns: PersistedTurnWire[]): TurnFrame[] {
+  return turns.flatMap((t) => {
+    const frame = mapFrame(t.frame, `t${t.seq}`);
+    return frame === undefined ? [] : [frame];
+  });
+}
 
 /**
  * The daemon→console turn mapping: one CON-PUSH record → the console `TurnFrame`s
@@ -24,7 +42,7 @@ export function pushToViewFrames(push: Push): TurnFrame[] {
 function mapFrame(frame: WireTurnFrame, id: string): TurnFrame | undefined {
   switch (frame.t) {
     case 'text':
-      return { id, role: 'agent', kind: 'text', text: frame.text };
+      return { id, role: frame.role === 'user' ? 'you' : 'agent', kind: 'text', text: frame.text };
     case 'thinking':
       return { id, role: 'agent', kind: 'text', text: frame.text };
     case 'error':

@@ -3,9 +3,11 @@ import {
   ActiveAccountSchema,
   CapStateSchema,
   FeedViewSchema,
+  SessionListSchema,
   TimelineSchema,
   modelSelectionSchema,
   modelDescriptorSchema,
+  persistedTurnsSchema,
 } from '@coa/console-viewmodel';
 import { z } from 'zod';
 import { ConsoleSettingsSchema } from './settings.js';
@@ -13,11 +15,18 @@ import { ConsoleSettingsSchema } from './settings.js';
 /** Params/result for starting a governed session from the console (proxies the daemon `createSession`). */
 export const StartSessionParamsSchema = z.object({
   input: z.string(),
+  /** The persistent conversation this send belongs to (R-7); absent ⇒ an ephemeral one-shot. */
+  conversationId: z.string().optional(),
   role: z.string().optional(),
   scope: z.string().optional(),
   model: modelSelectionSchema.optional(),
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
+
+/** Params for creating a persistent session record (R-7) — proxies the daemon `newSession`. */
+export const NewSessionParamsSchema = z.object({ agentRef: z.string(), scope: z.string().optional() });
+export const NewSessionResultSchema = z.object({ id: z.string() });
+const OkResultSchema = z.object({ ok: z.boolean() });
 
 /** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
 export const PUSH_CHANNEL = 'coa:push';
@@ -42,6 +51,11 @@ export type MethodName =
   | 'currentAccount'
   | 'useAccount'
   | 'startSession'
+  | 'newSession'
+  | 'listSessions'
+  | 'reloadConversation'
+  | 'renameSession'
+  | 'deleteSession'
   | 'listModels'
   | 'getLayout'
   | 'saveLayout'
@@ -56,6 +70,11 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   currentAccount: { result: ActiveAccountSchema },
   useAccount: { params: z.object({ label: z.string() }), result: ActiveAccountSchema },
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
+  newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
+  listSessions: { result: SessionListSchema },
+  reloadConversation: { params: z.object({ id: z.string() }), result: persistedTurnsSchema },
+  renameSession: { params: z.object({ id: z.string(), title: z.string() }), result: OkResultSchema },
+  deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   listModels: { result: z.array(modelDescriptorSchema) },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },

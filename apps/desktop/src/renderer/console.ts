@@ -2,22 +2,19 @@ import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import {
   pushSchema,
   pushToViewFrames,
+  reloadToViewFrames,
   type AgentSummary,
   type CapState,
   type Checkpoint,
   type FeedView,
   type ModelDescriptor,
   type ModelSelection,
+  type PersistedTurnWire,
   type SessionSummary,
   type TurnFrame,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-import {
-  DEFAULT_SESSION_ID,
-  MOCK_AGENTS,
-  MOCK_SESSIONS,
-  MOCK_SESSION_TURNS,
-} from './panels/mockAgents.js';
+import { MOCK_AGENTS } from './panels/mockAgents.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
@@ -33,10 +30,16 @@ export interface ConsoleBridge {
   useAccount(params: { label: string }): Promise<{ active: string }>;
   startSession(params: {
     input: string;
+    conversationId?: string;
     role?: string;
     model?: ModelSelection;
   }): Promise<{ sessionId: string; worktree: string }>;
   listModels(): Promise<ModelDescriptor[]>;
+  // Persistent sessions (R-7): the rail list + per-session transcript reload.
+  listSessions(): Promise<SessionSummary[]>;
+  newSession(params: { agentRef: string }): Promise<{ id: string }>;
+  reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
+  deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
   /** Subscribe to the daemon push stream; returns an unsubscribe. */
   onPush(listener: (payload: unknown) => void): () => void;
   getLayout(): Promise<unknown>;
@@ -115,26 +118,16 @@ export async function startConsole(
     ...state,
     ui: { ...state.ui, settings, activeMainPanelId: getMainPanelId(descriptor) },
   };
-  // The agent list, sessions, and turn streams are shell-owned mocks (their daemon
-  // verbs are unbuilt); seed them ready so the chat + agents surfaces render on first
-  // paint. Swapping each for its verb is a data-source change. The mutable copies
-  // back the mock-inert writes (rename, recolor, pin) so the UX is fully exercisable.
+  // Agents remain shell-owned mocks (their Role verbs are unbuilt); seed them ready
+  // so the rail renders on first paint. Sessions + their turns are REAL: loaded from
+  // the daemon's R-7 store below (`initSessions`). The mutable copy backs the
+  // mock-inert agent writes (rename, recolor, pin).
   let agents: AgentSummary[] = [...MOCK_AGENTS];
-  let sessions: SessionSummary[] = [...MOCK_SESSIONS];
-  const sessionTurns = new Map(Object.entries(MOCK_SESSION_TURNS));
-  const seedConversation = (sessionId: string): void => {
-    state = {
-      ...state,
-      data: {
-        ...state.data,
-        agents: { status: 'ok', value: [...agents] },
-        sessions: { status: 'ok', value: [...sessions] },
-        turns: { status: 'ok', value: sessionTurns.get(sessionId) ?? [] },
-      },
-      ui: { ...state.ui, activeSessionId: sessionId },
-    };
+  let sessions: SessionSummary[] = [];
+  state = {
+    ...state,
+    data: { ...state.data, agents: { status: 'ok', value: [...agents] } },
   };
-  seedConversation(DEFAULT_SESSION_ID);
   const handle = engine.mount({
     container,
     descriptor,
@@ -220,18 +213,11 @@ export async function startConsole(
     push();
   };
 
-  // ---- Agents + sessions (mock-inert writes over the in-memory mock state; the
-  // real writes ride the future writeRole funnel / conversation store) ----
+  // ---- Agents (mock-inert writes over the in-memory mock state; the real writes
+  // ride the future writeRole funnel) ----
 
-  const pushAgentData = (): void => {
-    state = {
-      ...state,
-      data: {
-        ...state.data,
-        agents: { status: 'ok', value: [...agents] },
-        sessions: { status: 'ok', value: [...sessions] },
-      },
-    };
+  const pushAgents = (): void => {
+    state = { ...state, data: { ...state.data, agents: { status: 'ok', value: [...agents] } } };
     push();
   };
 
@@ -247,39 +233,20 @@ export async function startConsole(
     const ref = `${scope === 'project' ? 'roles' : 'personal'}/${name}`;
     agents = [...agents, { ref, name, icon: 'bot', color: 'slate', scope }];
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
-    pushAgentData();
+    pushAgents();
   };
 
   const updateAgent = (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>): void => {
     agents = agents.map((a) => (a.ref === ref ? { ...a, ...patch } : a));
-    pushAgentData();
+    pushAgents();
   };
 
   const deleteAgent = (ref: string): void => {
     agents = agents.filter((a) => a.ref !== ref);
-    sessions = sessions.filter((s) => s.agentRef !== ref);
     const ui = { ...state.ui };
     if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
-    // The deleted agent's sessions go with it; fall back to the newest remaining one.
-    if (!sessions.some((s) => s.id === ui.activeSessionId)) {
-      const fallback = [...sessions].sort(
-        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
-      )[0];
-      if (fallback) ui.activeSessionId = fallback.id;
-      else delete ui.activeSessionId;
-      state = {
-        ...state,
-        data: {
-          ...state.data,
-          turns: {
-            status: 'ok',
-            value: fallback ? (sessionTurns.get(fallback.id) ?? []) : [],
-          },
-        },
-      };
-    }
     state = { ...state, ui };
-    pushAgentData();
+    pushAgents();
   };
 
   const togglePinAgent = (ref: string): void => {
@@ -289,70 +256,85 @@ export async function startConsole(
     });
   };
 
-  function selectSession(id: string): void {
-    state = {
-      ...state,
-      data: {
-        ...state.data,
-        turns: { status: 'ok', value: sessionTurns.get(id) ?? [] },
-      },
-      ui: { ...state.ui, activeSessionId: id },
-    };
+  // ---- Persistent sessions (R-7): list + per-session transcript, all daemon-backed ----
+
+  /** Refresh the rail's session list (title/recency) without touching the transcript. */
+  async function refreshSessionList(): Promise<void> {
+    const loaded = await settle(() => bridge.listSessions());
+    if (loaded.status === 'ok') sessions = loaded.value;
+    state = { ...state, data: { ...state.data, sessions: loaded } };
     push();
   }
 
-  const deleteSession = (id: string): void => {
-    sessions = sessions.filter((s) => s.id !== id);
-    sessionTurns.delete(id);
-    // If the deleted session was showing, fall back to the newest remaining one.
-    if (state.ui.activeSessionId === id) {
-      const fallback = [...sessions].sort(
-        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
-      )[0];
-      if (fallback) selectSession(fallback.id);
-      else {
-        const ui = { ...state.ui };
-        delete ui.activeSessionId;
-        state = {
-          ...state,
-          data: { ...state.data, turns: { status: 'ok', value: [] } },
-          ui,
-        };
+  /** Open a session: reload its persisted transcript and make it active. */
+  async function openSession(id: string): Promise<void> {
+    const loaded = await settle(() => bridge.reloadConversation({ id }));
+    const turns: Remote<TurnFrame[]> =
+      loaded.status === 'ok'
+        ? { status: 'ok', value: reloadToViewFrames(loaded.value) }
+        : loaded;
+    state = { ...state, data: { ...state.data, turns }, ui: { ...state.ui, activeSessionId: id } };
+    push();
+  }
+
+  /** Clear the active selection when no session remains. */
+  function clearActiveSession(): void {
+    const ui = { ...state.ui };
+    delete ui.activeSessionId;
+    state = { ...state, data: { ...state.data, turns: { status: 'ok', value: [] } }, ui };
+    push();
+  }
+
+  const selectSession = (id: string): void => void openSession(id);
+
+  const newSession = (agentRef: string): void =>
+    void (async () => {
+      const created = await settle(() => bridge.newSession({ agentRef }));
+      if (created.status !== 'ok') return;
+      await refreshSessionList();
+      await openSession(created.value.id);
+    })();
+
+  const deleteSession = (id: string): void =>
+    void (async () => {
+      await bridge.deleteSession({ id });
+      const wasActive = state.ui.activeSessionId === id;
+      await refreshSessionList();
+      if (wasActive) {
+        const newest = sessions[0];
+        if (newest) await openSession(newest.id);
+        else clearActiveSession();
       }
-    }
-    pushAgentData();
-  };
+    })();
 
-  // ---- Live session: drive a real daemon session and stream its turns in ----
+  // ---- Live session: append streamed frames to the active transcript ----
 
-  /** Append frames to the active session's turn list and republish. */
+  /** Append view frames to the active session's transcript and republish. */
   const appendTurns = (frames: TurnFrame[]): void => {
     if (frames.length === 0) return;
-    const id = state.ui.activeSessionId;
-    if (id === undefined) return;
-    const next = [...(sessionTurns.get(id) ?? []), ...frames];
-    sessionTurns.set(id, next);
-    state = { ...state, data: { ...state.data, turns: { status: 'ok', value: next } } };
+    const prev = state.data.turns.status === 'ok' ? state.data.turns.value : [];
+    state = { ...state, data: { ...state.data, turns: { status: 'ok', value: [...prev, ...frames] } } };
     push();
   };
 
-  // Forward every daemon push (validated at the edge) into the active conversation.
-  // Turn frames render; cost/status are ignored for now (no live cost chip yet).
+  // Forward every daemon push into the active conversation; a completed session
+  // refreshes the rail so its auto-title + recency update.
   const unsubscribePush = bridge.onPush((payload) => {
     const parsed = pushSchema.safeParse(payload);
-    if (parsed.success) appendTurns(pushToViewFrames(parsed.data));
+    if (!parsed.success) return;
+    appendTurns(pushToViewFrames(parsed.data));
+    if (parsed.data.kind === 'status' && parsed.data.state === 'done') void refreshSessionList();
   });
 
   let youSeq = 0;
   const sendMessage = (text: string): void => {
     const body = text.trim();
-    if (body === '' || state.ui.activeSessionId === undefined) return;
+    const id = state.ui.activeSessionId;
+    if (body === '' || id === undefined) return;
     youSeq += 1;
     appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
-    const activeSession = sessions.find((s) => s.id === state.ui.activeSessionId);
-    const agent = activeSession
-      ? agents.find((a) => a.ref === activeSession.agentRef)
-      : undefined;
+    const activeSession = sessions.find((s) => s.id === id);
+    const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
     const model: ModelSelection = {
       ...(agent?.model ? { model: agent.model } : {}),
       ...(agent?.reasoning ? { reasoning: agent.reasoning } : {}),
@@ -360,9 +342,12 @@ export async function startConsole(
     void bridge
       .startSession({
         input: body,
+        conversationId: id,
         ...(activeSession ? { role: activeSession.agentRef } : {}),
         ...(Object.keys(model).length > 0 ? { model } : {}),
       })
+      // The first send auto-titles the session server-side; reflect it in the rail.
+      .then(() => refreshSessionList())
       .catch((e: unknown) => {
         appendTurns([
           {
@@ -375,18 +360,13 @@ export async function startConsole(
       });
   };
 
-  let newSessionSeq = 0;
-  const newSession = (agentRef: string): void => {
-    newSessionSeq += 1;
-    const id = `s-new-${newSessionSeq}`;
-    sessions = [
-      { id, agentRef, title: 'new session', updatedAt: new Date().toISOString() },
-      ...sessions,
-    ];
-    sessionTurns.set(id, []);
-    selectSession(id);
-    pushAgentData();
-  };
+  /** On launch, load the project's sessions and open the most recent one. */
+  async function initSessions(): Promise<void> {
+    await refreshSessionList();
+    const newest = sessions[0];
+    if (newest) await openSession(newest.id);
+    else clearActiveSession();
+  }
 
   state = {
     ...state,
@@ -411,6 +391,7 @@ export async function startConsole(
   push();
   void loadAccounts();
   void loadModels();
+  void initSessions();
 
   return {
     refresh,

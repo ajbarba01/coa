@@ -21,6 +21,7 @@ import {
   InlineMessage,
   Menu,
   Pane,
+  Select,
   Skeleton,
   SwitcherMenu,
   TextField,
@@ -40,6 +41,65 @@ import type { ConsoleState } from './state.js';
 
 /** The full effort ladder — used only as a fallback before the live model list loads. */
 const ALL_EFFORTS: ClaudeEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * The picker label: the model's version — the first "·"-delimited segment of the
+ * SDK description (e.g. "Opus 4.8"). The account exposes named aliases whose
+ * version lives only in the description, so we surface it. When the display name
+ * isn't already part of that version (the "Default (recommended)" alias), keep it
+ * as a prefix; with no description, fall back to the display name, then the id.
+ */
+export function modelLabel(m: ModelDescriptor): string {
+  const version = m.description?.split('·')[0]?.trim();
+  if (version === undefined || version === '') return m.displayName ?? m.id;
+  const name = m.displayName;
+  if (name !== undefined && !version.toLowerCase().startsWith(name.toLowerCase())) {
+    return `${name} · ${version}`;
+  }
+  return version;
+}
+
+/**
+ * The reasoning options for the selected model. A RESOLVED model's real
+ * `supportedEffortLevels` win (empty ⇒ no effort control, e.g. Haiku); an
+ * unresolved id — the list is still loading, or the id isn't in this account's
+ * list — falls back to the full ladder so the choice is never caged.
+ */
+export function modelReasoningCaps(
+  models: ModelDescriptor[],
+  modelId: string | undefined,
+): { efforts: ClaudeEffort[]; includeBudget: boolean } {
+  const selected = models.find((m) => m.id === modelId);
+  if (selected === undefined) return { efforts: ALL_EFFORTS, includeBudget: true };
+  return {
+    efforts: selected.supportedEffortLevels ?? [],
+    includeBudget: selected.supportsAdaptiveThinking ?? false,
+  };
+}
+
+/**
+ * The models offered in the picker. The SDK's `default` alias points at the
+ * account's default model, so it duplicates a named entry — hide it (leaving a
+ * model unset already means "let the backend choose the default").
+ */
+export function pickableModels(models: ModelDescriptor[]): ModelDescriptor[] {
+  return models.filter((m) => m.id !== 'default');
+}
+
+/**
+ * Keep a reasoning selection valid across a model switch: return it unchanged when
+ * the newly-selected model still supports it, otherwise drop back to the default
+ * (undefined). `off` and `default` are always valid; an effort must be offered by
+ * the model; a token budget needs adaptive thinking.
+ */
+export function clampReasoning(
+  reasoning: ClaudeReasoning | undefined,
+  caps: { efforts: ClaudeEffort[]; includeBudget: boolean },
+): ClaudeReasoning | undefined {
+  if (reasoning === undefined || reasoning.mode === 'off') return reasoning;
+  if (reasoning.mode === 'budget') return caps.includeBudget ? reasoning : undefined;
+  return caps.efforts.includes(reasoning.effort) ? reasoning : undefined;
+}
 
 /** Collapse a ClaudeReasoning to the selector value it displays as. */
 export function reasoningToValue(r: ClaudeReasoning | undefined): string {
@@ -78,7 +138,7 @@ function ReasoningField({
   };
   return (
     <div className="flex flex-col gap-2">
-      <Combobox
+      <Select
         label="Reasoning"
         value={value}
         onValueChange={select}
@@ -124,7 +184,7 @@ export function selectAgentsVm(state: ConsoleState): AgentsVm {
   const { selectAgent, createAgent, updateAgent, deleteAgent, togglePinAgent } = state.actions;
   if (agents.length === 0) return { status: 'empty', createAgent };
   const selected = agents.find((a) => a.ref === state.ui.selectedAgentRef) ?? agents[0]!;
-  const models = state.data.models.status === 'ok' ? state.data.models.value : [];
+  const models = state.data.models.status === 'ok' ? pickableModels(state.data.models.value) : [];
   return {
     status: 'ready',
     agents,
@@ -176,7 +236,7 @@ export function buildAgentPickerGroups(
  *  are shared via git, so their delete types the name. */
 function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): React.JSX.Element {
   const a = vm.selected;
-  const selectedModel = vm.models.find((m) => m.id === a.model);
+  const caps = modelReasoningCaps(vm.models, a.model);
   const pinned = vm.pinned.includes(a.ref);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteDraft, setDeleteDraft] = useState('');
@@ -256,10 +316,15 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
         <Combobox
           label="Model"
           value={a.model ?? vm.models[0]?.id ?? ''}
-          onValueChange={(model) => vm.updateAgent(a.ref, { model })}
+          onValueChange={(model) => {
+            // Keep the reasoning valid for the model just chosen (an effort/budget the
+            // new model doesn't offer resets to default); leave a valid one untouched.
+            const clamped = clampReasoning(a.reasoning, modelReasoningCaps(vm.models, model));
+            vm.updateAgent(a.ref, clamped === a.reasoning ? { model } : { model, reasoning: clamped });
+          }}
           options={
             vm.models.length > 0
-              ? vm.models.map((m) => ({ value: m.id, label: m.displayName ?? m.id }))
+              ? vm.models.map((m) => ({ value: m.id, label: modelLabel(m) }))
               : a.model !== undefined
                 ? [{ value: a.model, label: a.model }]
                 : []
@@ -267,8 +332,8 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
         />
         <ReasoningField
           reasoning={a.reasoning}
-          efforts={selectedModel?.supportedEffortLevels ?? ALL_EFFORTS}
-          includeBudget={selectedModel?.supportsAdaptiveThinking ?? true}
+          efforts={caps.efforts}
+          includeBudget={caps.includeBudget}
           onChange={(reasoning) => vm.updateAgent(a.ref, { reasoning })}
         />
         <p className="text-caption text-faint">

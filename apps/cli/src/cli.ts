@@ -4,9 +4,11 @@ import type { RpcParams } from '@coa/shared';
 import { pushSchema } from '@coa/shared';
 import {
   bindDaemon,
+  buildConversationHandlers,
   buildDaemonConsoleHandlers,
   buildSessionHandlers,
   connectClient,
+  createConversationStore,
   defaultDaemonPath,
   type RpcServer,
 } from '@coa/core';
@@ -142,9 +144,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
 
   const { deps, handle, models, activeAccount } = buildSessionDeps({ walPath, root: process.cwd() });
   const consoleHandlers = buildDaemonConsoleHandlers(handle);
+  // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
+  const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
+  const conversationHandlers = buildConversationHandlers(store);
   const server = await bindDaemon(path, (connection) => ({
     ...consoleHandlers,
-    ...buildSessionHandlers(deps, connection),
+    ...conversationHandlers,
+    ...buildSessionHandlers(deps, connection, store),
     // The account's available models + per-model reasoning levels (cached, fetched lazily).
     listModels: { handle: () => models.list(activeAccount()) },
   }));

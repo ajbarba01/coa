@@ -229,7 +229,14 @@ export {
 } from './session/session.js';
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
 export { buildSessionHandlers } from './session/session-handlers.js';
+export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount, type ModelCacheDeps } from './session/model-cache.js';
+export {
+  createConversationStore,
+  type ConversationStore,
+  type SessionMeta,
+  type PersistedTurn,
+} from './session/conversation-store.js';
 export {
   createDaemonCore,
   buildDaemonConsoleHandlers,

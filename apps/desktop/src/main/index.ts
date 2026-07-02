@@ -157,6 +157,16 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('useAccount', params);
     case 'startSession':
       return proxyDaemon('createSession', params);
+    case 'newSession':
+      return proxyDaemon('newSession', params);
+    case 'listSessions':
+      return proxyDaemon('listSessions');
+    case 'reloadConversation':
+      return proxyDaemon('reloadConversation', params);
+    case 'renameSession':
+      return proxyDaemon('renameSession', params);
+    case 'deleteSession':
+      return proxyDaemon('deleteSession', params);
     case 'listModels':
       return proxyDaemon('listModels');
     case 'getLayout':

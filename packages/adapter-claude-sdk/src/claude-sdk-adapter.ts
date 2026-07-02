@@ -59,6 +59,10 @@ export interface ClaudeSdkAdapterInit {
   maxBudgetUsd?: number;
   /** The active account's neutral login pointer (M8 from the registry); absent ⇒ ambient (today's auth). */
   locator?: Locator;
+  /** A prior backend session id to resume (R-7 continuity), so the model has the conversation's memory. */
+  resume?: string;
+  /** Report the backend's own session id (captured once from the stream) so M8 can store it for the next resume. */
+  onBackendSession?: (backendSessionId: string) => void;
 }
 
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -184,12 +188,20 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       ...(model?.model !== undefined ? { model: model.model } : {}),
       ...(model?.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
       ...(env ? { env } : {}),
+      ...(this.#init.resume !== undefined ? { resume: this.#init.resume } : {}),
     });
 
+    let backendSessionReported = false;
     for await (const message of query({
       prompt: toSdkPrompt(this.#init.input),
       options: { ...options, cwd: sessionConfig.worktree },
     })) {
+      // Capture the backend's own session id once — M8 stores it to `resume` the
+      // conversation's memory on the next send (R-7 continuity).
+      if (!backendSessionReported && 'session_id' in message && typeof message.session_id === 'string') {
+        backendSessionReported = true;
+        this.#init.onBackendSession?.(message.session_id);
+      }
       if (this.#init.onTurn !== undefined) {
         for (const frame of messageToFrames(message)) this.#init.onTurn(frame);
       }

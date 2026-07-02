@@ -31,6 +31,8 @@ export function assembleSessionOptions(args: {
   reasoning?: ClaudeReasoning;
   /** The full subprocess env (M9 auth seam) — REPLACES process.env, so it's pre-spread by the caller. */
   env?: Record<string, string | undefined>;
+  /** A prior backend session id to resume (R-7 continuity): loads that conversation's history. */
+  resume?: string;
 }): Options {
   const {
     sessionId,
@@ -43,6 +45,7 @@ export function assembleSessionOptions(args: {
     model,
     reasoning,
     env,
+    resume,
   } = args;
 
   const sdkCanUseTool: SdkCanUseTool = async (toolName, input) => {
@@ -64,5 +67,6 @@ export function assembleSessionOptions(args: {
     ...(mcpServers ? { mcpServers } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(env ? { env } : {}),
+    ...(resume !== undefined ? { resume } : {}),
   };
 }

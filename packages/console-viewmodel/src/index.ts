@@ -1,7 +1,13 @@
 export * from './agents.js';
 export * from './cap.js';
 export * from './reads.js';
-export { pushToViewFrames } from './turn-map.js';
+export {
+  pushToViewFrames,
+  reloadToViewFrames,
+  persistedTurnSchema,
+  persistedTurnsSchema,
+  type PersistedTurnWire,
+} from './turn-map.js';
 // The daemon push wire type + schema, re-exported so the console edge validates the
 // real M0 shape without every consumer taking a direct @coa/shared dependency.
 export { pushSchema, type Push } from '@coa/shared';
