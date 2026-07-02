@@ -118,42 +118,79 @@ describe('startConsole (inspector-first)', () => {
     expect(container.querySelector('[data-panel-id="conversation"] [role="log"]')).not.toBeNull();
   });
 
-  it('routes a banner push to the session banner strip and recompiles on its action', async () => {
-    let emit: ((payload: unknown) => void) | undefined;
+  it('shows a predictive cache banner the moment a model is staged, and clears it on send', async () => {
+    const { fireEvent } = await import('@testing-library/react');
     const bridge = fakeBridge({
-      onPush: vi.fn((listener: (payload: unknown) => void) => {
-        emit = listener;
-        return () => {};
-      }),
+      // A fresh updatedAt each call so the (unrelated) idle-staleness path never triggers.
+      listSessions: vi.fn(async () => [
+        { id: 'c1', agentRef: 'roles/reviewer', title: 't', updatedAt: new Date().toISOString(), provider: 'claude', model: 'opus' },
+      ]),
+      listModels: vi.fn().mockResolvedValue([
+        { id: 'deepseek-v4-pro', provider: 'deepseek' },
+        { id: 'opus', provider: 'claude' },
+      ]),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    // No banner before any change.
+    expect(dock().textContent).not.toContain('cold prompt cache');
+
+    // Stage a DeepSeek pick → the cache banner appears immediately (before any send).
+    const combo = dock().querySelector('[role="combobox"]') as HTMLElement;
+    await act(async () => {
+      fireEvent.focus(combo);
+    });
+    const option = [...dock().querySelectorAll('[role="option"]')].find((o) =>
+      o.textContent?.includes('deepseek-v4-pro'),
+    ) as HTMLElement;
+    await act(async () => {
+      fireEvent.mouseDown(option);
+    });
+    expect(dock().textContent).toContain('cold prompt cache');
+
+    // Sending applies the pick → the informational banner clears.
+    const input = container.querySelector('[aria-label="Message the agent"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'hi' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(dock().textContent).not.toContain('cold prompt cache');
+  });
+
+  it('an in-chat model switch routes the next send to the picked backend', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    const bridge = fakeBridge({
+      listModels: vi.fn().mockResolvedValue([
+        { id: 'deepseek-v4-pro', provider: 'deepseek' },
+        { id: 'opus', provider: 'claude' },
+      ]),
     });
     const { container } = await mount(bridge);
 
+    // Pick DeepSeek in the in-chat model bar (the conversation panel's combobox).
+    const dock = container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const combo = dock.querySelector('[role="combobox"]') as HTMLElement;
+    expect(combo).not.toBeNull();
     await act(async () => {
-      emit?.({
-        kind: 'banner',
-        sessionId: 'c1', // the active (reloaded) session
-        banner: {
-          id: 'drift',
-          kind: 'drift',
-          reason: 'The agent configuration changed while a compiled prompt is running.',
-          actions: [{ id: 'recompile', label: 'Recompile', primary: true }],
-        },
-      });
+      fireEvent.focus(combo);
     });
-    const dock = container.querySelector('[data-panel-id="conversation"]');
-    expect(dock?.textContent).toContain('agent configuration changed');
+    const option = [...dock.querySelectorAll('[role="option"]')].find((o) =>
+      o.textContent?.includes('deepseek-v4-pro'),
+    ) as HTMLElement;
+    expect(option).toBeDefined();
+    await act(async () => {
+      fireEvent.mouseDown(option);
+    });
 
-    const recompile = [...(dock?.querySelectorAll('button') ?? [])].find(
-      (b) => b.textContent === 'Recompile',
-    );
-    expect(recompile).toBeDefined();
+    // Send a message — it must route to the picked backend as a coherent unit.
+    const input = container.querySelector('[aria-label="Message the agent"]') as HTMLInputElement;
     await act(async () => {
-      recompile?.click();
+      fireEvent.change(input, { target: { value: 'hi' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
     });
-    expect(bridge.recompilePrompt).toHaveBeenCalledWith({ sessionId: 'c1' });
-    // The banner is dismissed once acted on.
-    expect(container.querySelector('[data-panel-id="conversation"]')?.textContent).not.toContain(
-      'agent configuration changed',
+    expect(bridge.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ model: { model: 'deepseek-v4-pro', provider: 'deepseek' } }),
     );
   });
 

@@ -5,6 +5,7 @@ import {
   AgentRail,
   Banner as BannerCard,
   Button,
+  Combobox,
   EmptyState,
   IconButton,
   InlineMessage,
@@ -16,7 +17,15 @@ import {
   Transcript,
 } from '@coa/console-ui';
 import type { AgentRailItem, RespondFn, SwitcherGroup, TranscriptFrame } from '@coa/console-ui';
-import type { AgentSummary, Banner, SessionSummary, TurnFrame } from '@coa/console-viewmodel';
+import type {
+  AgentSummary,
+  Banner,
+  ModelDescriptor,
+  SessionSummary,
+  TurnFrame,
+} from '@coa/console-viewmodel';
+import { modelPickerLabel } from './AgentsPanel.js';
+import { computeChatBanners } from './banners.js';
 import { ChevronDown, MessageSquare, MessageSquarePlus } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
@@ -31,6 +40,11 @@ export type ChatVm =
        *  the transcript, never sent to the agent. */
       banners: Banner[];
       onBannerAction: (bannerId: string, actionId: string) => void;
+      /** The merged model list + the active session's current model, for the in-chat
+       *  switch. Picking one re-pins the session (and can raise the cache banner). */
+      models: ModelDescriptor[];
+      currentModelId?: string | undefined;
+      onPickModel: (modelId: string) => void;
       onRespond: RespondFn;
       onSend: (text: string) => void;
       toggleRaw: () => void;
@@ -203,7 +217,36 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   // agent so "New session" is enabled — otherwise the first session can never be
   // created (it needs an active agent, which only a session provides).
   const activeAgentRef = activeSession?.agentRef ?? agents[0]?.ref;
-  const banners = activeSessionId ? (state.ui.banners[activeSessionId] ?? []) : [];
+  const models = state.data.models.status === 'ok' ? state.data.models.value : [];
+  const activeAgent = agents.find((a) => a.ref === activeSession?.agentRef);
+  const override = activeSessionId ? state.ui.modelOverride[activeSessionId] : undefined;
+  // Predictive banners: derived from the pending pick + the running prompt's config the
+  // session reports, so they appear the moment a model/config is changed (before send).
+  const banners = computeChatBanners({
+    ...(override !== undefined ? { override } : {}),
+    ...(activeSession !== undefined
+      ? {
+          pinned: {
+            ...(activeSession.provider !== undefined ? { provider: activeSession.provider } : {}),
+            ...(activeSession.model !== undefined ? { model: activeSession.model } : {}),
+            updatedAt: activeSession.updatedAt,
+          },
+        }
+      : {}),
+    ...(activeSession?.promptConfig !== undefined ? { frozenConfig: activeSession.promptConfig } : {}),
+    agentConfig: {
+      ...(activeAgent?.role !== undefined ? { role: activeAgent.role } : {}),
+      ...(activeAgent?.packageIds !== undefined ? { packageIds: activeAgent.packageIds } : {}),
+      ...(activeAgent?.exclude !== undefined ? { exclude: activeAgent.exclude } : {}),
+    },
+    ...(activeSessionId !== undefined && state.ui.dismissedDrift[activeSessionId] !== undefined
+      ? { dismissedDriftKey: state.ui.dismissedDrift[activeSessionId] }
+      : {}),
+    now: nowIso,
+  });
+  // The model the next turn will run on: a deliberate in-chat override, else the
+  // session's pin, else the agent's default.
+  const currentModelId = override?.model ?? activeSession?.model ?? activeAgent?.model;
   return {
     status: 'ready',
     rawMode,
@@ -212,6 +255,17 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     onBannerAction: (bannerId, actionId) => {
       if (activeSessionId !== undefined)
         state.actions.onBannerAction(activeSessionId, bannerId, actionId);
+    },
+    models,
+    currentModelId,
+    onPickModel: (modelId) => {
+      if (activeSessionId === undefined) return;
+      // Carry the model's provider so the session routes to the right backend as a unit.
+      const picked = models.find((m) => m.id === modelId);
+      state.actions.setSessionModel(activeSessionId, {
+        model: modelId,
+        ...(picked?.provider !== undefined ? { provider: picked.provider } : {}),
+      });
     },
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
@@ -268,7 +322,9 @@ function BannerStrip({
           key={b.id}
           tone="warning"
           title={bannerTitle(b.kind)}
-          onDismiss={() => onAction(b.id, 'dismiss')}
+          // Only the actionable drift banner is dismissable; the cache notice is passive
+          // and auto-clears when the pending pick is sent or reverted.
+          {...(b.kind === 'drift' ? { onDismiss: () => onAction(b.id, 'dismiss') } : {})}
         >
           <div className="flex items-start justify-between gap-3">
             <span className="min-w-0">{b.reason}</span>
@@ -289,6 +345,38 @@ function BannerStrip({
           </div>
         </BannerCard>
       ))}
+    </div>
+  );
+}
+
+/** The in-chat model switch: picking a model re-pins the session for its next turn.
+ *  When the list hasn't loaded, the current model still shows as the sole option so the
+ *  control never reads blank. */
+function ModelBar({
+  models,
+  currentModelId,
+  onPick,
+}: {
+  models: ModelDescriptor[];
+  currentModelId?: string | undefined;
+  onPick: (modelId: string) => void;
+}): React.JSX.Element {
+  const options =
+    models.length > 0
+      ? models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
+      : currentModelId !== undefined
+        ? [{ value: currentModelId, label: currentModelId }]
+        : [];
+  return (
+    <div className="border-t border-border-default px-2.5 pt-2">
+      <Combobox
+        label="Model"
+        className="max-w-xs"
+        options={options}
+        {...(currentModelId !== undefined ? { value: currentModelId } : {})}
+        onValueChange={onPick}
+        placeholder="Default model"
+      />
     </div>
   );
 }
@@ -409,6 +497,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
               <Transcript frames={vm.frames} onRespond={vm.onRespond} label="Conversation" />
             )}
           </div>
+          <ModelBar models={vm.models} currentModelId={vm.currentModelId} onPick={vm.onPickModel} />
           <Composer onSend={vm.onSend} />
         </div>
       </div>

@@ -1,10 +1,10 @@
 import type {
   AgentSummary,
-  Banner,
   CapState,
   Checkpoint,
   FeedView,
   ModelDescriptor,
+  ModelSelection,
   PackageSummary,
   RoleSummary,
   SessionSummary,
@@ -58,9 +58,15 @@ export interface ConsoleUi {
   selectedAgentRef?: string;
   /** The conversation the chat pane shows; its agentRef drives the rail selection. */
   activeSessionId?: string;
-  /** System banners per session (drift/cache notices), keyed by sessionId, deduped
-   *  by banner id. Never part of the transcript sent to the agent (SC-1: surfacing). */
-  banners: Record<string, Banner[]>;
+  /** A per-session in-chat model/provider override the user set deliberately, keyed by
+   *  sessionId. Wins over the session pin for the next send (which then persists it via
+   *  the daemon), so switching a live conversation's backend is an explicit act. It also
+   *  drives the predictive cache banner (staged pick vs. the session's pin). */
+  modelOverride: Record<string, ModelSelection>;
+  /** The config key the user dismissed the drift banner for, per session. The banner is
+   *  derived (config-a-send-would-use vs. the running prompt's config), so dismissal is
+   *  suppression state — it re-shows once the config changes to a new key. */
+  dismissedDrift: Record<string, string>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -87,6 +93,9 @@ export interface ConsoleActions {
   /** Resolve a system banner action (e.g. the drift banner's `recompile`/`keep`).
    *  Always dismisses the banner; `recompile` also refreshes the running prompt. */
   onBannerAction: (sessionId: string, bannerId: string, actionId: string) => void;
+  /** Deliberately switch a session's model/provider for its next turn (the in-chat
+   *  control). The next send routes there and the daemon persists it as the new pin. */
+  setSessionModel: (sessionId: string, selection: ModelSelection) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -119,7 +128,8 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       settings: DEFAULT_SETTINGS,
       rawMode: false,
       resolvedApprovals: {},
-      banners: {},
+      modelOverride: {},
+      dismissedDrift: {},
     },
     actions,
   };

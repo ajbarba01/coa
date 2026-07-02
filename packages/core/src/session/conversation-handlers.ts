@@ -23,7 +23,16 @@ export function buildConversationHandlers(store: ConversationStore): RpcHandlers
       store.create({ id, agentRef: params.agentRef, title: 'new session', scope: params.scope });
       return { id };
     }),
-    listSessions: rpcMethod(z.object({}).optional(), () => store.list()),
+    // Enrich each summary with the running prompt's source config (from the frozen
+    // compilation), so the console can detect prompt drift predictively — comparing the
+    // config a send would use against what the live prompt reflects. Absent until the
+    // first turn freezes a prompt (and cleared by a recompile).
+    listSessions: rpcMethod(z.object({}).optional(), () =>
+      store.list().map((meta) => {
+        const config = store.getCompilation(meta.id)?.config;
+        return config === undefined ? meta : { ...meta, promptConfig: config };
+      }),
+    ),
     reloadConversation: rpcMethod(idParams, (params) => store.reload(params.id)),
     renameSession: rpcMethod(renameParams, (params) => {
       store.rename(params.id, params.title);

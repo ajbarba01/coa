@@ -216,30 +216,62 @@ describe('raw + approval projection', () => {
     }
   });
 
-  it('projects only the active session’s banners and routes an action to it', () => {
+  it('derives the drift banner from a config mismatch and routes its action to the active session', () => {
     const onBannerAction = vi.fn();
-    const banner = {
-      id: 'drift',
-      kind: 'drift' as const,
-      reason: 'stale',
-      actions: [{ id: 'recompile', label: 'Recompile', primary: true }],
+    const agent = {
+      ref: 'a/x', name: 'x', icon: 'bot' as const, color: 'slate' as const,
+      scope: 'personal' as const, role: 'swe', packageIds: ['research'],
     };
     const vm = selectChatVm(
-      stateWith(
-        { status: 'ok', value: [] },
-        {
-          banners: {
-            's-audit-auth': [banner],
-            other: [{ id: 'x', kind: 'drift', reason: 'other session' }],
+      makeState({
+        data: {
+          turns: { status: 'ok', value: [] },
+          agents: { status: 'ok', value: [agent] },
+          sessions: {
+            status: 'ok',
+            value: [{ id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, promptConfig: { role: 'swe' } }],
           },
         },
-        { onBannerAction },
-      ),
+        ui: { activeSessionId: 's1' },
+        actions: { onBannerAction },
+      }),
+      NOW,
     );
     if (vm.status === 'ready') {
-      expect(vm.banners).toEqual([banner]); // only the active session's
+      expect(vm.banners.some((b) => b.kind === 'drift')).toBe(true);
       vm.onBannerAction('drift', 'recompile');
-      expect(onBannerAction).toHaveBeenCalledWith('s-audit-auth', 'drift', 'recompile');
+      expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'recompile');
+    }
+  });
+
+  it('exposes the merged model list + current model and re-pins the session on pick', () => {
+    const setSessionModel = vi.fn();
+    const vm = selectChatVm(
+      makeState({
+        data: {
+          turns: { status: 'ok', value: [] },
+          agents: { status: 'ok', value: MOCK_AGENTS },
+          sessions: { status: 'ok', value: MOCK_SESSIONS },
+          models: {
+            status: 'ok',
+            value: [
+              { id: 'deepseek-v4-pro', provider: 'deepseek' },
+              { id: 'opus', provider: 'claude' },
+            ],
+          },
+        },
+        ui: { activeSessionId: 's-audit-auth' },
+        actions: { setSessionModel },
+      }),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.models.map((m) => m.id)).toContain('deepseek-v4-pro');
+      // Picking a model carries its provider so the session switches backend as a unit.
+      vm.onPickModel('deepseek-v4-pro');
+      expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', {
+        model: 'deepseek-v4-pro',
+        provider: 'deepseek',
+      });
     }
   });
 });
@@ -289,40 +321,63 @@ describe('ChatView states-first', () => {
     );
   });
 
-  it('surfaces a system banner with its actions and dispatches on click', async () => {
+  // A session + agent whose configs diverge, so the derived drift banner shows.
+  const DRIFT_AGENT = {
+    ref: 'a/x',
+    name: 'x',
+    icon: 'bot' as const,
+    color: 'slate' as const,
+    scope: 'personal' as const,
+    role: 'swe',
+    packageIds: ['research'],
+  };
+  const driftState = (ui: Partial<ConsoleState['ui']> = {}, actions = {}) =>
+    makeState({
+      data: {
+        turns: { status: 'ok', value: [] },
+        agents: { status: 'ok', value: [DRIFT_AGENT] },
+        sessions: {
+          status: 'ok',
+          value: [
+            { id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, provider: 'claude', model: 'opus', promptConfig: { role: 'swe' } },
+          ],
+        },
+      },
+      ui: { activeSessionId: 's1', ...ui },
+      actions,
+    });
+
+  it('derives the drift banner when the config diverges, offering recompile + dismiss', async () => {
     const onBannerAction = vi.fn();
-    const banner = {
-      id: 'drift',
-      kind: 'drift' as const,
-      reason: 'The agent configuration changed while a compiled prompt is running.',
-      actions: [
-        { id: 'recompile', label: 'Recompile', primary: true },
-        { id: 'keep', label: 'Keep current' },
-      ],
-    };
-    const vm = selectChatVm(
-      stateWith({ status: 'ok', value: [] }, { banners: { 's-audit-auth': [banner] } }, { onBannerAction }),
-    );
-    render(<ChatView vm={vm} host={host} />);
+    render(<ChatView vm={selectChatVm(driftState({}, { onBannerAction }), NOW)} host={host} />);
     expect(screen.getByText(/agent configuration changed/i)).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
-    expect(onBannerAction).toHaveBeenCalledWith('s-audit-auth', 'drift', 'recompile');
+    expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'recompile');
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'dismiss');
   });
 
-  it('surfaces a passive cache banner and dismisses it via the close control', async () => {
-    const onBannerAction = vi.fn();
-    const banner = {
-      id: 'cache',
-      kind: 'cache' as const,
-      reason: 'This turn starts with a cold prompt cache (the model changed).',
-    };
-    const vm = selectChatVm(
-      stateWith({ status: 'ok', value: [] }, { banners: { 's-audit-auth': [banner] } }, { onBannerAction }),
+  it('renders the in-chat model picker seeded with the current model', () => {
+    render(<ChatView vm={readyVm([])} host={host} />);
+    expect(screen.getByText('Model')).toBeTruthy();
+    // The reviewer session's agent default (sonnet) seeds the picker.
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
+  });
+
+  it('derives a passive cache banner on a staged switch (no dismiss control)', () => {
+    render(
+      <ChatView
+        vm={selectChatVm(
+          driftState({ modelOverride: { s1: { provider: 'deepseek', model: 'deepseek-v4-pro' } } }),
+          NOW,
+        )}
+        host={host}
+      />,
     );
-    render(<ChatView vm={vm} host={host} />);
     expect(screen.getByText(/cold prompt cache/i)).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-    expect(onBannerAction).toHaveBeenCalledWith('s-audit-auth', 'cache', 'dismiss');
+    // The cache notice is informational — it has no close control (auto-clears on send/revert).
+    const cacheCard = screen.getByText(/cold prompt cache/i).closest('[data-tone]');
+    expect(cacheCard?.querySelector('[aria-label="Dismiss"]')).toBeNull();
   });
 
   it('opens the session switcher on hover and selects a session', async () => {

@@ -29,6 +29,23 @@ describe('buildConversationHandlers', () => {
     expect(await h['reloadConversation']!.handle({ id })).toEqual([{ seq: 0, frame: { t: 'text', text: 'hi' } }]);
   });
 
+  it('enriches a listed session with the running prompt config when one is frozen', async () => {
+    const { id } = (await h['newSession']!.handle({ agentRef: 'r', scope: '' })) as { id: string };
+    // No frozen prompt yet ⇒ no promptConfig (drift not yet detectable).
+    expect(((await h['listSessions']!.handle(undefined)) as { promptConfig?: unknown }[])[0]).not.toHaveProperty(
+      'promptConfig',
+    );
+    store.setCompilation(id, {
+      neutral: { prefixHead: [], systemReminders: [], onDemandPullable: [], scopePushed: [], toolIntents: { allow: [], deny: [] } },
+      frame: { allow: [], deny: [] },
+      promptVersion: 'pv',
+      configHash: 'cfg',
+      config: { role: 'swe', packageIds: ['research'] },
+    });
+    const listed = (await h['listSessions']!.handle(undefined)) as { promptConfig?: unknown }[];
+    expect(listed[0]?.promptConfig).toEqual({ role: 'swe', packageIds: ['research'] });
+  });
+
   it('renames and deletes a session', async () => {
     const { id } = (await h['newSession']!.handle({ agentRef: 'r', scope: '' })) as { id: string };
     await h['renameSession']!.handle({ id, title: 'audit auth' });

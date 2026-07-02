@@ -370,50 +370,8 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     expect(store.getCompilation('c1')?.configHash).toBe(
       configHashOf({ role: 'swe', packageIds: ['research'] }),
     );
-  });
-
-  it('surfaces a drift banner when the config changes under the frozen prompt', async () => {
-    const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
-    await handlers['createSession']!.handle({
-      input: 'first', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research'],
-    });
-    await conn.settled; // the first turn freezes the compilation
-    await handlers['createSession']!.handle({
-      input: 'second', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research', 'docs'],
-    });
-    const banners = pushesOf(conn.pushes).filter((p) => p.kind === 'banner');
-    expect(banners).toHaveLength(1);
-    expect(banners[0]).toMatchObject({ kind: 'banner', sessionId: 'c1', banner: { kind: 'drift' } });
-  });
-
-  it('does not surface a banner when the config still matches the frozen prompt', async () => {
-    const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
-    await handlers['createSession']!.handle({
-      input: 'first', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research'],
-    });
-    await conn.settled;
-    await handlers['createSession']!.handle({
-      input: 'second', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research'],
-    });
-    expect(pushesOf(conn.pushes).some((p) => p.kind === 'banner')).toBe(false);
-  });
-
-  it('surfaces the same drift only once (a kept banner does not re-nag on the next send)', async () => {
-    const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
-    await handlers['createSession']!.handle({
-      input: 'first', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research'],
-    });
-    await conn.settled;
-    await handlers['createSession']!.handle({
-      input: 'second', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research', 'docs'],
-    });
-    await handlers['createSession']!.handle({
-      input: 'third', role: 'swe', scope: '', conversationId: 'c1', packageIds: ['research', 'docs'],
-    });
-    expect(pushesOf(conn.pushes).filter((p) => p.kind === 'banner')).toHaveLength(1);
+    // The source config is stored too, so the console can detect drift predictively.
+    expect(store.getCompilation('c1')?.config).toEqual({ role: 'swe', packageIds: ['research'] });
   });
 
   it('recompilePrompt drops the frozen prompt and the resume token so the next turn recompiles', async () => {
@@ -434,44 +392,13 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     expect(await handlers['recompilePrompt']!.handle({ sessionId: 'c1' })).toEqual({ recompiled: false });
   });
 
-  const cacheBanners = (notes: RpcNotification[]) =>
-    pushesOf(notes)
-      .filter((p): p is Extract<Push, { kind: 'banner' }> => p.kind === 'banner')
-      .filter((p) => p.banner.kind === 'cache');
-
-  it('surfaces a cache-status banner when the model changes on a continuation', async () => {
-    const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
+  it('pins the effective provider even when the send names only a model (keeps the pin complete for routing + drift/cache detection)', async () => {
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store);
     await handlers['createSession']!.handle({
-      input: 'first', role: '', scope: '', conversationId: 'c1', model: { provider: 'claude', model: 'opus' },
+      input: 'first', role: '', scope: '', conversationId: 'c1', model: { model: 'opus' },
     });
-    await conn.settled;
-    await handlers['createSession']!.handle({
-      input: 'second', role: '', scope: '', conversationId: 'c1', model: { provider: 'claude', model: 'sonnet' },
-    });
-    const banners = cacheBanners(conn.pushes);
-    expect(banners).toHaveLength(1);
-    expect(banners[0]!.banner.reason).toContain('the model changed');
-  });
-
-  it('does not surface a cache banner on the first send (nothing is cached yet)', async () => {
-    const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
-    await handlers['createSession']!.handle({
-      input: 'first', role: '', scope: '', conversationId: 'c1', model: { provider: 'claude', model: 'opus' },
-    });
-    await conn.settled;
-    expect(cacheBanners(conn.pushes)).toHaveLength(0);
-  });
-
-  it('does not surface a cache banner when the model + provider are unchanged', async () => {
-    const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
-    const model = { provider: 'claude', model: 'opus' };
-    await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1', model });
-    await conn.settled;
-    await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1', model });
-    expect(cacheBanners(conn.pushes)).toHaveLength(0);
+    expect(store.getMeta('c1')?.provider).toBe('claude');
+    expect(store.getMeta('c1')?.model).toBe('opus');
   });
 });
 

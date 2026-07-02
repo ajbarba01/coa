@@ -24,6 +24,10 @@ export interface FrozenCompilation {
    *  means the governance config changed under the frozen prompt — the signal the
    *  drift banner raises (recompile / apply-as-update / keep). */
   configHash: string;
+  /** The source config the running prompt was compiled from (role + package selection).
+   *  Exposed to the console (via the session summary) so it can detect drift predictively
+   *  — comparing the config a send WOULD use against what the running prompt reflects. */
+  config: PromptConfig;
 }
 
 /**
@@ -35,8 +39,8 @@ export interface FrozenCompilation {
  */
 export interface PromptConfig {
   role: string;
-  packageIds?: readonly string[];
-  exclude?: readonly string[];
+  packageIds?: readonly string[] | undefined;
+  exclude?: readonly string[] | undefined;
 }
 
 /** Deterministic JSON (object keys sorted at every depth) so the hash is stable

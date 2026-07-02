@@ -1,11 +1,9 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import {
   pushSchema,
-  pushToBanner,
   pushToViewFrames,
   reloadToViewFrames,
   type AgentSummary,
-  type Banner,
   type CapState,
   type Checkpoint,
   type FeedView,
@@ -20,6 +18,8 @@ import {
 import type { ConsoleSettings } from '../shared/settings.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
+import { resolveSelection } from './panels/selection.js';
+import { configKey } from './panels/banners.js';
 import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
 import { applySettings } from './theme.js';
@@ -129,6 +129,7 @@ export async function startConsole(
     deleteSession: () => {},
     sendMessage: () => {},
     onBannerAction: () => {},
+    setSessionModel: () => {},
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -343,42 +344,58 @@ export async function startConsole(
     push();
   };
 
-  /** Upsert a system banner for a session (replace-by-id so a re-raised banner
-   *  doesn't stack), then republish. */
-  const showBanner = (sessionId: string, banner: Banner): void => {
-    const prev = state.ui.banners[sessionId] ?? [];
-    const next = [...prev.filter((b) => b.id !== banner.id), banner];
-    state = { ...state, ui: { ...state.ui, banners: { ...state.ui.banners, [sessionId]: next } } };
-    push();
-  };
-
-  /** Remove a banner from a session (dismissal / resolution), then republish. */
-  const clearBanner = (sessionId: string, bannerId: string): void => {
-    const prev = state.ui.banners[sessionId];
-    if (prev === undefined) return;
-    const next = prev.filter((b) => b.id !== bannerId);
-    state = { ...state, ui: { ...state.ui, banners: { ...state.ui.banners, [sessionId]: next } } };
-    push();
-  };
-
+  // The drift/cache banners are DERIVED live in the chat vm (predictive: computed from
+  // the pending pick + the running prompt's config the daemon reports), so the console
+  // only holds the two bits of banner STATE the derivation reads: the model override
+  // and the per-session drift dismissal. A banner action mutates that state.
   const onBannerAction = (sessionId: string, bannerId: string, actionId: string): void => {
-    // `recompile` drops the frozen prompt server-side; every action dismisses the
-    // banner locally (SC-1: banners surface, never block).
-    if (actionId === 'recompile') void bridge.recompilePrompt({ sessionId });
-    clearBanner(sessionId, bannerId);
+    if (bannerId === 'drift' && actionId === 'recompile') {
+      // Drop the frozen prompt server-side, then refresh so the session's promptConfig
+      // clears — the drift derivation then reads "no running prompt" ⇒ no banner.
+      void bridge.recompilePrompt({ sessionId }).then(() => refreshSessionList());
+      const dismissedDrift = { ...state.ui.dismissedDrift };
+      delete dismissedDrift[sessionId];
+      state = { ...state, ui: { ...state.ui, dismissedDrift } };
+      push();
+      return;
+    }
+    if (bannerId === 'drift' && actionId === 'dismiss') {
+      // Suppress the drift banner for the config it currently reflects; a further config
+      // change is a new key, so it re-shows. Keyed off the active agent's config.
+      const session = sessions.find((s) => s.id === sessionId);
+      const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
+      const key = configKey({
+        role: agent?.role,
+        packageIds: agent?.packageIds,
+        exclude: agent?.exclude,
+      });
+      state = {
+        ...state,
+        ui: { ...state.ui, dismissedDrift: { ...state.ui.dismissedDrift, [sessionId]: key } },
+      };
+      push();
+    }
+  };
+
+  /** Set a session's in-chat model override; the next send routes there (and the
+   *  daemon persists it as the new pin). Republishes so the picker + cache banner update. */
+  const setSessionModel = (sessionId: string, selection: ModelSelection): void => {
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        modelOverride: { ...state.ui.modelOverride, [sessionId]: selection },
+      },
+    };
+    push();
   };
 
   // Forward every daemon push into the active conversation; a completed session
-  // refreshes the rail so its auto-title + recency update. A banner is a system
-  // notice (never a transcript turn), routed to the session's banner stack instead.
+  // refreshes the rail so its auto-title + recency update. (Drift/cache banners are
+  // derived client-side, not pushed.)
   const unsubscribePush = bridge.onPush((payload) => {
     const parsed = pushSchema.safeParse(payload);
     if (!parsed.success) return;
-    const banner = pushToBanner(parsed.data);
-    if (banner !== undefined && parsed.data.kind === 'banner') {
-      showBanner(parsed.data.sessionId, banner);
-      return;
-    }
     appendTurns(pushToViewFrames(parsed.data));
     if (parsed.data.kind === 'status' && parsed.data.state === 'done') void refreshSessionList();
   });
@@ -392,19 +409,37 @@ export async function startConsole(
     appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
-    // Prefer the session's PINNED selection (what it actually ran on last, incl. any
-    // in-chat model/effort override) over the agent's config default, which only seeds
-    // a brand-new session. This keeps an existing conversation routing to the backend
-    // its memory lives in across restarts, instead of re-deriving from mock agent state.
-    const provider = activeSession?.provider ?? agent?.provider;
-    const modelId = activeSession?.model ?? agent?.model;
-    const reasoning = activeSession?.reasoning ?? agent?.reasoning;
-    const model: ModelSelection = {
-      // The chosen model's provider routes the session to its backend + that provider's account.
-      ...(provider ? { provider } : {}),
-      ...(modelId ? { model: modelId } : {}),
-      ...(reasoning ? { reasoning } : {}),
-    };
+    // Resolve the selection as a COHERENT UNIT: a deliberate in-chat override wins,
+    // else an already-pinned session keeps routing to the backend its memory lives in
+    // (its whole provider/model/reasoning pin), else the agent config seeds a brand-new
+    // session. Resolving field-by-field was the haiku→deepseek crash (a pinned model +
+    // a since-switched agent provider).
+    const override = state.ui.modelOverride[id];
+    const model: ModelSelection = override ?? resolveSelection(activeSession, agent);
+    // The pending pick is being applied now: clear the override and optimistically pin
+    // it locally, so the predictive cache banner clears on send (the daemon persists the
+    // same pin, which a later refresh confirms).
+    if (override !== undefined) {
+      sessions = sessions.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              updatedAt: new Date().toISOString(),
+              ...(override.provider !== undefined ? { provider: override.provider } : {}),
+              ...(override.model !== undefined ? { model: override.model } : {}),
+              ...(override.reasoning !== undefined ? { reasoning: override.reasoning } : {}),
+            }
+          : s,
+      );
+      const modelOverride = { ...state.ui.modelOverride };
+      delete modelOverride[id];
+      state = {
+        ...state,
+        data: { ...state.data, sessions: { status: 'ok', value: [...sessions] } },
+        ui: { ...state.ui, modelOverride },
+      };
+      push();
+    }
     void bridge
       .startSession({
         input: body,
@@ -459,6 +494,7 @@ export async function startConsole(
       deleteSession,
       sendMessage,
       onBannerAction,
+      setSessionModel,
     },
   };
   push();

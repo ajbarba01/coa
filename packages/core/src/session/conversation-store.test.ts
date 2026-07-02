@@ -114,6 +114,7 @@ describe('conversation store (R-7)', () => {
       frame: { allow: [], deny: [] },
       promptVersion: 'pv',
       configHash: 'cfg',
+      config: { role: 'swe' },
     });
     expect(store.getCompilation('c1')).toBeDefined();
     store.clearCompilation('c1');
@@ -199,6 +200,7 @@ describe('conversation store (R-7)', () => {
       frame: { allow: ['Read'], deny: [] },
       promptVersion: 'abc123',
       configHash: 'cfg789',
+      config: { role: 'swe', packageIds: ['research'] },
     };
     store.setCompilation('c1', compilation);
     expect(store.getCompilation('c1')).toEqual(compilation);

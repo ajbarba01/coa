@@ -89,6 +89,17 @@ export const SessionSummarySchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
   reasoning: claudeReasoningSchema.optional(),
+  /** The source config (role + package selection) the session's RUNNING prompt was
+   *  compiled from — surfaced so the console can flag prompt drift predictively (the
+   *  config a send would use vs. what the live prompt reflects). Absent until the first
+   *  turn freezes a prompt; cleared by a recompile. */
+  promptConfig: z
+    .object({
+      role: z.string(),
+      packageIds: z.array(z.string()).optional(),
+      exclude: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 

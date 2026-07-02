@@ -67,11 +67,18 @@ const resumeStampSchema = z.object({
 });
 export type ResumeStamp = z.infer<typeof resumeStampSchema>;
 
+const promptConfigSchema = z.object({
+  role: z.string(),
+  packageIds: z.array(z.string()).optional(),
+  exclude: z.array(z.string()).optional(),
+});
+
 const frozenCompilationSchema = z.object({
   neutral: neutralConfigSchema,
   frame: capabilityFrameSchema,
   promptVersion: z.string(),
   configHash: z.string(),
+  config: promptConfigSchema,
 });
 
 const metaSchema = z.object({
