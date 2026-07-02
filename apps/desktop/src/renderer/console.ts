@@ -9,7 +9,9 @@ import {
   type FeedView,
   type ModelDescriptor,
   type ModelSelection,
+  type PackageSummary,
   type PersistedTurnWire,
+  type RoleSummary,
   type SessionSummary,
   type TurnFrame,
 } from '@coa/console-viewmodel';
@@ -33,8 +35,13 @@ export interface ConsoleBridge {
     conversationId?: string;
     role?: string;
     model?: ModelSelection;
+    packageIds?: string[];
+    exclude?: string[];
   }): Promise<{ sessionId: string; worktree: string }>;
   listModels(): Promise<ModelDescriptor[]>;
+  // The agent-assembly catalogue for the role/package picker.
+  listRoles(): Promise<RoleSummary[]>;
+  listPackages(): Promise<PackageSummary[]>;
   // Persistent sessions (R-7): the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
@@ -173,6 +180,15 @@ export async function startConsole(
     push();
   }
 
+  async function loadCatalogue(): Promise<void> {
+    const [roles, packages] = await Promise.all([
+      settle(() => bridge.listRoles()),
+      settle(() => bridge.listPackages()),
+    ]);
+    state = { ...state, data: { ...state.data, roles, packages } };
+    push();
+  }
+
   const switchAccount = (label: string): void =>
     void (async () => {
       await bridge.useAccount({ label });
@@ -270,9 +286,7 @@ export async function startConsole(
   async function openSession(id: string): Promise<void> {
     const loaded = await settle(() => bridge.reloadConversation({ id }));
     const turns: Remote<TurnFrame[]> =
-      loaded.status === 'ok'
-        ? { status: 'ok', value: reloadToViewFrames(loaded.value) }
-        : loaded;
+      loaded.status === 'ok' ? { status: 'ok', value: reloadToViewFrames(loaded.value) } : loaded;
     state = { ...state, data: { ...state.data, turns }, ui: { ...state.ui, activeSessionId: id } };
     push();
   }
@@ -313,7 +327,10 @@ export async function startConsole(
   const appendTurns = (frames: TurnFrame[]): void => {
     if (frames.length === 0) return;
     const prev = state.data.turns.status === 'ok' ? state.data.turns.value : [];
-    state = { ...state, data: { ...state.data, turns: { status: 'ok', value: [...prev, ...frames] } } };
+    state = {
+      ...state,
+      data: { ...state.data, turns: { status: 'ok', value: [...prev, ...frames] } },
+    };
     push();
   };
 
@@ -343,7 +360,13 @@ export async function startConsole(
       .startSession({
         input: body,
         conversationId: id,
-        ...(activeSession ? { role: activeSession.agentRef } : {}),
+        // The registry role the agent is assembled as; absent ⇒ the permissive floor.
+        ...(agent?.role ? { role: agent.role } : {}),
+        // Assembly selection (only applied when a role is set — see the resolver's floor).
+        ...(agent?.packageIds && agent.packageIds.length > 0
+          ? { packageIds: agent.packageIds }
+          : {}),
+        ...(agent?.exclude && agent.exclude.length > 0 ? { exclude: agent.exclude } : {}),
         ...(Object.keys(model).length > 0 ? { model } : {}),
       })
       // The first send auto-titles the session server-side; reflect it in the rail.
@@ -391,6 +414,7 @@ export async function startConsole(
   push();
   void loadAccounts();
   void loadModels();
+  void loadCatalogue();
   void initSessions();
 
   return {

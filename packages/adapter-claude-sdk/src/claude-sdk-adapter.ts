@@ -25,11 +25,11 @@ import type {
 } from '@coa/spi';
 import { barebonesProfile, REFS_NULL_FALLBACK } from '@coa/spi';
 import type { CapabilityProfile } from '@coa/shared';
-import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
-import { mcpToolNames, toCoaMcpServer } from './mcp-tools.js';
+import { toCoaMcpServer } from './mcp-tools.js';
+import { resolveToolTransport } from './tool-frame.js';
 import { sessionAuthEnv } from './auth-env.js';
 import { messageToFrames } from './turn-frames.js';
 import { toSdkPrompt } from './session-input.js';
@@ -80,8 +80,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
   #backend: BackendConfig | undefined;
   #canUseTool: CanUseTool | undefined;
   #stopPredicate: StopPredicate | undefined;
-  #mcpServers: Record<string, McpServerConfig> = {};
-  #mcpToolNames: string[] = [];
+  #catalogue: ToolCatalogue = [];
   #disallowedBuiltins: string[] = [];
   #lastUsage: RuntimeUsage = NO_USAGE;
 
@@ -95,19 +94,23 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
   }
 
   registerTools(catalogue: ToolCatalogue): void {
-    // Build M6's governed tools into one in-process `coa` MCP server and record
-    // their `mcp__coa__*` names so `runLoop` can allow them. Each tool stays
-    // governed (Zod-validate → dispatch → enrich) inside the core; M9 only
-    // transports. An empty catalogue leaves the loop on built-ins (D85 floor).
-    if (catalogue.length === 0) return;
-    this.#mcpServers = { coa: toCoaMcpServer(catalogue) };
-    this.#mcpToolNames = mcpToolNames(catalogue);
+    // Store the governed catalogue; the in-process `coa` MCP server is built
+    // per-run in `runLoop` from the resolved tool frame, so an agent registers
+    // only the coa tools its packages grant. Each tool stays governed
+    // (Zod-validate → dispatch → enrich) inside the core; M9 only transports.
+    // An empty catalogue leaves the loop on built-ins (D85 floor).
+    this.#catalogue = catalogue;
   }
 
   denyBuiltins(): void {
-    // Ruling 3: denying the built-in whole-file `Edit` nudges the model onto the
-    // diff-shaped Mutate path — a demotable default (M6 declares, M9 enforces).
-    this.#disallowedBuiltins = ['Edit'];
+    // D-T2: do NOT deny the built-in `Edit` by default. It is a targeted,
+    // prior-backed, token-cheap edit (≈ M6's `edit_symbol`), and change-event
+    // integrity is guaranteed by the reconciler (D81 producer ②), not by
+    // tool-exclusivity — so denying it buys attribution, not correctness, at the
+    // cost of the tool Claude is most fluent with. Demotion is now a *measured*
+    // knob (v0-spike-gated), not a standing default; the machinery stays so a
+    // future policy can populate `#disallowedBuiltins`.
+    this.#disallowedBuiltins = [];
   }
 
   interceptTool(canUseTool: CanUseTool): void {
@@ -167,7 +170,18 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       throw new Error('runLoop: interceptTool and interceptStop must be wired before runLoop');
     }
 
-    const mcpServers = Object.keys(this.#mcpServers).length > 0 ? this.#mcpServers : undefined;
+    // Map the neutral capability frame (backend.allowedTools/disallowedTools) onto
+    // the SDK tool transport: coa tools → `mcp__coa__*`, built-ins → the `tools`
+    // availability set, and register only the granted coa tools. An empty frame is
+    // the D85 pass-through (every coa tool registered, no built-in restriction).
+    const transport = resolveToolTransport({
+      allow: backend.allowedTools,
+      deny: backend.disallowedTools,
+      coaToolNames: this.#catalogue.map((tool) => tool.name),
+    });
+    const registerSet = new Set(transport.registerCoaTools);
+    const registered = this.#catalogue.filter((tool) => registerSet.has(tool.name));
+    const mcpServers = registered.length > 0 ? { coa: toCoaMcpServer(registered) } : undefined;
     // The M9 auth seam: map the active account's locator to the loop's login env
     // (select CLAUDE_CONFIG_DIR, clear the API-key/ambient-token vars). Absent
     // locator ⇒ no overlay ⇒ the subprocess inherits process.env (today's auth).
@@ -177,12 +191,13 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       sessionId: this.#init.sessionId,
       backend: {
         ...backend,
-        allowedTools: [...backend.allowedTools, ...this.#mcpToolNames],
-        disallowedTools: [...backend.disallowedTools, ...this.#disallowedBuiltins],
+        allowedTools: transport.allowedTools,
+        disallowedTools: [...transport.disallowedTools, ...this.#disallowedBuiltins],
       },
       sandbox: this.#init.sandbox,
       canUseTool: this.#canUseTool,
       stopPredicate: this.#stopPredicate,
+      ...(transport.tools ? { tools: transport.tools } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(this.#init.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.#init.maxBudgetUsd } : {}),
       ...(model?.model !== undefined ? { model: model.model } : {}),
@@ -198,7 +213,11 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     })) {
       // Capture the backend's own session id once — M8 stores it to `resume` the
       // conversation's memory on the next send (R-7 continuity).
-      if (!backendSessionReported && 'session_id' in message && typeof message.session_id === 'string') {
+      if (
+        !backendSessionReported &&
+        'session_id' in message &&
+        typeof message.session_id === 'string'
+      ) {
         backendSessionReported = true;
         this.#init.onBackendSession?.(message.session_id);
       }

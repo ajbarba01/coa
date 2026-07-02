@@ -4,6 +4,9 @@ import {
   ModelCache,
   composeSessionDeps,
   createDaemonCore,
+  createRegistryAssemblePieces,
+  packageRegistry,
+  roleRegistry,
   type ActiveAccountResolution,
   type DaemonCoreHandle,
   type ModelCacheAccount,
@@ -57,6 +60,11 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   const deps = composeSessionDeps(handle.core, {
     createAdapter,
     bindWorktree: () => root,
+    assemblePieces: createRegistryAssemblePieces({
+      roles: roleRegistry(),
+      packages: packageRegistry(),
+      platform: process.platform,
+    }),
     activeAccount,
   });
   const models = new ModelCache({ fetch: fetchModels });

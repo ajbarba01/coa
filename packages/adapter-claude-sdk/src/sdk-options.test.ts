@@ -87,4 +87,12 @@ describe('buildBaseOptions — the static query() options from the rendered conf
     });
     expect(opts.permissionMode).toBe('default');
   });
+
+  it('isolates the session from on-disk config: no setting sources, strict MCP (B1)', () => {
+    const opts = buildBaseOptions({ backend: backend(), sandbox: sandbox() });
+    // Empty (not undefined) — undefined would let the SDK load ALL sources and
+    // leak the target repo's CLAUDE.md/settings as un-authored authority.
+    expect(opts.settingSources).toEqual([]);
+    expect(opts.strictMcpConfig).toBe(true);
+  });
 });

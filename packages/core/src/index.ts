@@ -109,7 +109,12 @@ export {
 export { compile } from './compiler/compile.js';
 export { importBundle } from './compiler/import-bundle.js';
 export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
-export { buildConsoleHandlers, type ConsoleReadPorts } from './rpc/console-handlers.js';
+export {
+  buildConsoleHandlers,
+  buildRegistryHandlers,
+  type ConsoleReadPorts,
+  type RegistryReadPorts,
+} from './rpc/console-handlers.js';
 export { encodeLine, FrameDecoder } from './rpc/codec.js';
 export {
   serveOverStream,
@@ -226,7 +231,32 @@ export {
   type SessionDeps,
   type SessionAdapterInit,
   type ActiveAccountResolution,
+  type AssemblePiecesContext,
 } from './session/session.js';
+export {
+  baselinePieces,
+  baselineStablePieces,
+  baselineVolatilePieces,
+  createBaselineAssemblePieces,
+  type BaselineContext,
+} from './session/baseline-pieces.js';
+export {
+  assembleAgent,
+  createRegistryAssemblePieces,
+  CORE_PACKAGE_ID,
+  type AgentSpec,
+  type AgentAssembly,
+} from './session/assemble-agent.js';
+export {
+  STARTER_PACKAGES,
+  STARTER_ROLES,
+  packageRegistry,
+  roleRegistry,
+  toRoleSummary,
+  toPackageSummary,
+  roleSummaries,
+  packageSummaries,
+} from './session/agent-registry.js';
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
 export { buildSessionHandlers } from './session/session-handlers.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';

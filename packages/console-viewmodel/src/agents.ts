@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { claudeReasoningSchema } from '@coa/shared';
+import {
+  claudeReasoningSchema,
+  packageSummarySchema,
+  roleSummarySchema,
+  type PackageSummary,
+  type RoleSummary,
+} from '@coa/shared';
 
 /** The curated agent-identity vocabularies. The console-ui kit owns the visual
  *  mapping (glyph/classes); these are the wire names. An unknown name degrades to
@@ -53,6 +59,13 @@ export const AgentSummarySchema = z.object({
   model: z.string().optional(),
   /** The agent's faithful reasoning config; absent ⇒ the backend/SDK default depth. */
   reasoning: claudeReasoningSchema.optional(),
+  /** The registry role this agent runs as (a `listRoles` id); absent ⇒ the permissive
+   *  baseline floor (no role restriction). Drives the `role` sent to `createSession`. */
+  role: z.string().optional(),
+  /** Opt-in packages the user added on top of the role's (`listPackages` ids). */
+  packageIds: z.array(z.string()).optional(),
+  /** Default packages the user turned off (authoritative over inclusion, like the resolver's). */
+  exclude: z.array(z.string()).optional(),
 });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 
@@ -71,3 +84,10 @@ export const SessionSummarySchema = z.object({
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
 export const SessionListSchema = z.array(SessionSummarySchema);
+
+/** The agent-assembly catalogue the console picker reads — the real `listRoles`/
+ *  `listPackages` wire shapes, re-exported from M0 so the edge validates the
+ *  daemon's payload (not a hand-mirrored copy). Pieces are already dropped upstream. */
+export { roleSummarySchema, packageSummarySchema, type RoleSummary, type PackageSummary };
+export const RoleSummaryListSchema = z.array(roleSummarySchema);
+export const PackageSummaryListSchema = z.array(packageSummarySchema);

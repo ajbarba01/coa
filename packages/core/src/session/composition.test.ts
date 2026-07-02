@@ -79,7 +79,7 @@ describe('composeSessionDeps', () => {
 
   it('defaults assemblePieces to the empty frame that compiles to the vanilla config', () => {
     const deps = composeSessionDeps(realCore(), wiring());
-    const { pieces, frame } = deps.assemblePieces('dev', 'src');
+    const { pieces, frame } = deps.assemblePieces({ role: 'dev', scope: 'src', worktree: '/w' });
     const config = deps.compile(pieces, frame);
     expect(pieces).toEqual([]);
     expect(config.prefixHead).toEqual([]);

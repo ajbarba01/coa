@@ -4,6 +4,8 @@ import type {
   Checkpoint,
   FeedView,
   ModelDescriptor,
+  PackageSummary,
+  RoleSummary,
   SessionSummary,
   TurnFrame,
 } from '@coa/console-viewmodel';
@@ -35,6 +37,9 @@ export interface ConsoleData {
   sessions: Remote<SessionSummary[]>;
   /** The active account's available models + per-model reasoning capabilities (live, cached). */
   models: Remote<ModelDescriptor[]>;
+  /** The agent-assembly catalogue the picker draws from (live: `listRoles`/`listPackages`). */
+  roles: Remote<RoleSummary[]>;
+  packages: Remote<PackageSummary[]>;
 }
 
 /** Local view state (not daemon data). */
@@ -97,6 +102,8 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       agents: { status: 'loading' },
       sessions: { status: 'loading' },
       models: { status: 'loading' },
+      roles: { status: 'loading' },
+      packages: { status: 'loading' },
     },
     ui: {
       activeMainPanelId: DEFAULT_MAIN_PANEL_ID,

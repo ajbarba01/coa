@@ -6,14 +6,22 @@ import {
   agentsPanel,
   buildAgentPickerGroups,
   clampReasoning,
+  includedPackageIds,
   modelLabel,
   modelReasoningCaps,
+  packageAdvisories,
   pickableModels,
   selectAgentsVm,
+  togglePackage,
 } from './AgentsPanel.js';
 import { makeState, type StateOverrides } from './fixtures.js';
 import { MOCK_AGENTS } from './mockAgents.js';
-import type { ModelDescriptor } from '@coa/console-viewmodel';
+import type {
+  AgentSummary,
+  ModelDescriptor,
+  PackageSummary,
+  RoleSummary,
+} from '@coa/console-viewmodel';
 import type { ConsoleState } from './state.js';
 
 /** The live SDK model list shape (aliases + version-in-description), per `supportedModels()`. */
@@ -54,9 +62,13 @@ describe('modelLabel', () => {
     expect(modelLabel(OPUS)).toBe('Opus 4.8');
     expect(modelLabel(SONNET)).toBe('Sonnet 4.6');
     expect(modelLabel(HAIKU)).toBe('Haiku 4.5');
-    expect(modelLabel({ id: 'claude-fable-5[1m]', displayName: 'Fable', description: 'Fable 5 · Most capable' })).toBe(
-      'Fable 5',
-    );
+    expect(
+      modelLabel({
+        id: 'claude-fable-5[1m]',
+        displayName: 'Fable',
+        description: 'Fable 5 · Most capable',
+      }),
+    ).toBe('Fable 5');
   });
 
   it('keeps a distinct display name alongside the version (the default alias)', () => {
@@ -108,7 +120,10 @@ describe('pickableModels', () => {
 });
 
 describe('clampReasoning', () => {
-  const opusCaps = { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] as const, includeBudget: true };
+  const opusCaps = {
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'] as const,
+    includeBudget: true,
+  };
   const sonnetCaps = { efforts: ['low', 'medium', 'high', 'max'] as const, includeBudget: true };
   const haikuCaps = { efforts: [] as const, includeBudget: false };
 
@@ -123,7 +138,9 @@ describe('clampReasoning', () => {
   });
 
   it('drops all effort/budget for a model with no reasoning (Haiku)', () => {
-    expect(clampReasoning({ mode: 'effort', effort: 'low' }, { ...haikuCaps, efforts: [] })).toBeUndefined();
+    expect(
+      clampReasoning({ mode: 'effort', effort: 'low' }, { ...haikuCaps, efforts: [] }),
+    ).toBeUndefined();
     expect(
       clampReasoning({ mode: 'budget', budgetTokens: 8000 }, { ...haikuCaps, efforts: [] }),
     ).toBeUndefined();
@@ -132,13 +149,92 @@ describe('clampReasoning', () => {
   it('keeps budget when the new model supports adaptive thinking, drops it otherwise', () => {
     const r = { mode: 'budget', budgetTokens: 8000 } as const;
     expect(clampReasoning(r, { ...opusCaps, efforts: [...opusCaps.efforts] })).toBe(r);
-    expect(clampReasoning(r, { efforts: [...opusCaps.efforts], includeBudget: false })).toBeUndefined();
+    expect(
+      clampReasoning(r, { efforts: [...opusCaps.efforts], includeBudget: false }),
+    ).toBeUndefined();
   });
 
   it('always keeps off and undefined (default)', () => {
     const off = { mode: 'off' } as const;
     expect(clampReasoning(off, { ...haikuCaps, efforts: [] })).toBe(off);
-    expect(clampReasoning(undefined, { ...opusCaps, efforts: [...opusCaps.efforts] })).toBeUndefined();
+    expect(
+      clampReasoning(undefined, { ...opusCaps, efforts: [...opusCaps.efforts] }),
+    ).toBeUndefined();
+  });
+});
+
+const ROLES: RoleSummary[] = [
+  { id: 'swe', name: 'Software Engineer', description: '', packageIds: ['coding', 'planning'] },
+  { id: 'researcher', name: 'Researcher', description: '', packageIds: ['research', 'planning'] },
+];
+const PACKAGES: PackageSummary[] = [
+  { id: 'core', name: 'Core', description: '', inclusion: 'default', advise: true, toolRefs: [] },
+  {
+    id: 'coa-orientation',
+    name: 'coa orientation',
+    description: '',
+    inclusion: 'default',
+    advise: true,
+    toolRefs: [],
+  },
+  { id: 'coding', name: 'Coding', description: '', inclusion: 'opt-in', toolRefs: [] },
+  { id: 'planning', name: 'Planning', description: '', inclusion: 'opt-in', toolRefs: [] },
+  { id: 'research', name: 'Research', description: '', inclusion: 'opt-in', toolRefs: [] },
+];
+const swe = ROLES[0];
+
+describe('includedPackageIds', () => {
+  it('unions the defaults with the role’s opt-ins', () => {
+    const set = includedPackageIds(PACKAGES, swe, {});
+    expect([...set].sort()).toEqual(['coa-orientation', 'coding', 'core', 'planning']);
+  });
+
+  it('adds the user’s extra opt-ins and drops the user’s exclusions', () => {
+    const set = includedPackageIds(PACKAGES, swe, { packageIds: ['research'], exclude: ['core'] });
+    expect(set.has('research')).toBe(true);
+    expect(set.has('core')).toBe(false);
+  });
+
+  it('is defaults-only with no role', () => {
+    expect([...includedPackageIds(PACKAGES, undefined, {})].sort()).toEqual([
+      'coa-orientation',
+      'core',
+    ]);
+  });
+});
+
+describe('packageAdvisories', () => {
+  it('reports advised packages that ended up absent (a nudge)', () => {
+    const included = includedPackageIds(PACKAGES, swe, { exclude: ['core'] });
+    expect(packageAdvisories(PACKAGES, included).map((p) => p.id)).toEqual(['core']);
+  });
+
+  it('is empty when every advised package is present', () => {
+    expect(packageAdvisories(PACKAGES, includedPackageIds(PACKAGES, swe, {}))).toEqual([]);
+  });
+});
+
+describe('togglePackage', () => {
+  it('excludes a default package that is currently included', () => {
+    expect(togglePackage(PACKAGES, swe, {}, 'core')).toEqual({ exclude: ['core'] });
+  });
+
+  it('excludes a role-supplied opt-in rather than fighting the role', () => {
+    expect(togglePackage(PACKAGES, swe, {}, 'coding')).toEqual({ exclude: ['coding'] });
+  });
+
+  it('adds a fresh opt-in via packageIds', () => {
+    expect(togglePackage(PACKAGES, swe, {}, 'research')).toEqual({ packageIds: ['research'] });
+  });
+
+  it('removes a user opt-in from packageIds when turned back off', () => {
+    expect(togglePackage(PACKAGES, swe, { packageIds: ['research'] }, 'research')).toEqual({
+      packageIds: [],
+    });
+  });
+
+  it('re-includes an excluded package by clearing the exclusion', () => {
+    expect(togglePackage(PACKAGES, swe, { exclude: ['core'] }, 'core')).toEqual({ exclude: [] });
   });
 });
 
@@ -266,5 +362,52 @@ describe('AgentsView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Pin' }));
     expect(togglePinAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer');
+  });
+
+  const withCatalogue = (
+    agents: AgentSummary[],
+    actions: StateOverrides['actions'] = {},
+  ): Extract<ReturnType<typeof selectAgentsVm>, { status: 'ready' }> =>
+    selectAgentsVm(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: agents },
+          roles: { status: 'ok', value: ROLES },
+          packages: { status: 'ok', value: PACKAGES },
+        },
+        actions,
+      }),
+    ) as Extract<ReturnType<typeof selectAgentsVm>, { status: 'ready' }>;
+
+  it('renders the role picker with the agent’s role and the package checkboxes', () => {
+    render(<AgentsView vm={withCatalogue(MOCK_AGENTS)} host={host} />);
+    expect(screen.getByText('Role')).toBeTruthy();
+    // reviewer runs as the researcher role — its opt-ins are checked, others not.
+    expect(screen.getByRole('checkbox', { name: 'Core · default' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Research' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Coding' })).not.toBeChecked();
+  });
+
+  it('toggles an off package on through updateAgent (adds a user opt-in)', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsView vm={withCatalogue(MOCK_AGENTS, { updateAgent })} host={host} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Coding' }));
+    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
+      packageIds: ['coding'],
+    });
+  });
+
+  it('nudges when an advised package is excluded', () => {
+    const agent: AgentSummary = {
+      ref: 'roles/x',
+      name: 'x',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      role: 'researcher',
+      exclude: ['core'],
+    };
+    const { container } = render(<AgentsView vm={withCatalogue([agent])} host={host} />);
+    expect(container.textContent).toContain('Recommended: Core');
   });
 });

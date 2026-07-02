@@ -18,6 +18,7 @@ export * from './flag.js';
 export * from './producer.js';
 export * from './piece.js';
 export * from './bundle.js';
+export * from './agent.js';
 export * from './context.js';
 export * from './config.js';
 export * from './change-event.js';

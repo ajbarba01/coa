@@ -1,4 +1,4 @@
-import type { FeedView } from '@coa/shared';
+import type { FeedView, PackageSummary, RoleSummary } from '@coa/shared';
 import { z } from 'zod';
 import type { Checkpoint } from '../checkpoint.js';
 import type { CapState } from '../governance/cost-cap.js';
@@ -46,5 +46,26 @@ export function buildConsoleHandlers(ports: ConsoleReadPorts): RpcHandlers {
     getDecision: rpcMethod(idParams, (p) => ports.readDecision(p.id) ?? null),
     why: rpcMethod(targetParams, (p) => ports.decisionsByTarget(p.target)),
     listTimeline: rpcMethod(noParams, () => ports.listTimeline()),
+  };
+}
+
+/**
+ * The agent-assembly catalogue reads — the verbs the console calls to populate its
+ * role/package picker. Both are pure projections over the registries (no daemon
+ * state), injected as narrow ports so the source can move from the starter set to
+ * user-authored `.coa/` packages without touching this wiring.
+ */
+export interface RegistryReadPorts {
+  /** Every role, as its picker summary (Pieces dropped). */
+  listRoles: () => RoleSummary[];
+  /** Every package, as its picker summary (Pieces dropped). */
+  listPackages: () => PackageSummary[];
+}
+
+/** Build the role/package catalogue handler map for {@link dispatch}. */
+export function buildRegistryHandlers(ports: RegistryReadPorts): RpcHandlers {
+  return {
+    listRoles: rpcMethod(noParams, () => ports.listRoles()),
+    listPackages: rpcMethod(noParams, () => ports.listPackages()),
   };
 }

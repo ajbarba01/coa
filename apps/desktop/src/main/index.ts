@@ -169,6 +169,10 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('deleteSession', params);
     case 'listModels':
       return proxyDaemon('listModels');
+    case 'listRoles':
+      return proxyDaemon('listRoles');
+    case 'listPackages':
+      return proxyDaemon('listPackages');
     case 'getLayout':
       return readJson(layoutFile());
     case 'saveLayout':

@@ -50,6 +50,22 @@ export interface ActiveAccountResolution {
   locator?: Locator;
 }
 
+/** The per-session facts M8 hands `assemblePieces` so it can author the standing scaffold (incl. the env block). */
+export interface AssemblePiecesContext {
+  role: string;
+  scope: string;
+  /** The bound session worktree (the agent's working directory). */
+  worktree: string;
+  /** The active model id, when selected. */
+  model?: string;
+  /** Opt-in packages the user added beyond the role's (assembly selection). */
+  packageIds?: string[];
+  /** Default packages the user turned off (assembly selection). */
+  exclude?: string[];
+  /** Ad-hoc skill Pieces layered on top of the role (user-added). */
+  skills?: Piece[];
+}
+
 /** The live core references M8 holds and wires per session (all injected; M8 sorts last). */
 export interface SessionDeps {
   newSessionId: () => string;
@@ -57,8 +73,8 @@ export interface SessionDeps {
   bindWorktree: (sessionId: string, scope: string) => string;
   /** Release the session's worktree at close. */
   releaseWorktree: (worktree: string) => void;
-  /** Gather the role/scope's pieces + capability frame (M4 context → M5 input). */
-  assemblePieces: (role: string, scope: string) => { pieces: Piece[]; frame: CapabilityFrame };
+  /** Gather the session's pieces + capability frame (baseline scaffold + M4 context → M5 input). */
+  assemblePieces: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
   /** M5.compile — pieces → backend-neutral config. */
   compile: (pieces: Piece[], frame: CapabilityFrame) => NeutralConfig;
   /** M7.sandboxPolicy — the per-session capability set. */
@@ -103,6 +119,10 @@ export async function createSession(
     scope: string;
     input: string | AsyncIterable<string>;
     model?: ModelSelection;
+    /** Opt-in packages the user added beyond the role's (assembly selection). */
+    packageIds?: string[];
+    /** Default packages the user turned off (assembly selection). */
+    exclude?: string[];
     onTurn?: (frame: TurnFrame) => void;
     /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
     onStart?: (started: { id: string; worktree: string }) => void;
@@ -118,7 +138,14 @@ export async function createSession(
   const sessionId = req.sessionId ?? deps.newSessionId();
   const worktree = deps.bindWorktree(sessionId, req.scope);
   req.onStart?.({ id: sessionId, worktree });
-  const { pieces, frame } = deps.assemblePieces(req.role, req.scope);
+  const { pieces, frame } = deps.assemblePieces({
+    role: req.role,
+    scope: req.scope,
+    worktree,
+    ...(req.model?.model !== undefined ? { model: req.model.model } : {}),
+    ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
+    ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
+  });
   const neutral = deps.compile(pieces, frame);
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
   const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);

@@ -135,6 +135,21 @@ describe('createSession', () => {
     ]);
   });
 
+  it('threads the assembly selection (packageIds + exclude) into assemblePieces', async () => {
+    let seen: Parameters<SessionDeps['assemblePieces']>[0] | undefined;
+    const h = harness({
+      assemblePieces: (ctx) => {
+        seen = ctx;
+        return { pieces: [], frame: { allow: [], deny: [] } };
+      },
+    });
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', packageIds: ['research'], exclude: ['core'] },
+      h.deps,
+    );
+    expect(seen).toMatchObject({ packageIds: ['research'], exclude: ['core'] });
+  });
+
   it('wires the settlement callback to the cost charge', async () => {
     const h = harness();
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);

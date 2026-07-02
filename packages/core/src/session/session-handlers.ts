@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { modelSelectionSchema, type Push, type RpcNotification, type Session, type TurnFrame } from '@coa/shared';
+import {
+  modelSelectionSchema,
+  type Push,
+  type RpcNotification,
+  type Session,
+  type TurnFrame,
+} from '@coa/shared';
 import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import { closeSession as closeSessionCore, createSession, type SessionDeps } from './session.js';
@@ -33,6 +39,9 @@ const createParams = z.object({
   scope: z.string().default(''),
   input: z.string(),
   model: modelSelectionSchema.optional(),
+  /** Assembly selection: opt-in packages added / default packages excluded (both role-gated). */
+  packageIds: z.array(z.string()).optional(),
+  exclude: z.array(z.string()).optional(),
   /** The persistent conversation to run within (R-7); absent ⇒ an ephemeral one-shot. */
   conversationId: z.string().optional(),
 });
@@ -69,7 +78,12 @@ export function buildSessionHandlers(
       if (persistIn !== undefined) {
         const { convId: id, store: cs } = persistIn;
         if (cs.getMeta(id) === undefined) {
-          cs.create({ id, agentRef: params.role, title: deriveTitle(params.input), scope: params.scope });
+          cs.create({
+            id,
+            agentRef: params.role,
+            title: deriveTitle(params.input),
+            scope: params.scope,
+          });
         }
         const prior = cs.reload(id);
         seq = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
@@ -101,10 +115,15 @@ export function buildSessionHandlers(
             scope: params.scope,
             input: params.input,
             ...(params.model ? { model: params.model } : {}),
+            ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
+            ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
             ...(persistIn !== undefined ? { sessionId: persistIn.convId } : {}),
             ...(resume !== undefined ? { resume } : {}),
             ...(persistIn !== undefined
-              ? { onBackendSession: (id: string) => persistIn.store.setBackendSession(persistIn.convId, id) }
+              ? {
+                  onBackendSession: (id: string) =>
+                    persistIn.store.setBackendSession(persistIn.convId, id),
+                }
               : {}),
             onStart: (s) => {
               started = s;

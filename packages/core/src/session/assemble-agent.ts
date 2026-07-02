@@ -1,0 +1,146 @@
+import type { AgentPackage, CapabilityFrame, Piece, Role } from '@coa/shared';
+import { baselinePieces, baselineVolatilePieces, type BaselineContext } from './baseline-pieces.js';
+import type { AssemblePiecesContext } from './session.js';
+
+/**
+ * The agent-assembly resolver (M8) — turn a {@link Role} (+ ad-hoc skills, minus
+ * any excluded packages) into compile-ready Pieces + a deduped tool
+ * {@link CapabilityFrame} + the external MCP servers to enable + the list of
+ * advised-but-absent packages to nudge on.
+ *
+ * Inclusion (nothing is mandatory — D85): every `default` package is included
+ * unless the spec excludes it; `opt-in` packages come in only when the role lists
+ * them. The `core` package (which carries the coa scaffold, see below) is a normal
+ * `default` package — excluding it degrades the agent to the raw loop.
+ *
+ * Ordering: package Pieces (defaults in registry order, then the role's opt-ins) →
+ * role Pieces → skill Pieces → the volatile baseline tail (model/env, injected
+ * only when `core` is included so it lands last, cache-friendly, D-P2). The
+ * `core` package's own Pieces (identity/safety/tool-use/quality) lead because it
+ * is the first default. Tools + mcps are set-unions (never doubled); Pieces are
+ * deduped by name (first wins). Unknown/excluded ids are dropped, never thrown
+ * (SC-1 degrade-don't-cage).
+ *
+ * Output is a neutral frame (intent). Mapping each tool ref to a backend
+ * transport — a Claude built-in vs an `mcp__coa__*` tool vs a loop-driver
+ * executor — is M9's `renderNative` job, not this resolver's.
+ */
+
+/** The package that carries the coa scaffold (its Pieces + the volatile model/env tail). A normal `default` package. */
+export const CORE_PACKAGE_ID = 'core';
+
+export interface AgentSpec {
+  /** The chosen role (its opt-in packages + role Pieces). */
+  role: Role;
+  /** Opt-in packages the user turned on beyond the role's (unioned with `role.packageIds`). */
+  packageIds?: readonly string[];
+  /** Extra skill Pieces layered on top of the role (user-added / CHAT-10). */
+  skills?: readonly Piece[];
+  /** Package ids to turn off (a `default` package the user removed). Authoritative over inclusion. */
+  exclude?: readonly string[];
+}
+
+export interface AgentAssembly {
+  pieces: Piece[];
+  frame: CapabilityFrame;
+  /** External MCP servers to enable for the session (deduped). */
+  mcpServers: string[];
+  /** Advised packages that ended up absent — a nudge list for the console/agent (never a block). */
+  advisories: string[];
+}
+
+function dedupe(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+/** Keep the first Piece per name, preserving order (an earlier package wins a name collision). */
+function dedupeByName(pieces: readonly Piece[]): Piece[] {
+  const seen = new Set<string>();
+  const out: Piece[] = [];
+  for (const piece of pieces) {
+    if (seen.has(piece.name)) continue;
+    seen.add(piece.name);
+    out.push(piece);
+  }
+  return out;
+}
+
+/** Resolve a role + skills − exclusions against the package registry into an {@link AgentAssembly}. */
+export function assembleAgent(
+  spec: AgentSpec,
+  registry: ReadonlyMap<string, AgentPackage>,
+  ctx: BaselineContext,
+): AgentAssembly {
+  const excluded = new Set(spec.exclude ?? []);
+  const all = [...registry.values()];
+  const defaultIds = all.filter((pkg) => pkg.inclusion === 'default').map((pkg) => pkg.id);
+
+  const includedIds = dedupe([
+    ...defaultIds,
+    ...spec.role.packageIds,
+    ...(spec.packageIds ?? []),
+  ]).filter((id) => registry.has(id) && !excluded.has(id));
+  const included = includedIds
+    .map((id) => registry.get(id))
+    .filter((pkg): pkg is AgentPackage => pkg !== undefined);
+
+  const toolRefs = dedupe(included.flatMap((pkg) => pkg.toolRefs));
+  const mcpServers = dedupe(included.flatMap((pkg) => pkg.mcpServers ?? []));
+
+  const volatile = includedIds.includes(CORE_PACKAGE_ID) ? baselineVolatilePieces(ctx) : [];
+  const pieces = dedupeByName([
+    ...included.flatMap((pkg) => pkg.pieces),
+    ...(spec.role.pieces ?? []),
+    ...(spec.skills ?? []),
+    ...volatile,
+  ]);
+
+  const advisories = all
+    .filter((pkg) => pkg.advise === true && !includedIds.includes(pkg.id))
+    .map((pkg) => pkg.id);
+
+  return { pieces, frame: { allow: toolRefs, deny: [] }, mcpServers, advisories };
+}
+
+/** ISO `YYYY-MM-DD` in UTC (deterministic — no locale/timezone drift in the prompt). */
+function isoDateUtc(when: Date): string {
+  return when.toISOString().slice(0, 10);
+}
+
+/**
+ * Build an `assemblePieces` implementation backed by the package/role registries.
+ * A **known** role is resolved through {@link assembleAgent} — its packages shape
+ * the pieces + the (restricting) tool frame. An **unknown or unset** role is the
+ * permissive floor: the baseline scaffold with an empty frame (D85 pass-through —
+ * every backend tool stays available), so callers that don't pick a role (e.g.
+ * the CLI's `coa run`) behave exactly as before. `platform`/`now` are injected so
+ * the function stays testable. Skills + exclusions ride the console path later.
+ */
+export function createRegistryAssemblePieces(deps: {
+  roles: ReadonlyMap<string, Role>;
+  packages: ReadonlyMap<string, AgentPackage>;
+  platform: string;
+  now?: () => Date;
+}): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
+  const now = deps.now ?? ((): Date => new Date());
+  return (ctx) => {
+    const baselineCtx: BaselineContext = {
+      worktree: ctx.worktree,
+      platform: deps.platform,
+      date: isoDateUtc(now()),
+      ...(ctx.model !== undefined ? { model: ctx.model } : {}),
+    };
+    const role = deps.roles.get(ctx.role);
+    if (role === undefined) {
+      return { pieces: baselinePieces(baselineCtx), frame: { allow: [], deny: [] } };
+    }
+    const spec: AgentSpec = {
+      role,
+      ...(ctx.packageIds !== undefined ? { packageIds: ctx.packageIds } : {}),
+      ...(ctx.exclude !== undefined ? { exclude: ctx.exclude } : {}),
+      ...(ctx.skills !== undefined ? { skills: ctx.skills } : {}),
+    };
+    const { pieces, frame } = assembleAgent(spec, deps.packages, baselineCtx);
+    return { pieces, frame };
+  };
+}

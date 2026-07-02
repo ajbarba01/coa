@@ -3,6 +3,8 @@ import {
   ActiveAccountSchema,
   CapStateSchema,
   FeedViewSchema,
+  PackageSummaryListSchema,
+  RoleSummaryListSchema,
   SessionListSchema,
   TimelineSchema,
   modelSelectionSchema,
@@ -20,11 +22,17 @@ export const StartSessionParamsSchema = z.object({
   role: z.string().optional(),
   scope: z.string().optional(),
   model: modelSelectionSchema.optional(),
+  /** Assembly selection: opt-in packages added / default packages excluded (role-gated). */
+  packageIds: z.array(z.string()).optional(),
+  exclude: z.array(z.string()).optional(),
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
 /** Params for creating a persistent session record (R-7) — proxies the daemon `newSession`. */
-export const NewSessionParamsSchema = z.object({ agentRef: z.string(), scope: z.string().optional() });
+export const NewSessionParamsSchema = z.object({
+  agentRef: z.string(),
+  scope: z.string().optional(),
+});
 export const NewSessionResultSchema = z.object({ id: z.string() });
 const OkResultSchema = z.object({ ok: z.boolean() });
 
@@ -57,6 +65,8 @@ export type MethodName =
   | 'renameSession'
   | 'deleteSession'
   | 'listModels'
+  | 'listRoles'
+  | 'listPackages'
   | 'getLayout'
   | 'saveLayout'
   | 'getSettings'
@@ -73,9 +83,14 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
   reloadConversation: { params: z.object({ id: z.string() }), result: persistedTurnsSchema },
-  renameSession: { params: z.object({ id: z.string(), title: z.string() }), result: OkResultSchema },
+  renameSession: {
+    params: z.object({ id: z.string(), title: z.string() }),
+    result: OkResultSchema,
+  },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   listModels: { result: z.array(modelDescriptorSchema) },
+  listRoles: { result: RoleSummaryListSchema },
+  listPackages: { result: PackageSummaryListSchema },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },
   getSettings: { result: ConsoleSettingsSchema },

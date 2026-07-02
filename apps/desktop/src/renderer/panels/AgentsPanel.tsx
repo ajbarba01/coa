@@ -5,11 +5,14 @@ import type {
   ClaudeEffort,
   ClaudeReasoning,
   ModelDescriptor,
+  PackageSummary,
+  RoleSummary,
 } from '@coa/console-viewmodel';
 import {
   AgentChip,
   Badge,
   Button,
+  Checkbox,
   Code,
   Combobox,
   Dialog,
@@ -101,6 +104,61 @@ export function clampReasoning(
   return caps.efforts.includes(reasoning.effort) ? reasoning : undefined;
 }
 
+/** The sentinel role value meaning "no role" — the permissive baseline floor. Kept
+ *  as an empty string (not undefined) so it round-trips through the Select cleanly. */
+export const NO_ROLE = '';
+
+type PackagePatch = Partial<Pick<AgentSummary, 'packageIds' | 'exclude'>>;
+
+/**
+ * The packages an agent currently includes: the `default` packages + the role's
+ * opt-ins + the user's added opt-ins, minus the user's exclusions. Mirrors the M8
+ * resolver so the picker shows exactly what the backend would assemble.
+ */
+export function includedPackageIds(
+  packages: PackageSummary[],
+  role: RoleSummary | undefined,
+  agent: Pick<AgentSummary, 'packageIds' | 'exclude'>,
+): Set<string> {
+  const excluded = new Set(agent.exclude ?? []);
+  const base = new Set<string>();
+  for (const p of packages) if (p.inclusion === 'default') base.add(p.id);
+  for (const id of role?.packageIds ?? []) base.add(id);
+  for (const id of agent.packageIds ?? []) base.add(id);
+  return new Set([...base].filter((id) => !excluded.has(id)));
+}
+
+/** The advised-but-absent packages — coa's nudge list (a hint, never a block). */
+export function packageAdvisories(
+  packages: PackageSummary[],
+  included: ReadonlySet<string>,
+): PackageSummary[] {
+  return packages.filter((p) => p.advise === true && !included.has(p.id));
+}
+
+/**
+ * The patch toggling one package on/off, respecting how it entered the set: a
+ * purely user-added opt-in leaves via `packageIds`; anything a default or the role
+ * brings in must be actively excluded (and re-including it clears that exclusion).
+ */
+export function togglePackage(
+  packages: PackageSummary[],
+  role: RoleSummary | undefined,
+  agent: Pick<AgentSummary, 'packageIds' | 'exclude'>,
+  id: string,
+): PackagePatch {
+  const packageIds = agent.packageIds ?? [];
+  const exclude = agent.exclude ?? [];
+  const isDefault = packages.some((p) => p.id === id && p.inclusion === 'default');
+  const fromRole = (role?.packageIds ?? []).includes(id);
+  if (includedPackageIds(packages, role, agent).has(id)) {
+    if (!isDefault && !fromRole) return { packageIds: packageIds.filter((p) => p !== id) };
+    return { exclude: [...exclude, id] };
+  }
+  if (exclude.includes(id)) return { exclude: exclude.filter((p) => p !== id) };
+  return { packageIds: [...packageIds, id] };
+}
+
 /** Collapse a ClaudeReasoning to the selector value it displays as. */
 export function reasoningToValue(r: ClaudeReasoning | undefined): string {
   if (r === undefined) return 'default';
@@ -134,7 +192,8 @@ function ReasoningField({
     if (v === 'default') onChange(undefined);
     else if (v === 'off') onChange({ mode: 'off' });
     else if (v === 'budget') onChange({ mode: 'budget', budgetTokens: budget });
-    else if ((efforts as string[]).includes(v)) onChange({ mode: 'effort', effort: v as ClaudeEffort });
+    else if ((efforts as string[]).includes(v))
+      onChange({ mode: 'effort', effort: v as ClaudeEffort });
   };
   return (
     <div className="flex flex-col gap-2">
@@ -168,6 +227,8 @@ export type AgentsVm =
       agents: AgentSummary[];
       selected: AgentSummary;
       models: ModelDescriptor[];
+      roles: RoleSummary[];
+      packages: PackageSummary[];
       pinned: string[];
       selectAgent: (ref: string) => void;
       createAgent: (scope: 'project' | 'personal') => void;
@@ -185,11 +246,15 @@ export function selectAgentsVm(state: ConsoleState): AgentsVm {
   if (agents.length === 0) return { status: 'empty', createAgent };
   const selected = agents.find((a) => a.ref === state.ui.selectedAgentRef) ?? agents[0]!;
   const models = state.data.models.status === 'ok' ? pickableModels(state.data.models.value) : [];
+  const roles = state.data.roles.status === 'ok' ? state.data.roles.value : [];
+  const packages = state.data.packages.status === 'ok' ? state.data.packages.value : [];
   return {
     status: 'ready',
     agents,
     selected,
     models,
+    roles,
+    packages,
     pinned: state.ui.settings.pinnedAgents,
     selectAgent,
     createAgent,
@@ -237,6 +302,9 @@ export function buildAgentPickerGroups(
 function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): React.JSX.Element {
   const a = vm.selected;
   const caps = modelReasoningCaps(vm.models, a.model);
+  const role = vm.roles.find((r) => r.id === a.role);
+  const included = includedPackageIds(vm.packages, role, a);
+  const advisories = packageAdvisories(vm.packages, included);
   const pinned = vm.pinned.includes(a.ref);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteDraft, setDeleteDraft] = useState('');
@@ -320,7 +388,10 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
             // Keep the reasoning valid for the model just chosen (an effort/budget the
             // new model doesn't offer resets to default); leave a valid one untouched.
             const clamped = clampReasoning(a.reasoning, modelReasoningCaps(vm.models, model));
-            vm.updateAgent(a.ref, clamped === a.reasoning ? { model } : { model, reasoning: clamped });
+            vm.updateAgent(
+              a.ref,
+              clamped === a.reasoning ? { model } : { model, reasoning: clamped },
+            );
           }}
           options={
             vm.models.length > 0
@@ -336,9 +407,41 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
           includeBudget={caps.includeBudget}
           onChange={(reasoning) => vm.updateAgent(a.ref, { reasoning })}
         />
+
+        <Select
+          label="Role"
+          value={a.role ?? NO_ROLE}
+          onValueChange={(v) => vm.updateAgent(a.ref, { role: v })}
+          options={[
+            { value: NO_ROLE, label: 'None (baseline floor)' },
+            ...vm.roles.map((r) => ({ value: r.id, label: r.name })),
+          ]}
+        />
+
+        {vm.packages.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-caption text-muted">Packages</span>
+            {vm.packages.map((p) => (
+              <Checkbox
+                key={p.id}
+                label={p.inclusion === 'default' ? `${p.name} · default` : p.name}
+                checked={included.has(p.id)}
+                onCheckedChange={() =>
+                  vm.updateAgent(a.ref, togglePackage(vm.packages, role, a, p.id))
+                }
+              />
+            ))}
+            {advisories.length > 0 && (
+              <InlineMessage tone="info">
+                Recommended: {advisories.map((p) => p.name).join(', ')}
+              </InlineMessage>
+            )}
+          </div>
+        )}
+
         <p className="text-caption text-faint">
-          Reasoning levels reflect the selected model's real capabilities. Context pieces and the
-          full role configuration arrive with the agent-config seam.
+          The role, model, and package selection take effect on the next message. Packages apply
+          once a role is chosen (with no role the agent runs the permissive baseline).
         </p>
       </div>
 

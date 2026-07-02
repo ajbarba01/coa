@@ -1,7 +1,12 @@
 import { ulid } from 'ulid';
 import type { CapabilityFrame, CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type { RuntimeAdapter, StopDecision, ToolCatalogue } from '@coa/spi';
-import type { ActiveAccountResolution, SessionAdapterInit, SessionDeps } from './session.js';
+import type {
+  ActiveAccountResolution,
+  AssemblePiecesContext,
+  SessionAdapterInit,
+  SessionDeps,
+} from './session.js';
 
 /**
  * M8 composition root (R-1) — bind the daemon-singleton core surfaces into the
@@ -48,8 +53,8 @@ export interface SessionWiring {
   bindWorktree: (sessionId: string, scope: string) => string;
   /** Release the session's worktree at close (defaults to a no-op floor). */
   releaseWorktree?: (worktree: string) => void;
-  /** Gather the role/scope's pieces + frame (M4; defaults to the empty/vanilla floor). */
-  assemblePieces?: (role: string, scope: string) => { pieces: Piece[]; frame: CapabilityFrame };
+  /** Gather the session's pieces + frame (baseline + M4; defaults to the empty/vanilla floor). */
+  assemblePieces?: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
   /** Session id source (defaults to a ULID). */
   newSessionId?: () => string;
   trust?: 'local' | 'imported';

@@ -6,7 +6,9 @@ import type {
   FeedView,
   ModelDescriptor,
   ModelSelection,
+  PackageSummary,
   PersistedTurnWire,
+  RoleSummary,
   SessionSummary,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
@@ -29,6 +31,8 @@ declare global {
         role?: string;
         scope?: string;
         model?: ModelSelection;
+        packageIds?: string[];
+        exclude?: string[];
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
@@ -36,6 +40,8 @@ declare global {
       renameSession(params: { id: string; title: string }): Promise<{ ok: boolean }>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       listModels(): Promise<ModelDescriptor[]>;
+      listRoles(): Promise<RoleSummary[]>;
+      listPackages(): Promise<PackageSummary[]>;
       /** Subscribe to the daemon push stream; returns an unsubscribe. */
       onPush(listener: (payload: unknown) => void): () => void;
       getLayout(): Promise<unknown>;

@@ -1,10 +1,14 @@
-import type { FeedView } from '@coa/shared';
+import type { FeedView, PackageSummary, RoleSummary } from '@coa/shared';
 import { RPC_ERROR } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
 import type { CapState } from '../governance/cost-cap.js';
 import type { DecisionEntry } from '../governance/governance-log.js';
 import { dispatch } from './router.js';
-import { buildConsoleHandlers, type ConsoleReadPorts } from './console-handlers.js';
+import {
+  buildConsoleHandlers,
+  buildRegistryHandlers,
+  type ConsoleReadPorts,
+} from './console-handlers.js';
 
 const EMPTY_FEED: FeedView = { expanded: [], collapsed: [] };
 
@@ -132,5 +136,37 @@ describe('console handlers — the read-only inspector verbs over the dispatch r
       'listTimeline',
       'why',
     ]);
+  });
+});
+
+describe('registry handlers — the agent-assembly catalogue verbs', () => {
+  const role: RoleSummary = { id: 'swe', name: 'SWE', description: 'writes code', packageIds: ['coding'] };
+  const pkg: PackageSummary = {
+    id: 'coding',
+    name: 'Coding',
+    description: 'edits',
+    inclusion: 'opt-in',
+    toolRefs: ['Edit'],
+  };
+
+  it('serves listRoles as the role summary list', async () => {
+    const handlers = buildRegistryHandlers({ listRoles: () => [role], listPackages: () => [] });
+
+    const res = await dispatch({ jsonrpc: '2.0', id: 1, method: 'listRoles' }, handlers);
+
+    expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: [role] });
+  });
+
+  it('serves listPackages as the package summary list', async () => {
+    const handlers = buildRegistryHandlers({ listRoles: () => [], listPackages: () => [pkg] });
+
+    const res = await dispatch({ jsonrpc: '2.0', id: 1, method: 'listPackages' }, handlers);
+
+    expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: [pkg] });
+  });
+
+  it('registers exactly the catalogue verb set', () => {
+    const handlers = buildRegistryHandlers({ listRoles: () => [], listPackages: () => [] });
+    expect(Object.keys(handlers).sort()).toEqual(['listPackages', 'listRoles']);
   });
 });

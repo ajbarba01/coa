@@ -25,6 +25,8 @@ export function assembleSessionOptions(args: {
   stopPredicate: StopPredicate;
   mcpServers?: Record<string, McpServerConfig>;
   maxBudgetUsd?: number;
+  /** The restricted built-in tool set (from the resolved frame); absent ⇒ the SDK default (no restriction). */
+  tools?: string[];
   /** The agent's model id; absent ⇒ account/SDK default. */
   model?: string;
   /** The agent's reasoning config; absent ⇒ SDK default. */
@@ -42,6 +44,7 @@ export function assembleSessionOptions(args: {
     stopPredicate,
     mcpServers,
     maxBudgetUsd,
+    tools,
     model,
     reasoning,
     env,
@@ -57,6 +60,7 @@ export function assembleSessionOptions(args: {
     ...buildBaseOptions({
       backend,
       sandbox,
+      ...(tools !== undefined ? { tools } : {}),
       ...(model !== undefined ? { model } : {}),
       ...(reasoning !== undefined ? { reasoning } : {}),
     }),

@@ -6,10 +6,13 @@ import {
   bindDaemon,
   buildConversationHandlers,
   buildDaemonConsoleHandlers,
+  buildRegistryHandlers,
   buildSessionHandlers,
   connectClient,
   createConversationStore,
   defaultDaemonPath,
+  packageSummaries,
+  roleSummaries,
   type RpcServer,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
@@ -144,11 +147,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
 
   const { deps, handle, models, activeAccount } = buildSessionDeps({ walPath, root: process.cwd() });
   const consoleHandlers = buildDaemonConsoleHandlers(handle);
+  // The agent-assembly catalogue the console picker reads (starter registry today).
+  const registryHandlers = buildRegistryHandlers({
+    listRoles: () => roleSummaries(),
+    listPackages: () => packageSummaries(),
+  });
   // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
   const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
   const conversationHandlers = buildConversationHandlers(store);
   const server = await bindDaemon(path, (connection) => ({
     ...consoleHandlers,
+    ...registryHandlers,
     ...conversationHandlers,
     ...buildSessionHandlers(deps, connection, store),
     // The account's available models + per-model reasoning levels (cached, fetched lazily).

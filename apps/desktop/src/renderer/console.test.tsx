@@ -6,7 +6,12 @@ import { LAYOUT_EPOCH, makeDescriptor } from './panels/routing.js';
 
 /** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
 const FAKE_SESSIONS = [
-  { id: 'c1', agentRef: 'roles/reviewer', title: 'refactor auth module', updatedAt: '2026-07-02T00:00:00Z' },
+  {
+    id: 'c1',
+    agentRef: 'roles/reviewer',
+    title: 'refactor auth module',
+    updatedAt: '2026-07-02T00:00:00Z',
+  },
 ];
 const FAKE_TURNS = [
   { seq: 0, frame: { t: 'text', text: 'Refactor the auth module', role: 'user' } },
@@ -23,6 +28,8 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     useAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
     startSession: vi.fn().mockResolvedValue({ sessionId: 'c1', worktree: '/wt' }),
     listModels: vi.fn().mockResolvedValue([]),
+    listRoles: vi.fn().mockResolvedValue([]),
+    listPackages: vi.fn().mockResolvedValue([]),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
     reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
@@ -99,7 +106,13 @@ describe('startConsole (inspector-first)', () => {
     // (row text is not assertable here — the Transcript is react-virtuoso, which
     // renders no rows under jsdom; the mapping is covered by pushToViewFrames' units).
     await act(async () => {
-      emit?.({ kind: 'turn', sessionId: 's', worktree: 'w', seq: 0, frame: { t: 'text', text: 'hi' } });
+      emit?.({
+        kind: 'turn',
+        sessionId: 's',
+        worktree: 'w',
+        seq: 0,
+        frame: { t: 'text', text: 'hi' },
+      });
     });
     expect(container.querySelector('[data-panel-id="conversation"] [role="log"]')).not.toBeNull();
   });
@@ -140,8 +153,12 @@ describe('startConsole (inspector-first)', () => {
   it('sends a composer message into the active session with its conversation id', async () => {
     const bridge = fakeBridge();
     const { container } = await mount(bridge);
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Message the agent"]');
-    const send = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Send');
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Message the agent"]',
+    );
+    const send = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Send',
+    );
     expect(input).not.toBeNull();
     expect(send).toBeDefined();
     // React tracks the value internally, so set it via the native setter + input event.

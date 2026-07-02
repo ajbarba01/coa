@@ -63,12 +63,14 @@ export function toStopHookOutput(decision: StopDecision): SyncHookJSONOutput {
 export function buildBaseOptions(args: {
   backend: BackendConfig;
   sandbox: CapabilitySet;
+  /** The restricted built-in tool set (from the resolved frame); absent ⇒ the SDK default (all built-ins). */
+  tools?: string[];
   /** The agent's model id; absent ⇒ the account/SDK default model. */
   model?: string;
   /** The agent's reasoning config; absent ⇒ the SDK default (adaptive/high). */
   reasoning?: ClaudeReasoning;
 }): Options {
-  const { backend, sandbox, model, reasoning } = args;
+  const { backend, sandbox, tools, model, reasoning } = args;
   const disallowedTools = [
     ...backend.disallowedTools,
     ...sandbox.denyRules,
@@ -80,6 +82,15 @@ export function buildBaseOptions(args: {
     allowedTools: backend.allowedTools,
     disallowedTools,
     permissionMode: asPermissionMode(sandbox.permissionMode),
+    // B1 — isolate the session from on-disk config (D108). Omitting these lets the
+    // SDK default load ALL setting sources (the target repo's CLAUDE.md +
+    // .claude/settings + ~/.claude) as authority coa did NOT author, and pull in
+    // MCP servers coa did not register. coa authors its own standing authority via
+    // the rendered `systemPrompt`; mid-session re-read moves to the daemon-authored
+    // reminder hooks (D133), which do not depend on setting sources.
+    settingSources: [],
+    strictMcpConfig: true,
+    ...(tools !== undefined ? { tools } : {}),
     ...(model !== undefined && model !== '' ? { model } : {}),
     ...(reasoning !== undefined ? reasoningToOptions(reasoning) : {}),
   };
