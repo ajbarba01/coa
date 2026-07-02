@@ -85,4 +85,35 @@ describe('serveOverStream — JSON-RPC over a byte stream', () => {
     await server.idle();
     expect(JSON.parse(stream.writes[0]!)).toMatchObject({ id: 7, result: 'pong' });
   });
+
+  it('pushes a server→client notification as an id-less framed line', () => {
+    const stream = new FakeStream();
+    const server = serveOverStream(stream, handlers);
+
+    server.push({ jsonrpc: '2.0', method: 'turn', params: { seq: 1 } });
+
+    expect(stream.writes).toEqual([
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'turn', params: { seq: 1 } })}\n`,
+    ]);
+  });
+
+  it('builds handlers from a per-connection factory, handing it the push channel', async () => {
+    const stream = new FakeStream();
+    const server = serveOverStream(stream, (conn) => ({
+      emit: {
+        handle: () => {
+          conn.push({ jsonrpc: '2.0', method: 'pushed' });
+          return 'ok';
+        },
+      },
+    }));
+
+    stream.emit(line('emit', 1));
+    await server.idle();
+
+    expect(stream.writes.map((w) => JSON.parse(w))).toEqual([
+      { jsonrpc: '2.0', method: 'pushed' },
+      { jsonrpc: '2.0', id: 1, result: 'ok' },
+    ]);
+  });
 });

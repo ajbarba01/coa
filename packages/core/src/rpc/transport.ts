@@ -1,8 +1,7 @@
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { serveOverStream } from './stream.js';
-import type { RpcHandlers } from './router.js';
+import { serveOverStream, type StreamHandlers } from './stream.js';
 
 /**
  * M8 — the OS-stream transport: bind a Unix domain socket (Linux/macOS) or a
@@ -41,8 +40,13 @@ export function defaultDaemonPath(): string {
     : join(homedir(), '.coa', 'run', 'coa.sock');
 }
 
-/** Bind `path` and serve `handlers` over every connection. Rejects if the path is already in use. */
-export function listen(path: string, handlers: RpcHandlers): Promise<RpcServer> {
+/**
+ * Bind `path` and serve `handlers` over every connection. `handlers` may be a
+ * static map or a per-connection factory (called once per connection with that
+ * connection's push channel — the R-12 seam a session uses to stream turns to the
+ * client that started it). Rejects if the path is already in use.
+ */
+export function listen(path: string, handlers: StreamHandlers): Promise<RpcServer> {
   return new Promise((resolve, reject) => {
     const server = createServer((socket) => {
       // ⚠ D140 seam — the peer-cred (Unix) / DACL (Windows) check belongs here.

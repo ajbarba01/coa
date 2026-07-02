@@ -1,13 +1,15 @@
 import { homedir } from 'node:os';
 import {
   AccountsRegistry,
+  ModelCache,
   composeSessionDeps,
   createDaemonCore,
   type ActiveAccountResolution,
   type DaemonCoreHandle,
+  type ModelCacheAccount,
   type SessionDeps,
 } from '@coa/core';
-import { createClaudeAdapter } from './adapter-factory.js';
+import { createAdapter, fetchModels } from './adapter-factory.js';
 import { buildGenerationProducers } from './generation.js';
 
 /**
@@ -34,6 +36,10 @@ export interface DaemonSessionOptions {
 export interface BuiltSession {
   deps: SessionDeps;
   handle: DaemonCoreHandle;
+  /** The per-account model-capability cache (backend fetch injected). */
+  models: ModelCache;
+  /** Resolve the active account (label + optional login pointer) at call time. */
+  activeAccount: () => ModelCacheAccount;
 }
 
 /** Construct the daemon core and bind it (plus the Claude backend) into session deps. */
@@ -47,12 +53,14 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const registry = new AccountsRegistry(homedir());
+  const activeAccount = (): ModelCacheAccount => resolveActiveAccount(registry);
   const deps = composeSessionDeps(handle.core, {
-    createAdapter: createClaudeAdapter,
+    createAdapter,
     bindWorktree: () => root,
-    activeAccount: () => resolveActiveAccount(registry),
+    activeAccount,
   });
-  return { deps, handle };
+  const models = new ModelCache({ fetch: fetchModels });
+  return { deps, handle, models, activeAccount };
 }
 
 /** Resolve the active account from the registry into the session's login pointer + label. */

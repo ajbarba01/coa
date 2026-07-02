@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { claudeReasoningSchema } from '@coa/shared';
 
 /** The curated agent-identity vocabularies. The console-ui kit owns the visual
  *  mapping (glyph/classes); these are the wire names. An unknown name degrades to
@@ -50,6 +51,8 @@ export const AgentSummarySchema = z.object({
   color: AgentColorSchema.default('slate'),
   scope: z.enum(['project', 'personal']),
   model: z.string().optional(),
+  /** The agent's faithful reasoning config; absent ⇒ the backend/SDK default depth. */
+  reasoning: claudeReasoningSchema.optional(),
 });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 

@@ -1,4 +1,4 @@
-import type { CapabilitySet, ToolCall } from '@coa/shared';
+import type { CapabilitySet, ClaudeReasoning, ToolCall } from '@coa/shared';
 import type { BackendConfig, CanUseTool, StopPredicate } from '@coa/spi';
 import type {
   CanUseTool as SdkCanUseTool,
@@ -25,11 +25,25 @@ export function assembleSessionOptions(args: {
   stopPredicate: StopPredicate;
   mcpServers?: Record<string, McpServerConfig>;
   maxBudgetUsd?: number;
+  /** The agent's model id; absent ⇒ account/SDK default. */
+  model?: string;
+  /** The agent's reasoning config; absent ⇒ SDK default. */
+  reasoning?: ClaudeReasoning;
   /** The full subprocess env (M9 auth seam) — REPLACES process.env, so it's pre-spread by the caller. */
   env?: Record<string, string | undefined>;
 }): Options {
-  const { sessionId, backend, sandbox, canUseTool, stopPredicate, mcpServers, maxBudgetUsd, env } =
-    args;
+  const {
+    sessionId,
+    backend,
+    sandbox,
+    canUseTool,
+    stopPredicate,
+    mcpServers,
+    maxBudgetUsd,
+    model,
+    reasoning,
+    env,
+  } = args;
 
   const sdkCanUseTool: SdkCanUseTool = async (toolName, input) => {
     const call: ToolCall = { tool: toolName, args: input, sessionId };
@@ -37,7 +51,12 @@ export function assembleSessionOptions(args: {
   };
 
   return {
-    ...buildBaseOptions({ backend, sandbox }),
+    ...buildBaseOptions({
+      backend,
+      sandbox,
+      ...(model !== undefined ? { model } : {}),
+      ...(reasoning !== undefined ? { reasoning } : {}),
+    }),
     canUseTool: sdkCanUseTool,
     hooks: {
       Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],

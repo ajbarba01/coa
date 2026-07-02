@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
-import type { AgentSummary } from '@coa/console-viewmodel';
+import type {
+  AgentSummary,
+  ClaudeEffort,
+  ClaudeReasoning,
+  ModelDescriptor,
+} from '@coa/console-viewmodel';
 import {
   AgentChip,
   Badge,
@@ -33,8 +38,66 @@ import {
 } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
-/** The mock model choices (the real list rides the M9 seam later). */
-const MODEL_OPTIONS = ['claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5'];
+/** The full effort ladder — used only as a fallback before the live model list loads. */
+const ALL_EFFORTS: ClaudeEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Collapse a ClaudeReasoning to the selector value it displays as. */
+export function reasoningToValue(r: ClaudeReasoning | undefined): string {
+  if (r === undefined) return 'default';
+  if (r.mode === 'off') return 'off';
+  if (r.mode === 'budget') return 'budget';
+  return r.effort;
+}
+
+/**
+ * The faithful reasoning control. Its options are gated to the SELECTED model's
+ * real `supportedEffortLevels` (Haiku ≠ Opus); when the model's caps aren't known
+ * yet (list still loading) it falls back to the full ladder. `off` and `default`
+ * (no override) are always available; the token-budget mode appears when the model
+ * supports adaptive thinking.
+ */
+function ReasoningField({
+  reasoning,
+  efforts,
+  includeBudget,
+  onChange,
+}: {
+  reasoning: ClaudeReasoning | undefined;
+  efforts: ClaudeEffort[];
+  includeBudget: boolean;
+  onChange: (r: ClaudeReasoning | undefined) => void;
+}): React.JSX.Element {
+  const value = reasoningToValue(reasoning);
+  const budget = reasoning?.mode === 'budget' ? reasoning.budgetTokens : 8000;
+  const values = ['default', 'off', ...efforts, ...(includeBudget ? ['budget'] : [])];
+  const select = (v: string): void => {
+    if (v === 'default') onChange(undefined);
+    else if (v === 'off') onChange({ mode: 'off' });
+    else if (v === 'budget') onChange({ mode: 'budget', budgetTokens: budget });
+    else if ((efforts as string[]).includes(v)) onChange({ mode: 'effort', effort: v as ClaudeEffort });
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <Combobox
+        label="Reasoning"
+        value={value}
+        onValueChange={select}
+        options={values.map((v) => ({ value: v, label: v === 'default' ? 'default (SDK)' : v }))}
+      />
+      {value === 'budget' && (
+        <TextField
+          label="Thinking token budget"
+          type="number"
+          value={String(budget)}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isInteger(n) && n > 0) onChange({ mode: 'budget', budgetTokens: n });
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
 export type AgentsVm =
   | { status: 'loading' }
@@ -44,6 +107,7 @@ export type AgentsVm =
       status: 'ready';
       agents: AgentSummary[];
       selected: AgentSummary;
+      models: ModelDescriptor[];
       pinned: string[];
       selectAgent: (ref: string) => void;
       createAgent: (scope: 'project' | 'personal') => void;
@@ -60,10 +124,12 @@ export function selectAgentsVm(state: ConsoleState): AgentsVm {
   const { selectAgent, createAgent, updateAgent, deleteAgent, togglePinAgent } = state.actions;
   if (agents.length === 0) return { status: 'empty', createAgent };
   const selected = agents.find((a) => a.ref === state.ui.selectedAgentRef) ?? agents[0]!;
+  const models = state.data.models.status === 'ok' ? state.data.models.value : [];
   return {
     status: 'ready',
     agents,
     selected,
+    models,
     pinned: state.ui.settings.pinnedAgents,
     selectAgent,
     createAgent,
@@ -110,6 +176,7 @@ export function buildAgentPickerGroups(
  *  are shared via git, so their delete types the name. */
 function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): React.JSX.Element {
   const a = vm.selected;
+  const selectedModel = vm.models.find((m) => m.id === a.model);
   const pinned = vm.pinned.includes(a.ref);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteDraft, setDeleteDraft] = useState('');
@@ -188,12 +255,25 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
       <div className="flex max-w-md flex-col gap-3">
         <Combobox
           label="Model"
-          value={a.model ?? MODEL_OPTIONS[0]!}
+          value={a.model ?? vm.models[0]?.id ?? ''}
           onValueChange={(model) => vm.updateAgent(a.ref, { model })}
-          options={MODEL_OPTIONS.map((m) => ({ value: m, label: m }))}
+          options={
+            vm.models.length > 0
+              ? vm.models.map((m) => ({ value: m.id, label: m.displayName ?? m.id }))
+              : a.model !== undefined
+                ? [{ value: a.model, label: a.model }]
+                : []
+          }
+        />
+        <ReasoningField
+          reasoning={a.reasoning}
+          efforts={selectedModel?.supportedEffortLevels ?? ALL_EFFORTS}
+          includeBudget={selectedModel?.supportsAdaptiveThinking ?? true}
+          onChange={(reasoning) => vm.updateAgent(a.ref, { reasoning })}
         />
         <p className="text-caption text-faint">
-          Context pieces and the full role configuration arrive with the agent-config seam.
+          Reasoning levels reflect the selected model's real capabilities. Context pieces and the
+          full role configuration arrive with the agent-config seam.
         </p>
       </div>
 

@@ -1,10 +1,15 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
-import type {
-  AgentSummary,
-  CapState,
-  Checkpoint,
-  FeedView,
-  SessionSummary,
+import {
+  pushSchema,
+  pushToViewFrames,
+  type AgentSummary,
+  type CapState,
+  type Checkpoint,
+  type FeedView,
+  type ModelDescriptor,
+  type ModelSelection,
+  type SessionSummary,
+  type TurnFrame,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import {
@@ -26,6 +31,14 @@ export interface ConsoleBridge {
   listAccounts(): Promise<{ accounts: { label: string }[] }>;
   currentAccount(): Promise<{ active: string }>;
   useAccount(params: { label: string }): Promise<{ active: string }>;
+  startSession(params: {
+    input: string;
+    role?: string;
+    model?: ModelSelection;
+  }): Promise<{ sessionId: string; worktree: string }>;
+  listModels(): Promise<ModelDescriptor[]>;
+  /** Subscribe to the daemon push stream; returns an unsubscribe. */
+  onPush(listener: (payload: unknown) => void): () => void;
   getLayout(): Promise<unknown>;
   saveLayout(descriptor: unknown): Promise<void>;
   getSettings(): Promise<ConsoleSettings>;
@@ -94,6 +107,7 @@ export async function startConsole(
     selectSession: () => {},
     newSession: () => {},
     deleteSession: () => {},
+    sendMessage: () => {},
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -160,10 +174,18 @@ export async function startConsole(
     push();
   }
 
+  async function loadModels(): Promise<void> {
+    const models = await settle(() => bridge.listModels());
+    state = { ...state, data: { ...state.data, models } };
+    push();
+  }
+
   const switchAccount = (label: string): void =>
     void (async () => {
       await bridge.useAccount({ label });
       await loadAccounts();
+      // Models + their reasoning levels are account-specific — refetch for the new login.
+      await loadModels();
     })();
 
   const setSettings = (patch: Partial<ConsoleSettings>): void => {
@@ -301,6 +323,58 @@ export async function startConsole(
     pushAgentData();
   };
 
+  // ---- Live session: drive a real daemon session and stream its turns in ----
+
+  /** Append frames to the active session's turn list and republish. */
+  const appendTurns = (frames: TurnFrame[]): void => {
+    if (frames.length === 0) return;
+    const id = state.ui.activeSessionId;
+    if (id === undefined) return;
+    const next = [...(sessionTurns.get(id) ?? []), ...frames];
+    sessionTurns.set(id, next);
+    state = { ...state, data: { ...state.data, turns: { status: 'ok', value: next } } };
+    push();
+  };
+
+  // Forward every daemon push (validated at the edge) into the active conversation.
+  // Turn frames render; cost/status are ignored for now (no live cost chip yet).
+  const unsubscribePush = bridge.onPush((payload) => {
+    const parsed = pushSchema.safeParse(payload);
+    if (parsed.success) appendTurns(pushToViewFrames(parsed.data));
+  });
+
+  let youSeq = 0;
+  const sendMessage = (text: string): void => {
+    const body = text.trim();
+    if (body === '' || state.ui.activeSessionId === undefined) return;
+    youSeq += 1;
+    appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
+    const activeSession = sessions.find((s) => s.id === state.ui.activeSessionId);
+    const agent = activeSession
+      ? agents.find((a) => a.ref === activeSession.agentRef)
+      : undefined;
+    const model: ModelSelection = {
+      ...(agent?.model ? { model: agent.model } : {}),
+      ...(agent?.reasoning ? { reasoning: agent.reasoning } : {}),
+    };
+    void bridge
+      .startSession({
+        input: body,
+        ...(activeSession ? { role: activeSession.agentRef } : {}),
+        ...(Object.keys(model).length > 0 ? { model } : {}),
+      })
+      .catch((e: unknown) => {
+        appendTurns([
+          {
+            id: `err:${youSeq}`,
+            role: 'agent',
+            kind: 'text',
+            text: `⚠ ${e instanceof Error ? e.message : String(e)}`,
+          },
+        ]);
+      });
+  };
+
   let newSessionSeq = 0;
   const newSession = (agentRef: string): void => {
     newSessionSeq += 1;
@@ -331,10 +405,19 @@ export async function startConsole(
       selectSession,
       newSession,
       deleteSession,
+      sendMessage,
     },
   };
   push();
   void loadAccounts();
+  void loadModels();
 
-  return { refresh, toggleRaw, dispose: () => handle.dispose() };
+  return {
+    refresh,
+    toggleRaw,
+    dispose: () => {
+      unsubscribePush();
+      handle.dispose();
+    },
+  };
 }

@@ -2,9 +2,11 @@ import type {
   CapabilityFrame,
   CapabilitySet,
   Locator,
+  ModelSelection,
   NeutralConfig,
   Piece,
   Session,
+  TurnFrame,
 } from '@coa/shared';
 import type { RuntimeAdapter, RuntimeUsage, StopDecision, ToolCatalogue } from '@coa/spi';
 import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
@@ -24,12 +26,16 @@ export interface SessionAdapterInit {
   sessionId: string;
   /** The per-session capability set from M7.sandboxPolicy. */
   sandbox: CapabilitySet;
-  /** The session's prompt input (the human's first turn). */
-  input: string;
+  /** The session's prompt input — a one-shot string or a stream of user-turn strings (neutral, no backend type). */
+  input: string | AsyncIterable<string>;
+  /** The agent's model selection; `model`/`reasoning` are the backend's (provider drives adapter routing upstream). */
+  model?: ModelSelection;
   /** The native mid-loop hard stop, when bounded. */
   maxBudgetUsd?: number;
   /** M9's settlement step → M7.charge, called once per settled result. */
   onSettle: (sessionId: string, usage: RuntimeUsage) => void;
+  /** Per-frame session output: the backend maps its stream to neutral M0 frames; M8 sequences + pushes them. */
+  onTurn?: (frame: TurnFrame) => void;
   /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
   locator?: Locator;
 }
@@ -88,11 +94,20 @@ export interface SessionDeps {
 
 /** Start a session: bind, compile, render, wire both SC-1 hooks, and run the loop. */
 export async function createSession(
-  req: { role: string; scope: string; input: string },
+  req: {
+    role: string;
+    scope: string;
+    input: string | AsyncIterable<string>;
+    model?: ModelSelection;
+    onTurn?: (frame: TurnFrame) => void;
+    /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
+    onStart?: (started: { id: string; worktree: string }) => void;
+  },
   deps: SessionDeps,
 ): Promise<Session> {
   const sessionId = deps.newSessionId();
   const worktree = deps.bindWorktree(sessionId, req.scope);
+  req.onStart?.({ id: sessionId, worktree });
   const { pieces, frame } = deps.assemblePieces(req.role, req.scope);
   const neutral = deps.compile(pieces, frame);
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
@@ -116,6 +131,8 @@ export async function createSession(
     sandbox,
     input: req.input,
     onSettle,
+    ...(req.model ? { model: req.model } : {}),
+    ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(account?.locator ? { locator: account.locator } : {}),
   });

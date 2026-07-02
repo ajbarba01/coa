@@ -2,11 +2,13 @@ import type {
   CapabilitySet,
   ContextPackage,
   Locator,
+  ModelSelection,
   NeutralConfig,
   Piece,
   Reminder,
   SessionConfig,
   SymbolRef,
+  TurnFrame,
 } from '@coa/shared';
 import type {
   BackendConfig,
@@ -23,22 +25,34 @@ import type {
 } from '@coa/spi';
 import { barebonesProfile, REFS_NULL_FALLBACK } from '@coa/spi';
 import type { CapabilityProfile } from '@coa/shared';
-import type { McpServerConfig, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
 import { mcpToolNames, toCoaMcpServer } from './mcp-tools.js';
 import { sessionAuthEnv } from './auth-env.js';
+import { messageToFrames } from './turn-frames.js';
+import { toSdkPrompt } from './session-input.js';
 
 /** The session-construction I/O M8 injects (D121) — defined here as M9's seam, not known by the core. */
 export interface ClaudeSdkAdapterInit {
   sessionId: string;
   /** The per-session capability set from `M7.sandboxPolicy(sessionCtx)`. */
   sandbox: CapabilitySet;
-  /** The session's prompt input (the human's turns, driven by M8). */
-  input: string | AsyncIterable<SDKUserMessage>;
-  /** Bridge each streamed SDK message to M8's WAL→Push consumer (R-12). Best-effort. */
-  onMessage?: (message: SDKMessage) => void;
+  /**
+   * The session's prompt input (the human's turns, driven by M8). Neutral: a
+   * one-shot string or an async stream of user-turn strings — never an SDK type,
+   * so a from-scratch backend targets the same seam.
+   */
+  input: string | AsyncIterable<string>;
+  /**
+   * Bridge each mapped neutral {@link TurnFrame} to M8's emission policy (which
+   * sequences + wraps it into a `turn` Push, R-12). Best-effort; the SDK→frame
+   * mapping is M9's ({@link messageToFrames}), the wire vocabulary is M0's.
+   */
+  onTurn?: (frame: TurnFrame) => void;
+  /** The agent's model selection (model id + faithful reasoning config); absent ⇒ account/SDK defaults. */
+  model?: ModelSelection;
   /** M9's settlement step → `M7.charge(sessionId, cost)`, called once per settled result. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** The native mid-loop hard stop: `min(perSessionCeiling?, M7.capState().remaining)`. */
@@ -154,6 +168,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     // (select CLAUDE_CONFIG_DIR, clear the API-key/ambient-token vars). Absent
     // locator ⇒ no overlay ⇒ the subprocess inherits process.env (today's auth).
     const env = sessionAuthEnv(this.#init.locator);
+    const model = this.#init.model;
     const options = assembleSessionOptions({
       sessionId: this.#init.sessionId,
       backend: {
@@ -166,14 +181,18 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       stopPredicate: this.#stopPredicate,
       ...(mcpServers ? { mcpServers } : {}),
       ...(this.#init.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.#init.maxBudgetUsd } : {}),
+      ...(model?.model !== undefined ? { model: model.model } : {}),
+      ...(model?.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
       ...(env ? { env } : {}),
     });
 
     for await (const message of query({
-      prompt: this.#init.input,
+      prompt: toSdkPrompt(this.#init.input),
       options: { ...options, cwd: sessionConfig.worktree },
     })) {
-      this.#init.onMessage?.(message);
+      if (this.#init.onTurn !== undefined) {
+        for (const frame of messageToFrames(message)) this.#init.onTurn(frame);
+      }
       if (message.type === 'result') {
         this.#lastUsage = {
           tokensIn: message.usage.input_tokens,

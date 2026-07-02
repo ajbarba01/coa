@@ -1,7 +1,7 @@
 import { existsSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import { listen, type RpcServer } from './transport.js';
-import type { RpcHandlers } from './router.js';
+import type { StreamHandlers } from './stream.js';
 
 /**
  * M8 — the crash-safe daemon bind lifecycle (D140 clause 6). The rule: NEVER
@@ -30,7 +30,7 @@ export function probeDaemon(path: string): Promise<boolean> {
 }
 
 /** Bind the daemon endpoint safely: refuse if one is live, reclaim a stale socket, else bind. */
-export async function bindDaemon(path: string, handlers: RpcHandlers): Promise<RpcServer> {
+export async function bindDaemon(path: string, handlers: StreamHandlers): Promise<RpcServer> {
   if (await probeDaemon(path)) {
     throw new Error(`a coa daemon is already serving ${path}`);
   }

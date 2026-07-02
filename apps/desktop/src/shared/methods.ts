@@ -4,9 +4,23 @@ import {
   CapStateSchema,
   FeedViewSchema,
   TimelineSchema,
+  modelSelectionSchema,
+  modelDescriptorSchema,
 } from '@coa/console-viewmodel';
 import { z } from 'zod';
 import { ConsoleSettingsSchema } from './settings.js';
+
+/** Params/result for starting a governed session from the console (proxies the daemon `createSession`). */
+export const StartSessionParamsSchema = z.object({
+  input: z.string(),
+  role: z.string().optional(),
+  scope: z.string().optional(),
+  model: modelSelectionSchema.optional(),
+});
+export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
+
+/** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
+export const PUSH_CHANNEL = 'coa:push';
 
 /**
  * The single source of truth for the IPC bridge: each verb -> its params/result
@@ -27,6 +41,8 @@ export type MethodName =
   | 'listAccounts'
   | 'currentAccount'
   | 'useAccount'
+  | 'startSession'
+  | 'listModels'
   | 'getLayout'
   | 'saveLayout'
   | 'getSettings'
@@ -39,6 +55,8 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   listAccounts: { result: AccountsSchema },
   currentAccount: { result: ActiveAccountSchema },
   useAccount: { params: z.object({ label: z.string() }), result: ActiveAccountSchema },
+  startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
+  listModels: { result: z.array(modelDescriptorSchema) },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },
   getSettings: { result: ConsoleSettingsSchema },

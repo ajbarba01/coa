@@ -1,4 +1,4 @@
-import { RPC_ERROR, type RpcErrorResponse } from '@coa/shared';
+import { RPC_ERROR, type RpcErrorResponse, type RpcNotification } from '@coa/shared';
 import { encodeLine, FrameDecoder } from './codec.js';
 import { dispatch, type RpcHandlers } from './router.js';
 
@@ -15,6 +15,11 @@ import { dispatch, type RpcHandlers } from './router.js';
  * Messages are handled in arrival order via a serialized promise chain, so a
  * client reading the stream sees responses in a stable sequence. `idle()` resolves
  * when the currently-queued work has settled (the test/await seam).
+ *
+ * The server→client direction is `push`: an id-less JSON-RPC notification written
+ * to the same stream (the R-12 push channel — turn/cost/flag notifications). It is
+ * exposed on the returned {@link StreamServer} and, so a handler can push to *its
+ * own* connection, handed to the optional per-connection handler factory.
  */
 
 /** The minimal duplex this serves over (a `net.Socket` / pipe / stdio stream satisfies it). */
@@ -23,23 +28,36 @@ export interface DuplexLike {
   write(data: string): void;
 }
 
+/** The per-connection surface a handler factory receives — today just the push channel. */
+export interface RpcConnection {
+  /** Send a server→client notification over this connection (no id, no response). */
+  push: (note: RpcNotification) => void;
+}
+
+/** Static handlers, or a factory that builds them with the connection's push channel bound in. */
+export type StreamHandlers = RpcHandlers | ((connection: RpcConnection) => RpcHandlers);
+
 export interface StreamServer {
   /** Resolves when the in-flight message chain has settled (no new data queued). */
   idle: () => Promise<void>;
+  /** Send a server→client notification over this connection. */
+  push: (note: RpcNotification) => void;
 }
 
-export function serveOverStream(stream: DuplexLike, handlers: RpcHandlers): StreamServer {
+export function serveOverStream(stream: DuplexLike, handlers: StreamHandlers): StreamServer {
+  const push = (note: RpcNotification): void => stream.write(encodeLine(note));
+  const resolved = typeof handlers === 'function' ? handlers({ push }) : handlers;
   const decoder = new FrameDecoder();
   let chain: Promise<void> = Promise.resolve();
 
   stream.on('data', (chunk) => {
     const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     for (const lineText of decoder.push(text)) {
-      chain = chain.then(() => handleLine(lineText, handlers, stream));
+      chain = chain.then(() => handleLine(lineText, resolved, stream));
     }
   });
 
-  return { idle: () => chain };
+  return { idle: () => chain, push };
 }
 
 async function handleLine(line: string, handlers: RpcHandlers, stream: DuplexLike): Promise<void> {

@@ -4,6 +4,8 @@ import type {
   CapState,
   Checkpoint,
   FeedView,
+  ModelDescriptor,
+  ModelSelection,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 
@@ -19,6 +21,15 @@ declare global {
       listAccounts(): Promise<Accounts>;
       currentAccount(): Promise<ActiveAccount>;
       useAccount(params: { label: string }): Promise<ActiveAccount>;
+      startSession(params: {
+        input: string;
+        role?: string;
+        scope?: string;
+        model?: ModelSelection;
+      }): Promise<{ sessionId: string; worktree: string }>;
+      listModels(): Promise<ModelDescriptor[]>;
+      /** Subscribe to the daemon push stream; returns an unsubscribe. */
+      onPush(listener: (payload: unknown) => void): () => void;
       getLayout(): Promise<unknown>;
       saveLayout(descriptor: unknown): Promise<void>;
       getSettings(): Promise<ConsoleSettings>;

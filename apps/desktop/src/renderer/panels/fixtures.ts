@@ -18,6 +18,7 @@ export const NOOP_ACTIONS: ConsoleActions = {
   selectSession: () => {},
   newSession: () => {},
   deleteSession: () => {},
+  sendMessage: () => {},
 };
 
 export interface StateOverrides {

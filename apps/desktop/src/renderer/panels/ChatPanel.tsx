@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import {
   AgentChip,
@@ -26,6 +27,7 @@ export type ChatVm =
       rawMode: boolean;
       frames: TranscriptFrame[];
       onRespond: RespondFn;
+      onSend: (text: string) => void;
       toggleRaw: () => void;
       /** The agent drawer + one session switcher (selection follows the session). */
       rail: AgentRailItem[];
@@ -198,6 +200,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     rawMode,
     frames,
     onRespond: state.actions.respondApproval,
+    onSend: state.actions.sendMessage,
     toggleRaw: state.actions.toggleRaw,
     rail: buildRailItems(agents, state.ui.settings.pinnedAgents),
     activeAgentRef,
@@ -226,6 +229,37 @@ function RawToggle({ on, onToggle }: { on: boolean; onToggle: () => void }): Rea
     <Button variant={on ? 'primary' : 'tertiary'} size="sm" aria-pressed={on} onClick={onToggle}>
       raw
     </Button>
+  );
+}
+
+/** The chat composer: a single-line prompt entry; Enter sends, empty is inert. */
+function Composer({ onSend }: { onSend: (text: string) => void }): React.JSX.Element {
+  const [text, setText] = useState('');
+  const send = (): void => {
+    const body = text.trim();
+    if (body === '') return;
+    onSend(body);
+    setText('');
+  };
+  return (
+    <div className="flex items-center gap-2 border-t border-border-default p-2.5">
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            send();
+          }
+        }}
+        placeholder="Message the agent…"
+        aria-label="Message the agent"
+        className="h-control-md flex-1 rounded-control border border-border-default bg-element px-2.5 text-body text-fg placeholder:text-faint"
+      />
+      <Button variant="primary" size="sm" onClick={send} disabled={text.trim() === ''}>
+        Send
+      </Button>
+    </div>
   );
 }
 
@@ -301,16 +335,19 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           onTogglePin={vm.onTogglePin}
           onConfigure={vm.onConfigure}
         />
-        <div className="min-h-0 flex-1 p-3.5">
-          {vm.frames.length === 0 ? (
-            <EmptyState
-              icon={MessageSquare}
-              title="No conversation yet"
-              description="Turns appear here as you drive the agent."
-            />
-          ) : (
-            <Transcript frames={vm.frames} onRespond={vm.onRespond} label="Conversation" />
-          )}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 p-3.5">
+            {vm.frames.length === 0 ? (
+              <EmptyState
+                icon={MessageSquare}
+                title="No conversation yet"
+                description="Message the agent below to start a governed session."
+              />
+            ) : (
+              <Transcript frames={vm.frames} onRespond={vm.onRespond} label="Conversation" />
+            )}
+          </div>
+          <Composer onSend={vm.onSend} />
         </div>
       </div>
     </Pane>

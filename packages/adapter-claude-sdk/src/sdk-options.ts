@@ -1,4 +1,4 @@
-import type { CapabilitySet } from '@coa/shared';
+import type { CapabilitySet, ClaudeReasoning } from '@coa/shared';
 import type { BackendConfig, StopDecision, ToolPermissionDecision } from '@coa/spi';
 import type {
   Options,
@@ -6,6 +6,7 @@ import type {
   PermissionResult,
   SyncHookJSONOutput,
 } from '@anthropic-ai/claude-agent-sdk';
+import { reasoningToOptions } from './reasoning.js';
 
 /**
  * The pure mapping seams between coa's backend-neutral decisions and the Claude
@@ -62,8 +63,12 @@ export function toStopHookOutput(decision: StopDecision): SyncHookJSONOutput {
 export function buildBaseOptions(args: {
   backend: BackendConfig;
   sandbox: CapabilitySet;
+  /** The agent's model id; absent ⇒ the account/SDK default model. */
+  model?: string;
+  /** The agent's reasoning config; absent ⇒ the SDK default (adaptive/high). */
+  reasoning?: ClaudeReasoning;
 }): Options {
-  const { backend, sandbox } = args;
+  const { backend, sandbox, model, reasoning } = args;
   const disallowedTools = [
     ...backend.disallowedTools,
     ...sandbox.denyRules,
@@ -75,5 +80,7 @@ export function buildBaseOptions(args: {
     allowedTools: backend.allowedTools,
     disallowedTools,
     permissionMode: asPermissionMode(sandbox.permissionMode),
+    ...(model !== undefined && model !== '' ? { model } : {}),
+    ...(reasoning !== undefined ? reasoningToOptions(reasoning) : {}),
   };
 }

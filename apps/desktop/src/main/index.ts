@@ -11,7 +11,7 @@ import {
 } from './titlebar.js';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
 import { readJson, writeJson } from './persistence.js';
-import { METHODS, channel, type MethodName } from '../shared/methods.js';
+import { METHODS, PUSH_CHANNEL, channel, type MethodName } from '../shared/methods.js';
 import { parseSettings, type ConsoleSettings } from '../shared/settings.js';
 
 /** The single console window, tracked so a theme change can recolor its native chrome. */
@@ -99,7 +99,14 @@ let client: DaemonClient | undefined;
 async function ensureClient(): Promise<DaemonClient> {
   if (!client) {
     client = await resolveDaemon({
-      connect: async (path) => toDaemonClient(await connectClient(path)),
+      connect: async (path) =>
+        toDaemonClient(
+          // Forward the daemon's server→client push stream (turn/status/cost) to
+          // the renderer's one-way channel; only the payload crosses.
+          await connectClient(path, (note) => {
+            if (note.method === 'push') mainWindow?.webContents.send(PUSH_CHANNEL, note.params);
+          }),
+        ),
       spawn: () => {
         // Invoke the `coa` CLI directly (never via `node`, which would treat
         // `coa` as a script path and fail). Production packaging must ensure
@@ -148,6 +155,10 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('currentAccount');
     case 'useAccount':
       return proxyDaemon('useAccount', params);
+    case 'startSession':
+      return proxyDaemon('createSession', params);
+    case 'listModels':
+      return proxyDaemon('listModels');
     case 'getLayout':
       return readJson(layoutFile());
     case 'saveLayout':

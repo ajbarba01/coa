@@ -111,7 +111,13 @@ export { importBundle } from './compiler/import-bundle.js';
 export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
 export { buildConsoleHandlers, type ConsoleReadPorts } from './rpc/console-handlers.js';
 export { encodeLine, FrameDecoder } from './rpc/codec.js';
-export { serveOverStream, type DuplexLike, type StreamServer } from './rpc/stream.js';
+export {
+  serveOverStream,
+  type DuplexLike,
+  type StreamServer,
+  type StreamHandlers,
+  type RpcConnection,
+} from './rpc/stream.js';
 export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
 export { connectClient, type RpcClient } from './rpc/client.js';
 export { bindDaemon, probeDaemon } from './rpc/lifecycle.js';
@@ -222,6 +228,8 @@ export {
   type ActiveAccountResolution,
 } from './session/session.js';
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
+export { buildSessionHandlers } from './session/session-handlers.js';
+export { ModelCache, type ModelCacheAccount, type ModelCacheDeps } from './session/model-cache.js';
 export {
   createDaemonCore,
   buildDaemonConsoleHandlers,

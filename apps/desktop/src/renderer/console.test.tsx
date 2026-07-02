@@ -12,6 +12,9 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     listAccounts: vi.fn().mockResolvedValue({ accounts: [] }),
     currentAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
     useAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
+    startSession: vi.fn().mockResolvedValue({ sessionId: 's1', worktree: '/wt' }),
+    listModels: vi.fn().mockResolvedValue([]),
+    onPush: vi.fn().mockReturnValue(() => {}),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),
     getSettings: vi
@@ -62,6 +65,46 @@ describe('startConsole (inspector-first)', () => {
     // The transcript log only renders when the (seeded) mock stream has frames, so its
     // presence proves the mock flowed state -> selectVm -> Transcript.
     expect(dock?.querySelector('[role="log"]')).not.toBeNull();
+  });
+
+  it('subscribes to the push stream and handles a live turn without throwing', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    expect(emit).toBeDefined();
+
+    // A valid turn push flows through pushToViewFrames into the active conversation
+    // (row text is not assertable here — the Transcript is react-virtuoso, which
+    // renders no rows under jsdom; the mapping is covered by pushToViewFrames' units).
+    await act(async () => {
+      emit?.({ kind: 'turn', sessionId: 's', worktree: 'w', seq: 0, frame: { t: 'text', text: 'hi' } });
+    });
+    expect(container.querySelector('[data-panel-id="conversation"] [role="log"]')).not.toBeNull();
+  });
+
+  it('ignores a malformed push (validated at the edge, never throws)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    await mount(bridge);
+    expect(() => emit?.({ kind: 'not-a-real-kind' })).not.toThrow();
+  });
+
+  it('unsubscribes from the push stream on dispose', async () => {
+    const unsubscribe = vi.fn();
+    const bridge = fakeBridge({ onPush: vi.fn().mockReturnValue(unsubscribe) });
+    const { controller } = await mount(bridge);
+    act(() => controller.dispose());
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('seeds the chat with the newest mock session and the agent rail', async () => {

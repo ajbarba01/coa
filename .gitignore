@@ -7,8 +7,9 @@ dist/
 build/
 *.tsbuildinfo
 
-# coa local (rebuildable projections / inferred graph half)
+# coa local (rebuildable projections / inferred graph half) + daemon runtime WAL
 .coa/local/
+.coa/wal/
 
 # logs / os
 *.log

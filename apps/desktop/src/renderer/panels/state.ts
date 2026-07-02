@@ -3,6 +3,7 @@ import type {
   CapState,
   Checkpoint,
   FeedView,
+  ModelDescriptor,
   SessionSummary,
   TurnFrame,
 } from '@coa/console-viewmodel';
@@ -32,6 +33,8 @@ export interface ConsoleData {
   /** Mock today (no listRoles / session-list verbs yet); swapped via the registry. */
   agents: Remote<AgentSummary[]>;
   sessions: Remote<SessionSummary[]>;
+  /** The active account's available models + per-model reasoning capabilities (live, cached). */
+  models: Remote<ModelDescriptor[]>;
 }
 
 /** Local view state (not daemon data). */
@@ -68,6 +71,8 @@ export interface ConsoleActions {
   selectSession: (id: string) => void;
   newSession: (agentRef: string) => void;
   deleteSession: (id: string) => void;
+  /** Send a prompt to the active session's agent (starts a governed daemon session). */
+  sendMessage: (text: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -91,6 +96,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       turns: { status: 'loading' },
       agents: { status: 'loading' },
       sessions: { status: 'loading' },
+      models: { status: 'loading' },
     },
     ui: {
       activeMainPanelId: DEFAULT_MAIN_PANEL_ID,
