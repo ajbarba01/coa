@@ -27,6 +27,8 @@ export interface RpcClient {
 export function connectClient(
   path: string,
   onNotification?: (note: RpcNotification) => void,
+  /** Fired once the connection drops (daemon exit/crash), after any in-flight requests fail. */
+  onClose?: () => void,
 ): Promise<RpcClient> {
   return new Promise((resolve, reject) => {
     const socket = connect(path);
@@ -57,6 +59,7 @@ export function connectClient(
       reject(err);
       fail(err);
     });
+    socket.on('close', () => onClose?.());
 
     socket.on('connect', () =>
       resolve({

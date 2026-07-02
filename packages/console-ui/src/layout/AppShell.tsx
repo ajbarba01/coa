@@ -8,6 +8,8 @@ export interface AppShellProps {
   workspaceName: string;
   /** The active account/session context, when known. */
   account?: string | undefined;
+  /** Right-aligned title-bar chrome (e.g. the daemon status control). */
+  statusSlot?: ReactNode;
   /** The content slot; the layout engine mounts here. */
   children: ReactNode;
   className?: string | undefined;
@@ -29,6 +31,7 @@ export function AppShell({
   platform,
   workspaceName,
   account,
+  statusSlot,
   children,
   className,
 }: AppShellProps): React.JSX.Element {
@@ -44,11 +47,14 @@ export function AppShell({
       >
         <span className="font-bold tracking-[-0.01em] text-accent">co&middot;a</span>
         <span className="text-muted">{workspaceName}</span>
-        {account !== undefined && (
-          <span data-testid="account-context" className="ml-auto text-muted" style={noDrag}>
-            {account}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-2" style={noDrag}>
+          {account !== undefined && (
+            <span data-testid="account-context" className="text-muted">
+              {account}
+            </span>
+          )}
+          {statusSlot}
+        </div>
       </header>
       <main className="min-h-0 flex-1">{children}</main>
     </div>

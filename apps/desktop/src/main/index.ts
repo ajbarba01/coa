@@ -1,7 +1,8 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from 'electron';
-import { connectClient, defaultDaemonPath } from '@coa/core/rpc';
+import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
 import {
   overlayForTheme,
@@ -9,9 +10,18 @@ import {
   windowBackground,
   type ResolvedTheme,
 } from './titlebar.js';
-import { resolveDaemon, type DaemonClient } from './daemon.js';
+import { type DaemonClient } from './daemon.js';
+import { createDaemonManager, type DaemonProcess } from './daemon-manager.js';
 import { readJson, writeJson } from './persistence.js';
-import { METHODS, PUSH_CHANNEL, channel, type MethodName } from '../shared/methods.js';
+import {
+  DAEMON_CONTROL,
+  DAEMON_STATUS_CHANNEL,
+  METHODS,
+  PUSH_CHANNEL,
+  channel,
+  type DaemonControlName,
+  type MethodName,
+} from '../shared/methods.js';
 import { parseSettings, type ConsoleSettings } from '../shared/settings.js';
 
 /** The single console window, tracked so a theme change can recolor its native chrome. */
@@ -51,20 +61,36 @@ function createWindow(): void {
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = undefined;
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    if (process.env['ELECTRON_RENDERER_URL']) win.webContents.openDevTools();
+  });
+  // Fallback: if `ready-to-show` never fires (a dev-server race that would otherwise
+  // leave a hidden window and a process that "acts like it's running"), show anyway.
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) win.show();
+  }, 4000);
 
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    void win.loadURL(process.env['ELECTRON_RENDERER_URL']);
-  } else {
-    void win.loadFile(join(import.meta.dirname, '../renderer/index.html'));
-  }
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
+  const load = (): void => {
+    void (rendererUrl
+      ? win.loadURL(rendererUrl)
+      : win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+    ).catch(() => undefined);
+  };
+  // In dev, the Vite server may not be accepting connections the instant Electron
+  // launches; a failed load leaves a blank hidden window, so retry once shortly.
+  win.webContents.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => {
+    if (isMainFrame && rendererUrl && !win.isDestroyed()) setTimeout(load, 500);
+  });
+  load();
 }
 
 /**
  * Adapt the real `@coa/core` `RpcClient` (whose `request` resolves the full
  * JSON-RPC envelope — `{ jsonrpc, id, result }` or `{ jsonrpc, id, error }` —
  * and which also carries a `notify` method) to the local, minimal
- * `DaemonClient` contract that `resolveDaemon`/the IPC handler depend on.
+ * `DaemonClient` contract that the daemon manager + IPC proxy depend on.
  */
 function toRpcParams(params: unknown): Array<unknown> | Record<string, unknown> | undefined {
   if (params === undefined) return undefined;
@@ -94,35 +120,63 @@ class DaemonError extends Error {
   }
 }
 
-let client: DaemonClient | undefined;
-
-async function ensureClient(): Promise<DaemonClient> {
-  if (!client) {
-    client = await resolveDaemon({
-      connect: async (path) =>
-        toDaemonClient(
-          // Forward the daemon's server→client push stream (turn/status/cost) to
-          // the renderer's one-way channel; only the payload crosses.
-          await connectClient(path, (note) => {
-            if (note.method === 'push') mainWindow?.webContents.send(PUSH_CHANNEL, note.params);
-          }),
-        ),
-      spawn: () => {
-        // Invoke the `coa` CLI directly (never via `node`, which would treat
-        // `coa` as a script path and fail). Production packaging must ensure
-        // the `coa` daemon binary is resolvable on PATH/workspace bin
-        // (tracked with the electron-builder config).
-        spawn(process.env['COA_CLI'] ?? 'coa', ['serve'], {
-          detached: true,
-          stdio: 'ignore',
-          shell: process.platform === 'win32',
-        }).unref();
-      },
-      path: defaultDaemonPath(),
-    });
+/** Walk up from `start` for the pnpm workspace root (where the project's `.coa` lives). */
+function findRepoRoot(start: string): string {
+  for (let dir = start; ; ) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return start; // hit the filesystem root — fall back to `start`
+    dir = parent;
   }
-  return client;
 }
+
+/**
+ * How to launch the daemon, resolved deterministically rather than trusting the
+ * Electron process to have inherited `coa` on PATH (it often hasn't). Preference:
+ * an explicit `COA_CLI` override → the built `apps/cli/dist/bin.js` run with the
+ * same Node that launched the app (`npm_node_execpath`, so the native addons'
+ * ABI matches) → a bare `coa serve` on PATH as a last resort. The daemon runs with
+ * cwd = the repo root so it reads/writes the project's real `.coa` store.
+ */
+function daemonSpawn(): DaemonProcess {
+  const root = findRepoRoot(process.cwd());
+  const binPath = join(root, 'apps', 'cli', 'dist', 'bin.js');
+  const node = process.env['npm_node_execpath'] ?? 'node';
+  const override = process.env['COA_CLI'];
+
+  const child = override
+    ? spawn(`${override} serve`, { cwd: root, stdio: 'ignore', shell: true, windowsHide: true })
+    : existsSync(binPath)
+      ? // shell:false + args array → the space in the path is safe and the child is
+        // directly killable (no shell wrapper to orphan the real process on stop/quit).
+        spawn(node, [binPath, 'serve'], { cwd: root, stdio: 'ignore', windowsHide: true })
+      : spawn('coa serve', { cwd: root, stdio: 'ignore', shell: true, windowsHide: true });
+  return { kill: () => child.kill() };
+}
+
+/**
+ * The daemon lifecycle owner behind the title-bar Start/Stop/Restart control.
+ * `connect` adapts the ABI-safe pipe client and forwards the daemon's push stream
+ * to the renderer; `spawn` launches the daemon as a tracked child (reaped on stop
+ * + quit); status changes are pushed to the window on {@link DAEMON_STATUS_CHANNEL}.
+ */
+const daemon = createDaemonManager({
+  path: defaultDaemonPath(),
+  probe: probeDaemon,
+  // Give a cold daemon time to load its native addons + bind the pipe (~a few seconds).
+  retry: { attempts: 50, delayMs: 200 },
+  connect: async (path, onClose): Promise<DaemonClient> =>
+    toDaemonClient(
+      await connectClient(
+        path,
+        (note) => {
+          if (note.method === 'push') mainWindow?.webContents.send(PUSH_CHANNEL, note.params);
+        },
+        onClose,
+      ),
+    ),
+  spawn: daemonSpawn,
+});
 
 /** The per-user layout file. Per-workspace keying lands when the app gains a
  *  workspace-open flow; today the daemon is a single fixed pipe. */
@@ -136,7 +190,7 @@ function settingsFile(): string {
 
 /** Forward a read to the daemon, surfacing a JSON-RPC error as a coded IPC error. */
 async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
-  const res = await (await ensureClient()).request(method, params);
+  const res = await (await daemon.client()).request(method, params);
   if ('error' in res && res.error) throw new DaemonError(res.error.message, res.error.code);
   return res.result;
 }
@@ -209,7 +263,40 @@ for (const name of Object.keys(METHODS) as MethodName[]) {
   });
 }
 
-app.whenReady().then(() => {
+// The title-bar daemon control (Start/Stop/Restart) + a status read. These are
+// main-local transport actions, not daemon RPC reads, so they sit on their own channels.
+const daemonActions: Record<DaemonControlName, () => unknown | Promise<unknown>> = {
+  status: () => daemon.status(),
+  start: () => daemon.start(),
+  stop: () => daemon.stop(),
+  restart: () => daemon.restart(),
+};
+for (const [name, action] of Object.entries(daemonActions) as [DaemonControlName, () => unknown][]) {
+  ipcMain.handle(DAEMON_CONTROL[name], async () => (await action()) ?? undefined);
+}
+
+// A single instance owns the daemon + the fixed pipe; a second launch (e.g. a stale
+// prior `electron-vite dev`) would otherwise shadow it with a hidden second window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+  bootstrap();
+}
+
+/** Push the current daemon status to the renderer (used on status change + on window load). */
+function pushDaemonStatus(): void {
+  mainWindow?.webContents.send(DAEMON_STATUS_CHANNEL, daemon.status());
+}
+
+function bootstrap(): void {
+  app.whenReady().then(() => {
   // The custom AppShell title bar is the only chrome — no File/Edit/View menu (§22.2).
   Menu.setApplicationMenu(null);
   // Dev is served from `ELECTRON_RENDERER_URL` by Vite (HMR + Fast Refresh);
@@ -228,12 +315,22 @@ app.whenReady().then(() => {
   nativeTheme.on('updated', () => {
     if (themePref === 'system') applyChromeTheme(resolveChromeTheme('system'));
   });
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    createWindow();
+    // Mirror daemon status to the renderer; re-push on each (re)load so a reload or a
+    // status change that happened before the window was ready still lands.
+    daemon.onStatus(() => pushDaemonStatus());
+    mainWindow?.webContents.on('did-finish-load', () => pushDaemonStatus());
+    // Auto-start the daemon on launch (the pill shows `running` once connected).
+    void daemon.start();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  // Reap the daemon connection + tracked child so it doesn't outlive the app.
+  app.on('before-quit', () => daemon.dispose());
+}

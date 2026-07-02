@@ -133,6 +133,8 @@ export interface DaemonOptions {
   walPath?: string;
   /** Endpoint override; defaults to {@link defaultDaemonPath}. */
   path?: string;
+  /** How the `shutdown` verb tears the process down (injected for tests); defaults to close-then-exit. */
+  onShutdown?: (server: RpcServer) => void;
 }
 
 /**
@@ -171,15 +173,33 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
   const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
   const conversationHandlers = buildConversationHandlers(store);
-  const server = await bindDaemon(path, (connection) => ({
+  // The console's daemon control (title-bar Stop/Restart) stops the process over the
+  // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
+  // reply flushes first, then the teardown runs on the next tick (see `onShutdown`).
+  // A holder so the `shutdown` handler can close the server that outlives its own
+  // construction (the handler is built before `bindDaemon` resolves).
+  const bound: { server?: RpcServer } = {};
+  const onShutdown =
+    options.onShutdown ?? ((s: RpcServer) => void s.close().finally(() => process.exit(0)));
+  const shutdownHandlers = {
+    shutdown: {
+      handle: () => {
+        const server = bound.server;
+        if (server !== undefined) setTimeout(() => onShutdown(server), 10).unref();
+        return { ok: true };
+      },
+    },
+  };
+  bound.server = await bindDaemon(path, (connection) => ({
     ...consoleHandlers,
     ...registryHandlers,
     ...conversationHandlers,
+    ...shutdownHandlers,
     ...buildSessionHandlers(deps, connection, store),
     // Every provider's models + per-model reasoning levels, merged into one list
     // (cached, fetched lazily; a provider that fails to fetch is skipped, not fatal).
     listModels: { handle: () => listMergedModels(models, modelAccounts()) },
   }));
   options.out(`coa daemon listening on ${path}`);
-  return server;
+  return bound.server;
 }

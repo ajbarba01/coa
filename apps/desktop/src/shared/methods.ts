@@ -40,6 +40,24 @@ const OkResultSchema = z.object({ ok: z.boolean() });
 export const PUSH_CHANNEL = 'coa:push';
 
 /**
+ * Daemon lifecycle control (the title-bar Start/Stop/Restart). This is a
+ * main-process/transport concern — NOT a daemon RPC read — so it lives outside
+ * {@link METHODS} on its own channels, with status pushed one-way like {@link PUSH_CHANNEL}.
+ */
+export type DaemonStatus = 'stopped' | 'starting' | 'running' | 'error';
+export const DaemonStatusSchema = z.enum(['stopped', 'starting', 'running', 'error']);
+/** One-way main→renderer channel carrying {@link DaemonStatus} changes. */
+export const DAEMON_STATUS_CHANNEL = 'coa:daemon-status';
+/** Renderer→main invoke channels for the control actions. */
+export const DAEMON_CONTROL = {
+  status: 'coa:daemon:status',
+  start: 'coa:daemon:start',
+  stop: 'coa:daemon:stop',
+  restart: 'coa:daemon:restart',
+} as const;
+export type DaemonControlName = keyof typeof DAEMON_CONTROL;
+
+/**
  * The single source of truth for the IPC bridge: each verb -> its params/result
  * Zod schemas, consumed by BOTH the preload/main validation and the renderer.
  * `capState` proxies the daemon read verb; `getLayout`/`saveLayout` are main-local

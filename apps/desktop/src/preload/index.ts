@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { METHODS, PUSH_CHANNEL, channel, type MethodName } from '../shared/methods.js';
+import {
+  DAEMON_CONTROL,
+  DAEMON_STATUS_CHANNEL,
+  METHODS,
+  PUSH_CHANNEL,
+  channel,
+  type DaemonStatus,
+  type MethodName,
+} from '../shared/methods.js';
 
 // One named method per verb, generated from the shared registry; no raw
 // ipcRenderer is exposed. `process.platform` is available in the sandboxed
@@ -17,6 +25,22 @@ api['onPush'] = (listener: (payload: unknown) => void): (() => void) => {
   const handler = (_event: unknown, payload: unknown): void => listener(payload);
   ipcRenderer.on(PUSH_CHANNEL, handler);
   return () => ipcRenderer.removeListener(PUSH_CHANNEL, handler);
+};
+
+// The title-bar daemon control: the four lifecycle actions plus a one-way status
+// subscription (mirrors `onPush`). Status is a transport fact owned by main, not a
+// daemon RPC read, so it lives on its own channels.
+api['daemon'] = {
+  status: (): Promise<DaemonStatus> =>
+    ipcRenderer.invoke(DAEMON_CONTROL.status) as Promise<DaemonStatus>,
+  start: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.start) as Promise<void>,
+  stop: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.stop) as Promise<void>,
+  restart: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.restart) as Promise<void>,
+  onStatus: (listener: (status: DaemonStatus) => void): (() => void) => {
+    const handler = (_event: unknown, status: DaemonStatus): void => listener(status);
+    ipcRenderer.on(DAEMON_STATUS_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(DAEMON_STATUS_CHANNEL, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('coa', api);

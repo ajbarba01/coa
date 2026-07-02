@@ -5,3 +5,4 @@
 // Node-ABI native binary into a differently-built runtime.
 export { connectClient, type RpcClient } from './client.js';
 export { defaultDaemonPath, listen, type RpcServer } from './transport.js';
+export { probeDaemon } from './lifecycle.js';

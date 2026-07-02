@@ -12,6 +12,7 @@ import type {
   SessionSummary,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
+import type { DaemonStatus } from '../shared/methods.js';
 
 export {};
 declare global {
@@ -48,6 +49,14 @@ declare global {
       saveLayout(descriptor: unknown): Promise<void>;
       getSettings(): Promise<ConsoleSettings>;
       saveSettings(settings: ConsoleSettings): Promise<void>;
+      /** Title-bar daemon lifecycle control + a one-way status subscription. */
+      daemon: {
+        status(): Promise<DaemonStatus>;
+        start(): Promise<void>;
+        stop(): Promise<void>;
+        restart(): Promise<void>;
+        onStatus(listener: (status: DaemonStatus) => void): () => void;
+      };
     };
   }
 }
