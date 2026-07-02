@@ -24,8 +24,14 @@ describe('IPC method registry', () => {
   });
 
   it('validates the account verbs', () => {
-    expect(METHODS.listAccounts.result.parse({ accounts: [{ label: 'a' }] })).toBeTruthy();
-    expect(METHODS.currentAccount.result.parse({ active: 'a' })).toBeTruthy();
+    expect(
+      METHODS.listAccounts.result.parse({
+        accounts: [{ label: 'a', provider: 'claude' }],
+        active: { claude: 'a' },
+      }),
+    ).toBeTruthy();
+    expect(METHODS.currentAccount.result.parse({ active: { deepseek: 'ds' } })).toBeTruthy();
+    expect(METHODS.useAccount.params?.parse({ label: 'a', provider: 'deepseek' })).toBeTruthy();
     expect(() => METHODS.useAccount.params?.parse({})).toThrow();
   });
 });

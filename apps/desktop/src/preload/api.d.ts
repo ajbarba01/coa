@@ -24,7 +24,7 @@ declare global {
       listTimeline(): Promise<Checkpoint[]>;
       listAccounts(): Promise<Accounts>;
       currentAccount(): Promise<ActiveAccount>;
-      useAccount(params: { label: string }): Promise<ActiveAccount>;
+      useAccount(params: { label: string; provider?: string }): Promise<ActiveAccount>;
       startSession(params: {
         input: string;
         conversationId?: string;

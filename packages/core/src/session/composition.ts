@@ -59,8 +59,8 @@ export interface SessionWiring {
   newSessionId?: () => string;
   trust?: 'local' | 'imported';
   perSessionCeiling?: number;
-  /** Resolve the active account (login pointer + label) at session start; absent ⇒ account selection not wired. */
-  activeAccount?: () => ActiveAccountResolution;
+  /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
+  activeAccount?: (provider: string) => ActiveAccountResolution;
 }
 
 const EMPTY_FRAME: CapabilityFrame = { allow: [], deny: [] };

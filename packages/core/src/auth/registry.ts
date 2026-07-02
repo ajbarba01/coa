@@ -12,10 +12,13 @@ import {
 
 /**
  * The credential-blind account registry (auth core). Mostly-pure file ops over a
- * user-global `~/.coa/accounts.yaml` of POINTERS — never tokens. Backend-blind:
- * it knows nothing about env vars or the SDK (the locator→env mapping is the
- * Claude adapter's). The file is the source of truth; each mutation reads, edits,
- * and writes it. A missing file is the strict-superset case: ambient, empty list.
+ * user-global `~/.coa/accounts.yaml` of POINTERS — never tokens. Backend-blind: it
+ * knows nothing about env vars or the SDK (the locator→env mapping is the adapter's).
+ *
+ * The active account is tracked **per provider** (a `{ provider: label }` map), so
+ * each backend has its own login and switching one never disturbs another. A missing
+ * file is the strict-superset case (all providers ambient, empty list). The legacy
+ * single-string `active` is migrated on read.
  */
 
 export type ActiveAccount = { kind: 'ambient' } | { kind: 'account'; account: Account };
@@ -25,7 +28,7 @@ export function accountsPath(home: string): string {
   return join(home, '.coa', 'accounts.yaml');
 }
 
-const EMPTY: AccountsFile = { active: AMBIENT, accounts: [] };
+const EMPTY: AccountsFile = { active: {}, accounts: [] };
 
 export class AccountsRegistry {
   readonly #home: string;
@@ -38,11 +41,17 @@ export class AccountsRegistry {
     return this.#read().accounts;
   }
 
-  getActive(): ActiveAccount {
+  /** The accounts registered for one provider. */
+  listByProvider(provider: Provider): Account[] {
+    return this.#read().accounts.filter((a) => a.provider === provider);
+  }
+
+  /** The active account for a provider (or ambient when none is selected / it dangles). */
+  getActive(provider: Provider): ActiveAccount {
     const file = this.#read();
-    if (file.active === AMBIENT) return { kind: 'ambient' };
-    const account = file.accounts.find((a) => a.label === file.active);
-    // A dangling active label degrades to ambient rather than throwing on read.
+    const label = file.active[provider];
+    if (label === undefined) return { kind: 'ambient' };
+    const account = file.accounts.find((a) => a.label === label && a.provider === provider);
     return account ? { kind: 'account', account } : { kind: 'ambient' };
   }
 
@@ -57,28 +66,38 @@ export class AccountsRegistry {
 
   remove(label: string): void {
     const file = this.#read();
+    const removed = file.accounts.find((a) => a.label === label);
     file.accounts = file.accounts.filter((a) => a.label !== label);
-    if (file.active === label) file.active = AMBIENT;
+    if (removed !== undefined && file.active[removed.provider] === label) {
+      delete file.active[removed.provider];
+    }
     this.#write(file);
   }
 
-  setActive(target: string): void {
+  /** Make an account active for its own provider (inferred from the account). */
+  setActive(label: string): void {
     const file = this.#read();
-    if (target !== AMBIENT && !file.accounts.some((a) => a.label === target)) {
-      throw new Error(`unknown account: ${target}`);
-    }
-    file.active = target;
+    const account = file.accounts.find((a) => a.label === label);
+    if (account === undefined) throw new Error(`unknown account: ${label}`);
+    file.active[account.provider] = label;
+    this.#write(file);
+  }
+
+  /** Reset a provider to its ambient login (no account). */
+  setAmbient(provider: Provider): void {
+    const file = this.#read();
+    delete file.active[provider];
     this.#write(file);
   }
 
   #read(): AccountsFile {
-    let raw: string;
+    let raw: unknown;
     try {
-      raw = readFileSync(accountsPath(this.#home), 'utf8');
+      raw = parse(readFileSync(accountsPath(this.#home), 'utf8'));
     } catch {
       return structuredClone(EMPTY);
     }
-    return accountsFileSchema.parse(parse(raw));
+    return accountsFileSchema.parse(migrateActive(raw));
   }
 
   #write(file: AccountsFile): void {
@@ -86,4 +105,18 @@ export class AccountsRegistry {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, stringify(file), { encoding: 'utf8', mode: 0o600 });
   }
+}
+
+/** Migrate a legacy single-string `active` to the per-provider map (by the named account's provider). */
+function migrateActive(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object') return raw;
+  const file = raw as { active?: unknown; accounts?: unknown };
+  if (typeof file.active !== 'string') return raw;
+  if (file.active === AMBIENT) return { ...file, active: {} };
+  const accounts = Array.isArray(file.accounts)
+    ? (file.accounts as Array<{ label?: unknown; provider?: unknown }>)
+    : [];
+  const named = accounts.find((a) => a.label === file.active);
+  const provider = typeof named?.provider === 'string' ? named.provider : 'claude';
+  return { ...file, active: { [provider]: file.active } };
 }

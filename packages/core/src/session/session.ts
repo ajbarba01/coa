@@ -5,7 +5,6 @@ import type {
   ModelSelection,
   NeutralConfig,
   Piece,
-  Provider,
   Session,
   TurnFrame,
 } from '@coa/shared';
@@ -45,12 +44,10 @@ export interface SessionAdapterInit {
   onBackendSession?: (backendSessionId: string) => void;
 }
 
-/** The active-account resolution M8 supplies per session: a label (incl. `'ambient'`) + the optional login pointer + backend. */
+/** The active-account resolution M8 supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
 export interface ActiveAccountResolution {
   label: string;
   locator?: Locator;
-  /** The account's backend; defaults the session's provider so an account picks its adapter (absent ⇒ claude). */
-  provider?: Provider;
 }
 
 /** The per-session facts M8 hands `assemblePieces` so it can author the standing scaffold (incl. the env block). */
@@ -111,17 +108,8 @@ export interface SessionDeps {
   perSessionCeiling?: number;
   /** Session trust (D148); defaults to local. */
   trust?: 'local' | 'imported';
-  /** Resolve the active account (login pointer + label) at session start; absent ⇒ account selection not wired. */
-  activeAccount?: () => ActiveAccountResolution;
-}
-
-/** Default the model's provider from the active account, unless the request named one explicitly. */
-function withProvider(
-  model: ModelSelection | undefined,
-  provider: Provider | undefined,
-): ModelSelection | undefined {
-  if (provider === undefined || model?.provider !== undefined) return model;
-  return { ...model, provider };
+  /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
+  activeAccount?: (provider: string) => ActiveAccountResolution;
 }
 
 /** Start a session: bind, compile, render, wire both SC-1 hooks, and run the loop. */
@@ -161,10 +149,11 @@ export async function createSession(
   const neutral = deps.compile(pieces, frame);
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
   const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);
-  const account = deps.activeAccount?.();
-  // The active account picks the backend (its `provider`) unless the request already
-  // named one — so switching to a DeepSeek account routes the session to that adapter.
-  const model = withProvider(req.model, account?.provider);
+  // The chosen model names its provider (from the merged model list); that provider's
+  // active account supplies the auth pointer. So a DeepSeek model authenticates with the
+  // DeepSeek account regardless of which Claude account is active, and vice versa.
+  const provider = req.model?.provider ?? 'claude';
+  const account = deps.activeAccount?.(provider);
 
   // Settle once per result: charge the cap, then append the account-attributed
   // spend to the audit ledger (when wired). M9 calls this exactly once per result.
@@ -183,7 +172,7 @@ export async function createSession(
     sandbox,
     input: req.input,
     onSettle,
-    ...(model ? { model } : {}),
+    ...(req.model ? { model: req.model } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(account?.locator ? { locator: account.locator } : {}),

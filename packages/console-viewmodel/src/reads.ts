@@ -19,15 +19,22 @@ export type Checkpoint = z.infer<typeof CheckpointSchema>;
 
 export const TimelineSchema = z.array(CheckpointSchema);
 
-/** An account pointer as the console needs it (label only; the daemon's provider/
- *  locator are stripped). */
-export const AccountSummarySchema = z.object({ label: z.string() });
+/** An account as the console needs it: its label + which backend it authenticates
+ *  (the locator/secret stay in the daemon). */
+export const AccountSummarySchema = z.object({ label: z.string(), provider: z.string() });
 export type AccountSummary = z.infer<typeof AccountSummarySchema>;
 
-export const AccountsSchema = z.object({ accounts: z.array(AccountSummarySchema) });
+/** The active account label per provider (absent ⇒ that provider runs its ambient login). */
+export const ActiveByProviderSchema = z.record(z.string(), z.string());
+export type ActiveByProvider = z.infer<typeof ActiveByProviderSchema>;
+
+export const AccountsSchema = z.object({
+  accounts: z.array(AccountSummarySchema),
+  active: ActiveByProviderSchema,
+});
 export type Accounts = z.infer<typeof AccountsSchema>;
 
-export const ActiveAccountSchema = z.object({ active: z.string() });
+export const ActiveAccountSchema = z.object({ active: ActiveByProviderSchema });
 export type ActiveAccount = z.infer<typeof ActiveAccountSchema>;
 
 /** A conversation turn frame — the console mock is shaped like the future turn-store

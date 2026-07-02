@@ -62,6 +62,19 @@ export function modelLabel(m: ModelDescriptor): string {
   return version;
 }
 
+const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', deepseek: 'DeepSeek' };
+
+/**
+ * The picker label for a model in the MERGED (multi-provider) list — the model's
+ * version prefixed with its backend (e.g. "DeepSeek · V4 Pro") so a combined list
+ * reads clearly and stays searchable by provider. Untagged models show plainly.
+ */
+export function modelPickerLabel(m: ModelDescriptor): string {
+  const base = modelLabel(m);
+  if (m.provider === undefined) return base;
+  return `${PROVIDER_LABELS[m.provider] ?? m.provider} · ${base}`;
+}
+
 /**
  * The reasoning options for the selected model. A RESOLVED model's real
  * `supportedEffortLevels` win (empty ⇒ no effort control, e.g. Haiku); an
@@ -385,17 +398,20 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
           label="Model"
           value={a.model ?? vm.models[0]?.id ?? ''}
           onValueChange={(model) => {
-            // Keep the reasoning valid for the model just chosen (an effort/budget the
-            // new model doesn't offer resets to default); leave a valid one untouched.
+            // The chosen model carries its provider (the list is merged across backends);
+            // store it so the session routes there. Keep the reasoning valid for the new
+            // model (an effort/budget it doesn't offer resets to default).
+            const picked = vm.models.find((m) => m.id === model);
             const clamped = clampReasoning(a.reasoning, modelReasoningCaps(vm.models, model));
-            vm.updateAgent(
-              a.ref,
-              clamped === a.reasoning ? { model } : { model, reasoning: clamped },
-            );
+            vm.updateAgent(a.ref, {
+              model,
+              ...(picked?.provider !== undefined ? { provider: picked.provider } : {}),
+              ...(clamped !== a.reasoning ? { reasoning: clamped } : {}),
+            });
           }}
           options={
             vm.models.length > 0
-              ? vm.models.map((m) => ({ value: m.id, label: modelLabel(m) }))
+              ? vm.models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
               : a.model !== undefined
                 ? [{ value: a.model, label: a.model }]
                 : []

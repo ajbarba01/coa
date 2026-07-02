@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { AMBIENT, accountSchema, accountsFileSchema, locatorSchema } from './auth.js';
+import { accountSchema, accountsFileSchema, locatorSchema } from './auth.js';
 
 describe('auth schema', () => {
   it('accepts each locator type', () => {
     expect(locatorSchema.parse({ type: 'config-dir', dir: '/home/u/.claude-work' }).type).toBe(
       'config-dir',
     );
+    expect(locatorSchema.parse({ type: 'env-var', name: 'DEEPSEEK_API_KEY' }).type).toBe('env-var');
+    expect(locatorSchema.parse({ type: 'key-file', path: '/k' }).type).toBe('key-file');
     expect(locatorSchema.parse({ type: 'ambient' }).type).toBe('ambient');
   });
 
@@ -21,9 +23,9 @@ describe('auth schema', () => {
     expect(account.provider).toBe('claude');
   });
 
-  it('parses an accounts file with the ambient sentinel as active', () => {
-    const file = accountsFileSchema.parse({ active: AMBIENT, accounts: [] });
-    expect(file.active).toBe('ambient');
+  it('parses an accounts file with a per-provider active map', () => {
+    const file = accountsFileSchema.parse({ active: { claude: 'work' }, accounts: [] });
+    expect(file.active).toEqual({ claude: 'work' });
   });
 
   it('rejects an unknown locator type', () => {

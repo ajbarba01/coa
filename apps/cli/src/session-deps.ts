@@ -12,6 +12,7 @@ import {
   type ModelCacheAccount,
   type SessionDeps,
 } from '@coa/core';
+import { providerSchema, type Provider } from '@coa/shared';
 import { createAdapter, fetchModels } from './adapter-factory.js';
 import { buildGenerationProducers } from './generation.js';
 
@@ -41,8 +42,8 @@ export interface BuiltSession {
   handle: DaemonCoreHandle;
   /** The per-account model-capability cache (backend fetch injected). */
   models: ModelCache;
-  /** Resolve the active account (label + optional login pointer) at call time. */
-  activeAccount: () => ModelCacheAccount;
+  /** The active account to fetch models from, per provider — the merged model list's sources. */
+  modelAccounts: () => ModelCacheAccount[];
 }
 
 /** Construct the daemon core and bind it (plus the Claude backend) into session deps. */
@@ -56,7 +57,9 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const registry = new AccountsRegistry(homedir());
-  const activeAccount = (): ModelCacheAccount => resolveActiveAccount(registry);
+  // Session auth: the model names its provider; that provider's active account authenticates.
+  const activeAccount = (provider: string): ActiveAccountResolution =>
+    resolveActiveAccount(registry, provider);
   const deps = composeSessionDeps(handle.core, {
     createAdapter,
     bindWorktree: () => root,
@@ -68,17 +71,37 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     activeAccount,
   });
   const models = new ModelCache({ fetch: fetchModels });
-  return { deps, handle, models, activeAccount };
+  const modelAccounts = (): ModelCacheAccount[] => activeModelAccounts(registry);
+  return { deps, handle, models, modelAccounts };
 }
 
-/** Resolve the active account from the registry into the session's login pointer + label + backend. */
-function resolveActiveAccount(registry: AccountsRegistry): ActiveAccountResolution {
-  const active = registry.getActive();
+/** Resolve a provider's active account into the session's login pointer + label (ambient ⇒ no pointer). */
+function resolveActiveAccount(
+  registry: AccountsRegistry,
+  provider: string,
+): ActiveAccountResolution {
+  if (!isProvider(provider)) return { label: 'ambient' };
+  const active = registry.getActive(provider);
   return active.kind === 'account'
-    ? {
-        label: active.account.label,
-        locator: active.account.locator,
-        provider: active.account.provider,
-      }
+    ? { label: active.account.label, locator: active.account.locator }
     : { label: 'ambient' };
+}
+
+/**
+ * The account to fetch models from for each provider — the sources the daemon
+ * merges into one model list. An ambient provider still fetches (Claude via its
+ * ambient login, DeepSeek via the default key var), tagged so the cache never
+ * collides across providers.
+ */
+function activeModelAccounts(registry: AccountsRegistry): ModelCacheAccount[] {
+  return providerSchema.options.map((provider) => {
+    const active = registry.getActive(provider);
+    return active.kind === 'account'
+      ? { label: active.account.label, locator: active.account.locator, provider }
+      : { label: 'ambient', provider };
+  });
+}
+
+function isProvider(value: string): value is Provider {
+  return (providerSchema.options as readonly string[]).includes(value);
 }

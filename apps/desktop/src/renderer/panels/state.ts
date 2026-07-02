@@ -19,10 +19,11 @@ export type Remote<T> =
   | { status: 'error'; message: string }
   | { status: 'ok'; value: T };
 
-/** The account list + which one is active, composed from two daemon verbs. */
+/** The account list (each tagged with its provider) + the active account per provider. */
 export interface AccountsInfo {
-  accounts: { label: string }[];
-  active: string;
+  accounts: { label: string; provider: string }[];
+  /** provider → active account label (absent ⇒ that provider is ambient). */
+  active: Record<string, string>;
 }
 
 /** The daemon reads the console has fetched. */
@@ -62,7 +63,8 @@ export interface ConsoleUi {
 export interface ConsoleActions {
   setRoute: (panelId: string) => void;
   refresh: () => void;
-  switchAccount: (label: string) => void;
+  /** Select an account for its provider, or reset a provider to ambient (`label: 'ambient', provider`). */
+  switchAccount: (label: string, provider?: string) => void;
   setSettings: (patch: Partial<ConsoleSettings>) => void;
   toggleRaw: () => void;
   respondApproval: (requestId: string, decision: 'approve' | 'deny') => void;

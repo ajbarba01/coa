@@ -16,12 +16,14 @@ export const AMBIENT = 'ambient';
 /**
  * A pointer to a login — never a secret. `config-dir` names a Claude Code config
  * dir (a subscription login); `env-var` names the environment variable that holds
- * an API-key provider's key (e.g. DeepSeek) — still a pointer, the secret lives in
- * the environment; `ambient` is no override (today's behavior).
+ * an API-key provider's key (e.g. DeepSeek); `key-file` names a file (0600, under
+ * `~/.coa/keys/`) that coa wrote the key into — both are pointers, the secret
+ * lives outside `accounts.yaml`; `ambient` is no override (today's behavior).
  */
 export const locatorSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('config-dir'), dir: z.string().min(1) }),
   z.object({ type: z.literal('env-var'), name: z.string().min(1) }),
+  z.object({ type: z.literal('key-file'), path: z.string().min(1) }),
   z.object({ type: z.literal('ambient') }),
 ]);
 export type Locator = z.infer<typeof locatorSchema>;
@@ -38,9 +40,13 @@ export const accountSchema = z.object({
 });
 export type Account = z.infer<typeof accountSchema>;
 
-/** The on-disk registry: the active label (or {@link AMBIENT}) + the registered accounts. */
+/** The active account label per provider (absent ⇒ that provider runs ambient). A partial map. */
+export const activeByProviderSchema = z.record(z.string(), z.string());
+export type ActiveByProvider = z.infer<typeof activeByProviderSchema>;
+
+/** The on-disk registry: the active account per provider + the registered accounts. */
 export const accountsFileSchema = z.object({
-  active: z.string().min(1),
+  active: activeByProviderSchema,
   accounts: z.array(accountSchema),
 });
 export type AccountsFile = z.infer<typeof accountsFileSchema>;

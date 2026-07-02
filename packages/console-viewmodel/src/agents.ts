@@ -57,6 +57,8 @@ export const AgentSummarySchema = z.object({
   color: AgentColorSchema.default('slate'),
   scope: z.enum(['project', 'personal']),
   model: z.string().optional(),
+  /** The backend of the chosen model (set when a model is picked from the merged list); absent ⇒ default. */
+  provider: z.string().optional(),
   /** The agent's faithful reasoning config; absent ⇒ the backend/SDK default depth. */
   reasoning: claudeReasoningSchema.optional(),
   /** The registry role this agent runs as (a `listRoles` id); absent ⇒ the permissive

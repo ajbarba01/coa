@@ -27,9 +27,15 @@ export interface ConsoleBridge {
   capState(): Promise<CapState>;
   flagsForUser(): Promise<FeedView>;
   listTimeline(): Promise<Checkpoint[]>;
-  listAccounts(): Promise<{ accounts: { label: string }[] }>;
-  currentAccount(): Promise<{ active: string }>;
-  useAccount(params: { label: string }): Promise<{ active: string }>;
+  listAccounts(): Promise<{
+    accounts: { label: string; provider: string }[];
+    active: Record<string, string>;
+  }>;
+  currentAccount(): Promise<{ active: Record<string, string> }>;
+  useAccount(params: {
+    label: string;
+    provider?: string;
+  }): Promise<{ active: Record<string, string> }>;
   startSession(params: {
     input: string;
     conversationId?: string;
@@ -166,10 +172,8 @@ export async function startConsole(
   }
 
   async function loadAccounts(): Promise<void> {
-    const accounts = await settle(async () => {
-      const [list, current] = await Promise.all([bridge.listAccounts(), bridge.currentAccount()]);
-      return { accounts: list.accounts, active: current.active };
-    });
+    // listAccounts now carries the per-provider active map too, so one read suffices.
+    const accounts = await settle(() => bridge.listAccounts());
     state = { ...state, data: { ...state.data, accounts } };
     push();
   }
@@ -189,11 +193,11 @@ export async function startConsole(
     push();
   }
 
-  const switchAccount = (label: string): void =>
+  const switchAccount = (label: string, provider?: string): void =>
     void (async () => {
-      await bridge.useAccount({ label });
+      await bridge.useAccount({ label, ...(provider !== undefined ? { provider } : {}) });
       await loadAccounts();
-      // Models + their reasoning levels are account-specific — refetch for the new login.
+      // The merged model list is per-account (that provider's models change) — refetch.
       await loadModels();
     })();
 
@@ -353,6 +357,8 @@ export async function startConsole(
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
     const model: ModelSelection = {
+      // The chosen model's provider routes the session to its backend + that provider's account.
+      ...(agent?.provider ? { provider: agent.provider } : {}),
       ...(agent?.model ? { model: agent.model } : {}),
       ...(agent?.reasoning ? { reasoning: agent.reasoning } : {}),
     };

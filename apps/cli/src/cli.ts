@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { RpcParams } from '@coa/shared';
+import type { ModelDescriptor, RpcParams } from '@coa/shared';
 import { pushSchema } from '@coa/shared';
 import {
   bindDaemon,
@@ -13,6 +13,8 @@ import {
   defaultDaemonPath,
   packageSummaries,
   roleSummaries,
+  type ModelCache,
+  type ModelCacheAccount,
   type RpcServer,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
@@ -139,13 +141,27 @@ export interface DaemonOptions {
  * Handlers are built per connection so each `createSession` streams its turns over
  * the connection that opened it (the R-12 push seam).
  */
+/** Fetch every provider's models and flatten them into one list; a provider that fails is skipped. */
+async function listMergedModels(
+  models: ModelCache,
+  accounts: ModelCacheAccount[],
+): Promise<ModelDescriptor[]> {
+  const lists = await Promise.all(
+    accounts.map((account) => models.list(account).catch((): ModelDescriptor[] => [])),
+  );
+  return lists.flat();
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   const path = options.path ?? defaultDaemonPath();
   const walPath = options.walPath ?? join('.coa', 'wal', 'log.ndjson');
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
 
-  const { deps, handle, models, activeAccount } = buildSessionDeps({ walPath, root: process.cwd() });
+  const { deps, handle, models, modelAccounts } = buildSessionDeps({
+    walPath,
+    root: process.cwd(),
+  });
   const consoleHandlers = buildDaemonConsoleHandlers(handle);
   // The agent-assembly catalogue the console picker reads (starter registry today).
   const registryHandlers = buildRegistryHandlers({
@@ -160,8 +176,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...registryHandlers,
     ...conversationHandlers,
     ...buildSessionHandlers(deps, connection, store),
-    // The account's available models + per-model reasoning levels (cached, fetched lazily).
-    listModels: { handle: () => models.list(activeAccount()) },
+    // Every provider's models + per-model reasoning levels, merged into one list
+    // (cached, fetched lazily; a provider that fails to fetch is skipped, not fatal).
+    listModels: { handle: () => listMergedModels(models, modelAccounts()) },
   }));
   options.out(`coa daemon listening on ${path}`);
   return server;

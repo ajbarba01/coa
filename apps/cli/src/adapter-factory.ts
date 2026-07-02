@@ -33,17 +33,24 @@ export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
 }
 
 /**
- * Fetch a backend's available models (+ per-model reasoning capabilities), routed
- * by the active account's login pointer: an `env-var` locator is a DeepSeek
- * API-key account (empty list when the key is unset), everything else is Claude.
+ * Fetch a provider's available models (+ per-model reasoning capabilities), routed
+ * by the account's `provider`, and TAG each with that provider so the console can
+ * merge every backend into one list and route a session to the model's backend. A
+ * DeepSeek account with no resolvable key yields an empty list (never throws).
  */
-export function fetchModels(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
-  if (account.locator?.type === 'env-var') {
-    const apiKey = resolveApiKey(account.locator);
-    if (apiKey === undefined) return Promise.resolve([]);
-    return fetchDeepSeekModels({ apiKey, caps: loadEffortCaps() });
-  }
-  return fetchClaudeModels(account.locator);
+export async function fetchModels(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
+  const provider = account.provider ?? 'claude';
+  const models =
+    provider === 'deepseek'
+      ? await fetchDeepSeekFor(account)
+      : await fetchClaudeModels(account.locator);
+  return models.map((model) => ({ ...model, provider }));
+}
+
+async function fetchDeepSeekFor(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
+  const apiKey = resolveApiKey(account.locator);
+  if (apiKey === undefined) return [];
+  return fetchDeepSeekModels({ apiKey, caps: loadEffortCaps() });
 }
 
 /** Construct the thin DeepSeek backend, mapping M8's neutral init onto its init. */

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { accountPanel, selectAccountVm } from './AccountPanel.js';
+import { accountPanel, providersOf, selectAccountVm } from './AccountPanel.js';
 import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
 
@@ -26,14 +26,34 @@ describe('AccountView', () => {
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
   });
 
-  it('shows the active account and the choices', () => {
+  it('shows a per-provider selector reflecting the active account', () => {
     const vm = selectAccountVm(
       stateWith({
         status: 'ok',
-        value: { accounts: [{ label: 'acct-1' }, { label: 'acct-2' }], active: 'acct-1' },
+        value: {
+          accounts: [
+            { label: 'personal', provider: 'claude' },
+            { label: 'ds', provider: 'deepseek' },
+          ],
+          active: { claude: 'personal', deepseek: 'ds' },
+        },
       }),
     );
     render(<AccountView vm={vm} host={host} />);
-    expect(screen.getByText('acct-1')).toBeTruthy();
+    // One labelled selector per provider, each showing its active account.
+    expect(screen.getByText('Claude account')).toBeTruthy();
+    expect(screen.getByText('DeepSeek account')).toBeTruthy();
+    expect(screen.getByText('personal')).toBeTruthy();
+    expect(screen.getByText('ds')).toBeTruthy();
+  });
+
+  it('lists each distinct provider once, in first-seen order', () => {
+    expect(
+      providersOf([
+        { label: 'personal', provider: 'claude' },
+        { label: 'work', provider: 'claude' },
+        { label: 'ds', provider: 'deepseek' },
+      ]),
+    ).toEqual(['claude', 'deepseek']);
   });
 });

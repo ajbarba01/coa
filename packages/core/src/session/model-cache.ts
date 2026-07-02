@@ -15,10 +15,17 @@ import type { Locator, ModelDescriptor } from '@coa/shared';
 export interface ModelCacheAccount {
   label: string;
   locator?: Locator;
+  /** The backend to fetch from + tag the models with (when providers are merged into one list). */
+  provider?: string;
 }
 
 export interface ModelCacheDeps {
   fetch: (account: ModelCacheAccount) => Promise<ModelDescriptor[]>;
+}
+
+/** Provider-qualified cache key, so two providers both on their ambient login never collide. */
+function cacheKey(provider: string | undefined, label: string): string {
+  return `${provider ?? 'claude'}:${label}`;
 }
 
 export class ModelCache {
@@ -31,7 +38,7 @@ export class ModelCache {
   }
 
   async list(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
-    const key = account.label;
+    const key = cacheKey(account.provider, account.label);
     const cached = this.#cache.get(key);
     if (cached !== undefined) return cached;
 
@@ -52,12 +59,12 @@ export class ModelCache {
   }
 
   /** Seed the cache for an account without a fetch (e.g. from a session-init response). */
-  update(label: string, models: ModelDescriptor[]): void {
-    this.#cache.set(label, models);
+  update(label: string, models: ModelDescriptor[], provider?: string): void {
+    this.#cache.set(cacheKey(provider, label), models);
   }
 
   /** Drop an account's cached entry so the next `list` refetches. */
-  invalidate(label: string): void {
-    this.#cache.delete(label);
+  invalidate(label: string, provider?: string): void {
+    this.#cache.delete(cacheKey(provider, label));
   }
 }

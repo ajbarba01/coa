@@ -16,10 +16,10 @@ beforeEach(() => {
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 describe('buildAuthHandlers', () => {
-  it('currentAccount is ambient initially, then reflects use', async () => {
+  it('currentAccount is empty initially, then reflects a per-provider use', async () => {
     const handlers = buildAuthHandlers(new AccountsRegistry(home));
     let res = await call(handlers, 'currentAccount');
-    expect(res).toMatchObject({ result: { active: 'ambient' } });
+    expect(res).toMatchObject({ result: { active: {} } });
 
     await call(handlers, 'addAccount', {
       label: 'work',
@@ -27,17 +27,42 @@ describe('buildAuthHandlers', () => {
     });
     await call(handlers, 'useAccount', { label: 'work' });
     res = await call(handlers, 'currentAccount');
-    expect(res).toMatchObject({ result: { active: 'work' } });
+    expect(res).toMatchObject({ result: { active: { claude: 'work' } } });
   });
 
-  it('listAccounts returns the registered accounts', async () => {
+  it('tracks the active account per provider and resets one to ambient', async () => {
+    const handlers = buildAuthHandlers(new AccountsRegistry(home));
+    await call(handlers, 'addAccount', {
+      label: 'work',
+      locator: { type: 'config-dir', dir: '/d' },
+      provider: 'claude',
+    });
+    await call(handlers, 'addAccount', {
+      label: 'ds',
+      locator: { type: 'key-file', path: '/k' },
+      provider: 'deepseek',
+    });
+    await call(handlers, 'useAccount', { label: 'work' });
+    await call(handlers, 'useAccount', { label: 'ds' });
+    let res = await call(handlers, 'currentAccount');
+    expect(res).toMatchObject({ result: { active: { claude: 'work', deepseek: 'ds' } } });
+
+    // Reset only DeepSeek to ambient; Claude stays.
+    await call(handlers, 'useAccount', { label: 'ambient', provider: 'deepseek' });
+    res = await call(handlers, 'currentAccount');
+    expect(res).toMatchObject({ result: { active: { claude: 'work' } } });
+  });
+
+  it('listAccounts returns the registered accounts with their provider + active map', async () => {
     const handlers = buildAuthHandlers(new AccountsRegistry(home));
     await call(handlers, 'addAccount', {
       label: 'work',
       locator: { type: 'config-dir', dir: '/d' },
     });
     const res = await call(handlers, 'listAccounts');
-    expect(res).toMatchObject({ result: { accounts: [{ label: 'work', provider: 'claude' }] } });
+    expect(res).toMatchObject({
+      result: { accounts: [{ label: 'work', provider: 'claude' }], active: {} },
+    });
   });
 
   it('removeAccount drops it', async () => {

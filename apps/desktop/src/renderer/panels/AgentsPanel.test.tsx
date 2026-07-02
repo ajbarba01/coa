@@ -8,6 +8,7 @@ import {
   clampReasoning,
   includedPackageIds,
   modelLabel,
+  modelPickerLabel,
   modelReasoningCaps,
   packageAdvisories,
   pickableModels,
@@ -78,6 +79,16 @@ describe('modelLabel', () => {
   it('falls back to the display name, then the id, when there is no description', () => {
     expect(modelLabel({ id: 'x', displayName: 'X' })).toBe('X');
     expect(modelLabel({ id: 'raw-id' })).toBe('raw-id');
+  });
+});
+
+describe('modelPickerLabel', () => {
+  it('prefixes the provider in the merged list, leaving untagged models plain', () => {
+    expect(modelPickerLabel({ id: 'deepseek-v4-pro', provider: 'deepseek' })).toBe(
+      'DeepSeek · deepseek-v4-pro',
+    );
+    expect(modelPickerLabel({ id: 'x', displayName: 'X', provider: 'claude' })).toBe('Claude · X');
+    expect(modelPickerLabel(OPUS)).toBe('Opus 4.8');
   });
 });
 

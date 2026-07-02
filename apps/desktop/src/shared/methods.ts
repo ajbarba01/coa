@@ -78,7 +78,10 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   listTimeline: { result: TimelineSchema },
   listAccounts: { result: AccountsSchema },
   currentAccount: { result: ActiveAccountSchema },
-  useAccount: { params: z.object({ label: z.string() }), result: ActiveAccountSchema },
+  useAccount: {
+    params: z.object({ label: z.string(), provider: z.string().optional() }),
+    result: ActiveAccountSchema,
+  },
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },

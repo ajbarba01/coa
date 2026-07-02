@@ -62,6 +62,8 @@ export type ModelSelection = z.infer<typeof modelSelectionSchema>;
  */
 export const modelDescriptorSchema = z.object({
   id: z.string(),
+  /** The backend this model runs on — set when providers are merged into one list. */
+  provider: z.string().optional(),
   displayName: z.string().optional(),
   description: z.string().optional(),
   supportsEffort: z.boolean().optional(),
