@@ -40,6 +40,7 @@ declare global {
       reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
       renameSession(params: { id: string; title: string }): Promise<{ ok: boolean }>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
+      recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
       listModels(): Promise<ModelDescriptor[]>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;

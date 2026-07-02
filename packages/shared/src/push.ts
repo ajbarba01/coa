@@ -46,6 +46,31 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
 ]);
 export type TurnFrame = z.infer<typeof turnFrameSchema>;
 
+/** A clickable choice on a system banner; its `id` is echoed back to the daemon
+ *  when the user picks it (e.g. a drift banner's `recompile` / `keep`). */
+export const bannerActionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  /** Styling hint — the recommended/default action. */
+  primary: z.boolean().optional(),
+});
+export type BannerAction = z.infer<typeof bannerActionSchema>;
+
+/**
+ * A dismissable, SYSTEM-only chat banner (never part of the transcript sent to the
+ * agent). `id` is a stable identity so re-emitting the same banner replaces rather
+ * than stacks it and so a dismissal can target it; `kind` drives styling/behavior
+ * (prompt-drift vs. cache-status); `actions` are the resolutions the user can pick
+ * (absent ⇒ a passive notice). Shared by the drift banner and the cache banner.
+ */
+export const bannerSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['drift', 'cache']),
+  reason: z.string(),
+  actions: z.array(bannerActionSchema).optional(),
+});
+export type Banner = z.infer<typeof bannerSchema>;
+
 export const pushSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('flag'), flag: flagRecordSchema }),
   z.object({ kind: z.literal('drift'), flag: flagRecordSchema }),
@@ -66,6 +91,7 @@ export const pushSchema = z.discriminatedUnion('kind', [
     diffHandle: z.string().optional(),
   }),
   z.object({ kind: z.literal('tokens'), sessionId: z.string(), delta: z.string() }),
+  z.object({ kind: z.literal('banner'), sessionId: z.string(), banner: bannerSchema }),
   z.object({
     kind: z.literal('turn'),
     sessionId: z.string(),

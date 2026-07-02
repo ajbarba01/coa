@@ -19,6 +19,24 @@ export interface FrozenCompilation {
   frame: CapabilityFrame;
   /** Stable content hash of {@link neutral} — bumped only on a deliberate recompile. */
   promptVersion: string;
+  /** The drift key: hash of the config that PRODUCED this prompt (role + package
+   *  selection, never the model). On a later send, a differing current configHash
+   *  means the governance config changed under the frozen prompt — the signal the
+   *  drift banner raises (recompile / apply-as-update / keep). */
+  configHash: string;
+}
+
+/**
+ * The drift-relevant slice of a session's prompt configuration — the inputs that
+ * SHAPE the compiled prompt (the role and the package selection layered on it),
+ * deliberately excluding the model/reasoning (which must never change the prompt)
+ * and the dynamic runtime facts (worktree/date). Two sessions with the same
+ * {@link configHashOf} compile to the same governance prompt.
+ */
+export interface PromptConfig {
+  role: string;
+  packageIds?: readonly string[];
+  exclude?: readonly string[];
 }
 
 /** Deterministic JSON (object keys sorted at every depth) so the hash is stable
@@ -38,4 +56,25 @@ function stableStringify(value: unknown): string {
  *  bytes share a version; any material change produces a new one. */
 export function promptVersionOf(neutral: NeutralConfig): string {
   return createHash('sha256').update(stableStringify(neutral)).digest('hex').slice(0, 16);
+}
+
+/** Order- and duplicate-independent, side-effect-free hash of the drift-relevant
+ *  config. Package selections are treated as sets (deduped + sorted) so a mere
+ *  reordering is never counted as drift; an omitted selection hashes like an empty
+ *  one. Never folds in the model, so a model switch leaves this hash unchanged. */
+export function configHashOf(config: PromptConfig): string {
+  const asSet = (ids: readonly string[] | undefined): string[] => [...new Set(ids ?? [])].sort();
+  const canonical = {
+    role: config.role,
+    packageIds: asSet(config.packageIds),
+    exclude: asSet(config.exclude),
+  };
+  return createHash('sha256').update(stableStringify(canonical)).digest('hex').slice(0, 16);
+}
+
+/** Whether the current config would compile a different prompt than the frozen one —
+ *  the deterministic drift signal. Dismissal ("keep") is banner state, not detection,
+ *  so this stays a pure comparison. */
+export function promptHasDrifted(frozen: { configHash: string }, current: PromptConfig): boolean {
+  return frozen.configHash !== configHashOf(current);
 }

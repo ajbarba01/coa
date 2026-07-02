@@ -82,6 +82,7 @@ export type MethodName =
   | 'reloadConversation'
   | 'renameSession'
   | 'deleteSession'
+  | 'recompilePrompt'
   | 'listModels'
   | 'listRoles'
   | 'listPackages'
@@ -109,6 +110,10 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     result: OkResultSchema,
   },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
+  recompilePrompt: {
+    params: z.object({ sessionId: z.string() }),
+    result: z.object({ recompiled: z.boolean() }),
+  },
   listModels: { result: z.array(modelDescriptorSchema) },
   listRoles: { result: RoleSummaryListSchema },
   listPackages: { result: PackageSummaryListSchema },

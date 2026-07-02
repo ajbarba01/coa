@@ -3,6 +3,7 @@ import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import {
   AgentChip,
   AgentRail,
+  Banner as BannerCard,
   Button,
   EmptyState,
   IconButton,
@@ -15,7 +16,7 @@ import {
   Transcript,
 } from '@coa/console-ui';
 import type { AgentRailItem, RespondFn, SwitcherGroup, TranscriptFrame } from '@coa/console-ui';
-import type { AgentSummary, SessionSummary, TurnFrame } from '@coa/console-viewmodel';
+import type { AgentSummary, Banner, SessionSummary, TurnFrame } from '@coa/console-viewmodel';
 import { ChevronDown, MessageSquare, MessageSquarePlus } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
@@ -26,6 +27,10 @@ export type ChatVm =
       status: 'ready';
       rawMode: boolean;
       frames: TranscriptFrame[];
+      /** System banners (drift/cache notices) for the active session — surfaced above
+       *  the transcript, never sent to the agent. */
+      banners: Banner[];
+      onBannerAction: (bannerId: string, actionId: string) => void;
       onRespond: RespondFn;
       onSend: (text: string) => void;
       toggleRaw: () => void;
@@ -198,10 +203,16 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   // agent so "New session" is enabled — otherwise the first session can never be
   // created (it needs an active agent, which only a session provides).
   const activeAgentRef = activeSession?.agentRef ?? agents[0]?.ref;
+  const banners = activeSessionId ? (state.ui.banners[activeSessionId] ?? []) : [];
   return {
     status: 'ready',
     rawMode,
     frames,
+    banners,
+    onBannerAction: (bannerId, actionId) => {
+      if (activeSessionId !== undefined)
+        state.actions.onBannerAction(activeSessionId, bannerId, actionId);
+    },
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
     toggleRaw: state.actions.toggleRaw,
@@ -232,6 +243,53 @@ function RawToggle({ on, onToggle }: { on: boolean; onToggle: () => void }): Rea
     <Button variant={on ? 'primary' : 'tertiary'} size="sm" aria-pressed={on} onClick={onToggle}>
       raw
     </Button>
+  );
+}
+
+/** A short title per banner kind (the reason carries the detail). */
+function bannerTitle(kind: Banner['kind']): string {
+  return kind === 'drift' ? 'Prompt out of date' : 'Prompt cache';
+}
+
+/** System banners (drift/cache notices) above the transcript: the reason plus any
+ *  resolution buttons. System-only — a banner is never part of the agent transcript. */
+function BannerStrip({
+  banners,
+  onAction,
+}: {
+  banners: Banner[];
+  onAction: (bannerId: string, actionId: string) => void;
+}): React.JSX.Element | null {
+  if (banners.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2 border-b border-border-default p-2.5">
+      {banners.map((b) => (
+        <BannerCard
+          key={b.id}
+          tone="warning"
+          title={bannerTitle(b.kind)}
+          onDismiss={() => onAction(b.id, 'dismiss')}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <span className="min-w-0">{b.reason}</span>
+            {b.actions && b.actions.length > 0 && (
+              <div className="flex shrink-0 items-center gap-1.5">
+                {b.actions.map((a) => (
+                  <Button
+                    key={a.id}
+                    variant={a.primary ? 'primary' : 'tertiary'}
+                    size="sm"
+                    onClick={() => onAction(b.id, a.id)}
+                  >
+                    {a.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        </BannerCard>
+      ))}
+    </div>
   );
 }
 
@@ -339,6 +397,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           onConfigure={vm.onConfigure}
         />
         <div className="flex min-h-0 flex-1 flex-col">
+          <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
           <div className="min-h-0 flex-1 p-3.5">
             {vm.frames.length === 0 ? (
               <EmptyState

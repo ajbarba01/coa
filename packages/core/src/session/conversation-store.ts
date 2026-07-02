@@ -71,6 +71,7 @@ const frozenCompilationSchema = z.object({
   neutral: neutralConfigSchema,
   frame: capabilityFrameSchema,
   promptVersion: z.string(),
+  configHash: z.string(),
 });
 
 const metaSchema = z.object({
@@ -118,6 +119,10 @@ export interface ConversationStore {
    *  the provider/model it is valid for (the native `resume` fast path is honored
    *  only while the live selection still matches this stamp). */
   setBackendSession(id: string, backendSessionId: string, stamp: ResumeStamp): void;
+  /** Drop the resume token (backend session id + stamp), so the next turn starts a
+   *  fresh server session (carrying memory via the transcript). Used by a deliberate
+   *  prompt recompile: the old server session still holds the superseded prompt. */
+  clearBackendSession(id: string): void;
   /** Append turns to the session's stream (bumps updatedAt). */
   append(id: string, turns: PersistedTurn[]): void;
   /** The persisted turn sequence (up to and including `toSeq`, when given). */
@@ -131,6 +136,9 @@ export interface ConversationStore {
   getCompilation(id: string): FrozenCompilation | undefined;
   /** Freeze the session's compilation so every later turn reuses it verbatim (cache-stable). */
   setCompilation(id: string, compilation: FrozenCompilation): void;
+  /** Drop the frozen compilation so the next turn recompiles from the current config
+   *  (a deliberate recompile — the drift banner's `recompile` action). */
+  clearCompilation(id: string): void;
   /** Delete a session's whole tree. */
   remove(id: string): void;
 }
@@ -214,6 +222,13 @@ export function createConversationStore(
       touch(id, { backendSessionId, resumeStamp: stamp });
     },
 
+    clearBackendSession(id) {
+      const meta = readMeta(id);
+      if (meta === undefined) return;
+      const { backendSessionId: _bsid, resumeStamp: _stamp, ...rest } = meta;
+      writeMeta({ ...rest, updatedAt: now() });
+    },
+
     append(id, turns) {
       if (turns.length === 0) return;
       mkdirSync(sessionDir(id), { recursive: true });
@@ -273,6 +288,10 @@ export function createConversationStore(
     setCompilation(id, compilation) {
       mkdirSync(sessionDir(id), { recursive: true });
       writeFileSync(compilationPath(id), `${JSON.stringify(compilation, null, 2)}\n`, 'utf8');
+    },
+
+    clearCompilation(id) {
+      rmSync(compilationPath(id), { force: true });
     },
 
     remove(id) {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   modelSelectionSchema,
   type BackendMessage,
+  type Banner,
   type Push,
   type RpcNotification,
   type Session,
@@ -12,7 +13,54 @@ import type { RpcConnection } from '../rpc/stream.js';
 import { closeSession as closeSessionCore, createSession, type SessionDeps } from './session.js';
 import type { ConversationStore } from './conversation-store.js';
 import { planMemory, type MemoryPlan } from './memory-plan.js';
-import { promptVersionOf, type FrozenCompilation } from './prompt-freeze.js';
+import { cacheColdReasons, type CacheColdReason } from './cache-status.js';
+import {
+  configHashOf,
+  promptHasDrifted,
+  promptVersionOf,
+  type FrozenCompilation,
+  type PromptConfig,
+} from './prompt-freeze.js';
+
+/** The prompt-drift notice — a SYSTEM-only banner (never sent to the agent) raised
+ *  when the governance config changed under a running frozen prompt. `recompile`
+ *  drops the frozen prompt so the next turn compiles fresh; `keep` is a client-side
+ *  dismissal (the daemon already suppresses re-nagging the same drift). */
+const DRIFT_BANNER: Banner = {
+  id: 'drift',
+  kind: 'drift',
+  reason:
+    'The agent configuration changed while a compiled prompt is running. The active ' +
+    'prompt still reflects the earlier configuration — recompile to apply the change, ' +
+    'or keep the current prompt.',
+  actions: [
+    { id: 'recompile', label: 'Recompile', primary: true },
+    { id: 'keep', label: 'Keep current' },
+  ],
+};
+
+/** Per-provider prompt-cache TTL (ms) — the idle window past which a turn is treated
+ *  as cold. Baked-in defaults (Claude 5 min); a provider absent here ⇒ the staleness
+ *  check is off (e.g. DeepSeek). A console-settings override is a later seam. */
+const CACHE_STALENESS_MS: Record<string, number> = { claude: 5 * 60_000 };
+
+const CACHE_REASON_TEXT: Record<CacheColdReason, string> = {
+  'provider-changed': 'the backend changed',
+  'model-changed': 'the model changed',
+  'prompt-recompiled': 'the prompt was recompiled',
+  stale: 'the session was idle',
+};
+
+/** The deterministic cache-status notice — a passive SYSTEM banner (no model call)
+ *  telling the user this turn starts cold, so it may be slower and cost more. */
+function cacheBanner(reasons: readonly CacheColdReason[]): Banner {
+  const phrases = reasons.map((r) => CACHE_REASON_TEXT[r]).join(', ');
+  return {
+    id: 'cache',
+    kind: 'cache',
+    reason: `This turn starts with a cold prompt cache (${phrases}), so it may be slower and cost more.`,
+  };
+}
 
 /**
  * M8 — the session-lifecycle RPC surface (CON-CAT `createSession`/`closeSession`)
@@ -64,6 +112,14 @@ export function buildSessionHandlers(
   store?: ConversationStore,
 ): RpcHandlers {
   const live = new Map<string, Session>();
+  // The drift config-hash last surfaced per session, so a kept banner is not re-nagged
+  // on every subsequent send while the config stays changed. In-memory for the
+  // connection's lifetime (a restart re-surfaces an unresolved drift once — the
+  // documented tripwire; persistent dismissal is a later refinement).
+  const lastDriftHash = new Map<string, string>();
+  // The last cache-cold reason-set surfaced per session, so an unchanged cold status
+  // is not re-emitted every send (in-memory, same lifetime + tripwire as the drift memo).
+  const lastCacheSig = new Map<string, string>();
 
   const emit = (push: Push): void => {
     connection.push({ jsonrpc: '2.0', method: 'push', params: push } satisfies RpcNotification);
@@ -83,6 +139,14 @@ export function buildSessionHandlers(
       // The provider/model this turn actually routes to (mirrors session.ts's default).
       const provider = params.model?.provider ?? 'claude';
       const model = params.model?.model;
+      // The drift-relevant config that SHAPES the prompt (role + package selection,
+      // never the model) — hashed into the frozen compilation so a later config change
+      // under the frozen prompt is detectable.
+      const currentConfig: PromptConfig = {
+        role: params.role,
+        ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
+        ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
+      };
       // The session's frozen compilation (reused every turn for cache warmth) and its
       // prompt version — undefined until the first turn compiles it below.
       let frozen: FrozenCompilation | undefined;
@@ -102,6 +166,59 @@ export function buildSessionHandlers(
         const transcript = cs.loadBackendMessages(id);
         frozen = cs.getCompilation(id);
         promptVersion = frozen?.promptVersion;
+        // The PRIOR turn's stored facts (read before this turn re-pins the selection),
+        // shared by the memory plan, the drift check, and the cache-status check.
+        const priorMeta = cs.getMeta(id);
+        // Surface a drift banner when the config that shapes the prompt changed under
+        // the running frozen compilation — deduped by hash so a kept banner is not
+        // re-raised on the next send. Resolved drift (config matched again, or a
+        // recompile) clears the memo so a later change re-surfaces.
+        if (frozen !== undefined && promptHasDrifted(frozen, currentConfig)) {
+          const driftHash = configHashOf(currentConfig);
+          if (lastDriftHash.get(id) !== driftHash) {
+            lastDriftHash.set(id, driftHash);
+            emit({ kind: 'banner', sessionId: id, banner: DRIFT_BANNER });
+          }
+        } else {
+          lastDriftHash.delete(id);
+        }
+        // Surface a deterministic cache-status banner when this turn starts cold
+        // (backend/model switch, recompile, or an idle gap past the provider's TTL) —
+        // deduped by reason-set so an unchanged status is not re-nagged.
+        const coldReasons = cacheColdReasons({
+          // Only a continuation has a warm cache to invalidate — the first turn is cold
+          // by definition and carries no banner (a fresh meta has no prior selection).
+          ...(priorMeta !== undefined && prior.length > 0
+            ? {
+                prior: {
+                  ...(priorMeta.provider !== undefined ? { provider: priorMeta.provider } : {}),
+                  ...(priorMeta.model !== undefined ? { model: priorMeta.model } : {}),
+                  ...(priorMeta.resumeStamp?.promptVersion !== undefined
+                    ? { promptVersion: priorMeta.resumeStamp.promptVersion }
+                    : {}),
+                  at: priorMeta.updatedAt,
+                },
+              }
+            : {}),
+          current: {
+            provider,
+            ...(model !== undefined ? { model } : {}),
+            ...(promptVersion !== undefined ? { promptVersion } : {}),
+          },
+          now: new Date().toISOString(),
+          ...(CACHE_STALENESS_MS[provider] !== undefined
+            ? { stalenessMs: CACHE_STALENESS_MS[provider] }
+            : {}),
+        });
+        if (coldReasons.length > 0) {
+          const sig = coldReasons.join(',');
+          if (lastCacheSig.get(id) !== sig) {
+            lastCacheSig.set(id, sig);
+            emit({ kind: 'banner', sessionId: id, banner: cacheBanner(coldReasons) });
+          }
+        } else {
+          lastCacheSig.delete(id);
+        }
         seq = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
         // First message of a still-untitled session sets the VSCode-style auto-title.
         if (prior.length === 0) {
@@ -118,7 +235,7 @@ export function buildSessionHandlers(
           provider,
           ...(model !== undefined ? { model } : {}),
           ...(promptVersion !== undefined ? { promptVersion } : {}),
-          meta: cs.getMeta(id),
+          meta: priorMeta,
           transcript,
         });
         cs.setSelection(id, params.model ?? { provider });
@@ -155,7 +272,11 @@ export function buildSessionHandlers(
               ? {
                   onCompile: (compiled) => {
                     promptVersion = promptVersionOf(compiled.neutral);
-                    persistIn.store.setCompilation(persistIn.convId, { ...compiled, promptVersion });
+                    persistIn.store.setCompilation(persistIn.convId, {
+                      ...compiled,
+                      promptVersion,
+                      configHash: configHashOf(currentConfig),
+                    });
                   },
                 }
               : {}),
@@ -205,6 +326,19 @@ export function buildSessionHandlers(
       closeSessionCore(session, deps);
       live.delete(params.id);
       return { closed: true };
+    }),
+
+    // The drift banner's `recompile` action: drop the session's frozen prompt AND its
+    // resume token, so the next send recompiles from the current config and starts a
+    // fresh backend session with it (memory is carried across via the transcript). The
+    // old server session still holds the superseded prompt, so resuming it would keep
+    // the stale prompt — hence both are cleared.
+    recompilePrompt: rpcMethod(z.object({ sessionId: z.string() }), (params) => {
+      if (store === undefined) return { recompiled: false };
+      store.clearCompilation(params.sessionId);
+      store.clearBackendSession(params.sessionId);
+      lastDriftHash.delete(params.sessionId);
+      return { recompiled: true };
     }),
   };
 }

@@ -215,6 +215,33 @@ describe('raw + approval projection', () => {
       expect(approval).toMatchObject({ resolved: 'approved' });
     }
   });
+
+  it('projects only the active session’s banners and routes an action to it', () => {
+    const onBannerAction = vi.fn();
+    const banner = {
+      id: 'drift',
+      kind: 'drift' as const,
+      reason: 'stale',
+      actions: [{ id: 'recompile', label: 'Recompile', primary: true }],
+    };
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          banners: {
+            's-audit-auth': [banner],
+            other: [{ id: 'x', kind: 'drift', reason: 'other session' }],
+          },
+        },
+        { onBannerAction },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.banners).toEqual([banner]); // only the active session's
+      vm.onBannerAction('drift', 'recompile');
+      expect(onBannerAction).toHaveBeenCalledWith('s-audit-auth', 'drift', 'recompile');
+    }
+  });
 });
 
 describe('ChatView states-first', () => {
@@ -260,6 +287,42 @@ describe('ChatView states-first', () => {
       'aria-current',
       'true',
     );
+  });
+
+  it('surfaces a system banner with its actions and dispatches on click', async () => {
+    const onBannerAction = vi.fn();
+    const banner = {
+      id: 'drift',
+      kind: 'drift' as const,
+      reason: 'The agent configuration changed while a compiled prompt is running.',
+      actions: [
+        { id: 'recompile', label: 'Recompile', primary: true },
+        { id: 'keep', label: 'Keep current' },
+      ],
+    };
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: [] }, { banners: { 's-audit-auth': [banner] } }, { onBannerAction }),
+    );
+    render(<ChatView vm={vm} host={host} />);
+    expect(screen.getByText(/agent configuration changed/i)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
+    expect(onBannerAction).toHaveBeenCalledWith('s-audit-auth', 'drift', 'recompile');
+  });
+
+  it('surfaces a passive cache banner and dismisses it via the close control', async () => {
+    const onBannerAction = vi.fn();
+    const banner = {
+      id: 'cache',
+      kind: 'cache' as const,
+      reason: 'This turn starts with a cold prompt cache (the model changed).',
+    };
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: [] }, { banners: { 's-audit-auth': [banner] } }, { onBannerAction }),
+    );
+    render(<ChatView vm={vm} host={host} />);
+    expect(screen.getByText(/cold prompt cache/i)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onBannerAction).toHaveBeenCalledWith('s-audit-auth', 'cache', 'dismiss');
   });
 
   it('opens the session switcher on hover and selects a session', async () => {

@@ -90,6 +90,41 @@ describe('conversation store (R-7)', () => {
     expect(store.getMeta('ghost')).toBeUndefined();
   });
 
+  it('clearBackendSession drops the resume token so the next turn starts a fresh server session', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    store.setBackendSession('c1', 'sdk-1', { provider: 'claude', model: 'opus', promptVersion: 'v1' });
+    store.clearBackendSession('c1');
+    const meta = store.getMeta('c1')!;
+    expect(meta.backendSessionId).toBeUndefined();
+    expect(meta.resumeStamp).toBeUndefined();
+    // The rest of the metadata survives.
+    expect(meta.title).toBe('t');
+  });
+
+  it('clearCompilation removes the frozen prompt so the next turn recompiles', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    store.setCompilation('c1', {
+      neutral: {
+        prefixHead: [],
+        systemReminders: [],
+        onDemandPullable: [],
+        scopePushed: [],
+        toolIntents: { allow: [], deny: [] },
+      },
+      frame: { allow: [], deny: [] },
+      promptVersion: 'pv',
+      configHash: 'cfg',
+    });
+    expect(store.getCompilation('c1')).toBeDefined();
+    store.clearCompilation('c1');
+    expect(store.getCompilation('c1')).toBeUndefined();
+  });
+
+  it('clearBackendSession/clearCompilation are no-ops on an unknown session', () => {
+    expect(() => store.clearBackendSession('ghost')).not.toThrow();
+    expect(() => store.clearCompilation('ghost')).not.toThrow();
+  });
+
   it('removes a session entirely', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
     store.append('c1', [{ seq: 0, frame: text('hi') }]);
@@ -163,6 +198,7 @@ describe('conversation store (R-7)', () => {
       },
       frame: { allow: ['Read'], deny: [] },
       promptVersion: 'abc123',
+      configHash: 'cfg789',
     };
     store.setCompilation('c1', compilation);
     expect(store.getCompilation('c1')).toEqual(compilation);

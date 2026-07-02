@@ -34,6 +34,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
     reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
+    recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),
@@ -115,6 +116,45 @@ describe('startConsole (inspector-first)', () => {
       });
     });
     expect(container.querySelector('[data-panel-id="conversation"] [role="log"]')).not.toBeNull();
+  });
+
+  it('routes a banner push to the session banner strip and recompiles on its action', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+
+    await act(async () => {
+      emit?.({
+        kind: 'banner',
+        sessionId: 'c1', // the active (reloaded) session
+        banner: {
+          id: 'drift',
+          kind: 'drift',
+          reason: 'The agent configuration changed while a compiled prompt is running.',
+          actions: [{ id: 'recompile', label: 'Recompile', primary: true }],
+        },
+      });
+    });
+    const dock = container.querySelector('[data-panel-id="conversation"]');
+    expect(dock?.textContent).toContain('agent configuration changed');
+
+    const recompile = [...(dock?.querySelectorAll('button') ?? [])].find(
+      (b) => b.textContent === 'Recompile',
+    );
+    expect(recompile).toBeDefined();
+    await act(async () => {
+      recompile?.click();
+    });
+    expect(bridge.recompilePrompt).toHaveBeenCalledWith({ sessionId: 'c1' });
+    // The banner is dismissed once acted on.
+    expect(container.querySelector('[data-panel-id="conversation"]')?.textContent).not.toContain(
+      'agent configuration changed',
+    );
   });
 
   it('ignores a malformed push (validated at the edge, never throws)', async () => {

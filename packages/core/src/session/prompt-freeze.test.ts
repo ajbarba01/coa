@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NeutralConfig } from '@coa/shared';
-import { promptVersionOf } from './prompt-freeze.js';
+import { configHashOf, promptHasDrifted, promptVersionOf } from './prompt-freeze.js';
 
 const base: NeutralConfig = {
   prefixHead: [],
@@ -29,5 +29,51 @@ describe('promptVersionOf', () => {
   it('changes when the compiled content changes', () => {
     const changed: NeutralConfig = { ...base, toolIntents: { allow: ['Read', 'Edit'], deny: [] } };
     expect(promptVersionOf(changed)).not.toBe(promptVersionOf(base));
+  });
+});
+
+describe('configHashOf', () => {
+  it('is stable across calls for the same config', () => {
+    const cfg = { role: 'swe', packageIds: ['research'], exclude: ['core'] };
+    expect(configHashOf(cfg)).toBe(configHashOf(cfg));
+  });
+
+  it('treats package selections as sets (order- and duplicate-independent)', () => {
+    expect(configHashOf({ role: 'swe', packageIds: ['a', 'b'] })).toBe(
+      configHashOf({ role: 'swe', packageIds: ['b', 'a', 'a'] }),
+    );
+    expect(configHashOf({ role: 'swe', exclude: ['x', 'y'] })).toBe(
+      configHashOf({ role: 'swe', exclude: ['y', 'x'] }),
+    );
+  });
+
+  it('treats an omitted selection the same as an empty one', () => {
+    expect(configHashOf({ role: 'swe' })).toBe(
+      configHashOf({ role: 'swe', packageIds: [], exclude: [] }),
+    );
+  });
+
+  it('changes when the role, added packages, or exclusions change', () => {
+    const base = configHashOf({ role: 'swe', packageIds: ['research'], exclude: ['core'] });
+    expect(configHashOf({ role: 'writer', packageIds: ['research'], exclude: ['core'] })).not.toBe(
+      base,
+    );
+    expect(configHashOf({ role: 'swe', packageIds: ['docs'], exclude: ['core'] })).not.toBe(base);
+    expect(configHashOf({ role: 'swe', packageIds: ['research'], exclude: [] })).not.toBe(base);
+  });
+});
+
+describe('promptHasDrifted', () => {
+  const frozen = { configHash: configHashOf({ role: 'swe', packageIds: ['research'] }) };
+
+  it('is false when the current config still hashes to the frozen one', () => {
+    expect(promptHasDrifted(frozen, { role: 'swe', packageIds: ['research'] })).toBe(false);
+    // Reordering the same selection is not drift.
+    expect(promptHasDrifted(frozen, { role: 'swe', packageIds: ['research'] })).toBe(false);
+  });
+
+  it('is true when the drift-relevant config changed under the frozen prompt', () => {
+    expect(promptHasDrifted(frozen, { role: 'swe', packageIds: ['research', 'docs'] })).toBe(true);
+    expect(promptHasDrifted(frozen, { role: 'writer', packageIds: ['research'] })).toBe(true);
   });
 });

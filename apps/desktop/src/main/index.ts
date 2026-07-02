@@ -221,6 +221,8 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('renameSession', params);
     case 'deleteSession':
       return proxyDaemon('deleteSession', params);
+    case 'recompilePrompt':
+      return proxyDaemon('recompilePrompt', params);
     case 'listModels':
       return proxyDaemon('listModels');
     case 'listRoles':

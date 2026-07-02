@@ -1,9 +1,11 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import {
   pushSchema,
+  pushToBanner,
   pushToViewFrames,
   reloadToViewFrames,
   type AgentSummary,
+  type Banner,
   type CapState,
   type Checkpoint,
   type FeedView,
@@ -53,6 +55,8 @@ export interface ConsoleBridge {
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
   reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
+  /** Drop a session's frozen prompt + resume token so the next send recompiles (the drift banner's recompile). */
+  recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
   /** Subscribe to the daemon push stream; returns an unsubscribe. */
   onPush(listener: (payload: unknown) => void): () => void;
   getLayout(): Promise<unknown>;
@@ -124,6 +128,7 @@ export async function startConsole(
     newSession: () => {},
     deleteSession: () => {},
     sendMessage: () => {},
+    onBannerAction: () => {},
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -338,11 +343,42 @@ export async function startConsole(
     push();
   };
 
+  /** Upsert a system banner for a session (replace-by-id so a re-raised banner
+   *  doesn't stack), then republish. */
+  const showBanner = (sessionId: string, banner: Banner): void => {
+    const prev = state.ui.banners[sessionId] ?? [];
+    const next = [...prev.filter((b) => b.id !== banner.id), banner];
+    state = { ...state, ui: { ...state.ui, banners: { ...state.ui.banners, [sessionId]: next } } };
+    push();
+  };
+
+  /** Remove a banner from a session (dismissal / resolution), then republish. */
+  const clearBanner = (sessionId: string, bannerId: string): void => {
+    const prev = state.ui.banners[sessionId];
+    if (prev === undefined) return;
+    const next = prev.filter((b) => b.id !== bannerId);
+    state = { ...state, ui: { ...state.ui, banners: { ...state.ui.banners, [sessionId]: next } } };
+    push();
+  };
+
+  const onBannerAction = (sessionId: string, bannerId: string, actionId: string): void => {
+    // `recompile` drops the frozen prompt server-side; every action dismisses the
+    // banner locally (SC-1: banners surface, never block).
+    if (actionId === 'recompile') void bridge.recompilePrompt({ sessionId });
+    clearBanner(sessionId, bannerId);
+  };
+
   // Forward every daemon push into the active conversation; a completed session
-  // refreshes the rail so its auto-title + recency update.
+  // refreshes the rail so its auto-title + recency update. A banner is a system
+  // notice (never a transcript turn), routed to the session's banner stack instead.
   const unsubscribePush = bridge.onPush((payload) => {
     const parsed = pushSchema.safeParse(payload);
     if (!parsed.success) return;
+    const banner = pushToBanner(parsed.data);
+    if (banner !== undefined && parsed.data.kind === 'banner') {
+      showBanner(parsed.data.sessionId, banner);
+      return;
+    }
     appendTurns(pushToViewFrames(parsed.data));
     if (parsed.data.kind === 'status' && parsed.data.state === 'done') void refreshSessionList();
   });
@@ -422,6 +458,7 @@ export async function startConsole(
       newSession,
       deleteSession,
       sendMessage,
+      onBannerAction,
     },
   };
   push();

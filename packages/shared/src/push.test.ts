@@ -19,6 +19,41 @@ describe('pushSchema', () => {
     expect(pushSchema.parse(push)).toMatchObject({ kind: 'turn', frame: { t: 'tool_use' } });
   });
 
+  it('accepts a system banner carrying an actionable drift notice', () => {
+    const push = {
+      kind: 'banner' as const,
+      sessionId: 's1',
+      banner: {
+        id: 'drift',
+        kind: 'drift' as const,
+        reason: 'The agent config changed under the running prompt.',
+        actions: [
+          { id: 'recompile', label: 'Recompile', primary: true },
+          { id: 'keep', label: 'Keep' },
+        ],
+      },
+    };
+    expect(pushSchema.parse(push)).toMatchObject({ kind: 'banner', banner: { kind: 'drift' } });
+  });
+
+  it('accepts a banner with no actions (a passive notice)', () => {
+    const push = {
+      kind: 'banner' as const,
+      sessionId: 's1',
+      banner: { id: 'cache', kind: 'cache' as const, reason: 'Prompt cache likely cold.' },
+    };
+    expect(pushSchema.safeParse(push).success).toBe(true);
+  });
+
+  it('rejects a banner with an unknown banner kind', () => {
+    const push = {
+      kind: 'banner',
+      sessionId: 's1',
+      banner: { id: 'x', kind: 'nonsense', reason: 'r' },
+    };
+    expect(pushSchema.safeParse(push).success).toBe(false);
+  });
+
   it('rejects an unknown push kind', () => {
     expect(pushSchema.safeParse({ kind: 'telepathy', sessionId: 's1' }).success).toBe(false);
   });

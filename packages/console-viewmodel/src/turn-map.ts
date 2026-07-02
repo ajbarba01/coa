@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { turnFrameSchema, type Push, type TurnFrame as WireTurnFrame } from '@coa/shared';
+import {
+  turnFrameSchema,
+  type Banner,
+  type Push,
+  type TurnFrame as WireTurnFrame,
+} from '@coa/shared';
 import type { TurnFrame } from './reads.js';
 
 /** A persisted turn as `reloadConversation` returns it (R-7): the M0 frame + its seq. */
@@ -37,6 +42,16 @@ export function pushToViewFrames(push: Push): TurnFrame[] {
   const id = `${push.sessionId}:${push.seq}`;
   const frame = mapFrame(push.frame, id);
   return frame === undefined ? [] : [frame];
+}
+
+/**
+ * The push→banner edge: a `banner` push yields its descriptor; any other push yields
+ * undefined. A banner is a SYSTEM-only chat notice (never a transcript turn), so it is
+ * routed here rather than through {@link pushToViewFrames}. The M0 {@link Banner} shape
+ * is already view-ready, so this is the single validated seam, not a reshape.
+ */
+export function pushToBanner(push: Push): Banner | undefined {
+  return push.kind === 'banner' ? push.banner : undefined;
 }
 
 function mapFrame(frame: WireTurnFrame, id: string): TurnFrame | undefined {

@@ -1,5 +1,6 @@
 import type {
   AgentSummary,
+  Banner,
   CapState,
   Checkpoint,
   FeedView,
@@ -57,6 +58,9 @@ export interface ConsoleUi {
   selectedAgentRef?: string;
   /** The conversation the chat pane shows; its agentRef drives the rail selection. */
   activeSessionId?: string;
+  /** System banners per session (drift/cache notices), keyed by sessionId, deduped
+   *  by banner id. Never part of the transcript sent to the agent (SC-1: surfacing). */
+  banners: Record<string, Banner[]>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -80,6 +84,9 @@ export interface ConsoleActions {
   deleteSession: (id: string) => void;
   /** Send a prompt to the active session's agent (starts a governed daemon session). */
   sendMessage: (text: string) => void;
+  /** Resolve a system banner action (e.g. the drift banner's `recompile`/`keep`).
+   *  Always dismisses the banner; `recompile` also refreshes the running prompt. */
+  onBannerAction: (sessionId: string, bannerId: string, actionId: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -112,6 +119,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       settings: DEFAULT_SETTINGS,
       rawMode: false,
       resolvedApprovals: {},
+      banners: {},
     },
     actions,
   };

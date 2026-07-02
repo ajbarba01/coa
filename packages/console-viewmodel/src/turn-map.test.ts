@@ -1,6 +1,6 @@
 import type { Push, TurnFrame as WireTurnFrame } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
-import { pushToViewFrames } from './turn-map.js';
+import { pushToBanner, pushToViewFrames } from './turn-map.js';
 
 /** Wrap a wire turn frame in its `turn` Push (sessionId `s`, given seq). */
 const turn = (frame: WireTurnFrame, seq = 0): Push => ({
@@ -54,5 +54,35 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
   it('ignores non-turn pushes (cost/status handled elsewhere)', () => {
     expect(pushToViewFrames({ kind: 'status', sessionId: 's', worktree: 'w', state: 'running' })).toEqual([]);
     expect(pushToViewFrames({ kind: 'cost', sessionId: 's', spent: 1, remaining: 2, capHit: false })).toEqual([]);
+  });
+
+  it('never routes a banner into the transcript (it is system-only)', () => {
+    const banner: Push = {
+      kind: 'banner',
+      sessionId: 's',
+      banner: { id: 'drift', kind: 'drift', reason: 'r' },
+    };
+    expect(pushToViewFrames(banner)).toEqual([]);
+  });
+});
+
+describe('pushToBanner — banner push → system banner', () => {
+  it('yields the descriptor of a banner push', () => {
+    const banner: Push = {
+      kind: 'banner',
+      sessionId: 's',
+      banner: {
+        id: 'drift',
+        kind: 'drift',
+        reason: 'The config changed under the running prompt.',
+        actions: [{ id: 'recompile', label: 'Recompile', primary: true }],
+      },
+    };
+    expect(pushToBanner(banner)).toEqual(banner.banner);
+  });
+
+  it('yields undefined for any non-banner push', () => {
+    expect(pushToBanner({ kind: 'status', sessionId: 's', worktree: 'w', state: 'running' })).toBeUndefined();
+    expect(pushToBanner({ kind: 'tokens', sessionId: 's', delta: 'x' })).toBeUndefined();
   });
 });
