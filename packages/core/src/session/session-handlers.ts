@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   modelSelectionSchema,
+  type BackendMessage,
   type Push,
   type RpcNotification,
   type Session,
@@ -74,6 +75,10 @@ export function buildSessionHandlers(
       const persistIn = convId !== undefined && store !== undefined ? { convId, store } : undefined;
       let seq = 0;
       let resume: string | undefined;
+      // The pure-API backend's prior transcript (system omitted), resent verbatim for
+      // memory + cache warmth; empty for a server-session (Claude) conversation, which
+      // resumes by id instead.
+      let history: readonly BackendMessage[] = [];
 
       if (persistIn !== undefined) {
         const { convId: id, store: cs } = persistIn;
@@ -86,6 +91,7 @@ export function buildSessionHandlers(
           });
         }
         const prior = cs.reload(id);
+        history = cs.loadBackendMessages(id);
         seq = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
         // First message of a still-untitled session sets the VSCode-style auto-title.
         if (prior.length === 0) {
@@ -119,10 +125,13 @@ export function buildSessionHandlers(
             ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
             ...(persistIn !== undefined ? { sessionId: persistIn.convId } : {}),
             ...(resume !== undefined ? { resume } : {}),
+            ...(history.length > 0 ? { history } : {}),
             ...(persistIn !== undefined
               ? {
                   onBackendSession: (id: string) =>
                     persistIn.store.setBackendSession(persistIn.convId, id),
+                  onBackendMessages: (messages: readonly BackendMessage[]) =>
+                    persistIn.store.saveBackendMessages(persistIn.convId, messages),
                 }
               : {}),
             onStart: (s) => {

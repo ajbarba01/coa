@@ -28,8 +28,22 @@ export interface GovernedLoopDeps {
   catalogue: ToolCatalogue;
   /** The coa-authored system prompt (M5 render → the scaffold + context). */
   systemPrompt: string;
-  /** The user's turn (a one-shot prompt for now; multi-turn continuity lands later). */
+  /** The user's turn. */
   input: string;
+  /**
+   * The prior conversation (R-7), minus the system prompt, replayed verbatim ahead
+   * of `input` so a pure-API backend has memory across turns (a server-session
+   * backend resumes by id instead). The WHOLE transcript is resent unmodified —
+   * tool calls and results included — so the model stays coherent and the provider's
+   * prefix/context cache hits on the identical leading prefix.
+   */
+  history?: readonly DriverMessage[];
+  /**
+   * Called once the turn settles with the full conversation (system prompt omitted)
+   * so the caller can persist it as the next turn's {@link history}. Not called if
+   * the loop throws before settling.
+   */
+  onMessages?: (messages: readonly DriverMessage[]) => void;
   /** The per-tool block: cost-cap + M3 deny, assembled by M8 (first-deny-wins, fail-closed). */
   canUseTool: CanUseTool;
   /** The close-gate (M3.gate) run before the turn may end. */
@@ -70,6 +84,7 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
   const byName = new Map(deps.catalogue.map((tool) => [tool.name, tool] as const));
   const messages: DriverMessage[] = [
     { role: 'system', content: deps.systemPrompt },
+    ...(deps.history ?? []),
     { role: 'user', content: deps.input },
   ];
   const usage: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -135,4 +150,7 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
   }
 
   deps.onSettle?.(deps.sessionId, usage);
+  // Hand back the whole conversation (system omitted — it's re-rendered each turn)
+  // so the caller can persist it as the next turn's `history`.
+  deps.onMessages?.(messages.slice(1));
 }

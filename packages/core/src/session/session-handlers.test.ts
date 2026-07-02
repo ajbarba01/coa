@@ -30,6 +30,8 @@ class FrameAdapter implements RuntimeAdapter {
     readonly init: SessionAdapterInit,
     readonly frames: TurnFrame[],
     readonly fail = false,
+    /** Simulate a pure-API backend: hand back the settled transcript instead of a server session id. */
+    readonly pureApi = false,
   ) {}
   renderNative(): BackendConfig {
     return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
@@ -40,8 +42,18 @@ class FrameAdapter implements RuntimeAdapter {
   interceptStop(_s: StopPredicate): void {}
   async runLoop(): Promise<void> {
     if (this.fail) throw new Error('loop blew up');
-    this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
+    const input = typeof this.init.input === 'string' ? this.init.input : '';
     for (const frame of this.frames) this.init.onTurn?.(frame);
+    if (this.pureApi) {
+      // The whole transcript (system omitted): prior history + this turn, resent next time.
+      this.init.onBackendMessages?.([
+        ...(this.init.history ?? []),
+        { role: 'user', content: input },
+        { role: 'assistant', content: 'reply' },
+      ]);
+    } else {
+      this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
+    }
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
   }
   deliverReminder(): void {}
@@ -154,13 +166,13 @@ describe('buildSessionHandlers — createSession over RPC', () => {
   });
 });
 
-/** Deps whose adapter factory also records each init, so a test can assert `resume`. */
-function depsCapturing(frames: TurnFrame[], inits: SessionAdapterInit[]): SessionDeps {
+/** Deps whose adapter factory also records each init, so a test can assert `resume`/`history`. */
+function depsCapturing(frames: TurnFrame[], inits: SessionAdapterInit[], pureApi = false): SessionDeps {
   return {
     ...deps(frames),
     createAdapter: (init) => {
       inits.push(init);
-      return new FrameAdapter(init, frames);
+      return new FrameAdapter(init, frames, false, pureApi);
     },
   };
 }
@@ -213,6 +225,32 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
       { seq: 1, frame: { t: 'text', text: 'reply' } },
       { seq: 2, frame: { t: 'text', text: 'second', role: 'user' } },
       { seq: 3, frame: { t: 'text', text: 'reply' } },
+    ]);
+  });
+
+  it('resends the whole prior transcript as history on the next send (pure-API memory)', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = buildSessionHandlers(
+      depsCapturing([{ t: 'text', text: 'reply' }], inits, true),
+      connection(),
+      store,
+    );
+
+    await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1' });
+    expect(inits[0]?.history).toBeUndefined(); // no memory on the first send
+
+    await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1' });
+    // The second send replays turn 1's full transcript verbatim ahead of the new turn.
+    expect(inits[1]?.history).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+    // And the persisted transcript now covers both turns (system omitted).
+    expect(store.loadBackendMessages('c1')).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+      { role: 'user', content: 'second' },
+      { role: 'assistant', content: 'reply' },
     ]);
   });
 

@@ -1,4 +1,5 @@
 import type {
+  BackendMessage,
   CapabilityFrame,
   CapabilitySet,
   Locator,
@@ -42,6 +43,10 @@ export interface SessionAdapterInit {
   resume?: string;
   /** Report the backend's own session id (for the next resume); M8 persists it against the conversation. */
   onBackendSession?: (backendSessionId: string) => void;
+  /** The prior conversation transcript (R-7, system omitted) for a pure-API backend that has no server session to `resume`; resent verbatim for cross-turn memory. */
+  history?: readonly BackendMessage[];
+  /** Report the settled transcript (pure-API counterpart to `onBackendSession`); M8 persists it as the next turn's `history`. */
+  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
 }
 
 /** The active-account resolution M8 supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
@@ -132,6 +137,10 @@ export async function createSession(
     resume?: string;
     /** Report the backend's own session id once the loop learns it. */
     onBackendSession?: (backendSessionId: string) => void;
+    /** The prior conversation transcript for a pure-API backend (system omitted). */
+    history?: readonly BackendMessage[];
+    /** Report the settled transcript so M8 can persist it for the next turn. */
+    onBackendMessages?: (messages: readonly BackendMessage[]) => void;
   },
   deps: SessionDeps,
 ): Promise<Session> {
@@ -178,6 +187,8 @@ export async function createSession(
     ...(account?.locator ? { locator: account.locator } : {}),
     ...(req.resume !== undefined ? { resume: req.resume } : {}),
     ...(req.onBackendSession ? { onBackendSession: req.onBackendSession } : {}),
+    ...(req.history !== undefined ? { history: req.history } : {}),
+    ...(req.onBackendMessages ? { onBackendMessages: req.onBackendMessages } : {}),
   });
 
   adapter.renderNative(neutral);

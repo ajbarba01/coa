@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TurnFrame } from '@coa/shared';
 import type { RegisteredTool, ToolCatalogue } from '@coa/spi';
 import type { CompletionResult } from './complete.js';
+import type { DriverMessage } from './complete.js';
 import { runGovernedLoop, toToolDefs, type GovernedLoopDeps } from './driver.js';
 
 const USAGE = { tokensIn: 10, tokensOut: 5, costUsd: 0.5 };
@@ -142,6 +143,54 @@ describe('runGovernedLoop', () => {
       ok: false,
       pointer: 'unknown tool: nope',
     });
+  });
+
+  it('resends the whole prior transcript verbatim ahead of the current turn (multi-turn memory)', async () => {
+    const complete = scriptedComplete([text('sixty-four')]);
+    // The full prior conversation (system omitted) — tool call + result included.
+    const history: DriverMessage[] = [
+      { role: 'user', content: 'what is 8 squared?' },
+      { role: 'assistant', content: 'let me compute', toolCalls: [{ id: 'c1', name: 'calc', arguments: { n: 8 } }] },
+      { role: 'tool', toolCallId: 'c1', content: '{"answer":64}' },
+      { role: 'assistant', content: '64' },
+    ];
+
+    await runGovernedLoop(deps({ complete: complete.fn, history, input: 'and 9 squared?' }));
+
+    // Nothing dropped or reordered — the cached prefix stays intact.
+    expect(complete.seen[0]).toEqual([
+      { role: 'system', content: 'sys' },
+      ...history,
+      { role: 'user', content: 'and 9 squared?' },
+    ]);
+  });
+
+  it('hands back the settled transcript (system omitted) via onMessages for persistence', async () => {
+    const onMessages = vi.fn();
+    const complete = scriptedComplete([
+      {
+        text: 'looking',
+        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
+        usage: USAGE,
+      },
+      text('the answer'),
+    ]);
+
+    await runGovernedLoop(
+      deps({
+        catalogue: [tool('get_symbol')],
+        complete: complete.fn,
+        input: 'find pay',
+        onMessages,
+      }),
+    );
+
+    expect(onMessages).toHaveBeenCalledExactlyOnceWith([
+      { role: 'user', content: 'find pay' },
+      { role: 'assistant', content: 'looking', toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }] },
+      { role: 'tool', toolCallId: 'c1', content: JSON.stringify({ ok: true, args: { name: 'pay' } }) },
+      { role: 'assistant', content: 'the answer' },
+    ]);
   });
 
   it('is bounded by maxIterations when the model never stops, still settling', async () => {

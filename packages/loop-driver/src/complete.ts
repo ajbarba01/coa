@@ -1,3 +1,4 @@
+import type { BackendMessage, LoopToolCall } from '@coa/shared';
 import type { RuntimeUsage } from '@coa/spi';
 
 /**
@@ -14,15 +15,13 @@ import type { RuntimeUsage } from '@coa/spi';
  * these on the way in.
  */
 
-/** A message in the driver's running conversation (neutral chat shape). */
-export interface DriverMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  /** On an assistant message: the tool calls it emitted (so the transcript round-trips). */
-  toolCalls?: LoopToolCall[];
-  /** On a `tool` message: which assistant tool call this result answers. */
-  toolCallId?: string;
-}
+/**
+ * A message in the driver's running conversation (the neutral M0 chat-transcript
+ * record). Re-exported under the driver's local name; it is the same shape the R-7
+ * store persists so the transcript round-trips verbatim across turns.
+ */
+export type DriverMessage = BackendMessage;
+export type { LoopToolCall };
 
 /** A tool offered to the model — coa-authored name/description + its JSON-schema parameters. */
 export interface ToolDef {
@@ -30,14 +29,6 @@ export interface ToolDef {
   description: string;
   /** JSON-schema-shaped parameters (from the governed tool's Zod input); opaque to the driver. */
   parameters: unknown;
-}
-
-/** One tool call the model emitted in a completion. */
-export interface LoopToolCall {
-  /** Provider-assigned call id, used to correlate the tool result back. */
-  id: string;
-  name: string;
-  arguments: Record<string, unknown>;
 }
 
 /** The pure model round-trip result: text + any tool calls + settled usage. */

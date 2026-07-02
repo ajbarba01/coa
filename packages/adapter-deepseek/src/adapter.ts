@@ -1,4 +1,5 @@
 import type {
+  BackendMessage,
   CapabilityProfile,
   ContextPackage,
   Locator,
@@ -57,6 +58,10 @@ export interface DeepSeekAdapterInit {
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** Per-frame session output → M8's emission policy. */
   onTurn?: (frame: TurnFrame) => void;
+  /** The prior conversation transcript (R-7, system omitted), resent verbatim for cross-turn memory — a pure chat API has no server-side session to `resume`. */
+  history?: readonly BackendMessage[];
+  /** Report the settled transcript so M8 can persist it as the next turn's `history`. */
+  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
   /** The account's login pointer (an env-var pointer for DeepSeek); absent ⇒ the default key var. */
   locator?: Locator;
   /**
@@ -162,9 +167,13 @@ export class DeepSeekAdapter implements RuntimeAdapter {
       catalogue: this.#catalogue,
       systemPrompt: backend.systemPrompt,
       input: await firstPrompt(this.#init.input),
+      ...(this.#init.history !== undefined ? { history: this.#init.history } : {}),
       canUseTool: this.#canUseTool,
       gate: this.#stopPredicate,
       ...(this.#init.onTurn !== undefined ? { onTurn: this.#init.onTurn } : {}),
+      ...(this.#init.onBackendMessages !== undefined
+        ? { onMessages: this.#init.onBackendMessages }
+        : {}),
       onSettle: (sessionId, usage) => {
         this.#lastUsage = usage;
         this.#init.onSettle?.(sessionId, usage);

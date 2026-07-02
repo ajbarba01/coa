@@ -63,6 +63,10 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
     ...(init.onTurn !== undefined ? { onTurn: init.onTurn } : {}),
     ...(init.maxBudgetUsd !== undefined ? { maxBudgetUsd: init.maxBudgetUsd } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
+    ...(init.history !== undefined ? { history: init.history } : {}),
+    ...(init.onBackendMessages !== undefined
+      ? { onBackendMessages: init.onBackendMessages }
+      : {}),
   });
 }
 

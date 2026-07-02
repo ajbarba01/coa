@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { turnFrameSchema, type TurnFrame } from '@coa/shared';
+import { backendMessageSchema, turnFrameSchema, type BackendMessage, type TurnFrame } from '@coa/shared';
 
 /**
  * M8 — the R-7 conversation store. It mirrors each session's conversation to a
@@ -21,10 +21,17 @@ import { turnFrameSchema, type TurnFrame } from '@coa/shared';
  *                        backend session id used to resume the loop's memory)
  *   - `turns.ndjson`   — the append-only `TurnFrame` sequence (R-7.a), each line a
  *                        `{ seq, frame }` — the durable analog of the live `turn` Push.
+ *   - `messages.json`  — the pure-API backend's full chat transcript (system omitted),
+ *                        rewritten each turn. Unlike the lossy `turns.ndjson` UI view
+ *                        (a tool-result pointer, not its full output), this is the
+ *                        verbatim message array a pure-API backend resends for
+ *                        cross-turn memory + cache warmth (a server-session backend
+ *                        uses `backendSessionId` instead, so this stays empty for it).
  *
- * Reads never throw: a corrupt `meta.json` drops that session from the listing and
- * a garbage turn line is skipped, so a hand-edited or partially-written store still
- * re-materializes what it can (the D85 floor).
+ * Reads never throw: a corrupt `meta.json` drops that session from the listing, a
+ * garbage turn line is skipped, and an unparseable `messages.json` reads as no memory
+ * — so a hand-edited or partially-written store still re-materializes what it can
+ * (the D85 floor).
  */
 
 const metaSchema = z.object({
@@ -63,9 +70,15 @@ export interface ConversationStore {
   append(id: string, turns: PersistedTurn[]): void;
   /** The persisted turn sequence (up to and including `toSeq`, when given). */
   reload(id: string, toSeq?: number): PersistedTurn[];
+  /** The pure-API backend's full chat transcript (system omitted); empty if none / unparseable. */
+  loadBackendMessages(id: string): BackendMessage[];
+  /** Replace the pure-API backend's chat transcript (rewritten in full each turn). */
+  saveBackendMessages(id: string, messages: readonly BackendMessage[]): void;
   /** Delete a session's whole tree. */
   remove(id: string): void;
 }
+
+const backendMessagesSchema = z.array(backendMessageSchema);
 
 export function createConversationStore(
   dir: string,
@@ -74,6 +87,7 @@ export function createConversationStore(
   const sessionDir = (id: string): string => join(dir, id);
   const metaPath = (id: string): string => join(sessionDir(id), 'meta.json');
   const turnsPath = (id: string): string => join(sessionDir(id), 'turns.ndjson');
+  const messagesPath = (id: string): string => join(sessionDir(id), 'messages.json');
 
   const readMeta = (id: string): SessionMeta | undefined => {
     const path = metaPath(id);
@@ -153,6 +167,23 @@ export function createConversationStore(
         out.push(parsed.data);
       }
       return out;
+    },
+
+    loadBackendMessages(id) {
+      const path = messagesPath(id);
+      if (!existsSync(path)) return [];
+      try {
+        const parsed = backendMessagesSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
+        return parsed.success ? parsed.data : []; // all-or-nothing: a partial transcript would malform tool pairing
+      } catch {
+        return []; // unreadable/partial write → no memory (never throw)
+      }
+    },
+
+    saveBackendMessages(id, messages) {
+      mkdirSync(sessionDir(id), { recursive: true });
+      writeFileSync(messagesPath(id), `${JSON.stringify(messages, null, 2)}\n`, 'utf8');
+      touch(id, {});
     },
 
     remove(id) {

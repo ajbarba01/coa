@@ -23,5 +23,6 @@ export * from './context.js';
 export * from './config.js';
 export * from './change-event.js';
 export * from './push.js';
+export * from './backend-message.js';
 export * from './rpc.js';
 export * from './auth.js';

@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { TurnFrame } from '@coa/shared';
+import type { BackendMessage, TurnFrame } from '@coa/shared';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 
 /** A monotonic ISO clock so recency ordering is deterministic in tests. */
@@ -95,5 +95,31 @@ describe('conversation store (R-7)', () => {
   it('returns undefined/empty for unknown ids', () => {
     expect(store.getMeta('nope')).toBeUndefined();
     expect(store.reload('nope')).toEqual([]);
+    expect(store.loadBackendMessages('nope')).toEqual([]);
+  });
+
+  it('round-trips the pure-API backend transcript verbatim (tool calls + results kept)', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    const messages: BackendMessage[] = [
+      { role: 'user', content: 'find pay' },
+      {
+        role: 'assistant',
+        content: 'looking',
+        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
+      },
+      { role: 'tool', toolCallId: 'c1', content: '{"rows":3}' },
+      { role: 'assistant', content: 'found it' },
+    ];
+    store.saveBackendMessages('c1', messages);
+    expect(store.loadBackendMessages('c1')).toEqual(messages);
+    // Rewritten in full each turn (not appended).
+    store.saveBackendMessages('c1', [{ role: 'user', content: 'only me now' }]);
+    expect(store.loadBackendMessages('c1')).toEqual([{ role: 'user', content: 'only me now' }]);
+  });
+
+  it('reads an unparseable transcript as no memory (all-or-nothing, never throws)', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    writeFileSync(join(dir, 'c1', 'messages.json'), '{ not json', 'utf8');
+    expect(store.loadBackendMessages('c1')).toEqual([]);
   });
 });
