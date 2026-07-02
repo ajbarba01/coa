@@ -46,7 +46,7 @@ export function Select({
         <RxSelect.Trigger
           aria-labelledby={labelId}
           className={cx(
-            'inline-flex h-control-md items-center justify-between gap-2 rounded-control border border-border-default bg-element px-2.5 text-body text-fg transition-colors duration-fast enabled:hover:border-accent enabled:active:bg-element-hover data-[state=open]:border-accent disabled:opacity-50',
+            'inline-flex h-control-md items-center justify-between gap-2 rounded-control border border-border-default bg-element px-2.5 text-body text-fg enabled:hover:border-accent enabled:active:bg-element-hover data-[state=open]:border-accent disabled:opacity-50',
             focusRing,
           )}
         >
@@ -70,7 +70,7 @@ export function Select({
                   key={opt.value}
                   value={opt.value}
                   disabled={opt.disabled ?? false}
-                  className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none transition-colors duration-fast data-[highlighted]:bg-element-hover data-[disabled]:opacity-50"
+                  className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-[highlighted]:bg-element-hover data-[disabled]:opacity-50"
                 >
                   <RxSelect.ItemText>{opt.label}</RxSelect.ItemText>
                   <RxSelect.ItemIndicator className="ml-auto">

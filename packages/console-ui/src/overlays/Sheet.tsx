@@ -31,7 +31,7 @@ export function Sheet({ trigger, title, side = 'right', children }: SheetProps):
             <RxDialog.Close
               aria-label="Close"
               className={cx(
-                'rounded-control p-0.5 text-muted transition-colors hover:bg-element-hover active:scale-90',
+                'rounded-control p-0.5 text-muted transition-transform hover:bg-element-hover active:scale-90',
                 focusRing,
               )}
             >

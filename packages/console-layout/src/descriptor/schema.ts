@@ -18,12 +18,15 @@ export interface LeafRegion {
 }
 
 /** A split arranges children along an axis; the resize dial lives here (it owns
- *  the boundary between its children). */
+ *  the boundary between its children). `gap` overrides the default inter-child gutter
+ *  in px for a *static* split (e.g. 0 to butt a rail flush against its neighbour);
+ *  omitted, the layout's default gutter is used. */
 export interface SplitRegion {
   type: 'split';
   direction: 'row' | 'column';
   adjustability: Adjustability;
   children: Region[];
+  gap?: number | undefined;
 }
 
 export type Region = LeafRegion | SplitRegion;
@@ -42,6 +45,7 @@ const SplitRegionSchema: z.ZodType<SplitRegion> = z.lazy(() =>
     direction: z.enum(['row', 'column']),
     adjustability: AdjustabilitySchema,
     children: z.array(RegionSchema).min(1),
+    gap: z.number().nonnegative().optional(),
   }),
 );
 

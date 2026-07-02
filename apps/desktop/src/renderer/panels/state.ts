@@ -1,4 +1,11 @@
-import type { CapState, Checkpoint, FeedView, TurnFrame } from '@coa/console-viewmodel';
+import type {
+  AgentSummary,
+  CapState,
+  Checkpoint,
+  FeedView,
+  SessionSummary,
+  TurnFrame,
+} from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
@@ -22,6 +29,9 @@ export interface ConsoleData {
   timeline: Remote<Checkpoint[]>;
   accounts: Remote<AccountsInfo>;
   turns: Remote<TurnFrame[]>;
+  /** Mock today (no listRoles / session-list verbs yet); swapped via the registry. */
+  agents: Remote<AgentSummary[]>;
+  sessions: Remote<SessionSummary[]>;
 }
 
 /** Local view state (not daemon data). */
@@ -34,6 +44,10 @@ export interface ConsoleUi {
   /** Inert local record of mock approvals the operator resolved (SC-1: surfacing
    *  only — the daemon owns the real decision). */
   resolvedApprovals: Record<string, 'approved' | 'denied'>;
+  /** The agent open in the Agents editor (not the chat's — that follows the session). */
+  selectedAgentRef?: string;
+  /** The conversation the chat pane shows; its agentRef drives the rail selection. */
+  activeSessionId?: string;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -44,6 +58,16 @@ export interface ConsoleActions {
   setSettings: (patch: Partial<ConsoleSettings>) => void;
   toggleRaw: () => void;
   respondApproval: (requestId: string, decision: 'approve' | 'deny') => void;
+  /** Agents-surface editor selection + mock-inert writes (future writeRole funnel). */
+  selectAgent: (ref: string) => void;
+  createAgent: (scope: 'project' | 'personal') => void;
+  updateAgent: (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>) => void;
+  deleteAgent: (ref: string) => void;
+  togglePinAgent: (ref: string) => void;
+  /** Chat session axis — selection follows the session (its agent drives the rail). */
+  selectSession: (id: string) => void;
+  newSession: (agentRef: string) => void;
+  deleteSession: (id: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -65,6 +89,8 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       timeline: { status: 'loading' },
       accounts: { status: 'loading' },
       turns: { status: 'loading' },
+      agents: { status: 'loading' },
+      sessions: { status: 'loading' },
     },
     ui: {
       activeMainPanelId: DEFAULT_MAIN_PANEL_ID,

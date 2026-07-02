@@ -12,12 +12,18 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
   /** Render as the single child element (e.g. an anchor) instead of <button>. */
   asChild?: boolean;
+  /** Whether the press transform (`active:scale`) plays. Off for overlay triggers —
+   *  a scaled trigger shifts the panel that anchors to it, and reads as a jitter on
+   *  the open click. Default on. */
+  pressScale?: boolean;
   children?: ReactNode;
 }
 
+// Tints change instantly (snappy hover); only the press transform animates. No
+// persistent open-scale — a scaled trigger shifts the panel that anchors to it.
 const base =
   'inline-flex items-center justify-center gap-1.5 rounded-control border font-medium select-none ' +
-  'transition-[background-color,border-color,color,transform] duration-fast active:scale-[0.98] data-[state=open]:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none';
+  'transition-transform duration-fast disabled:opacity-50 disabled:pointer-events-none';
 
 const bySize: Record<ButtonSize, string> = {
   sm: 'h-control-sm px-2.5 text-label',
@@ -39,6 +45,7 @@ export function Button({
   size = 'md',
   loading = false,
   asChild = false,
+  pressScale = true,
   disabled,
   type,
   className,
@@ -57,7 +64,14 @@ export function Button({
       aria-busy={loading || undefined}
       disabled={asChild ? undefined : isDisabled}
       data-disabled={isDisabled ? 'true' : undefined}
-      className={cx(base, bySize[size], byVariant[variant], focusRing, className)}
+      className={cx(
+        base,
+        pressScale && 'active:scale-[0.98]',
+        bySize[size],
+        byVariant[variant],
+        focusRing,
+        className,
+      )}
       {...rest}
     >
       {children}

@@ -1,6 +1,6 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
-import { Icon, cx, focusRing } from '@coa/console-ui';
-import { Blocks, Flag, History, Settings, Wallet } from 'lucide-react';
+import { Icon, Tooltip, TooltipProvider, cx, focusRing } from '@coa/console-ui';
+import { Blocks, Bot, Flag, History, Settings, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
@@ -16,6 +16,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   { id: 'cost', label: 'Cost', icon: Wallet },
   { id: 'flags', label: 'Flags', icon: Flag },
   { id: 'timeline', label: 'Timeline', icon: History },
+  { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'showcase', label: 'Components', icon: Blocks },
 ];
 
@@ -42,52 +43,59 @@ function NavButton({
   onSelect: () => void;
 }): React.JSX.Element {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-current={active ? 'page' : undefined}
-      data-active={active ? 'true' : undefined}
-      onClick={onSelect}
-      className={cx(
-        'relative flex h-10 w-10 items-center justify-center rounded-control transition-[color,background-color,transform] duration-fast active:scale-95',
-        active ? 'bg-raised text-accent' : 'text-muted hover:bg-raised hover:text-fg',
-        focusRing,
-      )}
-    >
-      {/* The brass selection marker sits in the gutter to the LEFT of the rail card
-          (negative offset clears the button's centering margin + the card border). */}
-      {active && (
-        <span className="absolute inset-y-2 -left-2 w-0.75 rounded-full bg-accent" aria-hidden />
-      )}
-      <Icon name={icon} size={20} />
-    </button>
+    <Tooltip content={label} side="right">
+      <button
+        type="button"
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        data-active={active ? 'true' : undefined}
+        onClick={onSelect}
+        className={cx(
+          'relative flex h-10 w-10 items-center justify-center rounded-control transition-[color,background-color,transform] duration-fast active:scale-95',
+          active ? 'bg-raised text-accent' : 'text-muted hover:bg-raised hover:text-fg',
+          focusRing,
+        )}
+      >
+        {/* The brass selection marker sits in the gutter to the LEFT of the rail card
+            (negative offset clears the button's centering margin + the card border). */}
+        {active && (
+          <span className="absolute inset-y-2 -left-2 w-0.75 rounded-full bg-accent" aria-hidden />
+        )}
+        <Icon name={icon} size={20} />
+      </button>
+    </Tooltip>
   );
 }
 
 function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
   return (
-    <nav
-      aria-label="Sections"
-      className="flex h-full flex-col items-center gap-1.5 rounded-surface border border-border-default bg-surface py-2.5"
-    >
-      {NAV_SECTIONS.map((s) => (
-        <NavButton
-          key={s.id}
-          icon={s.icon}
-          label={s.label}
-          active={s.id === vm.activeId}
-          onSelect={() => vm.setRoute(s.id)}
-        />
-      ))}
-      <div className="mt-auto">
-        <NavButton
-          icon={Settings}
-          label="Settings"
-          active={vm.activeId === 'settings'}
-          onSelect={() => vm.setRoute('settings')}
-        />
-      </div>
-    </nav>
+    <TooltipProvider>
+      <nav
+        aria-label="Sections"
+        // The rail is the combined card's left edge: outer border on top/left/bottom,
+        // rounded left only, and a hairline on the right as the internal divider between
+        // it and the main pane (which butts flush against it — root split gap 0).
+        className="flex h-full flex-col items-center gap-1.5 rounded-l-surface border border-border-default border-r-hairline bg-subtle py-2.5"
+      >
+        {NAV_SECTIONS.map((s) => (
+          <NavButton
+            key={s.id}
+            icon={s.icon}
+            label={s.label}
+            active={s.id === vm.activeId}
+            onSelect={() => vm.setRoute(s.id)}
+          />
+        ))}
+        <div className="mt-auto">
+          <NavButton
+            icon={Settings}
+            label="Settings"
+            active={vm.activeId === 'settings'}
+            onSelect={() => vm.setRoute('settings')}
+          />
+        </div>
+      </nav>
+    </TooltipProvider>
   );
 }
 

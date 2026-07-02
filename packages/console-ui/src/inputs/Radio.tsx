@@ -41,13 +41,16 @@ export function Radio({
         {options.map((opt) => {
           const id = `${labelId}-${opt.value}`;
           return (
-            <div key={opt.value} className={cx('flex items-center gap-2', !opt.disabled && 'group')}>
+            <div
+              key={opt.value}
+              className={cx('flex items-center gap-2', !opt.disabled && 'group')}
+            >
               <RadioGroup.Item
                 id={id}
                 value={opt.value}
                 disabled={opt.disabled ?? false}
                 className={cx(
-                  "relative flex h-control-indicator w-control-indicator shrink-0 cursor-pointer items-center justify-center rounded-full border border-border-default bg-element transition-colors duration-fast before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-accent disabled:cursor-not-allowed disabled:opacity-50",
+                  "relative flex h-control-indicator w-control-indicator shrink-0 cursor-pointer items-center justify-center rounded-full border border-border-default bg-element before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-accent disabled:cursor-not-allowed disabled:opacity-50",
                   focusRing,
                 )}
               >

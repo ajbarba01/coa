@@ -33,7 +33,7 @@ export function Checkbox({
           : {})}
         disabled={disabled ?? false}
         className={cx(
-          "relative flex h-control-indicator w-control-indicator shrink-0 cursor-pointer items-center justify-center rounded-control border border-border-default bg-element transition-colors duration-fast before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-transparent data-[state=checked]:bg-accent data-[state=checked]:group-hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50",
+          "relative flex h-control-indicator w-control-indicator shrink-0 cursor-pointer items-center justify-center rounded-control border border-border-default bg-element before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-transparent data-[state=checked]:bg-accent data-[state=checked]:group-hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50",
           focusRing,
         )}
       >
@@ -43,7 +43,10 @@ export function Checkbox({
       </RxCheckbox.Root>
       <label
         htmlFor={id}
-        className={cx('text-body text-fg', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer')}
+        className={cx(
+          'text-body text-fg',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+        )}
       >
         {label}
       </label>

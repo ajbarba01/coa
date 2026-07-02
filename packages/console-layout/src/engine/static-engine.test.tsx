@@ -59,6 +59,22 @@ const resizableSplit: LayoutDescriptor = {
 };
 
 describe('StaticEngine', () => {
+  it('honors a per-region gap override on a static split (flush = 0)', () => {
+    const flush: LayoutDescriptor = {
+      version: LAYOUT_VERSION,
+      root: { ...staticSplit.root, gap: 0 } as LayoutDescriptor['root'],
+    };
+    const { container } = mountInto(flush);
+    const splitEl = container.firstElementChild?.firstElementChild as HTMLElement;
+    expect(splitEl.style.gap).toBe('0px');
+  });
+
+  it('falls back to the layout default gutter when no gap is set', () => {
+    const { container } = mountInto(staticSplit);
+    const splitEl = container.firstElementChild?.firstElementChild as HTMLElement;
+    expect(splitEl.style.gap).toBe('var(--layout-gap, 0)');
+  });
+
   it('advertises its identity and supported dials', () => {
     const engine = createStaticEngine();
     expect(engine.id).toBe('static');

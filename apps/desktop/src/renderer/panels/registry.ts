@@ -4,7 +4,7 @@ import {
   createPanelRegistry,
 } from '@coa/console-layout';
 import { accountPanel } from './AccountPanel.js';
-import { agentPanel } from './AgentPanel.js';
+import { agentsPanel } from './AgentsPanel.js';
 import { chatPanel } from './ChatPanel.js';
 import { costPanel } from './CostPanel.js';
 import { flagsPanel } from './FlagsPanel.js';
@@ -16,7 +16,7 @@ import { makeDescriptor } from './routing.js';
 import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
 /** The registered surfaces: the nav rail, the nav-driven main windows
- *  (cost/flags/timeline/settings), and the right dock (chat + agent + account). */
+ *  (cost/flags/timeline/agents/settings), and the right dock (chat + account). */
 export function buildPanelRegistry(): PanelRegistry {
   const registry = createPanelRegistry();
   registry.register(navPanel);
@@ -27,7 +27,7 @@ export function buildPanelRegistry(): PanelRegistry {
   registry.register(showcasePanel);
   registry.register(accountPanel);
   registry.register(chatPanel);
-  registry.register(agentPanel);
+  registry.register(agentsPanel);
   return registry;
 }
 

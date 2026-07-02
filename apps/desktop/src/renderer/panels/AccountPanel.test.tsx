@@ -2,8 +2,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { accountPanel, selectAccountVm } from './AccountPanel.js';
+import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
-import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 const AccountView = accountPanel.render;
 const host = {
@@ -16,29 +16,7 @@ const host = {
 const stateWith = (
   accounts: ConsoleState['data']['accounts'],
   switchAccount = vi.fn(),
-): ConsoleState => ({
-  data: {
-    cap: { status: 'loading' },
-    flags: { status: 'loading' },
-    timeline: { status: 'loading' },
-    accounts,
-    turns: { status: 'loading' },
-  },
-  ui: {
-    activeMainPanelId: 'cost',
-    settings: DEFAULT_SETTINGS,
-    rawMode: false,
-    resolvedApprovals: {},
-  },
-  actions: {
-    setRoute: () => {},
-    refresh: () => {},
-    switchAccount,
-    setSettings: () => {},
-    toggleRaw: () => {},
-    respondApproval: () => {},
-  },
-});
+): ConsoleState => makeState({ data: { accounts }, actions: { switchAccount } });
 
 describe('AccountView', () => {
   it('skeletons while loading', () => {

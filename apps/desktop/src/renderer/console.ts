@@ -1,7 +1,18 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
-import type { CapState, Checkpoint, FeedView } from '@coa/console-viewmodel';
+import type {
+  AgentSummary,
+  CapState,
+  Checkpoint,
+  FeedView,
+  SessionSummary,
+} from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-import { MOCK_TURNS } from './panels/mockConversation.js';
+import {
+  DEFAULT_SESSION_ID,
+  MOCK_AGENTS,
+  MOCK_SESSIONS,
+  MOCK_SESSION_TURNS,
+} from './panels/mockAgents.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
@@ -75,6 +86,14 @@ export async function startConsole(
     setSettings: () => {},
     toggleRaw: () => {},
     respondApproval: () => {},
+    selectAgent: () => {},
+    createAgent: () => {},
+    updateAgent: () => {},
+    deleteAgent: () => {},
+    togglePinAgent: () => {},
+    selectSession: () => {},
+    newSession: () => {},
+    deleteSession: () => {},
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -82,10 +101,26 @@ export async function startConsole(
     ...state,
     ui: { ...state.ui, settings, activeMainPanelId: getMainPanelId(descriptor) },
   };
-  // The conversation stream is a shell-owned mock (its daemon verb is unbuilt); seed
-  // it ready so the dock chat renders on first paint. Swapping this for the verb is a
-  // one-line data-source change.
-  state = { ...state, data: { ...state.data, turns: { status: 'ok', value: MOCK_TURNS } } };
+  // The agent list, sessions, and turn streams are shell-owned mocks (their daemon
+  // verbs are unbuilt); seed them ready so the chat + agents surfaces render on first
+  // paint. Swapping each for its verb is a data-source change. The mutable copies
+  // back the mock-inert writes (rename, recolor, pin) so the UX is fully exercisable.
+  let agents: AgentSummary[] = [...MOCK_AGENTS];
+  let sessions: SessionSummary[] = [...MOCK_SESSIONS];
+  const sessionTurns = new Map(Object.entries(MOCK_SESSION_TURNS));
+  const seedConversation = (sessionId: string): void => {
+    state = {
+      ...state,
+      data: {
+        ...state.data,
+        agents: { status: 'ok', value: [...agents] },
+        sessions: { status: 'ok', value: [...sessions] },
+        turns: { status: 'ok', value: sessionTurns.get(sessionId) ?? [] },
+      },
+      ui: { ...state.ui, activeSessionId: sessionId },
+    };
+  };
+  seedConversation(DEFAULT_SESSION_ID);
   const handle = engine.mount({
     container,
     descriptor,
@@ -134,9 +169,16 @@ export async function startConsole(
   const setSettings = (patch: Partial<ConsoleSettings>): void => {
     const next = { ...state.ui.settings, ...patch };
     applySettings(next);
-    void bridge.saveSettings(next);
     state = { ...state, ui: { ...state.ui, settings: next } };
     push();
+    // Persisting also recolors the native window chrome (main's saveSettings handler).
+    // Defer it until the renderer has painted the new theme (two frames), so the
+    // OS-drawn caption controls follow the window instead of flipping ahead of it.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        void bridge.saveSettings(next);
+      }),
+    );
   };
 
   const toggleRaw = (): void => {
@@ -156,6 +198,122 @@ export async function startConsole(
     push();
   };
 
+  // ---- Agents + sessions (mock-inert writes over the in-memory mock state; the
+  // real writes ride the future writeRole funnel / conversation store) ----
+
+  const pushAgentData = (): void => {
+    state = {
+      ...state,
+      data: {
+        ...state.data,
+        agents: { status: 'ok', value: [...agents] },
+        sessions: { status: 'ok', value: [...sessions] },
+      },
+    };
+    push();
+  };
+
+  const selectAgent = (ref: string): void => {
+    state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
+    push();
+  };
+
+  const createAgent = (scope: 'project' | 'personal'): void => {
+    const taken = new Set(agents.map((a) => a.name));
+    let name = 'untitled-agent';
+    for (let n = 2; taken.has(name); n += 1) name = `untitled-agent-${n}`;
+    const ref = `${scope === 'project' ? 'roles' : 'personal'}/${name}`;
+    agents = [...agents, { ref, name, icon: 'bot', color: 'slate', scope }];
+    state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
+    pushAgentData();
+  };
+
+  const updateAgent = (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>): void => {
+    agents = agents.map((a) => (a.ref === ref ? { ...a, ...patch } : a));
+    pushAgentData();
+  };
+
+  const deleteAgent = (ref: string): void => {
+    agents = agents.filter((a) => a.ref !== ref);
+    sessions = sessions.filter((s) => s.agentRef !== ref);
+    const ui = { ...state.ui };
+    if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
+    // The deleted agent's sessions go with it; fall back to the newest remaining one.
+    if (!sessions.some((s) => s.id === ui.activeSessionId)) {
+      const fallback = [...sessions].sort(
+        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+      )[0];
+      if (fallback) ui.activeSessionId = fallback.id;
+      else delete ui.activeSessionId;
+      state = {
+        ...state,
+        data: {
+          ...state.data,
+          turns: {
+            status: 'ok',
+            value: fallback ? (sessionTurns.get(fallback.id) ?? []) : [],
+          },
+        },
+      };
+    }
+    state = { ...state, ui };
+    pushAgentData();
+  };
+
+  const togglePinAgent = (ref: string): void => {
+    const pinned = state.ui.settings.pinnedAgents;
+    setSettings({
+      pinnedAgents: pinned.includes(ref) ? pinned.filter((p) => p !== ref) : [...pinned, ref],
+    });
+  };
+
+  function selectSession(id: string): void {
+    state = {
+      ...state,
+      data: {
+        ...state.data,
+        turns: { status: 'ok', value: sessionTurns.get(id) ?? [] },
+      },
+      ui: { ...state.ui, activeSessionId: id },
+    };
+    push();
+  }
+
+  const deleteSession = (id: string): void => {
+    sessions = sessions.filter((s) => s.id !== id);
+    sessionTurns.delete(id);
+    // If the deleted session was showing, fall back to the newest remaining one.
+    if (state.ui.activeSessionId === id) {
+      const fallback = [...sessions].sort(
+        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+      )[0];
+      if (fallback) selectSession(fallback.id);
+      else {
+        const ui = { ...state.ui };
+        delete ui.activeSessionId;
+        state = {
+          ...state,
+          data: { ...state.data, turns: { status: 'ok', value: [] } },
+          ui,
+        };
+      }
+    }
+    pushAgentData();
+  };
+
+  let newSessionSeq = 0;
+  const newSession = (agentRef: string): void => {
+    newSessionSeq += 1;
+    const id = `s-new-${newSessionSeq}`;
+    sessions = [
+      { id, agentRef, title: 'new session', updatedAt: new Date().toISOString() },
+      ...sessions,
+    ];
+    sessionTurns.set(id, []);
+    selectSession(id);
+    pushAgentData();
+  };
+
   state = {
     ...state,
     actions: {
@@ -165,6 +323,14 @@ export async function startConsole(
       setSettings,
       toggleRaw,
       respondApproval,
+      selectAgent,
+      createAgent,
+      updateAgent,
+      deleteAgent,
+      togglePinAgent,
+      selectSession,
+      newSession,
+      deleteSession,
     },
   };
   push();

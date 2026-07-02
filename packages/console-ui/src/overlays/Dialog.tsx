@@ -5,11 +5,15 @@ import { cx, focusRing } from '../lib/cx.js';
 import { Icon } from '../icon/Icon.js';
 
 export interface DialogProps {
-  trigger: ReactNode;
+  /** Omit when controlling `open` externally (e.g. opened from a menu item). */
+  trigger?: ReactNode;
   title: string;
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** Controlled mode — pair with onOpenChange. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function Dialog({
@@ -18,10 +22,15 @@ export function Dialog({
   description,
   children,
   footer,
+  open,
+  onOpenChange,
 }: DialogProps): React.JSX.Element {
   return (
-    <RxDialog.Root>
-      <RxDialog.Trigger asChild>{trigger}</RxDialog.Trigger>
+    <RxDialog.Root
+      {...(open !== undefined ? { open } : {})}
+      {...(onOpenChange !== undefined ? { onOpenChange } : {})}
+    >
+      {trigger !== undefined && <RxDialog.Trigger asChild>{trigger}</RxDialog.Trigger>}
       <RxDialog.Portal>
         <RxDialog.Overlay className="overlay-scrim fixed inset-0 z-[400] bg-black/50" />
         <RxDialog.Content className="dialog-content fixed left-1/2 top-1/2 z-[400] w-[28rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-overlay border border-border-default bg-raised p-4 text-body text-fg shadow-xl focus:outline-none">
@@ -30,7 +39,7 @@ export function Dialog({
             <RxDialog.Close
               aria-label="Close"
               className={cx(
-                'rounded-control p-0.5 text-muted transition-colors hover:bg-element-hover active:scale-90',
+                'rounded-control p-0.5 text-muted transition-transform hover:bg-element-hover active:scale-90',
                 focusRing,
               )}
             >

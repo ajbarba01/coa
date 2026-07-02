@@ -9,4 +9,11 @@ describe('console settings', () => {
     expect(parseSettings('nope')).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings(undefined)).toEqual(DEFAULT_SETTINGS);
   });
+  it('defaults pinnedAgents for settings persisted before the field existed', () => {
+    const parsed = parseSettings({ theme: 'dark', density: 'compact', motion: 'full' });
+    expect(parsed.pinnedAgents).toEqual([]);
+    expect(parseSettings({ pinnedAgents: ['roles/reviewer'] }).pinnedAgents).toEqual([
+      'roles/reviewer',
+    ]);
+  });
 });

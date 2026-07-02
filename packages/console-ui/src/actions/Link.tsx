@@ -26,7 +26,7 @@ export function Link({
     <a
       data-tone={tone}
       className={cx(
-        'rounded-[2px] underline-offset-2 transition-colors active:opacity-70',
+        'rounded-[2px] underline-offset-2 transition-opacity active:opacity-70',
         byTone[tone],
         focusRing,
         className,

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Combobox } from './Combobox.js';
@@ -21,6 +21,16 @@ describe('Combobox', () => {
     await userEvent.click(screen.getByRole('option', { name: 'Beta' }));
     expect(onValueChange).toHaveBeenCalledWith('b');
     expect(input).toHaveValue('Beta');
+  });
+
+  it('navigates with arrow keys and commits the active option on Enter', async () => {
+    const onValueChange = vi.fn();
+    render(<Combobox label="Symbol" options={options} onValueChange={onValueChange} />);
+    const input = screen.getByRole('combobox', { name: 'Symbol' });
+    await userEvent.click(input); // opens with the full list, active = Alpha
+    fireEvent.keyDown(input, { key: 'ArrowDown' }); // → Beta
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onValueChange).toHaveBeenCalledWith('b');
   });
 
   it('sets aria-expanded when options are open', async () => {

@@ -16,9 +16,11 @@ describe('routing', () => {
     expect(leaves).toContain('"panelId":"nav"');
     expect(leaves).toContain('"panelId":"cost"');
     expect(leaves).toContain('"panelId":"conversation"');
-    expect(leaves).toContain('"panelId":"agent"');
+    expect(leaves).toContain('"panelId":"account"');
+    // agent config is a nav-routed main surface now, not a dock pane
+    expect(leaves).not.toContain('"panelId":"agent"');
     // the nav is a fixed-width region, not a proportional one
-    expect(leaves).toContain('"fixedPx":48');
+    expect(leaves).toContain('"fixedPx":56');
     expect(leaves).not.toContain('"panelId":"nav","size"');
   });
 
@@ -50,7 +52,8 @@ describe('routing', () => {
 
   it('declares the routable set and a bumped layout epoch', () => {
     expect(ROUTABLE_IDS.has('cost')).toBe(true);
+    expect(ROUTABLE_IDS.has('agents')).toBe(true);
     expect(ROUTABLE_IDS.has('nav')).toBe(false);
-    expect(LAYOUT_EPOCH).toBe(4);
+    expect(LAYOUT_EPOCH).toBe(7);
   });
 });

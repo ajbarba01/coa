@@ -36,6 +36,11 @@ import { codeIntent } from './data/Code.intent.js';
 import { badgeIntent } from './data/Badge.intent.js';
 import { statIntent } from './data/Stat.intent.js';
 import { transcriptIntent } from './dense/Transcript.intent.js';
+import { agentChipIntent } from './data/AgentChip.intent.js';
+import { agentRailIntent } from './layout/AgentRail.intent.js';
+import { identityPickerIntent } from './overlays/IdentityPicker.intent.js';
+import { inlineEditIntent } from './inputs/InlineEdit.intent.js';
+import { switcherMenuIntent } from './actions/SwitcherMenu.intent.js';
 
 /** Every component appends its intent here. Feeds COMPONENTS.md + the coverage test. */
 export const allIntents: ComponentIntent[] = [
@@ -76,4 +81,9 @@ export const allIntents: ComponentIntent[] = [
   badgeIntent,
   statIntent,
   transcriptIntent,
+  agentChipIntent,
+  agentRailIntent,
+  identityPickerIntent,
+  inlineEditIntent,
+  switcherMenuIntent,
 ];

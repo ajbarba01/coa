@@ -29,7 +29,7 @@ export function Switch({
         {...(onCheckedChange !== undefined ? { onCheckedChange } : {})}
         disabled={disabled ?? false}
         className={cx(
-          "relative flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-border-default bg-element transition-colors duration-fast before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-transparent data-[state=checked]:bg-accent data-[state=checked]:group-hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50",
+          "relative flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-border-default bg-element before:absolute before:-inset-1.5 before:content-[''] group-hover:border-accent data-[state=checked]:border-transparent data-[state=checked]:bg-accent data-[state=checked]:group-hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50",
           focusRing,
         )}
       >
@@ -37,7 +37,10 @@ export function Switch({
       </RxSwitch.Root>
       <label
         htmlFor={id}
-        className={cx('text-body text-fg', disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer')}
+        className={cx(
+          'text-body text-fg',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+        )}
       >
         {label}
       </label>

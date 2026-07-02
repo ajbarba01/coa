@@ -131,7 +131,9 @@ function renderRegion(region: Region, ctx: RenderCtx, path: string): React.JSX.E
           minHeight: 0,
           height: '100%',
           width: '100%',
-          gap: 'var(--layout-gap, 0)',
+          // A region can override the gutter (e.g. 0 to butt the nav rail flush against
+          // the main pane so they read as one card); otherwise the layout default.
+          gap: region.gap !== undefined ? `${region.gap}px` : 'var(--layout-gap, 0)',
         }}
       >
         {region.children.map((child, i) => {

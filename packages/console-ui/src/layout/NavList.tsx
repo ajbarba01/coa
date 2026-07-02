@@ -41,7 +41,7 @@ export function NavList({
             data-active={active ? 'true' : undefined}
             onClick={() => onSelect(item.id)}
             className={cx(
-              'flex items-center gap-2 rounded-control px-2 py-1 text-left text-body text-muted transition-colors duration-fast hover:bg-element-hover active:bg-element-active data-[active=true]:bg-element-active data-[active=true]:text-fg',
+              'flex items-center gap-2 rounded-control px-2 py-1 text-left text-body text-muted hover:bg-element-hover active:bg-element-active data-[active=true]:bg-element-active data-[active=true]:text-fg',
               focusRing,
             )}
           >

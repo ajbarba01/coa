@@ -59,7 +59,29 @@ A dropdown of secondary actions behind a trigger.
 - **Accessibility:** Radix menu semantics: roving focus, Escape closes, arrow keys navigate, type-ahead.
 - **Related:** Button, IconButton, Select
 
+### SwitcherMenu
+
+A grouped dropdown for switching the current entity (agent, session) with rich rows.
+
+- **Use it when:** Switching among named entities organized in groups (pinned/project/personal agents; per-agent then all-agent sessions), optionally with create-new action rows.
+- **Don't use it when:** Picking a plain form value — use Select. A list of commands — use Menu. Editing/renaming the entity — that happens on its surface, never inside the picker.
+- **Anatomy:** A trigger and a portalled menu of eyebrow-labelled groups; each row = leading visual + label + quiet meta + selected check; groups may end in action rows.
+- **Variants & states:** closed, open, row highlighted, row selected, action row, empty group (hidden)
+- **Accessibility:** Radix menu semantics (roving focus, arrows, type-ahead, Escape); groups labelled; selection is marked with a check icon, not color alone.
+- **Related:** Menu, Select, AgentChip
+
 ## Data-display
+
+### AgentChip
+
+An agent's identity mark — its glyph on its categorical color ground.
+
+- **Use it when:** Identifying an agent in a picker row, rail, session list, or the agent editor header.
+- **Don't use it when:** Conveying status or severity — use Badge. A generic decorative icon — use Icon. As the only encoding of identity — always pair with the agent name nearby.
+- **Anatomy:** A rounded square ground tinted with the agent color holding one glyph from the curated 16-glyph vocabulary; sizes sm/md/lg.
+- **Variants & states:** sm, md, lg, each of 8 categorical colors, decorative or labelled
+- **Accessibility:** Decorative (aria-hidden) unless label is passed (role=img); identity is never color alone — the glyph differs per agent and the name renders beside it.
+- **Related:** Icon, Badge, AgentRail, IdentityPicker
 
 ### Badge
 
@@ -278,6 +300,17 @@ Wraps a control with an associated label, description, and error.
 - **Accessibility:** Associates label via id and description/error via aria-describedby; error uses role=alert.
 - **Related:** TextField, Select, Combobox
 
+### InlineEdit
+
+Click-to-edit text for renaming a thing where it is displayed (title pattern).
+
+- **Use it when:** Renaming an entity in place — the agent name in the identity header, a session title.
+- **Don't use it when:** Collecting a value in a form — use TextField. The text is not editable — render it plainly.
+- **Anatomy:** A display button (value + hover pencil) that swaps to an input on click; identical type styling in both modes so nothing shifts.
+- **Variants & states:** display rest/hover/active/focus, editing, disabled
+- **Accessibility:** Display button is named "Rename {label}: {value}"; the editor input carries the label; Enter commits, Escape cancels, blur commits; empty/unchanged drafts revert without firing.
+- **Related:** TextField, IdentityPicker
+
 ### Radio
 
 Chooses exactly one option from a small, visible set.
@@ -324,6 +357,17 @@ A single-line text input with label, description, and error states.
 
 ## Layout
 
+### AgentRail
+
+The chat pane’s agent drawer: a slim chip rail that expands to names on hover.
+
+- **Use it when:** Choosing which agent to talk to from the chat pane, with pinned agents kept in reach.
+- **Don't use it when:** Navigating app sections — use NavList (the nav rail). Managing/editing agents — that is the Agents surface; the rail only selects and cross-links to it.
+- **Anatomy:** A fixed 40px chip column (pinned first, active marked in the agent’s own color) plus a name drawer that slides out from behind the column on hover/focus — name rows with pin stars and a per-agent context menu (New session / Pin / Configure); the drawer is clipped and absolutely positioned so the icons never move and the content beside it never reflows.
+- **Variants & states:** collapsed, expanded, item rest/hover/active/focus, pinned, context menu open
+- **Accessibility:** A labelled group; every chip carries the agent name as its accessible name; the drawer expands instantly on hover and on keyboard focus and is aria-hidden while collapsed; ArrowUp/Down rove within the focused layer, Escape collapses; the active item sets aria-current; pin state is aria-pressed.
+- **Related:** AgentChip, NavList, SwitcherMenu, Menu
+
 ### AppShell
 
 The window chrome: a custom title bar above a content slot the layout engine mounts into.
@@ -363,9 +407,9 @@ A titled, bordered content region with an optional scrolling body.
 
 - **Use it when:** Framing a surface (cost rail, decision log) as a distinct region.
 - **Don't use it when:** Content needs no frame — compose plainly to reduce chrome.
-- **Anatomy:** Optional header (title + actions) and a body that can scroll.
-- **Variants & states:** untitled, titled, scroll
-- **Accessibility:** section labelled by its heading id when titled.
+- **Anatomy:** Optional header (title text or an interactive titleSlot, plus actions) and a body that can scroll or sit flush to the edges.
+- **Variants & states:** untitled, titled, titleSlot, scroll, flush
+- **Accessibility:** section labelled by its heading id when titled; with a titleSlot the title string becomes the region aria-label.
 - **Related:** Toolbar, Divider
 
 ### Toolbar
@@ -387,10 +431,21 @@ A focused modal for a confirmation or a small focused task.
 
 - **Use it when:** Confirming a consequential action (rewind) or a short focused edit.
 - **Don't use it when:** A large side surface fits better — use Sheet. A hint suffices — use Tooltip/Popover.
-- **Anatomy:** A trigger, an overlay, and a titled content box with optional footer actions.
-- **Variants & states:** closed, open
+- **Anatomy:** An optional trigger (or externally-controlled open), an overlay, and a titled content box with optional footer actions.
+- **Variants & states:** closed, open, controlled
 - **Accessibility:** Radix dialog: focus trap, Escape closes, labelled by its title; overlay scrim.
 - **Related:** Sheet, Popover
+
+### IdentityPicker
+
+Edits an agent's icon and color from the curated vocabulary, previewing live.
+
+- **Use it when:** Changing an agent's visual identity in the agent editor's identity header.
+- **Don't use it when:** Displaying identity — use AgentChip. Choosing a form value from options — use Select/Radio.
+- **Anatomy:** The lg AgentChip as the popover trigger; inside, a labelled 16-glyph icon grid and an 8-swatch color row.
+- **Variants & states:** closed, open, swatch/glyph rest/hover/pressed/selected, disabled
+- **Accessibility:** Trigger names the agent + action; glyphs and swatches are aria-pressed toggle buttons named by icon/color; Radix popover handles dismissal and focus.
+- **Related:** AgentChip, Popover, InlineEdit
 
 ### Popover
 

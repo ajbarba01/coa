@@ -7,6 +7,13 @@ export { IconButton, type IconButtonProps } from './actions/IconButton.js';
 export { ButtonGroup, type ButtonGroupProps } from './actions/ButtonGroup.js';
 export { Link, type LinkProps, type LinkTone } from './actions/Link.js';
 export { Menu, type MenuProps, type MenuItem } from './actions/Menu.js';
+export {
+  SwitcherMenu,
+  type SwitcherMenuProps,
+  type SwitcherGroup,
+  type SwitcherOption,
+  type SwitcherAction,
+} from './actions/SwitcherMenu.js';
 export { Field, type FieldProps, type FieldControlIds } from './inputs/Field.js';
 export { TextField, type TextFieldProps } from './inputs/TextField.js';
 export { Checkbox, type CheckboxProps } from './inputs/Checkbox.js';
@@ -14,6 +21,7 @@ export { Radio, type RadioProps, type RadioOption } from './inputs/Radio.js';
 export { Switch, type SwitchProps } from './inputs/Switch.js';
 export { Select, type SelectProps, type SelectOption } from './inputs/Select.js';
 export { Combobox, type ComboboxProps, type ComboboxOption } from './inputs/Combobox.js';
+export { InlineEdit, type InlineEditProps } from './inputs/InlineEdit.js';
 export { Banner, type BannerProps, type Status } from './feedback/Banner.js';
 export { DenyNotice, type DenyNoticeProps, type DenyKind } from './feedback/DenyNotice.js';
 export { Toast, ToastProvider, type ToastProps } from './feedback/Toast.js';
@@ -26,6 +34,7 @@ export { Dialog, type DialogProps } from './overlays/Dialog.js';
 export { Popover, type PopoverProps } from './overlays/Popover.js';
 export { Tooltip, TooltipProvider, type TooltipProps } from './overlays/Tooltip.js';
 export { Sheet, type SheetProps, type SheetSide } from './overlays/Sheet.js';
+export { IdentityPicker, type IdentityPickerProps } from './overlays/IdentityPicker.js';
 export { Divider, type DividerProps } from './layout/Divider.js';
 export { Toolbar, type ToolbarProps } from './layout/Toolbar.js';
 export { Pane, type PaneProps } from './layout/Pane.js';
@@ -37,6 +46,18 @@ export { KeyValue, type KeyValueProps, type KeyValuePair } from './data/KeyValue
 export { Code, type CodeProps } from './data/Code.js';
 export { Badge, type BadgeProps, type BadgeTone } from './data/Badge.js';
 export { Stat, type StatProps } from './data/Stat.js';
+export {
+  AgentChip,
+  AGENT_GLYPHS,
+  AGENT_ICON_NAMES,
+  AGENT_COLOR_NAMES,
+  AGENT_COLOR_CLASSES,
+  AGENT_SOLID_CLASSES,
+  type AgentChipProps,
+  type AgentIconName,
+  type AgentColorName,
+} from './data/AgentChip.js';
+export { AgentRail, type AgentRailProps, type AgentRailItem } from './layout/AgentRail.js';
 export {
   Transcript,
   TranscriptRow,

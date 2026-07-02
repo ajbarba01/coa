@@ -1,9 +1,14 @@
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { app, BrowserWindow, ipcMain, Menu, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from 'electron';
 import { connectClient, defaultDaemonPath } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
-import { overlayForTheme, titleBarConfig, windowBackground } from './titlebar.js';
+import {
+  overlayForTheme,
+  titleBarConfig,
+  windowBackground,
+  type ResolvedTheme,
+} from './titlebar.js';
 import { resolveDaemon, type DaemonClient } from './daemon.js';
 import { readJson, writeJson } from './persistence.js';
 import { METHODS, channel, type MethodName } from '../shared/methods.js';
@@ -12,8 +17,20 @@ import { parseSettings, type ConsoleSettings } from '../shared/settings.js';
 /** The single console window, tracked so a theme change can recolor its native chrome. */
 let mainWindow: BrowserWindow | undefined;
 
+/** The live theme preference, tracked so an OS light/dark flip can recolor the native
+ *  chrome while the preference is `'system'` (mirrors the renderer's matchMedia follow). */
+let themePref: ConsoleSettings['theme'] = 'dark';
+
+/** Resolve the preference to a concrete theme; `'system'` follows the OS (`nativeTheme`
+ *  defaults its source to `'system'`, so `shouldUseDarkColors` reflects the OS). */
+function resolveChromeTheme(theme: ConsoleSettings['theme']): ResolvedTheme {
+  if (theme !== 'system') return theme;
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+}
+
 function createWindow(): void {
-  const theme = parseSettings(readJson(settingsFile())).theme;
+  themePref = parseSettings(readJson(settingsFile())).theme;
+  const theme = resolveChromeTheme(themePref);
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -138,16 +155,21 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return undefined;
     case 'getSettings':
       return parseSettings(readJson(settingsFile()));
-    case 'saveSettings':
+    case 'saveSettings': {
+      // Recolor the native chrome *before* the disk write so the OS-drawn caption
+      // controls track the renderer's (instant) CSS as closely as the IPC hop allows.
+      themePref = parseSettings(params).theme;
+      applyChromeTheme(resolveChromeTheme(themePref));
       writeJson(settingsFile(), params);
-      applyChromeTheme(parseSettings(params).theme);
       return undefined;
+    }
   }
 }
 
 /** Re-theme the native window chrome (background + Windows caption overlay) so the
- *  OS-drawn controls track light/dark. macOS traffic lights re-theme via the OS. */
-function applyChromeTheme(theme: ConsoleSettings['theme']): void {
+ *  OS-drawn controls track light/dark. Takes a resolved theme. macOS traffic lights
+ *  re-theme via the OS. */
+function applyChromeTheme(theme: ResolvedTheme): void {
   if (!mainWindow) return;
   mainWindow.setBackgroundColor(windowBackground(theme));
   if (process.platform === 'win32') mainWindow.setTitleBarOverlay(overlayForTheme(theme));
@@ -175,6 +197,11 @@ app.whenReady().then(() => {
         'Content-Security-Policy': [contentSecurityPolicy(isDev)],
       },
     });
+  });
+  // While following the OS, a system light/dark flip recolors the native chrome to
+  // match the renderer (which tracks the same flip via matchMedia).
+  nativeTheme.on('updated', () => {
+    if (themePref === 'system') applyChromeTheme(resolveChromeTheme('system'));
   });
   createWindow();
   app.on('activate', () => {

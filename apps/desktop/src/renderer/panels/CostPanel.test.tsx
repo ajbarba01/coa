@@ -2,34 +2,12 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { costPanel, selectCostVm, type CostVm } from './CostPanel.js';
+import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
-import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 const CostView = costPanel.render;
 
-const stateWith = (cap: ConsoleState['data']['cap']): ConsoleState => ({
-  data: {
-    cap,
-    flags: { status: 'loading' },
-    timeline: { status: 'loading' },
-    accounts: { status: 'loading' },
-    turns: { status: 'loading' },
-  },
-  ui: {
-    activeMainPanelId: 'cost',
-    settings: DEFAULT_SETTINGS,
-    rawMode: false,
-    resolvedApprovals: {},
-  },
-  actions: {
-    setRoute: () => {},
-    refresh: () => {},
-    switchAccount: () => {},
-    setSettings: () => {},
-    toggleRaw: () => {},
-    respondApproval: () => {},
-  },
-});
+const stateWith = (cap: ConsoleState['data']['cap']): ConsoleState => makeState({ data: { cap } });
 
 describe('selectCostVm', () => {
   it('passes loading and error through unchanged', () => {

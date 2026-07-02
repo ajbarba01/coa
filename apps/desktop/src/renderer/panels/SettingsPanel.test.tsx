@@ -2,8 +2,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { settingsPanel, selectSettingsVm } from './SettingsPanel.js';
+import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
-import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 const SettingsView = settingsPanel.render;
 const host = {
@@ -13,29 +13,8 @@ const host = {
   requestFocus: () => {},
 };
 
-const state = (setSettings = vi.fn()): ConsoleState => ({
-  data: {
-    cap: { status: 'loading' },
-    flags: { status: 'loading' },
-    timeline: { status: 'loading' },
-    accounts: { status: 'loading' },
-    turns: { status: 'loading' },
-  },
-  ui: {
-    activeMainPanelId: 'settings',
-    settings: DEFAULT_SETTINGS,
-    rawMode: false,
-    resolvedApprovals: {},
-  },
-  actions: {
-    setRoute: () => {},
-    refresh: () => {},
-    switchAccount: () => {},
-    setSettings,
-    toggleRaw: () => {},
-    respondApproval: () => {},
-  },
-});
+const state = (setSettings = vi.fn()): ConsoleState =>
+  makeState({ ui: { activeMainPanelId: 'settings' }, actions: { setSettings } });
 
 describe('SettingsView', () => {
   it('renders the theme, density, and motion controls', () => {

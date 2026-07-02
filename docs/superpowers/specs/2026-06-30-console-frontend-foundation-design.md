@@ -651,10 +651,10 @@ are authored one at a time (4c-1 first), each drawing from this section.
   toggle** — it flips the same conversation panel between governed and verbatim frames (D85: the same loop,
   unfiltered — one stream, no overlay, no second view). Wired as a `ui.rawMode` flag + a `toggleRaw` action
   the title bar's `onRaw` invokes; the chat panel's pure `selectVm` reads it.
-- **Agent config** re-homes the dock `agent` slot as a compact **active-role summary** (role · scope) with a
-  *Configure* affordance that opens the full Roles + Pieces mock form in a **`Sheet`** (the kit's side-drawer
-  for "forms that need room"). This keeps §21.1's dock composition (chat + agent + account) and adds no nav
-  routing.
+- **Agent config** — SUPERSEDED (2026-07-01): the dock-summary + `Sheet` placement was replaced before 4c-2
+  was built. Agent config is a **routable main surface** (nav section `agents`), the dock slims to chat +
+  account, and the chat pane gains an agent rail + session switcher — see
+  [2026-07-01-console-agents-surface-chat-rail-design.md](2026-07-01-console-agents-surface-chat-rail-design.md).
 - **Compiled-prompt** and **graph** are **routable main windows** — new nav sections (`prompt`, `graph`)
   added to `ROUTABLE_IDS`, filling the dominant center like Cost/Flags/Timeline (the "big area = the audit
   windows" model of §21.1). Nav rail after 4c: Cost · Flags · Timeline · Prompt · Graph, Settings gear pinned

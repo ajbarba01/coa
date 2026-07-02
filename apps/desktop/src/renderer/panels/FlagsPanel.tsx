@@ -25,7 +25,7 @@ function FlagsView({ vm }: { vm: FlagsVm; host: PanelHostApi }): React.JSX.Eleme
   const empty =
     vm.status === 'ok' && vm.value.expanded.length === 0 && vm.value.collapsed.length === 0;
   return (
-    <Pane title="Flags" scroll>
+    <Pane title="Flags" scroll seam="left">
       {vm.status === 'loading' && (
         <div className="flex flex-col gap-2">
           <Skeleton className="w-3/4" />

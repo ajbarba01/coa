@@ -58,7 +58,7 @@ export function Toast({
       <RxToast.Close
         aria-label="Dismiss"
         className={cx(
-          'shrink-0 rounded-control p-0.5 transition-colors hover:bg-element-hover active:scale-90',
+          'shrink-0 rounded-control p-0.5 transition-transform hover:bg-element-hover active:scale-90',
           focusRing,
         )}
       >

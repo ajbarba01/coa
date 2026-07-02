@@ -15,13 +15,14 @@ export function selectSettingsVm(state: ConsoleState): SettingsVm {
 function SettingsView({ vm }: { vm: SettingsVm; host: PanelHostApi }): React.JSX.Element {
   const { settings, setSettings } = vm;
   return (
-    <Pane title="Settings" scroll>
+    <Pane title="Settings" scroll seam="left">
       <div className="flex max-w-xs flex-col gap-4">
         <Select
           label="Theme"
           value={settings.theme}
           onValueChange={(v) => setSettings({ theme: v as ConsoleSettings['theme'] })}
           options={[
+            { value: 'system', label: 'System' },
             { value: 'dark', label: 'Dark' },
             { value: 'light', label: 'Light' },
           ]}

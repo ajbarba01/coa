@@ -4,7 +4,13 @@ import { cx } from '@coa/console-ui';
 /** A component family: a labelled section with a hairline-underlined header.
  *  Families are real groups, so the heading is meaning-bearing structure, not
  *  decoration (spec §5.1 #14). */
-export function Family({ name, children }: { name: string; children: ReactNode }): React.JSX.Element {
+export function Family({
+  name,
+  children,
+}: {
+  name: string;
+  children: ReactNode;
+}): React.JSX.Element {
   return (
     <section aria-label={name} className="flex flex-col gap-4">
       <h3 className="border-b border-hairline pb-1.5 text-body font-semibold text-fg">{name}</h3>

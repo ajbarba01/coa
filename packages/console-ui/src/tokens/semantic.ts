@@ -34,6 +34,14 @@ const dark = {
   '--color-info': palette.info,
   '--color-info-tint': palette.infoTint,
   '--color-info-text': palette.infoText,
+  '--color-agent-slate': palette.agentSlate,
+  '--color-agent-sky': palette.agentSky,
+  '--color-agent-blue': palette.agentBlue,
+  '--color-agent-teal': palette.agentTeal,
+  '--color-agent-green': palette.agentGreen,
+  '--color-agent-mauve': palette.agentMauve,
+  '--color-agent-violet': palette.agentViolet,
+  '--color-agent-coral': palette.agentCoral,
 } as const;
 
 const light = {
@@ -66,6 +74,14 @@ const light = {
   '--color-info': palette.infoLight,
   '--color-info-tint': palette.infoTintLight,
   '--color-info-text': palette.infoTextLight,
+  '--color-agent-slate': palette.agentSlateLight,
+  '--color-agent-sky': palette.agentSkyLight,
+  '--color-agent-blue': palette.agentBlueLight,
+  '--color-agent-teal': palette.agentTealLight,
+  '--color-agent-green': palette.agentGreenLight,
+  '--color-agent-mauve': palette.agentMauveLight,
+  '--color-agent-violet': palette.agentVioletLight,
+  '--color-agent-coral': palette.agentCoralLight,
 } as const;
 
 /** Density drives the whole type ramp + control heights + inset spacing, so the

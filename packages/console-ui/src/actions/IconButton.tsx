@@ -14,6 +14,9 @@ export interface IconButtonProps extends Omit<
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
+  /** Whether the press transform (`active:scale`) plays. Off for overlay triggers —
+   *  a scaled trigger shifts the panel that anchors to it. Default on. */
+  pressScale?: boolean;
 }
 
 const bySize: Record<ButtonSize, string> = {
@@ -33,6 +36,7 @@ export function IconButton({
   variant = 'secondary',
   size = 'md',
   loading = false,
+  pressScale = true,
   disabled,
   type,
   className,
@@ -48,7 +52,8 @@ export function IconButton({
       data-loading={loading ? 'true' : undefined}
       disabled={isDisabled}
       className={cx(
-        'inline-flex items-center justify-center rounded-control transition-[color,background-color,transform] duration-fast active:scale-95 data-[state=open]:scale-95 disabled:opacity-50 disabled:pointer-events-none',
+        'inline-flex items-center justify-center rounded-control transition-transform duration-fast disabled:opacity-50 disabled:pointer-events-none',
+        pressScale && 'active:scale-95',
         bySize[size],
         byVariant[variant],
         focusRing,

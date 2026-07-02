@@ -28,7 +28,10 @@ export function Stat({
   const labelId = useId();
   return (
     <div className={cx('flex flex-col gap-0.5', className)}>
-      <span id={labelId} className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
+      <span
+        id={labelId}
+        className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint"
+      >
         {label}
       </span>
       <span

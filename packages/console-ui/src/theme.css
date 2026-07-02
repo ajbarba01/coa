@@ -28,9 +28,25 @@
   --color-info-text: var(--color-info-text);
   --color-focus: var(--color-focus-ring);
   --color-selection: var(--color-selection);
+  /* Agent identity categoricals (Okabe-Ito-anchored; never brass). */
+  --color-agent-slate: var(--color-agent-slate);
+  --color-agent-sky: var(--color-agent-sky);
+  --color-agent-blue: var(--color-agent-blue);
+  --color-agent-teal: var(--color-agent-teal);
+  --color-agent-green: var(--color-agent-green);
+  --color-agent-mauve: var(--color-agent-mauve);
+  --color-agent-violet: var(--color-agent-violet);
+  --color-agent-coral: var(--color-agent-coral);
   --radius-control: 4px;
   --radius-surface: 6px;
   --radius-overlay: 8px;
+  /* Motion durations (§8) as first-class tokens so the `duration-fast|normal|slow`
+     utilities resolve (Tailwind v4 reads the `--transition-duration-*` namespace).
+     Without these the named utilities silently fall back to the 150ms default. Fast
+     is the snappy default for interruptible state (hover/press/reveal). */
+  --transition-duration-fast: 120ms;
+  --transition-duration-normal: 200ms;
+  --transition-duration-slow: 320ms;
   /* Type scale (§6.2) as first-class tokens → a size change is one edit. Each maps
      to a density-driven runtime var (semantic.ts) with a static fallback, so the
      density toggle scales every `text-*` utility. Roles, largest to smallest:

@@ -3,9 +3,11 @@ import { parseDescriptor } from '@coa/console-layout';
 import { DEFAULT_DESCRIPTOR, buildPanelRegistry } from './registry.js';
 
 describe('panel registry', () => {
-  it('registers the nav rail, cost, and the dock placeholders', () => {
+  it('registers the nav rail, the main surfaces, and the dock panes', () => {
     const reg = buildPanelRegistry();
-    for (const id of ['nav', 'cost', 'conversation', 'agent']) expect(reg.has(id)).toBe(true);
+    for (const id of ['nav', 'cost', 'conversation', 'account', 'agents']) {
+      expect(reg.has(id)).toBe(true);
+    }
   });
 
   it('registers the live chat panel at the conversation id', () => {

@@ -9,8 +9,9 @@ export const dialogIntent: ComponentIntent = assertIntent({
     'A large side surface fits better — use Sheet.',
     'A hint suffices — use Tooltip/Popover.',
   ],
-  anatomy: 'A trigger, an overlay, and a titled content box with optional footer actions.',
-  variantsStates: ['closed', 'open'],
+  anatomy:
+    'An optional trigger (or externally-controlled open), an overlay, and a titled content box with optional footer actions.',
+  variantsStates: ['closed', 'open', 'controlled'],
   accessibility: 'Radix dialog: focus trap, Escape closes, labelled by its title; overlay scrim.',
   related: ['Sheet', 'Popover'],
 });

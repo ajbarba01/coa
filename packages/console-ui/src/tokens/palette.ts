@@ -39,6 +39,26 @@ export const palette = {
   info: '#5b7fb0',
   infoTint: '#1b2733',
   infoText: '#9fc0e6',
+  // agent identity categoricals (Okabe-Ito-anchored, warm-dark-tuned; ≥3:1 on
+  // surface; brass + status hues deliberately excluded so an agent can never
+  // dress as the system or as a severity)
+  agentSlate: '#a3adb8',
+  agentSky: '#6ec3f0',
+  agentBlue: '#6b9bd8',
+  agentTeal: '#45b48e',
+  agentGreen: '#96bd70',
+  agentMauve: '#d48fb4',
+  agentViolet: '#ab93e0',
+  agentCoral: '#e28f68',
+  // agent identity categoricals (light companions; tuned later)
+  agentSlateLight: '#5c6670',
+  agentSkyLight: '#21759e',
+  agentBlueLight: '#2f5fa8',
+  agentTealLight: '#177355',
+  agentGreenLight: '#55742e',
+  agentMauveLight: '#a04f78',
+  agentVioletLight: '#6a4bab',
+  agentCoralLight: '#b3541f',
   // component-consumed extensions (light companions; tuned later)
   brassInkHover: '#75581a',
   onBrassLight: '#fbf6ec',

@@ -2,19 +2,20 @@ import { LAYOUT_VERSION, type LayoutDescriptor, type Region } from '@coa/console
 import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
 /** Panels that occupy the nav-driven main region (never the rail or dock). Grows
- *  as surfaces land: cost (now) · flags · timeline (P2) · settings (P3) · the
- *  component showcase (a dev-facing kit reference). */
+ *  as surfaces land: cost (now) · flags · timeline (P2) · settings (P3) · agents ·
+ *  the component showcase (a dev-facing kit reference). */
 export const ROUTABLE_IDS: ReadonlySet<string> = new Set([
   'cost',
   'flags',
   'timeline',
   'settings',
   'showcase',
+  'agents',
 ]);
 
 /** Bump when the default arrangement changes so a persisted older layout is
  *  ignored (a stale layout.json has no matching epoch → the new default is used). */
-export const LAYOUT_EPOCH = 4;
+export const LAYOUT_EPOCH = 7;
 
 /**
  * Inspector-first (spec §21.1): a thin static nav rail beside the workbench body;
@@ -29,8 +30,11 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
       type: 'split',
       direction: 'row',
       adjustability: 'static',
+      // No gutter between the nav rail and the main pane: the rail butts flush against
+      // it so the two read as a single card (the rail is the card's left edge).
+      gap: 0,
       children: [
-        { type: 'leaf', panelId: 'nav', fixedPx: 48 },
+        { type: 'leaf', panelId: 'nav', fixedPx: 56 },
         {
           type: 'split',
           direction: 'row',
@@ -43,10 +47,10 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
               adjustability: 'static',
               children: [
                 // Chat is the always-present companion, so it dominates the dock;
-                // the agent summary and account context are compact below it. Min
-                // heights keep each pane usable when the dock is short (spec §22.3).
-                { type: 'leaf', panelId: 'conversation', size: 3, minPx: 160 },
-                { type: 'leaf', panelId: 'agent', size: 1, minPx: 88 },
+                // the account context is compact below it (agent config moved to a
+                // nav-routed main surface). Min heights keep each pane usable when
+                // the dock is short (spec §22.3).
+                { type: 'leaf', panelId: 'conversation', size: 5, minPx: 160 },
                 { type: 'leaf', panelId: 'account', size: 1, minPx: 64 },
               ],
             },

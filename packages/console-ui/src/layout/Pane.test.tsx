@@ -10,4 +10,15 @@ describe('Pane', () => {
     expect(region).toBeInTheDocument();
     expect(screen.getByText('body')).toBeInTheDocument();
   });
+
+  it('renders a titleSlot in place of the heading while keeping the region named', () => {
+    render(
+      <Pane title="Chat" titleSlot={<button type="button">session switcher</button>}>
+        body
+      </Pane>,
+    );
+    expect(screen.getByRole('region', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'session switcher' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  });
 });

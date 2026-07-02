@@ -2,8 +2,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { flagsPanel, selectFlagsVm } from './FlagsPanel.js';
+import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
-import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 const FlagsView = flagsPanel.render;
 const host = {
@@ -13,29 +13,8 @@ const host = {
   requestFocus: () => {},
 };
 
-const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState => ({
-  data: {
-    cap: { status: 'loading' },
-    flags,
-    timeline: { status: 'loading' },
-    accounts: { status: 'loading' },
-    turns: { status: 'loading' },
-  },
-  ui: {
-    activeMainPanelId: 'flags',
-    settings: DEFAULT_SETTINGS,
-    rawMode: false,
-    resolvedApprovals: {},
-  },
-  actions: {
-    setRoute: () => {},
-    refresh: () => {},
-    switchAccount: () => {},
-    setSettings: () => {},
-    toggleRaw: () => {},
-    respondApproval: () => {},
-  },
-});
+const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState =>
+  makeState({ data: { flags }, ui: { activeMainPanelId: 'flags' } });
 
 describe('selectFlagsVm', () => {
   it('passes loading/error through', () => {

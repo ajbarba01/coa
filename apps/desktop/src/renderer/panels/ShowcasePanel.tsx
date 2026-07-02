@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import {
+  AgentChip,
+  AgentRail,
   Badge,
   Banner,
   Button,
@@ -15,6 +17,8 @@ import {
   Field,
   Icon,
   IconButton,
+  IdentityPicker,
+  InlineEdit,
   InlineMessage,
   KeyValue,
   Link,
@@ -31,6 +35,7 @@ import {
   Spinner,
   Stat,
   Switch,
+  SwitcherMenu,
   Table,
   TextField,
   Toast,
@@ -40,6 +45,7 @@ import {
   TooltipProvider,
   TranscriptRow,
 } from '@coa/console-ui';
+import type { AgentColorName, AgentIconName } from '@coa/console-ui';
 import {
   ArrowRight,
   ChevronDown,
@@ -49,6 +55,7 @@ import {
   History,
   Inbox,
   Play,
+  Plus,
   RotateCcw,
   ShieldCheck,
   Trash2,
@@ -154,7 +161,12 @@ function InputsSection(): React.JSX.Element {
     <Family name="Inputs">
       <Row label="TextField" align="start">
         <TextField label="Name" placeholder="e.g. auth-refactor" className="w-44" />
-        <TextField label="Path" description="Repo-relative." defaultValue="src/auth.ts" className="w-44" />
+        <TextField
+          label="Path"
+          description="Repo-relative."
+          defaultValue="src/auth.ts"
+          className="w-44"
+        />
         <TextField label="Query" error="This field is required." className="w-44" />
         <TextField label="Disabled" disabled defaultValue="locked" className="w-44" />
       </Row>
@@ -186,7 +198,12 @@ function InputsSection(): React.JSX.Element {
             { value: 'haiku', label: 'Haiku 4.5 (disabled)', disabled: true },
           ]}
         />
-        <Select label="Disabled" disabled placeholder="Unavailable" options={[{ value: 'a', label: 'A' }]} />
+        <Select
+          label="Disabled"
+          disabled
+          placeholder="Unavailable"
+          options={[{ value: 'a', label: 'A' }]}
+        />
       </Row>
       <Row label="Combobox" align="start">
         <Combobox
@@ -377,7 +394,10 @@ function FeedbackSection(): React.JSX.Element {
             reason="Session cost cap reached ($5.00)."
             detail="Raise the cap or start a new session to continue."
           />
-          <DenyNotice kind="close-gate" reason="Type-1 close-gate: 2 critical flags are unresolved." />
+          <DenyNotice
+            kind="close-gate"
+            reason="Type-1 close-gate: 2 critical flags are unresolved."
+          />
         </div>
       </Row>
       <Row label="InlineMessage">
@@ -436,9 +456,7 @@ function OverlaysSection(): React.JSX.Element {
     <Family name="Overlays">
       <Row label="Dialog">
         <Dialog
-          trigger={
-            <Button variant="secondary">Open dialog</Button>
-          }
+          trigger={<Button variant="secondary">Open dialog</Button>}
           title="Rewind to checkpoint?"
           description="This resets the working tree to turn 8."
           footer={
@@ -456,11 +474,7 @@ function OverlaysSection(): React.JSX.Element {
         </Dialog>
       </Row>
       <Row label="Popover">
-        <Popover
-          trigger={
-            <Button variant="secondary">Open popover</Button>
-          }
-        >
+        <Popover trigger={<Button variant="secondary">Open popover</Button>}>
           <div className="flex flex-col gap-1">
             <div className="font-medium text-fg">Turn 12</div>
             <div className="text-muted">Supplemental detail shown on demand.</div>
@@ -471,9 +485,7 @@ function OverlaysSection(): React.JSX.Element {
         <Sheet
           side="right"
           title="Agent configuration"
-          trigger={
-            <Button variant="secondary">Open sheet (right)</Button>
-          }
+          trigger={<Button variant="secondary">Open sheet (right)</Button>}
         >
           <p className="text-muted">A side surface for forms that need room.</p>
         </Sheet>
@@ -622,7 +634,13 @@ function DenseSection(): React.JSX.Element {
             }}
           />
           <TranscriptRow
-            frame={{ id: '7', role: 'subagent', kind: 'text', text: 'Reviewing the diff…', depth: 1 }}
+            frame={{
+              id: '7',
+              role: 'subagent',
+              kind: 'text',
+              text: 'Reviewing the diff…',
+              depth: 1,
+            }}
           />
           <TranscriptRow
             frame={{
@@ -642,9 +660,124 @@ function DenseSection(): React.JSX.Element {
   );
 }
 
+function IdentityDemo(): React.JSX.Element {
+  const [icon, setIcon] = useState<AgentIconName>('wrench');
+  const [color, setColor] = useState<AgentColorName>('coral');
+  const [name, setName] = useState('refactor-bot');
+  return (
+    <div className="flex items-center gap-3">
+      <IdentityPicker
+        icon={icon}
+        color={color}
+        label={name}
+        onIconChange={setIcon}
+        onColorChange={setColor}
+      />
+      <InlineEdit
+        value={name}
+        label="Agent name"
+        textClassName="text-heading font-semibold"
+        onCommit={setName}
+      />
+    </div>
+  );
+}
+
+const RAIL_AGENTS = [
+  { id: 'a', name: 'reviewer', icon: 'search', color: 'teal', pinned: true },
+  { id: 'b', name: 'tdd-implementer', icon: 'flask', color: 'blue' },
+  { id: 'c', name: 'refactor-bot', icon: 'wrench', color: 'coral' },
+  { id: 'd', name: 'scratch-helper', icon: 'sparkles', color: 'violet' },
+] as const;
+
+function AgentRailDemo(): React.JSX.Element {
+  const [active, setActive] = useState('a');
+  return (
+    <div className="h-40 w-full max-w-md rounded-surface border border-hairline bg-surface">
+      <div className="flex h-full">
+        <AgentRail
+          items={[...RAIL_AGENTS]}
+          activeId={active}
+          onSelect={setActive}
+          onTogglePin={noop}
+        />
+        <div className="flex-1 p-3 text-label text-muted">
+          Hover the icon column — the names slide out from behind it without moving the icons.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentsSection(): React.JSX.Element {
+  return (
+    <Family name="Agents / identity">
+      <Row label="AgentChip · colors">
+        {(['slate', 'sky', 'blue', 'teal', 'green', 'mauve', 'violet', 'coral'] as const).map(
+          (c) => (
+            <AgentChip key={c} icon="bot" color={c} label={c} />
+          ),
+        )}
+      </Row>
+      <Row label="AgentChip · sizes">
+        <AgentChip icon="hammer" color="coral" size="sm" />
+        <AgentChip icon="hammer" color="coral" size="md" />
+        <AgentChip icon="hammer" color="coral" size="lg" />
+      </Row>
+      <Row label="IdentityPicker + InlineEdit" align="start">
+        <IdentityDemo />
+      </Row>
+      <Row label="SwitcherMenu">
+        <SwitcherMenu
+          label="Agents"
+          trigger={
+            <Button variant="secondary" size="sm">
+              <AgentChip icon="search" color="teal" size="sm" />
+              reviewer
+              <ChevronDown aria-hidden size={14} className="text-muted" />
+            </Button>
+          }
+          groups={[
+            {
+              id: 'pinned',
+              label: 'Pinned',
+              options: [
+                {
+                  id: 'a',
+                  label: 'reviewer',
+                  meta: '2h',
+                  selected: true,
+                  leading: <AgentChip icon="search" color="teal" size="sm" />,
+                },
+              ],
+            },
+            {
+              id: 'project',
+              label: 'Project',
+              options: [
+                {
+                  id: 'b',
+                  label: 'tdd-implementer',
+                  leading: <AgentChip icon="flask" color="blue" size="sm" />,
+                },
+              ],
+              actions: [{ id: 'new', label: 'New agent', icon: Plus }],
+            },
+          ]}
+          onSelect={noop}
+          onAction={noop}
+        />
+      </Row>
+      <Row label="AgentRail" align="start">
+        <AgentRailDemo />
+      </Row>
+    </Family>
+  );
+}
+
 function ShowcaseView(_props: { vm: null; host: PanelHostApi }): React.JSX.Element {
   return (
-    <Pane title="Components" scroll>
+    <Pane title="Components" scroll seam="left">
       <div className="mx-auto flex max-w-3xl flex-col gap-9 pb-10">
         <p className="text-label text-muted">
           Every primitive in <Code>@coa/console-ui</Code>, grouped by family — a live reference for
@@ -657,6 +790,7 @@ function ShowcaseView(_props: { vm: null; host: PanelHostApi }): React.JSX.Eleme
         <FeedbackSection />
         <OverlaysSection />
         <LayoutSection />
+        <AgentsSection />
         <DenseSection />
       </div>
     </Pane>

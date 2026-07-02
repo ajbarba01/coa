@@ -20,15 +20,18 @@ export function TooltipProvider({
 
 export interface TooltipProps {
   content: string;
+  /** Which edge to anchor to (defaults to 'top'; use 'right' beside a left rail). */
+  side?: 'top' | 'right' | 'bottom' | 'left';
   children: ReactNode;
 }
 
-export function Tooltip({ content, children }: TooltipProps): React.JSX.Element {
+export function Tooltip({ content, side = 'top', children }: TooltipProps): React.JSX.Element {
   return (
     <RxTooltip.Root>
       <RxTooltip.Trigger asChild>{children}</RxTooltip.Trigger>
       <RxTooltip.Portal>
         <RxTooltip.Content
+          side={side}
           sideOffset={4}
           className="overlay-content z-[700] rounded-control bg-raised px-2 py-1 text-label text-fg shadow-md"
         >

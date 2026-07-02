@@ -14,7 +14,9 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     useAccount: vi.fn().mockResolvedValue({ active: 'ambient' }),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),
-    getSettings: vi.fn().mockResolvedValue({ theme: 'dark', density: 'compact', motion: 'full' }),
+    getSettings: vi
+      .fn()
+      .mockResolvedValue({ theme: 'dark', density: 'compact', motion: 'full', pinnedAgents: [] }),
     saveSettings: vi.fn().mockResolvedValue(undefined),
     ...over,
   };
@@ -35,12 +37,13 @@ async function mount(bridge = fakeBridge()) {
 }
 
 describe('startConsole (inspector-first)', () => {
-  it('mounts the inspector layout: nav rail, cost main, chat+agent dock', async () => {
+  it('mounts the inspector layout: nav rail, cost main, chat+account dock', async () => {
     const { container } = await mount();
     expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
     expect(container.querySelector('[data-panel-id="cost"]')).not.toBeNull();
     expect(container.querySelector('[data-panel-id="conversation"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="agent"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="account"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel-id="agent"]')).toBeNull();
   });
 
   it('shows cost loading then live after refresh', async () => {
@@ -61,13 +64,28 @@ describe('startConsole (inspector-first)', () => {
     expect(dock?.querySelector('[role="log"]')).not.toBeNull();
   });
 
+  it('seeds the chat with the newest mock session and the agent rail', async () => {
+    const { container } = await mount();
+    const dock = container.querySelector('[data-panel-id="conversation"]');
+    // the session switcher shows the seeded session's title in the pane header
+    expect(dock?.textContent).toContain('refactor auth module');
+    // the agent drawer renders beside the transcript
+    expect(dock?.querySelector('[role="group"][aria-label="Agents"]')).not.toBeNull();
+  });
+
   it('toggles the conversation into raw mode', async () => {
     const { container, controller } = await mount();
-    expect(container.textContent).not.toContain('Chat · raw');
+    const rawButton = (): Element | null =>
+      container.querySelector('[data-panel-id="conversation"] [aria-pressed]');
+    expect(rawButton()?.getAttribute('aria-pressed')).toBe('false');
     await act(async () => {
       controller.toggleRaw();
     });
-    expect(container.textContent).toContain('Chat · raw');
+    expect(rawButton()?.getAttribute('aria-pressed')).toBe('true');
+    // the pane region is renamed for assistive tech too
+    expect(
+      container.querySelector('[data-panel-id="conversation"] [aria-label="Chat · raw"]'),
+    ).not.toBeNull();
   });
 
   it('syncs the nav selection to the restored main panel (not the hard default)', async () => {

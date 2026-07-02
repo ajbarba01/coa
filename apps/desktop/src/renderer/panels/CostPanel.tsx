@@ -17,7 +17,7 @@ export function selectCostVm(state: ConsoleState): CostVm {
 
 function CostView({ vm }: { vm: CostVm; host: PanelHostApi }): React.JSX.Element {
   return (
-    <Pane title="Cost">
+    <Pane title="Cost" seam="left">
       {vm.status === 'loading' && (
         <div className="flex flex-col gap-2">
           <Skeleton className="w-24" />

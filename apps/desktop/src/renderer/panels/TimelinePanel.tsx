@@ -16,7 +16,7 @@ export function selectTimelineVm(state: ConsoleState): TimelineVm {
 function TimelineView({ vm }: { vm: TimelineVm; host: PanelHostApi }): React.JSX.Element {
   const newestFirst = vm.status === 'ok' ? [...vm.value].reverse() : [];
   return (
-    <Pane title="Timeline" scroll>
+    <Pane title="Timeline" scroll seam="left">
       {vm.status === 'loading' && (
         <div className="flex flex-col gap-2">
           <Skeleton className="w-2/3" />
