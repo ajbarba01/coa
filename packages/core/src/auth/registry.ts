@@ -7,6 +7,7 @@ import {
   type Account,
   type AccountsFile,
   type Locator,
+  type Provider,
 } from '@coa/shared';
 
 /**
@@ -45,12 +46,12 @@ export class AccountsRegistry {
     return account ? { kind: 'account', account } : { kind: 'ambient' };
   }
 
-  add(label: string, locator: Locator): void {
+  add(label: string, locator: Locator, provider: Provider = 'claude'): void {
     const file = this.#read();
     if (file.accounts.some((a) => a.label === label)) {
       throw new Error(`account already exists: ${label}`);
     }
-    file.accounts.push({ label, provider: 'claude', locator });
+    file.accounts.push({ label, provider, locator });
     this.#write(file);
   }
 

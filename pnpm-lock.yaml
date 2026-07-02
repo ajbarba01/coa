@@ -56,6 +56,9 @@ importers:
       '@coa/adapter-claude-sdk':
         specifier: workspace:*
         version: link:../../packages/adapter-claude-sdk
+      '@coa/adapter-deepseek':
+        specifier: workspace:*
+        version: link:../../packages/adapter-deepseek
       '@coa/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -148,6 +151,25 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
+
+  packages/adapter-deepseek:
+    dependencies:
+      '@coa/loop-driver':
+        specifier: workspace:*
+        version: link:../loop-driver
+      '@coa/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@coa/spi':
+        specifier: workspace:*
+        version: link:../spi
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -264,6 +286,19 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
+
+  packages/loop-driver:
+    dependencies:
+      '@coa/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@coa/spi':
+        specifier: workspace:*
+        version: link:../spi
+    devDependencies:
       '@types/node':
         specifier: ^26.0.1
         version: 26.0.1

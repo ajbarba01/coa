@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { AccountsRegistry } from '@coa/core';
-import type { Locator } from '@coa/shared';
+import type { Locator, Provider } from '@coa/shared';
 import type { CliIo } from './cli.js';
 
 /**
@@ -31,13 +31,13 @@ export function runAuthCommand(args: string[], io: CliIo, home: string = homedir
       case 'add': {
         const [label, flag, value] = rest;
         if (label === undefined) {
-          return fail(io, 'usage: coa auth add <label> --config-dir <dir>');
+          return fail(io, 'usage: coa auth add <label> --config-dir <dir> | --env-var <NAME>');
         }
-        const locator = parseAddLocator(flag, value);
-        if (locator === undefined) {
-          return fail(io, 'coa auth add requires --config-dir <dir>');
+        const parsed = parseAddLocator(flag, value);
+        if (parsed === undefined) {
+          return fail(io, 'coa auth add requires --config-dir <dir> or --env-var <NAME>');
         }
-        reg.add(label, locator);
+        reg.add(label, parsed.locator, parsed.provider);
         return 0;
       }
       case 'use': {
@@ -60,9 +60,16 @@ export function runAuthCommand(args: string[], io: CliIo, home: string = homedir
   }
 }
 
-function parseAddLocator(flag: string | undefined, value: string | undefined): Locator | undefined {
+function parseAddLocator(
+  flag: string | undefined,
+  value: string | undefined,
+): { locator: Locator; provider: Provider } | undefined {
   if (value === undefined) return undefined;
-  if (flag === '--config-dir') return { type: 'config-dir', dir: value };
+  if (flag === '--config-dir')
+    return { locator: { type: 'config-dir', dir: value }, provider: 'claude' };
+  // An API-key provider (DeepSeek today) points at the env var holding its key.
+  if (flag === '--env-var')
+    return { locator: { type: 'env-var', name: value }, provider: 'deepseek' };
   return undefined;
 }
 
@@ -70,6 +77,8 @@ function describeLocator(locator: Locator): string {
   switch (locator.type) {
     case 'config-dir':
       return `config-dir ${locator.dir}`;
+    case 'env-var':
+      return `env-var ${locator.name}`;
     case 'ambient':
       return 'ambient';
   }

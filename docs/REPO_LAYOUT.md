@@ -20,7 +20,9 @@ coa/
     code-intel/              M2 — @coa/code-intel     (pure byte→structure; child-process parser seam)
     core/                    M1,M3–M8 — @coa/core     (the spine + consumers + services; see below)
     spi/                     M9 ports — @coa/spi       (capability port types; null-fallback contracts)
+    loop-driver/             M9 — @coa/loop-driver     (coa-owned governed ReAct loop for pure-API backends; `complete()` primitive + driver; neutral, no backend SDK)
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
+    adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
     console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core)
     console-layout/          M10 — @coa/console-layout (panel registry + versioned layout descriptor + engine port + StaticEngine; pure react/react-resizable-panels/zod, no electron/core)
@@ -57,7 +59,7 @@ shippable apps.
 | M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface.                         |
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
 | M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
-| M9 Runtime Adapter           | `packages/spi` + `packages/adapter-claude-sdk` | Ports (types) + the one backend impl.                                      |
+| M9 Runtime Adapter           | `packages/spi` + `packages/loop-driver` + `packages/adapter-claude-sdk` + `packages/adapter-deepseek` | Ports (types) + the shared pure-API loop driver + the SDK backend + the thin DeepSeek backend. |
 | M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-ui` + `packages/console-layout` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-ui` owns the design tokens + component kit; `console-layout` owns the engine-agnostic layout core (registry + descriptor + engine port + StaticEngine). |
 
 **Why M1 and M3–M8 share one `core` package.** They are the daemon's rings around the spine; they share the

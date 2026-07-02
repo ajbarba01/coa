@@ -1,18 +1,24 @@
 {
-  "name": "@coa/cli",
+  "name": "@coa/loop-driver",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "coa": "dist/bin.js"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsdown",
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@coa/adapter-claude-sdk": "workspace:*",
-    "@coa/adapter-deepseek": "workspace:*",
-    "@coa/core": "workspace:*",
     "@coa/shared": "workspace:*",
     "@coa/spi": "workspace:*"
   },

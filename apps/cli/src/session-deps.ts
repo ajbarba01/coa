@@ -71,10 +71,14 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   return { deps, handle, models, activeAccount };
 }
 
-/** Resolve the active account from the registry into the session's login pointer + label. */
+/** Resolve the active account from the registry into the session's login pointer + label + backend. */
 function resolveActiveAccount(registry: AccountsRegistry): ActiveAccountResolution {
   const active = registry.getActive();
   return active.kind === 'account'
-    ? { label: active.account.label, locator: active.account.locator }
+    ? {
+        label: active.account.label,
+        locator: active.account.locator,
+        provider: active.account.provider,
+      }
     : { label: 'ambient' };
 }

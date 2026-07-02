@@ -27,7 +27,9 @@ export function resolveAuthEnv(
   locator: Locator,
   clearVars: readonly string[] = DEFAULT_CLEAR_VARS,
 ): Record<string, string | undefined> | undefined {
-  if (locator.type === 'ambient') return undefined;
+  // Only a config-dir login overlays the Claude env; `env-var` (an API-key
+  // provider like DeepSeek) and `ambient` carry no Claude overlay.
+  if (locator.type !== 'config-dir') return undefined;
 
   const overlay: Record<string, string | undefined> = { CLAUDE_CONFIG_DIR: locator.dir };
   for (const name of clearVars) overlay[name] = undefined;

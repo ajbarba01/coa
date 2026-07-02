@@ -6,13 +6,7 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "types": ["node"]
   },
-  "references": [
-    { "path": "../../packages/shared" },
-    { "path": "../../packages/spi" },
-    { "path": "../../packages/core" },
-    { "path": "../../packages/adapter-claude-sdk" },
-    { "path": "../../packages/adapter-deepseek" }
-  ],
+  "references": [{ "path": "../shared" }, { "path": "../spi" }, { "path": "../loop-driver" }],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]
 }

@@ -10,8 +10,14 @@ const workspaceAlias = {
   '@coa/code-intel': fileURLToPath(new URL('./packages/code-intel/src/index.ts', import.meta.url)),
   '@coa/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
   '@coa/spi': fileURLToPath(new URL('./packages/spi/src/index.ts', import.meta.url)),
+  '@coa/loop-driver': fileURLToPath(
+    new URL('./packages/loop-driver/src/index.ts', import.meta.url),
+  ),
   '@coa/adapter-claude-sdk': fileURLToPath(
     new URL('./packages/adapter-claude-sdk/src/index.ts', import.meta.url),
+  ),
+  '@coa/adapter-deepseek': fileURLToPath(
+    new URL('./packages/adapter-deepseek/src/index.ts', import.meta.url),
   ),
   '@coa/console-viewmodel': fileURLToPath(
     new URL('./packages/console-viewmodel/src/index.ts', import.meta.url),
