@@ -19,14 +19,16 @@ import type { AssemblePiecesContext } from './session.js';
  *   the prompt cache warm (D-P2 / P1).
  */
 
-/** The per-session facts the environment Piece is authored from (the "dynamic section"). */
+/**
+ * The session-invariant facts the environment Piece is authored from. Deliberately
+ * excludes the worktree path and the model id: both are dynamic per invocation and
+ * the backend already supplies them natively (the SDK sets `cwd` and knows its own
+ * model), so keeping them out of the compiled prompt is what makes `promptVersion`
+ * stable across model switches and keeps the frozen prompt from going stale.
+ */
 export interface BaselineContext {
-  /** The session worktree root — the agent's working directory. */
-  worktree: string;
   /** The OS platform (e.g. `win32`, `linux`, `darwin`). */
   platform: string;
-  /** The active model id, when known. */
-  model?: string;
   /** The current date (`YYYY-MM-DD`) for temporal grounding. */
   date: string;
 }
@@ -84,22 +86,9 @@ const CODE_QUALITY = authoredPush(
   ].join(' '),
 );
 
-/** The self-identity Piece stating which model the agent runs as (volatile → tail). */
-function modelPiece(model: string): Piece {
-  return authoredPush(
-    'baseline-model',
-    'the model the agent is running as',
-    `You are running as the model \`${model}\`. Do not claim to be a different model.`,
-  );
-}
-
-/** Author the volatile environment Piece from the session's facts (ordered last, per D-P2). */
+/** Author the volatile environment Piece from the session-invariant facts (ordered last, per D-P2). */
 function environmentPiece(ctx: BaselineContext): Piece {
-  const lines = [
-    `Working directory: ${ctx.worktree}`,
-    `Platform: ${ctx.platform}`,
-    `Date: ${ctx.date}`,
-  ];
+  const lines = [`Platform: ${ctx.platform}`, `Date: ${ctx.date}`];
   return authoredPush('baseline-environment', 'the session runtime facts', lines.join('\n'));
 }
 
@@ -113,15 +102,13 @@ export function baselineStablePieces(): Piece[] {
 }
 
 /**
- * The volatile per-session tail — the model self-identity (present whenever the
- * model id is known) then the environment block. Ordered last so the stable
- * prefix stays cache-warm (D-P2).
+ * The volatile per-session tail — the environment block (platform + date). Ordered
+ * last so the stable prefix stays cache-warm (D-P2). The model id is deliberately
+ * absent: the backend names its own model, and keeping it out keeps the compiled
+ * prompt (and thus `promptVersion`) invariant across model switches.
  */
 export function baselineVolatilePieces(ctx: BaselineContext): Piece[] {
-  return [
-    ...(ctx.model !== undefined && ctx.model !== '' ? [modelPiece(ctx.model)] : []),
-    environmentPiece(ctx),
-  ];
+  return [environmentPiece(ctx)];
 }
 
 /**
@@ -152,13 +139,8 @@ export function createBaselineAssemblePieces(deps: {
   now?: () => Date;
 }): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
   const now = deps.now ?? ((): Date => new Date());
-  return (ctx) => ({
-    pieces: baselinePieces({
-      worktree: ctx.worktree,
-      platform: deps.platform,
-      date: isoDate(now()),
-      ...(ctx.model !== undefined ? { model: ctx.model } : {}),
-    }),
+  return () => ({
+    pieces: baselinePieces({ platform: deps.platform, date: isoDate(now()) }),
     frame: EMPTY_FRAME,
   });
 }

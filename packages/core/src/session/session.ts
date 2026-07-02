@@ -43,10 +43,12 @@ export interface SessionAdapterInit {
   resume?: string;
   /** Report the backend's own session id (for the next resume); M8 persists it against the conversation. */
   onBackendSession?: (backendSessionId: string) => void;
-  /** The prior conversation transcript (R-7, system omitted) for a pure-API backend that has no server session to `resume`; resent verbatim for cross-turn memory. */
+  /** The prior conversation transcript (R-7, system omitted). A pure-API backend resends it for memory; the Claude backend carries it for bookkeeping (and, when `deliverHistoryAsPreamble`, as a first-turn preamble). */
   history?: readonly BackendMessage[];
-  /** Report the settled transcript (pure-API counterpart to `onBackendSession`); M8 persists it as the next turn's `history`. */
+  /** Report the settled transcript; M8 persists it as the next turn's `history` (every backend now reports this, making memory provider-independent). */
   onBackendMessages?: (messages: readonly BackendMessage[]) => void;
+  /** Claude cross-provider switch: deliver `history` as a first-turn preamble (no resumable server session exists for this transcript). Pure-API backends ignore it. */
+  deliverHistoryAsPreamble?: boolean;
 }
 
 /** The active-account resolution M8 supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
@@ -59,10 +61,11 @@ export interface ActiveAccountResolution {
 export interface AssemblePiecesContext {
   role: string;
   scope: string;
-  /** The bound session worktree (the agent's working directory). */
+  /** The bound session worktree (the agent's working directory). Available to
+   *  context assembly, but deliberately NOT written into the baseline prompt —
+   *  the backend supplies the cwd, and keeping dynamic paths out of the compiled
+   *  prompt is what keeps `promptVersion` stable across invocations. */
   worktree: string;
-  /** The active model id, when selected. */
-  model?: string;
   /** Opt-in packages the user added beyond the role's (assembly selection). */
   packageIds?: string[];
   /** Default packages the user turned off (assembly selection). */
@@ -137,25 +140,43 @@ export async function createSession(
     resume?: string;
     /** Report the backend's own session id once the loop learns it. */
     onBackendSession?: (backendSessionId: string) => void;
-    /** The prior conversation transcript for a pure-API backend (system omitted). */
+    /** The prior conversation transcript (system omitted) — carried to any backend. */
     history?: readonly BackendMessage[];
     /** Report the settled transcript so M8 can persist it for the next turn. */
     onBackendMessages?: (messages: readonly BackendMessage[]) => void;
+    /** Claude cross-provider switch: deliver `history` as a first-turn preamble. */
+    deliverHistoryAsPreamble?: boolean;
+    /** The session's frozen compilation (neutral config + frame). When present the
+     *  prompt is NOT recompiled — the byte-stable frozen prompt is reused (cache
+     *  warmth + "static unless raised"); absent ⇒ compile fresh (the first turn). */
+    frozen?: { neutral: NeutralConfig; frame: CapabilityFrame };
+    /** Report the fresh compilation (first turn only) so M8 can freeze it. */
+    onCompile?: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }) => void;
   },
   deps: SessionDeps,
 ): Promise<Session> {
   const sessionId = req.sessionId ?? deps.newSessionId();
   const worktree = deps.bindWorktree(sessionId, req.scope);
   req.onStart?.({ id: sessionId, worktree });
-  const { pieces, frame } = deps.assemblePieces({
-    role: req.role,
-    scope: req.scope,
-    worktree,
-    ...(req.model?.model !== undefined ? { model: req.model.model } : {}),
-    ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
-    ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
-  });
-  const neutral = deps.compile(pieces, frame);
+  // Reuse the frozen compilation when the session already has one; otherwise compile
+  // once and report it up so it can be frozen for every later turn.
+  let neutral: NeutralConfig;
+  let frame: CapabilityFrame;
+  if (req.frozen !== undefined) {
+    neutral = req.frozen.neutral;
+    frame = req.frozen.frame;
+  } else {
+    const assembled = deps.assemblePieces({
+      role: req.role,
+      scope: req.scope,
+      worktree,
+      ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
+      ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
+    });
+    frame = assembled.frame;
+    neutral = deps.compile(assembled.pieces, frame);
+    req.onCompile?.({ neutral, frame });
+  }
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
   const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);
   // The chosen model names its provider (from the merged model list); that provider's
@@ -189,6 +210,9 @@ export async function createSession(
     ...(req.onBackendSession ? { onBackendSession: req.onBackendSession } : {}),
     ...(req.history !== undefined ? { history: req.history } : {}),
     ...(req.onBackendMessages ? { onBackendMessages: req.onBackendMessages } : {}),
+    ...(req.deliverHistoryAsPreamble !== undefined
+      ? { deliverHistoryAsPreamble: req.deliverHistoryAsPreamble }
+      : {}),
   });
 
   adapter.renderNative(neutral);

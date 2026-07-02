@@ -11,6 +11,8 @@ import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import { closeSession as closeSessionCore, createSession, type SessionDeps } from './session.js';
 import type { ConversationStore } from './conversation-store.js';
+import { planMemory, type MemoryPlan } from './memory-plan.js';
+import { promptVersionOf, type FrozenCompilation } from './prompt-freeze.js';
 
 /**
  * M8 — the session-lifecycle RPC surface (CON-CAT `createSession`/`closeSession`)
@@ -74,11 +76,17 @@ export function buildSessionHandlers(
       const convId = params.conversationId;
       const persistIn = convId !== undefined && store !== undefined ? { convId, store } : undefined;
       let seq = 0;
-      let resume: string | undefined;
-      // The pure-API backend's prior transcript (system omitted), resent verbatim for
-      // memory + cache warmth; empty for a server-session (Claude) conversation, which
-      // resumes by id instead.
-      let history: readonly BackendMessage[] = [];
+      // The per-turn memory strategy (resume vs. replay vs. preamble), computed from
+      // the stored selection stamp and the canonical transcript. Ephemeral (no-store)
+      // sessions carry no memory, so the default is a fresh, memoryless plan.
+      let plan: MemoryPlan = { history: [], deliverHistoryAsPreamble: false };
+      // The provider/model this turn actually routes to (mirrors session.ts's default).
+      const provider = params.model?.provider ?? 'claude';
+      const model = params.model?.model;
+      // The session's frozen compilation (reused every turn for cache warmth) and its
+      // prompt version — undefined until the first turn compiles it below.
+      let frozen: FrozenCompilation | undefined;
+      let promptVersion: string | undefined;
 
       if (persistIn !== undefined) {
         const { convId: id, store: cs } = persistIn;
@@ -91,7 +99,9 @@ export function buildSessionHandlers(
           });
         }
         const prior = cs.reload(id);
-        history = cs.loadBackendMessages(id);
+        const transcript = cs.loadBackendMessages(id);
+        frozen = cs.getCompilation(id);
+        promptVersion = frozen?.promptVersion;
         seq = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
         // First message of a still-untitled session sets the VSCode-style auto-title.
         if (prior.length === 0) {
@@ -100,7 +110,18 @@ export function buildSessionHandlers(
             cs.rename(id, deriveTitle(params.input));
           }
         }
-        resume = cs.getMeta(id)?.backendSessionId;
+        // Decide how to hand memory to this turn's backend BEFORE re-pinning the
+        // selection (the plan reads the PRIOR turn's resume stamp), then pin what this
+        // turn runs on so a restart/next turn routes to the same backend the memory
+        // lives in — the fix for a conversation silently reviving on the wrong backend.
+        plan = planMemory({
+          provider,
+          ...(model !== undefined ? { model } : {}),
+          ...(promptVersion !== undefined ? { promptVersion } : {}),
+          meta: cs.getMeta(id),
+          transcript,
+        });
+        cs.setSelection(id, params.model ?? { provider });
         // Persist (but never push — the console already showed it optimistically) the user turn.
         cs.append(id, [{ seq, frame: { t: 'text', text: params.input, role: 'user' } }]);
         seq += 1;
@@ -124,12 +145,31 @@ export function buildSessionHandlers(
             ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
             ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
             ...(persistIn !== undefined ? { sessionId: persistIn.convId } : {}),
-            ...(resume !== undefined ? { resume } : {}),
-            ...(history.length > 0 ? { history } : {}),
+            ...(plan.resume !== undefined ? { resume: plan.resume } : {}),
+            ...(plan.history.length > 0 ? { history: plan.history } : {}),
+            ...(plan.deliverHistoryAsPreamble ? { deliverHistoryAsPreamble: true } : {}),
+            // Reuse the frozen prompt when the session has one; otherwise let the loop
+            // compile fresh and freeze the result (first turn only).
+            ...(frozen !== undefined ? { frozen: { neutral: frozen.neutral, frame: frozen.frame } } : {}),
+            ...(persistIn !== undefined && frozen === undefined
+              ? {
+                  onCompile: (compiled) => {
+                    promptVersion = promptVersionOf(compiled.neutral);
+                    persistIn.store.setCompilation(persistIn.convId, { ...compiled, promptVersion });
+                  },
+                }
+              : {}),
             ...(persistIn !== undefined
               ? {
+                  // Stamp the resume token with the provider/model + frozen prompt it's
+                  // valid for, so a later model/provider switch OR a deliberate recompile
+                  // falls back to replay instead of resuming a stale server session.
                   onBackendSession: (id: string) =>
-                    persistIn.store.setBackendSession(persistIn.convId, id),
+                    persistIn.store.setBackendSession(persistIn.convId, id, {
+                      provider,
+                      ...(model !== undefined ? { model } : {}),
+                      ...(promptVersion !== undefined ? { promptVersion } : {}),
+                    }),
                   onBackendMessages: (messages: readonly BackendMessage[]) =>
                     persistIn.store.saveBackendMessages(persistIn.convId, messages),
                 }

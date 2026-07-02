@@ -44,16 +44,17 @@ class FrameAdapter implements RuntimeAdapter {
     if (this.fail) throw new Error('loop blew up');
     const input = typeof this.init.input === 'string' ? this.init.input : '';
     for (const frame of this.frames) this.init.onTurn?.(frame);
-    if (this.pureApi) {
-      // The whole transcript (system omitted): prior history + this turn, resent next time.
-      this.init.onBackendMessages?.([
-        ...(this.init.history ?? []),
-        { role: 'user', content: input },
-        { role: 'assistant', content: 'reply' },
-      ]);
-    } else {
-      this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
-    }
+    // A pure-API backend when constructed so, or whenever the turn routes to DeepSeek
+    // (so a single session can switch providers across sends).
+    const isPureApi = this.pureApi || this.init.model?.provider === 'deepseek';
+    // Both backends now report the canonical transcript (prior history + this turn).
+    this.init.onBackendMessages?.([
+      ...(this.init.history ?? []),
+      { role: 'user', content: input },
+      { role: 'assistant', content: 'reply' },
+    ]);
+    // A server-session backend (Claude) additionally reports its resumable id.
+    if (!isPureApi) this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
   }
   deliverReminder(): void {}
@@ -260,6 +261,100 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
     await handlers['createSession']!.handle({ input: 'go' });
     expect(store.list()).toEqual([]);
     expect(inits[0]?.resume).toBeUndefined();
+  });
+});
+
+describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => {
+  let dir: string;
+  let store: ConversationStore;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'coa-sw-'));
+    store = createConversationStore(dir);
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const send = async (
+    handlers: ReturnType<typeof buildSessionHandlers>,
+    input: string,
+    provider: string,
+  ): Promise<void> => {
+    // role/scope are supplied explicitly: calling handle() directly bypasses the
+    // router's Zod defaults, and metaSchema requires them as strings.
+    await handlers['createSession']!.handle({ input, role: '', scope: '', conversationId: 'c1', model: { provider } });
+  };
+
+  it('pins the provider and, on a fresh daemon (restart), routes DeepSeek back to itself with memory intact', async () => {
+    const inits: SessionAdapterInit[] = [];
+    await send(buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store), 'first', 'deepseek');
+    expect(store.getMeta('c1')?.provider).toBe('deepseek');
+    expect(inits[0]?.resume).toBeUndefined();
+
+    // Simulate a console/daemon restart: brand-new handlers over the same on-disk store.
+    const inits2: SessionAdapterInit[] = [];
+    await send(buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits2), connection(), store), 'second', 'deepseek');
+    // No wrong-backend revival: still DeepSeek, no Claude resume, and the prior transcript replayed.
+    expect(inits2[0]?.resume).toBeUndefined();
+    expect(inits2[0]?.deliverHistoryAsPreamble).toBeFalsy();
+    expect(inits2[0]?.history).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+  });
+
+  it('Claude→DeepSeek: drops the Claude resume token and replays the Claude transcript as history', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store);
+    await send(handlers, 'first', 'claude');
+    expect(store.getMeta('c1')?.backendSessionId).toBe('backend-c1'); // Claude captured a session
+    await send(handlers, 'second', 'deepseek');
+    expect(inits[1]?.resume).toBeUndefined(); // the Claude token is not eligible for DeepSeek
+    expect(inits[1]?.deliverHistoryAsPreamble).toBeFalsy(); // DeepSeek replays as messages, not a preamble
+    expect(inits[1]?.history).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+  });
+
+  it('DeepSeek→Claude: no resumable session, so the transcript is delivered as a first-turn preamble', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store);
+    await send(handlers, 'first', 'deepseek');
+    await send(handlers, 'second', 'claude');
+    expect(inits[1]?.resume).toBeUndefined();
+    expect(inits[1]?.deliverHistoryAsPreamble).toBe(true);
+    expect(inits[1]?.history).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+  });
+
+  it('same-provider Claude continuation still uses native resume (fast path preserved)', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store);
+    await send(handlers, 'first', 'claude');
+    await send(handlers, 'second', 'claude');
+    expect(inits[1]?.resume).toBe('backend-c1');
+    expect(inits[1]?.deliverHistoryAsPreamble).toBeFalsy();
+  });
+
+  it('compiles the prompt once and freezes it; later turns reuse the frozen compilation', async () => {
+    let compiles = 0;
+    const base = deps([{ t: 'text', text: 'r' }]);
+    const countingDeps: SessionDeps = {
+      ...base,
+      compile: (...args) => {
+        compiles += 1;
+        return base.compile(...args);
+      },
+    };
+    const handlers = buildSessionHandlers(countingDeps, connection(), store);
+    await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1' });
+    expect(compiles).toBe(1);
+    expect(store.getCompilation('c1')?.promptVersion).toBeTruthy();
+
+    // The second turn reuses the frozen compilation — no recompile.
+    await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1' });
+    expect(compiles).toBe(1);
   });
 });
 

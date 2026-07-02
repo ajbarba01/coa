@@ -1,4 +1,5 @@
 import type {
+  BackendMessage,
   CapabilitySet,
   ContextPackage,
   Locator,
@@ -32,6 +33,8 @@ import { toCoaMcpServer } from './mcp-tools.js';
 import { resolveToolTransport } from './tool-frame.js';
 import { sessionAuthEnv } from './auth-env.js';
 import { messageToFrames } from './turn-frames.js';
+import { messageToBackendMessages } from './transcript.js';
+import { withHistoryPreamble } from './history-preamble.js';
 import { toSdkPrompt } from './session-input.js';
 
 /** The session-construction I/O M8 injects (D121) — defined here as M9's seam, not known by the core. */
@@ -63,6 +66,26 @@ export interface ClaudeSdkAdapterInit {
   resume?: string;
   /** Report the backend's own session id (captured once from the stream) so M8 can store it for the next resume. */
   onBackendSession?: (backendSessionId: string) => void;
+  /**
+   * The prior conversation transcript (R-7, system omitted). Unlike a pure-API
+   * backend, Claude does NOT feed this to the model when resuming by id (the server
+   * session already holds the memory) — it is carried here only so the adapter can
+   * append this turn and report the FULL canonical transcript back for persistence.
+   * (On a cross-provider switch INTO Claude, where there is no server session to
+   * resume, M8 additionally delivers it as a first-turn context preamble.)
+   */
+  history?: readonly BackendMessage[];
+  /** Report the settled canonical transcript (system omitted) so M8 can persist it —
+   *  the same neutral shape DeepSeek reports, making the memory provider-independent. */
+  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
+  /**
+   * Deliver {@link history} to the model as a first-turn context preamble instead of
+   * resuming (the cross-provider switch INTO Claude — no resumable server session
+   * exists for this transcript). The preamble carries the prior memory in-band; the
+   * canonical transcript still records the raw turns, so what the agent sees matches
+   * what the user sees. Ignored when there is no history or `resume` is set.
+   */
+  deliverHistoryAsPreamble?: boolean;
 }
 
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -206,11 +229,30 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       ...(this.#init.resume !== undefined ? { resume: this.#init.resume } : {}),
     });
 
+    // Accumulate the canonical neutral transcript: the prior history (carried for
+    // bookkeeping — the server session already holds it when resuming), this turn's
+    // raw user prompt, then every assistant/tool message the SDK streams. Reported
+    // at settle so M8 persists it in the same shape DeepSeek uses (provider-neutral
+    // memory). The streaming-input path (async iterable) has no single raw prompt to
+    // record here; it stays on the roadmap with interactive multi-turn.
+    const rawInput = typeof this.#init.input === 'string' ? this.#init.input : '';
+    const transcript: BackendMessage[] = [...(this.#init.history ?? [])];
+    if (rawInput !== '') transcript.push({ role: 'user', content: rawInput });
+
+    // On a cross-provider switch into Claude there is no server session to resume, so
+    // deliver the prior memory as a first-turn preamble (string input only). The raw
+    // turn is still what the transcript records above — the preamble is model delivery.
+    const modelPrompt: string | AsyncIterable<string> =
+      this.#init.deliverHistoryAsPreamble && typeof this.#init.input === 'string'
+        ? withHistoryPreamble(this.#init.input, this.#init.history ?? [])
+        : this.#init.input;
+
     let backendSessionReported = false;
     for await (const message of query({
-      prompt: toSdkPrompt(this.#init.input),
+      prompt: toSdkPrompt(modelPrompt),
       options: { ...options, cwd: sessionConfig.worktree },
     })) {
+      transcript.push(...messageToBackendMessages(message));
       // Capture the backend's own session id once — M8 stores it to `resume` the
       // conversation's memory on the next send (R-7 continuity).
       if (
@@ -234,5 +276,6 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
         this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
       }
     }
+    this.#init.onBackendMessages?.(transcript);
   }
 }

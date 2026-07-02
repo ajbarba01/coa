@@ -356,11 +356,18 @@ export async function startConsole(
     appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
+    // Prefer the session's PINNED selection (what it actually ran on last, incl. any
+    // in-chat model/effort override) over the agent's config default, which only seeds
+    // a brand-new session. This keeps an existing conversation routing to the backend
+    // its memory lives in across restarts, instead of re-deriving from mock agent state.
+    const provider = activeSession?.provider ?? agent?.provider;
+    const modelId = activeSession?.model ?? agent?.model;
+    const reasoning = activeSession?.reasoning ?? agent?.reasoning;
     const model: ModelSelection = {
       // The chosen model's provider routes the session to its backend + that provider's account.
-      ...(agent?.provider ? { provider: agent.provider } : {}),
-      ...(agent?.model ? { model: agent.model } : {}),
-      ...(agent?.reasoning ? { reasoning: agent.reasoning } : {}),
+      ...(provider ? { provider } : {}),
+      ...(modelId ? { model: modelId } : {}),
+      ...(reasoning ? { reasoning } : {}),
     };
     void bridge
       .startSession({

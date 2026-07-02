@@ -9,7 +9,17 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { backendMessageSchema, turnFrameSchema, type BackendMessage, type TurnFrame } from '@coa/shared';
+import {
+  backendMessageSchema,
+  capabilityFrameSchema,
+  claudeReasoningSchema,
+  neutralConfigSchema,
+  turnFrameSchema,
+  type BackendMessage,
+  type ModelSelection,
+  type TurnFrame,
+} from '@coa/shared';
+import type { FrozenCompilation } from './prompt-freeze.js';
 
 /**
  * M8 — the R-7 conversation store. It mirrors each session's conversation to a
@@ -21,18 +31,47 @@ import { backendMessageSchema, turnFrameSchema, type BackendMessage, type TurnFr
  *                        backend session id used to resume the loop's memory)
  *   - `turns.ndjson`   — the append-only `TurnFrame` sequence (R-7.a), each line a
  *                        `{ seq, frame }` — the durable analog of the live `turn` Push.
- *   - `messages.json`  — the pure-API backend's full chat transcript (system omitted),
- *                        rewritten each turn. Unlike the lossy `turns.ndjson` UI view
- *                        (a tool-result pointer, not its full output), this is the
- *                        verbatim message array a pure-API backend resends for
- *                        cross-turn memory + cache warmth (a server-session backend
- *                        uses `backendSessionId` instead, so this stays empty for it).
+ *   - `messages.json`  — the **canonical** provider-neutral chat transcript (system
+ *                        omitted), rewritten each turn. Unlike the lossy `turns.ndjson`
+ *                        UI view (a tool-result pointer, not its full output), this is
+ *                        the verbatim, full-content message array — the single source of
+ *                        truth for cross-turn memory. EVERY backend populates it (the
+ *                        Claude adapter maps its SDK stream to the same shape), so a
+ *                        conversation can be replayed into any backend: a pure-API
+ *                        backend resends it as `history` for continuity + cache warmth,
+ *                        and it is the lossless source when a session switches providers.
+ *                        A server-session backend (Claude) additionally keeps
+ *                        `backendSessionId` as a same-provider `resume` fast path.
+ *   - `compilation.json` — the session's FROZEN compiled prompt (the neutral config +
+ *                        capability frame + its `promptVersion`). Written once at the
+ *                        first turn and reused verbatim thereafter, so the provider's
+ *                        prompt cache stays warm; a deliberate recompile rewrites it.
  *
  * Reads never throw: a corrupt `meta.json` drops that session from the listing, a
  * garbage turn line is skipped, and an unparseable `messages.json` reads as no memory
  * — so a hand-edited or partially-written store still re-materializes what it can
  * (the D85 floor).
  */
+
+/** The (provider, model) a `backendSessionId` was captured under — the native
+ *  `resume` fast path is only valid while the live selection still matches this
+ *  stamp. A provider or model switch leaves the token present but ineligible, so
+ *  the session falls back to replaying the neutral transcript into the new backend. */
+const resumeStampSchema = z.object({
+  provider: z.string(),
+  model: z.string().optional(),
+  /** The frozen prompt version the token was captured under — a deliberate recompile
+   *  bumps it, so the token becomes ineligible and the next turn starts a fresh
+   *  server session with the new prompt (rather than resuming the stale one). */
+  promptVersion: z.string().optional(),
+});
+export type ResumeStamp = z.infer<typeof resumeStampSchema>;
+
+const frozenCompilationSchema = z.object({
+  neutral: neutralConfigSchema,
+  frame: capabilityFrameSchema,
+  promptVersion: z.string(),
+});
 
 const metaSchema = z.object({
   id: z.string(),
@@ -42,6 +81,14 @@ const metaSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   backendSessionId: z.string().optional(),
+  /** The provider/model/reasoning the session actually runs on — pinned at the
+   *  first send and used verbatim on every later turn (incl. after a restart), so
+   *  routing never silently drifts to a different backend than the memory lives in. */
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  reasoning: claudeReasoningSchema.optional(),
+  /** What the {@link SessionMeta.backendSessionId} resume token is valid for. */
+  resumeStamp: resumeStampSchema.optional(),
 });
 
 /** A session's index entry — the durable metadata behind the rail's `SessionSummary`. */
@@ -64,16 +111,26 @@ export interface ConversationStore {
   getMeta(id: string): SessionMeta | undefined;
   /** Retitle a session (bumps updatedAt). No-op if the session is gone. */
   rename(id: string, title: string): void;
-  /** Record the backend session id used to resume this conversation's memory. */
-  setBackendSession(id: string, backendSessionId: string): void;
+  /** Pin the provider/model/reasoning the session actually runs on. Fields left
+   *  undefined are cleared (the selection is replaced, not merged). No-op if gone. */
+  setSelection(id: string, selection: ModelSelection): void;
+  /** Record the backend session id used to resume this conversation's memory, and
+   *  the provider/model it is valid for (the native `resume` fast path is honored
+   *  only while the live selection still matches this stamp). */
+  setBackendSession(id: string, backendSessionId: string, stamp: ResumeStamp): void;
   /** Append turns to the session's stream (bumps updatedAt). */
   append(id: string, turns: PersistedTurn[]): void;
   /** The persisted turn sequence (up to and including `toSeq`, when given). */
   reload(id: string, toSeq?: number): PersistedTurn[];
-  /** The pure-API backend's full chat transcript (system omitted); empty if none / unparseable. */
+  /** The canonical neutral transcript (system omitted); empty if none / unparseable. */
   loadBackendMessages(id: string): BackendMessage[];
-  /** Replace the pure-API backend's chat transcript (rewritten in full each turn). */
+  /** Replace the canonical neutral transcript (rewritten in full each turn). */
   saveBackendMessages(id: string, messages: readonly BackendMessage[]): void;
+  /** The session's frozen compilation (the byte-stable prompt reused every turn), or
+   *  undefined before the first turn compiles it / if unparseable. */
+  getCompilation(id: string): FrozenCompilation | undefined;
+  /** Freeze the session's compilation so every later turn reuses it verbatim (cache-stable). */
+  setCompilation(id: string, compilation: FrozenCompilation): void;
   /** Delete a session's whole tree. */
   remove(id: string): void;
 }
@@ -88,6 +145,7 @@ export function createConversationStore(
   const metaPath = (id: string): string => join(sessionDir(id), 'meta.json');
   const turnsPath = (id: string): string => join(sessionDir(id), 'turns.ndjson');
   const messagesPath = (id: string): string => join(sessionDir(id), 'messages.json');
+  const compilationPath = (id: string): string => join(sessionDir(id), 'compilation.json');
 
   const readMeta = (id: string): SessionMeta | undefined => {
     const path = metaPath(id);
@@ -137,8 +195,23 @@ export function createConversationStore(
       touch(id, { title });
     },
 
-    setBackendSession(id, backendSessionId) {
-      touch(id, { backendSessionId });
+    setSelection(id, selection) {
+      const meta = readMeta(id);
+      if (meta === undefined) return;
+      // Replace the selection wholesale (undefined fields clear), so a switch to an
+      // account-default model/reasoning doesn't leave a stale pin behind.
+      const next: SessionMeta = { ...meta, updatedAt: now() };
+      if (selection.provider !== undefined) next.provider = selection.provider;
+      else delete next.provider;
+      if (selection.model !== undefined) next.model = selection.model;
+      else delete next.model;
+      if (selection.reasoning !== undefined) next.reasoning = selection.reasoning;
+      else delete next.reasoning;
+      writeMeta(next);
+    },
+
+    setBackendSession(id, backendSessionId, stamp) {
+      touch(id, { backendSessionId, resumeStamp: stamp });
     },
 
     append(id, turns) {
@@ -184,6 +257,22 @@ export function createConversationStore(
       mkdirSync(sessionDir(id), { recursive: true });
       writeFileSync(messagesPath(id), `${JSON.stringify(messages, null, 2)}\n`, 'utf8');
       touch(id, {});
+    },
+
+    getCompilation(id) {
+      const path = compilationPath(id);
+      if (!existsSync(path)) return undefined;
+      try {
+        const parsed = frozenCompilationSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
+        return parsed.success ? parsed.data : undefined; // unparseable ⇒ recompile fresh (never throw)
+      } catch {
+        return undefined;
+      }
+    },
+
+    setCompilation(id, compilation) {
+      mkdirSync(sessionDir(id), { recursive: true });
+      writeFileSync(compilationPath(id), `${JSON.stringify(compilation, null, 2)}\n`, 'utf8');
     },
 
     remove(id) {

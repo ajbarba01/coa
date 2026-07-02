@@ -10,9 +10,7 @@ import {
 import type { BaselineContext } from './baseline-pieces.js';
 
 const CTX: BaselineContext = {
-  worktree: '/w',
   platform: 'linux',
-  model: 'claude-opus-4-8',
   date: '2026-07-02',
 };
 
@@ -36,7 +34,6 @@ describe('assembleAgent — inclusion', () => {
   it('excluding core degrades to the raw loop — no scaffold, no volatile tail (nothing mandatory)', () => {
     const { pieces } = assembleAgent({ role: emptyRole, exclude: ['core'] }, registry, CTX);
     expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(false);
-    expect(pieces.some((p) => p.name === 'baseline-model')).toBe(false);
     expect(pieces.some((p) => p.name === 'baseline-environment')).toBe(false);
   });
 
@@ -118,7 +115,7 @@ describe('assembleAgent — pieces, mcps, advisories', () => {
     expect(names.indexOf('pkg-coding')).toBeGreaterThan(names.indexOf('baseline-code-quality'));
     expect(names.indexOf('role-x')).toBeGreaterThan(names.indexOf('pkg-coding'));
     expect(names.indexOf('skill-x')).toBeGreaterThan(names.indexOf('role-x'));
-    expect(names.indexOf('skill-x')).toBeLessThan(names.indexOf('baseline-model'));
+    expect(names.indexOf('skill-x')).toBeLessThan(names.indexOf('baseline-environment'));
   });
 
   it('unions external MCP servers across included packages, deduped', () => {
@@ -166,10 +163,12 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
   });
 
   it('a known role restricts the frame to its packages’ tools', () => {
-    const { frame, pieces } = assemble({ role: 'swe', scope: 'src', worktree: '/w', model: 'm' });
+    const { frame, pieces } = assemble({ role: 'swe', scope: 'src', worktree: '/w' });
     expect(frame.allow).toEqual(expect.arrayContaining(['edit_symbol', 'Bash', 'get_symbol']));
     expect(pieces.some((p) => p.name === 'pkg-coding')).toBe(true);
-    expect(pieces.some((p) => p.name === 'baseline-model')).toBe(true);
+    expect(pieces.some((p) => p.name === 'baseline-environment')).toBe(true);
+    // The compiled prompt is model-invariant — no Piece names the model.
+    expect(pieces.some((p) => p.name === 'baseline-model')).toBe(false);
   });
 
   it('an unknown/unset role is the permissive floor: baseline scaffold, empty frame (all tools)', () => {

@@ -82,6 +82,13 @@ export const SessionSummarySchema = z.object({
   agentRef: z.string(),
   title: z.string(),
   updatedAt: z.string(),
+  /** The provider/model/reasoning this session is PINNED to (what it actually ran on).
+   *  Absent until the first turn pins it. The console sends this back on the next turn
+   *  so an existing conversation keeps routing to the backend its memory lives in,
+   *  rather than silently re-deriving the selection from (mock) agent state. */
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  reasoning: claudeReasoningSchema.optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 

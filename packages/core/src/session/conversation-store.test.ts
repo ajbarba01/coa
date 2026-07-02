@@ -53,14 +53,41 @@ describe('conversation store (R-7)', () => {
     expect(store.list().map((m) => m.id)).toEqual(['a', 'b']); // a is now the most recent
   });
 
-  it('renames a session and records the backend session id', () => {
+  it('renames a session and records the backend session id with its resume stamp', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 'new session', scope: '' });
     store.rename('c1', 'refactor the auth module');
-    store.setBackendSession('c1', 'sdk-uuid-123');
+    store.setBackendSession('c1', 'sdk-uuid-123', { provider: 'claude', model: 'claude-opus-4-8' });
     expect(store.getMeta('c1')).toMatchObject({
       title: 'refactor the auth module',
       backendSessionId: 'sdk-uuid-123',
+      resumeStamp: { provider: 'claude', model: 'claude-opus-4-8' },
     });
+  });
+
+  it('pins the session selection and replaces it wholesale on change', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    store.setSelection('c1', {
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      reasoning: { mode: 'effort', effort: 'high' },
+    });
+    expect(store.getMeta('c1')).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      reasoning: { mode: 'effort', effort: 'high' },
+    });
+    // Switching to a provider default (no model/reasoning) clears the stale pins.
+    store.setSelection('c1', { provider: 'claude' });
+    const meta = store.getMeta('c1')!;
+    expect(meta.provider).toBe('claude');
+    expect(meta.model).toBeUndefined();
+    expect(meta.reasoning).toBeUndefined();
+  });
+
+  it('setSelection/setBackendSession are no-ops on an unknown session', () => {
+    store.setSelection('ghost', { provider: 'claude' });
+    store.setBackendSession('ghost', 'x', { provider: 'claude' });
+    expect(store.getMeta('ghost')).toBeUndefined();
   });
 
   it('removes a session entirely', () => {
@@ -121,5 +148,28 @@ describe('conversation store (R-7)', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
     writeFileSync(join(dir, 'c1', 'messages.json'), '{ not json', 'utf8');
     expect(store.loadBackendMessages('c1')).toEqual([]);
+  });
+
+  it('freezes and reloads a session compilation; a corrupt one reads as none', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    expect(store.getCompilation('c1')).toBeUndefined();
+    const compilation = {
+      neutral: {
+        prefixHead: [],
+        systemReminders: [],
+        onDemandPullable: [],
+        scopePushed: [],
+        toolIntents: { allow: ['Read'], deny: [] },
+      },
+      frame: { allow: ['Read'], deny: [] },
+      promptVersion: 'abc123',
+    };
+    store.setCompilation('c1', compilation);
+    expect(store.getCompilation('c1')).toEqual(compilation);
+    // Survives a reopen (lives on disk).
+    expect(createConversationStore(dir, fakeClock()).getCompilation('c1')).toEqual(compilation);
+    // Corrupt ⇒ undefined (the session recompiles fresh), never throws.
+    writeFileSync(join(dir, 'c1', 'compilation.json'), '{ not json', 'utf8');
+    expect(store.getCompilation('c1')).toBeUndefined();
   });
 });

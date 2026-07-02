@@ -124,12 +124,7 @@ export function createRegistryAssemblePieces(deps: {
 }): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
   const now = deps.now ?? ((): Date => new Date());
   return (ctx) => {
-    const baselineCtx: BaselineContext = {
-      worktree: ctx.worktree,
-      platform: deps.platform,
-      date: isoDateUtc(now()),
-      ...(ctx.model !== undefined ? { model: ctx.model } : {}),
-    };
+    const baselineCtx: BaselineContext = { platform: deps.platform, date: isoDateUtc(now()) };
     const role = deps.roles.get(ctx.role);
     if (role === undefined) {
       return { pieces: baselinePieces(baselineCtx), frame: { allow: [], deny: [] } };
