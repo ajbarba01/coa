@@ -4,6 +4,7 @@ export { cx, focusRing } from './lib/cx.js';
 export { Icon, type IconProps } from './icon/Icon.js';
 export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from './actions/Button.js';
 export { IconButton, type IconButtonProps } from './actions/IconButton.js';
+export { CopyButton, type CopyButtonProps } from './actions/CopyButton.js';
 export { ButtonGroup, type ButtonGroupProps } from './actions/ButtonGroup.js';
 export { Link, type LinkProps, type LinkTone } from './actions/Link.js';
 export { Menu, type MenuProps, type MenuItem } from './actions/Menu.js';
@@ -67,3 +68,5 @@ export {
   type TranscriptRole,
   type RespondFn,
 } from './dense/Transcript.js';
+export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
+export { Markdown, type MarkdownProps } from './dense/Markdown.js';

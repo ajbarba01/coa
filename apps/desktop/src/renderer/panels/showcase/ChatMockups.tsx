@@ -4,40 +4,61 @@
  * `@coa/console-ui` kit components + semantic tokens only; nothing drives the
  * daemon and nothing wires into the real ChatPanel/Transcript. The maintainer
  * reviews these specimens (block kinds, subagent nesting, approval card, composer)
- * plus the syntax-highlighter A/B before any panel wiring begins.
+ * plus the live `Markdown` renderer before any panel wiring begins.
  */
-import { useEffect, useState } from 'react';
-import { Badge, Button, ButtonGroup, Code, Icon, IconButton, Select, cx } from '@coa/console-ui';
+import { useState } from 'react';
+import {
+  Badge,
+  Button,
+  ButtonGroup,
+  Code,
+  Icon,
+  IconButton,
+  Markdown,
+  Select,
+  cx,
+} from '@coa/console-ui';
 import {
   Check,
   ChevronDown,
   ChevronRight,
   Circle,
-  Copy,
   Loader2,
   Maximize2,
   Send,
   Square,
   TriangleAlert,
 } from 'lucide-react';
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import ts from 'react-syntax-highlighter/dist/esm/languages/hljs/typescript';
-import { createHighlighter, type Highlighter } from 'shiki';
-import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
-import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
 import { Family, Row } from './Specimen.js';
 
 const noop = (): void => {};
 
-SyntaxHighlighter.registerLanguage('typescript', ts);
+/** Real GFM exercised by the live `Markdown` specimen: heading, bullet + task
+ *  list, table, inline code, a link, an emoji, and a fenced TypeScript block
+ *  (which drives CodeBlock + its CopyButton). */
+const MARKDOWN_SAMPLE = `### Rotating the refresh token 🔐
 
-/** The one code sample rendered by BOTH highlighters in the A/B (§3 of the brief). */
-const CODE_SAMPLE = `export async function refreshToken(session: Session): Promise<Token> {
+I'll route failures through \`AuthError\` and keep the old token single-use. Steps:
+
+- swap the imports in \`src/auth.ts\`
+- [x] mint a fresh token
+- [ ] invalidate the previous one
+
+| step | status |
+| --- | --- |
+| mint | done |
+| invalidate | pending |
+
+See the [token helper docs](https://x.test/tokens) for the scope contract.
+
+\`\`\`ts
+export async function refreshToken(session: Session): Promise<Token> {
   // rotate the refresh token; the old one is single-use
   const next = await mint(session.userId, { scope: session.scope });
   if (!next.ok) throw new AuthError('mint failed', { cause: next.error });
   return next.token;
-}`;
+}
+\`\`\``;
 
 /* -------------------------------------------------------------------------- */
 /* Shared block scaffolding — a role gutter + indent/spine, token-styled only. */
@@ -95,25 +116,13 @@ function YouText(): React.JSX.Element {
   );
 }
 
-/** Agent markdown prose specimen. Real render uses the `Markdown` kit member;
- *  here we hand-compose the element mapping (heading / list / inline code) so the
- *  visual treatment is reviewable without the live pipeline. */
+/** Agent markdown prose specimen — the live `Markdown` kit member rendering real
+ *  GFM (heading, list, task list, table, inline code, link, emoji, fenced code).
+ *  The fenced block exercises CodeBlock + its CopyButton. */
 function AgentMarkdown(): React.JSX.Element {
   return (
     <Block role="agent">
-      <div className="flex flex-col gap-2 text-body leading-[1.5] text-fg">
-        <p>
-          I&apos;ll rotate the token in <Code>mint()</Code> and route failures through{' '}
-          <Code>AuthError</Code>. Plan:
-        </p>
-        <ul className="flex flex-col gap-1 pl-4">
-          <li className="list-disc text-muted marker:text-faint">
-            swap the imports in <Code>src/auth.ts</Code>
-          </li>
-          <li className="list-disc text-muted marker:text-faint">make the old token single-use</li>
-        </ul>
-        <ForgeCodeBlock />
-      </div>
+      <Markdown source={MARKDOWN_SAMPLE} />
     </Block>
   );
 }
@@ -423,140 +432,19 @@ function Composer(): React.JSX.Element {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Highlighter A/B — the SAME sample two ways.                                */
+/* Live Markdown — real GFM through the kit's `Markdown` member.              */
 /* -------------------------------------------------------------------------- */
 
-/** A block header shared by both highlighters and the agent-markdown specimen —
- *  language label + a copy affordance, forge-framed. */
-function CodeHeader({ lang }: { lang: string }): React.JSX.Element {
+/** The live `Markdown` specimen framed as a transcript surface, so the prose,
+ *  table, task list, and fenced CodeBlock (with its CopyButton) are reviewable
+ *  exactly as they render in the chat. */
+function LiveMarkdown(): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2 border-b border-hairline bg-subtle px-2.5 py-1">
-      <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">{lang}</span>
-      <IconButton icon={Copy} label="Copy code" variant="tertiary" size="sm" className="ml-auto" />
-    </div>
-  );
-}
-
-/**
- * Option A: react-syntax-highlighter (hljs light build), themed from the forge
- * tokens via an inline token→hljs-class style map. Fully synchronous; renders
- * through React elements (no innerHTML). Used inside the agent-markdown specimen
- * as the "chosen-by-default" treatment the plan assumes.
- */
-const HLJS_FORGE_STYLE: Record<string, React.CSSProperties> = {
-  hljs: { color: 'var(--color-fg)', background: 'transparent' },
-  'hljs-keyword': { color: 'var(--color-accent)' },
-  'hljs-built_in': { color: 'var(--color-info-text)' },
-  'hljs-type': { color: 'var(--color-info-text)' },
-  'hljs-string': { color: 'var(--color-success-text)' },
-  'hljs-number': { color: 'var(--color-warning-text)' },
-  'hljs-comment': { color: 'var(--color-faint)', fontStyle: 'italic' },
-  'hljs-function': { color: 'var(--color-fg)' },
-  'hljs-title': { color: 'var(--color-accent-hover)' },
-  'hljs-params': { color: 'var(--color-fg)' },
-  'hljs-attr': { color: 'var(--color-fg)' },
-  'hljs-literal': { color: 'var(--color-warning-text)' },
-};
-
-function ForgeCodeBlock(): React.JSX.Element {
-  return (
-    <div className="overflow-hidden rounded-surface border border-hairline bg-subtle">
-      <CodeHeader lang="typescript" />
-      <SyntaxHighlighter
-        language="typescript"
-        style={HLJS_FORGE_STYLE}
-        customStyle={{
-          margin: 0,
-          padding: 'var(--space-inset)',
-          background: 'transparent',
-          fontSize: 'var(--text-caption)',
-          lineHeight: '1.55',
-        }}
-        codeTagProps={{ style: { fontFamily: 'inherit' } }}
-      >
-        {CODE_SAMPLE}
-      </SyntaxHighlighter>
-    </div>
-  );
-}
-
-/** A minimal forge TextMate theme for Shiki — derived from the same palette the
- *  hljs map targets, so the two highlighters aim at one look. Colors are the
- *  concrete palette values Shiki's tokenizer needs (it cannot read CSS vars). */
-const FORGE_SHIKI_THEME = {
-  name: 'coa-forge',
-  type: 'dark' as const,
-  colors: { 'editor.background': '#00000000', 'editor.foreground': '#ece0d0' },
-  settings: [
-    { settings: { foreground: '#ece0d0', background: '#00000000' } },
-    { scope: ['keyword', 'storage', 'storage.type'], settings: { foreground: '#c39a3e' } },
-    { scope: ['entity.name.type', 'support.type'], settings: { foreground: '#9fc0e6' } },
-    { scope: ['string'], settings: { foreground: '#a8c39a' } },
-    { scope: ['constant.numeric', 'constant.language'], settings: { foreground: '#e6c489' } },
-    { scope: ['comment'], settings: { foreground: '#6e5d50', fontStyle: 'italic' } },
-    { scope: ['entity.name.function', 'support.function'], settings: { foreground: '#d4ab52' } },
-    { scope: ['variable', 'variable.parameter'], settings: { foreground: '#ece0d0' } },
-  ],
-};
-
-/**
- * Option B: Shiki (the engine VS Code uses) → hast → React via
- * hast-util-to-jsx-runtime. Async: the highlighter loads a grammar + WASM at
- * runtime, so this renders a placeholder until ready. No innerHTML — hast is
- * mapped to React elements through the jsx runtime.
- */
-let forgeHighlighter: Promise<Highlighter> | undefined;
-function getForgeHighlighter(): Promise<Highlighter> {
-  forgeHighlighter ??= createHighlighter({
-    themes: [FORGE_SHIKI_THEME],
-    langs: ['typescript'],
-  });
-  return forgeHighlighter;
-}
-
-function ShikiCodeBlock(): React.JSX.Element {
-  const [node, setNode] = useState<React.ReactNode>(null);
-  useEffect(() => {
-    let live = true;
-    void getForgeHighlighter().then((hi) => {
-      if (!live) return;
-      const hast = hi.codeToHast(CODE_SAMPLE, { lang: 'typescript', theme: 'coa-forge' });
-      setNode(toJsxRuntime(hast, { Fragment, jsx, jsxs }));
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  return (
-    <div className="overflow-hidden rounded-surface border border-hairline bg-subtle">
-      <CodeHeader lang="typescript" />
-      <div className="p-2 font-mono text-caption leading-[1.55] [&_pre]:m-0! [&_pre]:overflow-auto [&_pre]:whitespace-pre [&_pre]:bg-transparent!">
-        {node ?? <span className="text-faint">Loading Shiki grammar…</span>}
-      </div>
-    </div>
-  );
-}
-
-function HighlighterAB(): React.JSX.Element {
-  return (
-    <div className="grid w-full max-w-3xl gap-4 md:grid-cols-2">
-      <div className="flex flex-col gap-1.5">
-        <span className="text-caption font-medium text-fg">
-          A · react-syntax-highlighter (hljs)
-        </span>
-        <span className="text-caption text-faint">
-          synchronous · themed from tokens · React elements (no innerHTML)
-        </span>
-        <ForgeCodeBlock />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <span className="text-caption font-medium text-fg">B · Shiki via hast</span>
-        <span className="text-caption text-faint">
-          async grammar/WASM · forge TextMate theme · hast→JSX (no innerHTML)
-        </span>
-        <ShikiCodeBlock />
-      </div>
-    </div>
+    <Stream>
+      <Block role="agent">
+        <Markdown source={MARKDOWN_SAMPLE} />
+      </Block>
+    </Stream>
   );
 }
 
@@ -577,8 +465,8 @@ export function ChatMockupsSection(): React.JSX.Element {
       <Row label="Composer" align="start">
         <Composer />
       </Row>
-      <Row label="Highlighter A/B" align="start">
-        <HighlighterAB />
+      <Row label="Live markdown" align="start">
+        <LiveMarkdown />
       </Row>
     </Family>
   );

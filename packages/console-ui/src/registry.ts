@@ -2,6 +2,7 @@ import type { ComponentIntent } from './lib/intent.js';
 import { iconIntent } from './icon/Icon.intent.js';
 import { buttonIntent } from './actions/Button.intent.js';
 import { iconButtonIntent } from './actions/IconButton.intent.js';
+import { copyButtonIntent } from './actions/CopyButton.intent.js';
 import { buttonGroupIntent } from './actions/ButtonGroup.intent.js';
 import { linkIntent } from './actions/Link.intent.js';
 import { menuIntent } from './actions/Menu.intent.js';
@@ -36,6 +37,7 @@ import { codeIntent } from './data/Code.intent.js';
 import { badgeIntent } from './data/Badge.intent.js';
 import { statIntent } from './data/Stat.intent.js';
 import { transcriptIntent } from './dense/Transcript.intent.js';
+import { markdownIntent } from './dense/Markdown.intent.js';
 import { agentChipIntent } from './data/AgentChip.intent.js';
 import { agentRailIntent } from './layout/AgentRail.intent.js';
 import { identityPickerIntent } from './overlays/IdentityPicker.intent.js';
@@ -47,6 +49,7 @@ export const allIntents: ComponentIntent[] = [
   iconIntent,
   buttonIntent,
   iconButtonIntent,
+  copyButtonIntent,
   buttonGroupIntent,
   linkIntent,
   menuIntent,
@@ -81,6 +84,7 @@ export const allIntents: ComponentIntent[] = [
   badgeIntent,
   statIntent,
   transcriptIntent,
+  markdownIntent,
   agentChipIntent,
   agentRailIntent,
   identityPickerIntent,

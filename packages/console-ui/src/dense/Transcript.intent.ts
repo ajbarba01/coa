@@ -5,21 +5,25 @@ export const transcriptIntent: ComponentIntent = assertIntent({
   family: 'Dense/Viz',
   intent: 'A virtualized turn stream of role-tagged conversation frames.',
   useWhen: [
-    'Showing the agent conversation — text, tool calls, approvals, denies, or the raw loop.',
+    'Showing the agent conversation — text, tool calls, thinking, plans, approvals, denies, errors, subagent activity, or the raw loop.',
   ],
   dontUseWhen: [
     'Showing one long document — use Longform/PromptView.',
     'Showing tabular records — use Table.',
   ],
   anatomy:
-    'A labelled log region virtualizing per-kind rows (text, tool-use, tool-result, approval, deny, raw).',
+    'A labelled log region virtualizing per-kind rows (text as markdown, tool-use, tool-result, thinking, plan, approval, deny, error, subagent, raw).',
   variantsStates: [
     'text',
     'tool-use',
     'tool-result',
+    'thinking',
+    'plan',
     'approval',
     'approval-resolved',
     'deny',
+    'error',
+    'subagent',
     'raw',
     'empty',
   ],

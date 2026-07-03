@@ -10,6 +10,13 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('you')).toBeTruthy();
   });
 
+  it('renders a text frame as markdown (inline code becomes <code>)', () => {
+    render(
+      <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'text', text: 'run `ls` now' }} />,
+    );
+    expect(screen.getByText('ls').tagName).toBe('CODE');
+  });
+
   it('renders a tool-use frame byte-faithfully in a monospace block', () => {
     const input = '{\n  "path": "src/auth.ts"\n}';
     const { container } = render(

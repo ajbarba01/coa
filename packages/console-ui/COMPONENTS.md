@@ -26,6 +26,17 @@ Groups related buttons as one labelled cluster.
 - **Accessibility:** role=group with an aria-label naming the cluster.
 - **Related:** Button, Toolbar
 
+### CopyButton
+
+A one-click control that copies a string to the clipboard with brief confirmation feedback.
+
+- **Use it when:** Offering copy on a code block, id, diff, or any short text payload.
+- **Don't use it when:** Copying requires formatting/serialization first — do that upstream and pass the final string.
+- **Anatomy:** An IconButton showing a copy glyph that swaps to a check for ~1.2s after a successful copy.
+- **Variants & states:** idle, copied
+- **Accessibility:** Native button; its accessible name announces Copy → Copied on success.
+- **Related:** Code, IconButton
+
 ### IconButton
 
 An icon-only button for dense toolbars where a text label would not fit.
@@ -151,14 +162,25 @@ Presents rows of records with aligned columns, empty state first.
 
 ## Dense/Viz
 
+### Markdown
+
+Renders GitHub-flavored markdown as kit elements, with highlighted, copy-able code blocks.
+
+- **Use it when:** Rendering agent/user prose that may contain markdown, code, links, or task lists.
+- **Don't use it when:** Showing raw, untrusted bytes that must not be interpreted — use Code block.
+- **Anatomy:** A prose container mapping markdown nodes to Link, Code, and CodeBlock; GFM tables/task-lists supported.
+- **Variants & states:** prose, inline-code, fenced-code, task-list, table, link
+- **Accessibility:** Semantic headings/lists/links; code blocks expose a labelled copy button; text is byte-faithful.
+- **Related:** Code, CopyButton, Link, Transcript
+
 ### Transcript
 
 A virtualized turn stream of role-tagged conversation frames.
 
-- **Use it when:** Showing the agent conversation — text, tool calls, approvals, denies, or the raw loop.
+- **Use it when:** Showing the agent conversation — text, tool calls, thinking, plans, approvals, denies, errors, subagent activity, or the raw loop.
 - **Don't use it when:** Showing one long document — use Longform/PromptView. Showing tabular records — use Table.
-- **Anatomy:** A labelled log region virtualizing per-kind rows (text, tool-use, tool-result, approval, deny, raw).
-- **Variants & states:** text, tool-use, tool-result, approval, approval-resolved, deny, raw, empty
+- **Anatomy:** A labelled log region virtualizing per-kind rows (text as markdown, tool-use, tool-result, thinking, plan, approval, deny, error, subagent, raw).
+- **Variants & states:** text, tool-use, tool-result, thinking, plan, approval, approval-resolved, deny, error, subagent, raw, empty
 - **Accessibility:** role=log with an aria-label; approval actions are native focusable buttons; payloads render byte-faithfully.
 - **Related:** DenyNotice, Code, Table
 

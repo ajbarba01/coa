@@ -2,6 +2,7 @@ import { Virtuoso } from 'react-virtuoso';
 import { Button } from '../actions/Button.js';
 import { Code } from '../data/Code.js';
 import { DenyNotice } from '../feedback/DenyNotice.js';
+import { Markdown } from './Markdown.js';
 import { cx } from '../lib/cx.js';
 
 export type TranscriptRole = 'you' | 'agent' | 'subagent';
@@ -16,6 +17,7 @@ export type TranscriptFrame =
       kind: 'tool-use';
       tool: string;
       input: string;
+      handle?: string | undefined;
       depth?: number | undefined;
     }
   | {
@@ -25,6 +27,7 @@ export type TranscriptFrame =
       tool: string;
       output: string;
       ok: boolean;
+      handle?: string | undefined;
       depth?: number | undefined;
     }
   | {
@@ -37,7 +40,44 @@ export type TranscriptFrame =
       resolved?: 'approved' | 'denied' | undefined;
     }
   | { id: string; kind: 'deny'; denyKind: 'close-gate' | 'cost-cap'; reason: string }
-  | { id: string; kind: 'raw'; text: string };
+  | { id: string; kind: 'raw'; text: string }
+  | {
+      id: string;
+      role: TranscriptRole;
+      kind: 'thinking';
+      text: string;
+      depth?: number | undefined;
+    }
+  | {
+      id: string;
+      role: TranscriptRole;
+      kind: 'plan';
+      items: { text: string; status: 'pending' | 'in-progress' | 'done' }[];
+      depth?: number | undefined;
+    }
+  | {
+      id: string;
+      role: TranscriptRole;
+      kind: 'error';
+      message: string;
+      origin?: 'tool' | 'loop' | 'daemon' | undefined;
+      depth?: number | undefined;
+    }
+  | {
+      id: string;
+      kind: 'subagent';
+      childWorktree: string;
+      event: 'spawn-proposal' | 'spawn' | 'running' | 'idle' | 'done' | 'rollup';
+      depth?: number | undefined;
+      rollup?:
+        | {
+            tools?: number | undefined;
+            tokens?: number | undefined;
+            cost?: number | undefined;
+            status?: string | undefined;
+          }
+        | undefined;
+    };
 
 export type RespondFn = (requestId: string, decision: 'approve' | 'deny') => void;
 
@@ -131,12 +171,45 @@ export function TranscriptRow({
     );
   }
 
+  if (frame.kind === 'subagent') {
+    return (
+      <div style={indent} className="px-2 py-1.5">
+        <span className="text-caption text-muted">
+          {frame.childWorktree} · {frame.event}
+          {frame.rollup !== undefined && frame.rollup.status !== undefined
+            ? ` · ${frame.rollup.status}`
+            : ''}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div style={indent} className="flex gap-2 px-2 py-1.5">
       <RoleGutter role={frame.role} />
       <div className="min-w-0 flex-1">
-        {frame.kind === 'text' && (
-          <div className="text-body leading-[1.5] text-fg">{frame.text}</div>
+        {frame.kind === 'text' && <Markdown source={frame.text} />}
+        {frame.kind === 'thinking' && (
+          <div className="text-body italic leading-[1.5] text-muted">{frame.text}</div>
+        )}
+        {frame.kind === 'plan' && (
+          <ul className="flex flex-col gap-1">
+            {frame.items.map((item, index) => (
+              <li
+                key={`${index}-${item.text}`}
+                className="flex items-center gap-2 text-body text-fg"
+              >
+                <span className="text-caption text-faint">{item.status}</span>
+                <span>{item.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {frame.kind === 'error' && (
+          <div className="text-body leading-[1.5] text-danger-text">
+            {frame.origin !== undefined ? `${frame.origin}: ` : ''}
+            {frame.message}
+          </div>
         )}
         {frame.kind === 'tool-use' && (
           <div className="flex flex-col gap-1">
