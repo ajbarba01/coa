@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest';
+import { effortOptions, toReasoning, reasoningValue } from './reasoning.js';
+
+describe('reasoning projection', () => {
+  it('lists off + the model effort levels when supported', () => {
+    const opts = effortOptions({ id: 'm', supportsEffort: true, supportedEffortLevels: ['low', 'high'] });
+    expect(opts.map((o) => o.value)).toEqual(['off', 'low', 'high']);
+  });
+  it('returns no options when the model has no effort control', () => {
+    expect(effortOptions({ id: 'm', supportsEffort: false })).toEqual([]);
+    expect(effortOptions(undefined)).toEqual([]);
+  });
+  it('maps a value to a ClaudeReasoning', () => {
+    expect(toReasoning('off')).toEqual({ mode: 'off' });
+    expect(toReasoning('high')).toEqual({ mode: 'effort', effort: 'high' });
+  });
+  it('maps an invalid value to off reasoning', () => {
+    expect(toReasoning('bogus')).toEqual({ mode: 'off' });
+  });
+  it('extracts reasoning value: off for off mode', () => {
+    expect(reasoningValue({ mode: 'off' })).toBe('off');
+  });
+  it('extracts reasoning value: off for undefined', () => {
+    expect(reasoningValue(undefined)).toBe('off');
+  });
+  it('extracts reasoning value: effort level for effort mode', () => {
+    expect(reasoningValue({ mode: 'effort', effort: 'high' })).toBe('high');
+    expect(reasoningValue({ mode: 'effort', effort: 'low' })).toBe('low');
+    expect(reasoningValue({ mode: 'effort', effort: 'max' })).toBe('max');
+  });
+  it('round-trips values: high', () => {
+    expect(reasoningValue(toReasoning('high'))).toBe('high');
+  });
+  it('round-trips values: off', () => {
+    expect(reasoningValue(toReasoning('off'))).toBe('off');
+  });
+});

@@ -38,6 +38,7 @@ import { badgeIntent } from './data/Badge.intent.js';
 import { statIntent } from './data/Stat.intent.js';
 import { transcriptIntent } from './dense/Transcript.intent.js';
 import { markdownIntent } from './dense/Markdown.intent.js';
+import { composerIntent } from './dense/Composer.intent.js';
 import { agentChipIntent } from './data/AgentChip.intent.js';
 import { agentRailIntent } from './layout/AgentRail.intent.js';
 import { identityPickerIntent } from './overlays/IdentityPicker.intent.js';
@@ -85,6 +86,7 @@ export const allIntents: ComponentIntent[] = [
   statIntent,
   transcriptIntent,
   markdownIntent,
+  composerIntent,
   agentChipIntent,
   agentRailIntent,
   identityPickerIntent,

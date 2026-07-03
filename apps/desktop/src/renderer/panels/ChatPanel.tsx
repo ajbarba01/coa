@@ -1,21 +1,24 @@
-import { useState } from 'react';
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import {
   AgentChip,
   AgentRail,
+  Badge,
   Banner as BannerCard,
   Button,
   Combobox,
+  Composer,
   EmptyState,
   IconButton,
   InlineMessage,
   Pane,
+  Select,
   Skeleton,
   SwitcherMenu,
   Tooltip,
   TooltipProvider,
   Transcript,
 } from '@coa/console-ui';
+import { useEffect, useState } from 'react';
 import type { AgentRailItem, RespondFn, SwitcherGroup, TranscriptFrame } from '@coa/console-ui';
 import type {
   AgentSummary,
@@ -24,6 +27,7 @@ import type {
   SessionSummary,
   TurnFrame,
 } from '@coa/console-viewmodel';
+import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
 import { ChevronDown, MessageSquare, MessageSquarePlus } from 'lucide-react';
@@ -45,6 +49,11 @@ export type ChatVm =
       models: ModelDescriptor[];
       currentModelId?: string | undefined;
       onPickModel: (modelId: string) => void;
+      /** The reasoning-effort control for the current model — empty when the model
+       *  doesn't support effort (the control hides). */
+      effortOptions: { value: string; label: string }[];
+      effortValue: string;
+      onPickEffort: (v: string) => void;
       onRespond: RespondFn;
       onSend: (text: string) => void;
       toggleRaw: () => void;
@@ -59,6 +68,11 @@ export type ChatVm =
       onNewSession: (ref: string) => void;
       onTogglePin: (ref: string) => void;
       onConfigure: (ref: string) => void;
+      /** Phase-1 status floor — `running` while a send is in flight, cleared on the next
+       *  appended turn. The full 6-state `status` Push (Phase 2) replaces this. */
+      sessionStatus: 'idle' | 'running';
+      /** Epoch ms the in-flight send started; set only while `sessionStatus === 'running'`. */
+      runningSince?: number;
     };
 
 /** Map a daemon turn frame to its governed transcript frame. Approvals/denies pass
@@ -140,6 +154,11 @@ export function frameToRawLine(f: TurnFrame): string {
     case 'subagent':
       return `> control: subagent ${f.event} ${f.childWorktree}`;
   }
+}
+
+/** Pure: seconds elapsed since `sinceMs`, formatted for the running-status pill. */
+export function formatElapsed(sinceMs: number, nowMs: number): string {
+  return `${Math.floor((nowMs - sinceMs) / 1000)}s`;
 }
 
 /** Compact relative age for session rows ('now', '5m', '2h', '3d'). */
@@ -272,6 +291,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   // The model the next turn will run on: a deliberate in-chat override, else the
   // session's pin, else the agent's default.
   const currentModelId = override?.model ?? activeSession?.model ?? activeAgent?.model;
+  const currentModel = models.find((m) => m.id === currentModelId);
+  const effortOpts = effortOptions(currentModel);
+  const effortVal = reasoningValue(override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning);
   return {
     status: 'ready',
     rawMode,
@@ -291,6 +313,12 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
         model: modelId,
         ...(picked?.provider !== undefined ? { provider: picked.provider } : {}),
       });
+    },
+    effortOptions: effortOpts,
+    effortValue: effortVal,
+    onPickEffort: (v) => {
+      if (activeSessionId !== undefined)
+        state.actions.setSessionModel(activeSessionId, { reasoning: toReasoning(v) });
     },
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
@@ -312,6 +340,8 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       actions.selectAgent(ref);
       actions.setRoute('agents');
     },
+    sessionStatus: state.ui.sending ? 'running' : 'idle',
+    ...(state.ui.sentAt !== undefined ? { runningSince: state.ui.sentAt } : {}),
   };
 }
 
@@ -322,6 +352,23 @@ function RawToggle({ on, onToggle }: { on: boolean; onToggle: () => void }): Rea
     <Button variant={on ? 'primary' : 'tertiary'} size="sm" aria-pressed={on} onClick={onToggle}>
       raw
     </Button>
+  );
+}
+
+/** Phase-1 status floor: a `Badge` showing idle, or a live "running for Ns" elapsed
+ *  counter while a send is in flight. Ticks client-side via a 1s interval — no wire
+ *  change. Placeholder for the full 6-state `status` Push (Phase 2). */
+function RunningPill({ since }: { since?: number }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === undefined) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  return since === undefined ? (
+    <Badge tone="neutral">idle</Badge>
+  ) : (
+    <Badge tone="info">running for {formatElapsed(since, now)}</Badge>
   );
 }
 
@@ -374,69 +421,6 @@ function BannerStrip({
   );
 }
 
-/** The in-chat model switch: picking a model re-pins the session for its next turn.
- *  When the list hasn't loaded, the current model still shows as the sole option so the
- *  control never reads blank. */
-function ModelBar({
-  models,
-  currentModelId,
-  onPick,
-}: {
-  models: ModelDescriptor[];
-  currentModelId?: string | undefined;
-  onPick: (modelId: string) => void;
-}): React.JSX.Element {
-  const options =
-    models.length > 0
-      ? models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
-      : currentModelId !== undefined
-        ? [{ value: currentModelId, label: currentModelId }]
-        : [];
-  return (
-    <div className="border-t border-border-default px-2.5 pt-2">
-      <Combobox
-        label="Model"
-        className="max-w-xs"
-        options={options}
-        {...(currentModelId !== undefined ? { value: currentModelId } : {})}
-        onValueChange={onPick}
-        placeholder="Default model"
-      />
-    </div>
-  );
-}
-
-/** The chat composer: a single-line prompt entry; Enter sends, empty is inert. */
-function Composer({ onSend }: { onSend: (text: string) => void }): React.JSX.Element {
-  const [text, setText] = useState('');
-  const send = (): void => {
-    const body = text.trim();
-    if (body === '') return;
-    onSend(body);
-    setText('');
-  };
-  return (
-    <div className="flex items-center gap-2 border-t border-border-default p-2.5">
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            send();
-          }
-        }}
-        placeholder="Message the agent…"
-        aria-label="Message the agent"
-        className="h-control-md flex-1 rounded-control border border-border-default bg-element px-2.5 text-body text-fg placeholder:text-faint"
-      />
-      <Button variant="primary" size="sm" onClick={send} disabled={text.trim() === ''}>
-        Send
-      </Button>
-    </div>
-  );
-}
-
 function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {
   if (vm.status !== 'ready') {
     return (
@@ -457,6 +441,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
       titleSlot={
         <TooltipProvider>
           <div className="flex min-w-0 items-center gap-1">
+            <RunningPill {...(vm.sessionStatus === 'running' ? { since: vm.runningSince } : {})} />
             <SwitcherMenu
               label="Sessions"
               searchable
@@ -522,8 +507,36 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
               <Transcript frames={vm.frames} onRespond={vm.onRespond} label="Conversation" />
             )}
           </div>
-          <ModelBar models={vm.models} currentModelId={vm.currentModelId} onPick={vm.onPickModel} />
-          <Composer onSend={vm.onSend} />
+          <Composer
+            onSend={vm.onSend}
+            slotStart={
+              <>
+                <Combobox
+                  label="Model"
+                  className="max-w-[10rem]"
+                  options={
+                    vm.models.length > 0
+                      ? vm.models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
+                      : vm.currentModelId !== undefined
+                        ? [{ value: vm.currentModelId, label: vm.currentModelId }]
+                        : []
+                  }
+                  {...(vm.currentModelId !== undefined ? { value: vm.currentModelId } : {})}
+                  onValueChange={vm.onPickModel}
+                  placeholder="Default model"
+                />
+                {vm.effortOptions.length > 0 && (
+                  <Select
+                    label="Effort"
+                    className="max-w-[8rem]"
+                    options={vm.effortOptions}
+                    value={vm.effortValue}
+                    onValueChange={vm.onPickEffort}
+                  />
+                )}
+              </>
+            }
+          />
         </div>
       </div>
     </Pane>

@@ -390,12 +390,24 @@ export async function startConsole(
     push();
   };
 
+  // Phase-1 status floor: `sending`/`sentAt` drive the chat pane's running-status pill
+  // (idle vs. "running for Ns"). This is a placeholder — Phase 2's full 6-state `status`
+  // Push replaces it with per-block timing; until then, set on send and cleared on the
+  // next frame the daemon streams back.
+  const clearSending = (): void => {
+    if (state.ui.sending === undefined && state.ui.sentAt === undefined) return;
+    const ui = { ...state.ui, sending: false };
+    delete ui.sentAt;
+    state = { ...state, ui };
+  };
+
   // Forward every daemon push into the active conversation; a completed session
   // refreshes the rail so its auto-title + recency update. (Drift/cache banners are
   // derived client-side, not pushed.)
   const unsubscribePush = bridge.onPush((payload) => {
     const parsed = pushSchema.safeParse(payload);
     if (!parsed.success) return;
+    clearSending();
     appendTurns(pushToViewFrames(parsed.data));
     if (parsed.data.kind === 'status' && parsed.data.state === 'done') void refreshSessionList();
   });
@@ -406,6 +418,7 @@ export async function startConsole(
     const id = state.ui.activeSessionId;
     if (body === '' || id === undefined) return;
     youSeq += 1;
+    state = { ...state, ui: { ...state.ui, sending: true, sentAt: Date.now() } };
     appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
@@ -456,6 +469,9 @@ export async function startConsole(
       // The first send auto-titles the session server-side; reflect it in the rail.
       .then(() => refreshSessionList())
       .catch((e: unknown) => {
+        // A failed dispatch never streams a turn back — clear the pill here so it
+        // doesn't run forever.
+        clearSending();
         appendTurns([
           {
             id: `err:${youSeq}`,

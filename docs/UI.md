@@ -71,4 +71,4 @@ binding; full detail + exact token values live in the design spec
 
 ---
 
-_Last reviewed: 2026-07-01_
+_Last reviewed: 2026-07-02_

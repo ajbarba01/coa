@@ -3,12 +3,11 @@
  * The transcript rows are the REAL `TranscriptRow` kit member driven by sample
  * `TranscriptFrame` data (nothing drives the daemon), so the specimens reflect
  * the refined design by construction — no gutter, dotted/solid spines, larger
- * approval buttons. Composer stays hand-composed pending its own wiring task.
+ * approval buttons. The composer is now the REAL `Composer` kit member too —
+ * idle and running specimens, driven by no daemon.
  */
-import { useState } from 'react';
 import {
-  Button,
-  Icon,
+  Composer,
   IconButton,
   Markdown,
   Select,
@@ -16,7 +15,7 @@ import {
   cx,
   type TranscriptFrame,
 } from '@coa/console-ui';
-import { Loader2, Maximize2, Send, Square } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 import { Family, Row } from './Specimen.js';
 
 const noop = (): void => {};
@@ -181,59 +180,56 @@ function TranscriptSpecimens(): React.JSX.Element {
 }
 
 /* -------------------------------------------------------------------------- */
-/* (d) Composer — multiline + send/stop + model/effort + expand.             */
+/* (d) Composer — live kit member, idle + running specimens.                  */
 /* -------------------------------------------------------------------------- */
 
-function Composer(): React.JSX.Element {
-  const [running, setRunning] = useState(false);
+/** The model/effort selects a real host (ChatPanel, Task 12) passes into
+ *  `slotStart` — shown here for realism, not part of the Composer itself. */
+function ModelEffortSlot(): React.JSX.Element {
   return (
-    <div className="w-full max-w-2xl rounded-surface border border-border-default bg-surface focus-within:border-accent">
-      <textarea
-        rows={3}
-        defaultValue="Make the refresh token single-use and add a test for the mint-failure branch."
-        aria-label="Message the agent"
-        className="block w-full resize-none rounded-t-surface bg-transparent px-3 py-2.5 text-body leading-[1.5] text-fg placeholder:text-faint focus:outline-none"
+    <>
+      <Select
+        label="Model"
+        defaultValue="opus"
+        options={[
+          { value: 'opus', label: 'Opus 4.8' },
+          { value: 'sonnet', label: 'Sonnet 5' },
+        ]}
       />
-      <div className="flex items-center gap-2 border-t border-hairline px-2 py-1.5">
-        <Select
-          label="Model"
-          defaultValue="opus"
-          options={[
-            { value: 'opus', label: 'Opus 4.8' },
-            { value: 'sonnet', label: 'Sonnet 5' },
-          ]}
-        />
-        <Select
-          label="Effort"
-          defaultValue="high"
-          options={[
-            { value: 'low', label: 'low' },
-            { value: 'medium', label: 'medium' },
-            { value: 'high', label: 'high' },
-          ]}
-        />
-        <IconButton
-          icon={Maximize2}
-          label="Expand composer"
-          variant="tertiary"
-          size="sm"
-          className="ml-auto"
-        />
-        {running ? (
-          <Button variant="danger" size="sm" onClick={() => setRunning(false)}>
-            <Icon name={Square} size={14} />
-            Stop
-          </Button>
-        ) : (
-          <Button variant="primary" size="sm" onClick={() => setRunning(true)}>
-            <Icon name={Send} size={14} />
-            Send
-          </Button>
-        )}
+      <Select
+        label="Effort"
+        defaultValue="high"
+        options={[
+          { value: 'low', label: 'low' },
+          { value: 'medium', label: 'medium' },
+          { value: 'high', label: 'high' },
+        ]}
+      />
+    </>
+  );
+}
+
+const expandSlot = (
+  <IconButton icon={Maximize2} label="Expand composer" variant="tertiary" size="sm" />
+);
+
+/** Two live `Composer` specimens — idle (Send enabled) and `running` (Stop
+ *  shown) — so both states of the send/stop toggle are reviewable as-built. */
+function ComposerSpecimens(): React.JSX.Element {
+  return (
+    <div className="flex w-full max-w-2xl flex-col gap-4">
+      <div className="rounded-surface border border-border-default bg-surface">
+        <Composer onSend={noop} slotStart={<ModelEffortSlot />} slotEnd={expandSlot} />
       </div>
-      <p className="px-3 pb-1.5 text-eyebrow text-faint">
-        Enter to send · Shift+Enter for a newline · Esc to interrupt
-      </p>
+      <div className="rounded-surface border border-border-default bg-surface">
+        <Composer
+          onSend={noop}
+          onInterrupt={noop}
+          running
+          slotStart={<ModelEffortSlot />}
+          slotEnd={expandSlot}
+        />
+      </div>
     </div>
   );
 }
@@ -264,7 +260,7 @@ export function ChatMockupsSection(): React.JSX.Element {
         <TranscriptSpecimens />
       </Row>
       <Row label="Composer" align="start">
-        <Composer />
+        <ComposerSpecimens />
       </Row>
       <Row label="Live markdown" align="start">
         <LiveMarkdown />

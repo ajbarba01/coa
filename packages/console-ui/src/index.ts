@@ -70,3 +70,4 @@ export {
 } from './dense/Transcript.js';
 export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
 export { Markdown, type MarkdownProps } from './dense/Markdown.js';
+export { Composer, type ComposerProps } from './dense/Composer.js';

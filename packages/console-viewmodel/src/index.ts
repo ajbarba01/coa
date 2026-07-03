@@ -1,6 +1,7 @@
 export * from './agents.js';
 export * from './cap.js';
 export * from './reads.js';
+export * from './reasoning.js';
 export {
   pushToBanner,
   pushToViewFrames,

@@ -162,6 +162,17 @@ Presents rows of records with aligned columns, empty state first.
 
 ## Dense/Viz
 
+### Composer
+
+A multiline auto-growing message composer with a send/stop toggle.
+
+- **Use it when:** Sending a message into a live governed session — chat input with model/effort controls and a running-turn stop action.
+- **Don't use it when:** A single-line filter or search field — use TextField. A structured form input — use Field/TextField/Select.
+- **Anatomy:** A resizable textarea over a toolbar row: host-provided slotStart (model/effort selects), slotEnd (e.g. expand), and a trailing Send/Stop toggle.
+- **Variants & states:** idle, running, disabled, multiline
+- **Accessibility:** The textarea carries an aria-label; Enter sends (unless Shift or IME-composing), Shift+Enter inserts a newline, Esc calls onInterrupt while running; Send/Stop are native focusable buttons.
+- **Related:** Transcript, Button, Select
+
 ### Markdown
 
 Renders GitHub-flavored markdown as kit elements, with highlighted, copy-able code blocks.

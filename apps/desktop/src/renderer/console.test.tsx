@@ -230,19 +230,19 @@ describe('startConsole (inspector-first)', () => {
   it('sends a composer message into the active session with its conversation id', async () => {
     const bridge = fakeBridge();
     const { container } = await mount(bridge);
-    const input = container.querySelector<HTMLInputElement>(
-      'input[aria-label="Message the agent"]',
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Message the agent"]',
     );
     const send = [...container.querySelectorAll('button')].find(
       (b) => b.textContent?.trim() === 'Send',
     );
-    expect(input).not.toBeNull();
+    expect(textarea).not.toBeNull();
     expect(send).toBeDefined();
     // React tracks the value internally, so set it via the native setter + input event.
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
     await act(async () => {
-      setValue.call(input, 'add tests');
-      input!.dispatchEvent(new Event('input', { bubbles: true }));
+      setValue.call(textarea, 'add tests');
+      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await act(async () => {
       send!.click();

@@ -7,6 +7,7 @@ import {
   buildRailItems,
   buildSessionGroups,
   chatPanel,
+  formatElapsed,
   frameToRawLine,
   relativeTime,
   selectChatVm,
@@ -156,6 +157,24 @@ describe('selectChatVm', () => {
       expect(setRoute).toHaveBeenCalledExactlyOnceWith('agents');
     }
   });
+
+  it('reports running status while a send is in flight', () => {
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, { sending: true, sentAt: 1000 }));
+    expect(vm.status === 'ready' && vm.sessionStatus).toBe('running');
+    expect(vm.status === 'ready' && vm.runningSince).toBe(1000);
+  });
+
+  it('reports idle status with no in-flight send', () => {
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
+    expect(vm.status === 'ready' && vm.sessionStatus).toBe('idle');
+    expect(vm.status === 'ready' && vm.runningSince).toBeUndefined();
+  });
+});
+
+describe('formatElapsed', () => {
+  it('formats elapsed seconds for the running pill', () => {
+    expect(formatElapsed(1000, 4200)).toBe('3s'); // (4200-1000)/1000 floored
+  });
 });
 
 describe('buildRailItems', () => {
@@ -299,6 +318,45 @@ describe('raw + approval projection', () => {
       expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', {
         model: 'deepseek-v4-pro',
         provider: 'deepseek',
+      });
+    }
+  });
+
+  it('exposes effort options + value for an effort-capable model, and picking one sets the session reasoning', () => {
+    const setSessionModel = vi.fn();
+    const vm = selectChatVm(
+      makeState({
+        data: {
+          turns: { status: 'ok', value: [] },
+          agents: { status: 'ok', value: MOCK_AGENTS },
+          sessions: { status: 'ok', value: MOCK_SESSIONS },
+          models: {
+            status: 'ok',
+            value: [
+              {
+                id: 'sonnet',
+                provider: 'claude',
+                supportsEffort: true,
+                supportedEffortLevels: ['low', 'medium', 'high'],
+              },
+            ],
+          },
+        },
+        ui: { activeSessionId: 's-audit-auth' },
+        actions: { setSessionModel },
+      }),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.effortOptions).toEqual([
+        { value: 'off', label: 'No thinking' },
+        { value: 'low', label: 'low' },
+        { value: 'medium', label: 'medium' },
+        { value: 'high', label: 'high' },
+      ]);
+      expect(vm.effortValue).toBe('off');
+      vm.onPickEffort('high');
+      expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', {
+        reasoning: { mode: 'effort', effort: 'high' },
       });
     }
   });

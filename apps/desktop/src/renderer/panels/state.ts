@@ -67,6 +67,12 @@ export interface ConsoleUi {
    *  derived (config-a-send-would-use vs. the running prompt's config), so dismissal is
    *  suppression state — it re-shows once the config changes to a new key. */
   dismissedDrift: Record<string, string>;
+  /** Phase-1 status floor: true while a send is in flight (cleared on the next appended
+   *  turn). The real 6-state `status` Push (Phase 2) replaces this with per-block timing;
+   *  until then this is the only signal the chat status pill has. */
+  sending?: boolean;
+  /** Epoch ms the in-flight send started, for the running-for-Ns pill. */
+  sentAt?: number;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
