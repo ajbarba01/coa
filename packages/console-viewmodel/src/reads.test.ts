@@ -46,4 +46,15 @@ describe('turn frame schema', () => {
     });
     expect(f).toMatchObject({ depth: 1 });
   });
+
+  it('parses the widened taxonomy: thinking, plan, error, subagent', () => {
+    const frames = [
+      { id: 'a', role: 'agent', kind: 'thinking', text: 'hmm' },
+      { id: 'b', role: 'agent', kind: 'plan', items: [{ text: 'do it', status: 'in-progress' }] },
+      { id: 'c', role: 'agent', kind: 'error', message: 'boom', origin: 'tool' },
+      { id: 'd', kind: 'subagent', childWorktree: 'wt-1', event: 'rollup', rollup: { tools: 2, cost: 0.1 } },
+      { id: 'e', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{}', handle: 'h1' },
+    ];
+    expect(() => TurnStreamSchema.parse(frames)).not.toThrow();
+  });
 });

@@ -20,35 +20,50 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
 
   it('renders a tool_use with its args stringified', () => {
     expect(pushToViewFrames(turn({ t: 'tool_use', tool: 'Read', input: { path: 'a.ts' }, handle: 'h' }))).toEqual([
-      { id: 's:0', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{"path":"a.ts"}' },
+      { id: 's:0', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{"path":"a.ts"}', handle: 'h' },
     ]);
   });
 
   it('maps a tool_result, carrying ok + the pointer as output', () => {
     expect(pushToViewFrames(turn({ t: 'tool_result', handle: 'h', ok: false, pointer: 'boom' }))).toEqual([
-      { id: 's:0', role: 'agent', kind: 'tool-result', tool: '', output: 'boom', ok: false },
+      { id: 's:0', role: 'agent', kind: 'tool-result', tool: '', output: 'boom', ok: false, handle: 'h' },
     ]);
   });
 
-  it('surfaces an error frame as an agent text line', () => {
-    const frames = pushToViewFrames(turn({ t: 'error', message: 'kaboom', origin: 'loop' }));
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({ role: 'agent', kind: 'text' });
-    expect((frames[0] as { text: string }).text).toContain('kaboom');
-  });
-
-  it('shows thinking as an agent text line', () => {
+  it('maps thinking to a thinking frame', () => {
     expect(pushToViewFrames(turn({ t: 'thinking', text: 'hmm' }))[0]).toMatchObject({
-      role: 'agent',
-      kind: 'text',
+      kind: 'thinking', role: 'agent', text: 'hmm',
     });
   });
 
-  it('drops lifecycle-only frames (turn-boundary, subagent, reconcile, permission)', () => {
+  it('maps error to an error frame with origin', () => {
+    expect(pushToViewFrames(turn({ t: 'error', message: 'boom', origin: 'tool' }))[0]).toMatchObject({
+      kind: 'error', message: 'boom', origin: 'tool',
+    });
+  });
+
+  it('maps a TodoWrite tool_use to a plan frame', () => {
+    const f = pushToViewFrames(turn({
+      t: 'tool_use', tool: 'TodoWrite', handle: 'h',
+      input: { todos: [{ content: 'ship it', status: 'in_progress', activeForm: 'Shipping it' }] },
+    }))[0];
+    expect(f).toMatchObject({ kind: 'plan', items: [{ text: 'ship it', status: 'in-progress' }] });
+  });
+
+  it('maps a non-TodoWrite tool_use to a tool-use frame carrying its handle', () => {
+    expect(pushToViewFrames(turn({ t: 'tool_use', tool: 'Read', input: { path: 'a' }, handle: 'h9' }))[0])
+      .toMatchObject({ kind: 'tool-use', tool: 'Read', handle: 'h9' });
+  });
+
+  it('maps a subagent frame and sets child depth from parentTurn', () => {
+    const push = { ...turn({ t: 'subagent', childWorktree: 'wt', event: 'rollup' }),
+      parentTurn: { sessionId: 's', seq: 0 } };
+    expect(pushToViewFrames(push as Push)[0]).toMatchObject({ kind: 'subagent', childWorktree: 'wt', depth: 1 });
+  });
+
+  it('still drops turn-boundary and reconcile (deferred)', () => {
     expect(pushToViewFrames(turn({ t: 'turn-boundary', role: 'assistant' }))).toEqual([]);
-    expect(pushToViewFrames(turn({ t: 'subagent', childWorktree: 'c', event: 'spawn' }))).toEqual([]);
     expect(pushToViewFrames(turn({ t: 'reconcile', changeSeq: 1, pointer: 'p' }))).toEqual([]);
-    expect(pushToViewFrames(turn({ t: 'permission', requestId: 'r' }))).toEqual([]);
   });
 
   it('ignores non-turn pushes (cost/status handled elsewhere)', () => {

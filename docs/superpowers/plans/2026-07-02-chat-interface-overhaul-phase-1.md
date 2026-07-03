@@ -516,9 +516,17 @@ Add `markdownIntent` to `registry.ts`; add `export { Markdown, type MarkdownProp
 
 - [ ] **Step 6: Run tests, verify pass.** `pnpm -C packages/console-ui test` → PASS.
 
-- [ ] **Step 7: Commit.**
+- [ ] **Step 7: Showcase — go live (replace static markdown mockup).** In
+  `apps/desktop/src/renderer/panels/showcase/ChatMockups.tsx`, replace the hand-composed "markdown" approximation
+  and the **Shiki B-side of the highlighter A/B** with a live `<Markdown>` specimen that renders real GFM: a heading,
+  a bullet + task list, a table, inline `code`, a link, an emoji, and a fenced TypeScript block (exercises
+  `CodeBlock` + `CopyButton`). The specimen imports `Markdown` from `@coa/console-ui` (already a workspace dep) — no
+  new apps/desktop dependency. Verify live: `pnpm -C apps/desktop dev` → Components → Chat mockups. Confirm
+  `pnpm -C apps/desktop build` typechecks.
+
+- [ ] **Step 8: Commit.**
 ```bash
-git add packages/console-ui/src/dense/CodeBlock.tsx packages/console-ui/src/dense/Markdown.tsx packages/console-ui/src/dense/Markdown.intent.ts packages/console-ui/src/dense/Markdown.test.tsx packages/console-ui/src/registry.ts packages/console-ui/src/index.ts packages/console-ui/COMPONENTS.md
+git add packages/console-ui/src/dense/CodeBlock.tsx packages/console-ui/src/dense/Markdown.tsx packages/console-ui/src/dense/Markdown.intent.ts packages/console-ui/src/dense/Markdown.test.tsx packages/console-ui/src/registry.ts packages/console-ui/src/index.ts packages/console-ui/COMPONENTS.md apps/desktop/src/renderer/panels/showcase/ChatMockups.tsx
 git commit -m "feat: add a markdown renderer with highlighted copy-able code blocks"
 ```
 
@@ -873,9 +881,17 @@ it('renders approval actions at a larger hit target', () => {
 
 - [ ] **Step 5: Run it, verify it passes.** Run the whole file: `pnpm -C packages/console-ui test Transcript` → PASS.
 
-- [ ] **Step 6: Regenerate catalogue + commit.** `npx tsx packages/console-ui/scripts/gen-catalog.ts`, then:
+- [ ] **Step 6: Showcase — go live (replace static block/nest/approval mockups).** In
+  `apps/desktop/src/renderer/panels/showcase/ChatMockups.tsx`, replace the hand-composed static block-kind stack,
+  subagent nest, and approval card with **real `TranscriptRow` specimens** driven by sample `TranscriptFrame` data —
+  one row per kind (user text, agent markdown text, thinking, tool-use collapsed, tool-result, plan, error, subagent
+  rollup, a depth-1 nested child, approval). This makes the showcase reflect the refined design by construction (no
+  gutter, dotted/solid spines, larger approval buttons). Import `TranscriptRow` from `@coa/console-ui`. Verify live
+  (`pnpm -C apps/desktop dev` → Components → Chat mockups) and `pnpm -C apps/desktop build` typechecks.
+
+- [ ] **Step 7: Regenerate catalogue + commit.** `npx tsx packages/console-ui/scripts/gen-catalog.ts`, then:
 ```bash
-git add packages/console-ui/src/dense/Transcript.tsx packages/console-ui/src/dense/Transcript.intent.ts packages/console-ui/src/dense/Transcript.test.tsx packages/console-ui/COMPONENTS.md
+git add packages/console-ui/src/dense/Transcript.tsx packages/console-ui/src/dense/Transcript.intent.ts packages/console-ui/src/dense/Transcript.test.tsx packages/console-ui/COMPONENTS.md apps/desktop/src/renderer/panels/showcase/ChatMockups.tsx
 git commit -m "feat: nest subagent turns with a per-subagent roll-up and enlarge approval actions"
 ```
 
@@ -1155,9 +1171,15 @@ export function Composer({ onSend, onInterrupt, running, disabled, slotStart, sl
 
 - [ ] **Step 5: Run tests, verify pass.** `pnpm -C packages/console-ui test` → PASS.
 
-- [ ] **Step 6: Commit.**
+- [ ] **Step 6: Showcase — go live (replace static composer mockup).** In
+  `apps/desktop/src/renderer/panels/showcase/ChatMockups.tsx`, replace the hand-composed static composer with a live
+  `<Composer>` specimen — render two states: idle (Send enabled) and `running` (Stop shown) — with the model/effort
+  `Select`s passed in `slotStart` for realism. Import `Composer` from `@coa/console-ui`. Verify live
+  (`pnpm -C apps/desktop dev`) and `pnpm -C apps/desktop build` typechecks.
+
+- [ ] **Step 7: Commit.**
 ```bash
-git add packages/console-ui/src/dense/Composer.tsx packages/console-ui/src/dense/Composer.intent.ts packages/console-ui/src/dense/Composer.test.tsx packages/console-ui/src/registry.ts packages/console-ui/src/index.ts packages/console-ui/COMPONENTS.md
+git add packages/console-ui/src/dense/Composer.tsx packages/console-ui/src/dense/Composer.intent.ts packages/console-ui/src/dense/Composer.test.tsx packages/console-ui/src/registry.ts packages/console-ui/src/index.ts packages/console-ui/COMPONENTS.md apps/desktop/src/renderer/panels/showcase/ChatMockups.tsx
 git commit -m "feat: add a multiline chat composer with send, stop and a keymap seam"
 ```
 

@@ -57,6 +57,7 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     kind: z.literal('tool-use'),
     tool: z.string(),
     input: z.string(),
+    handle: z.string().optional(),
     depth: z.number().optional(),
   }),
   z.object({
@@ -66,6 +67,7 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     tool: z.string(),
     output: z.string(),
     ok: z.boolean(),
+    handle: z.string().optional(),
     depth: z.number().optional(),
   }),
   z.object({
@@ -81,6 +83,45 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     kind: z.literal('deny'),
     denyKind: z.enum(['close-gate', 'cost-cap']),
     reason: z.string(),
+  }),
+  z.object({
+    id: z.string(),
+    role: TurnRoleSchema,
+    kind: z.literal('thinking'),
+    text: z.string(),
+    depth: z.number().optional(),
+  }),
+  z.object({
+    id: z.string(),
+    role: TurnRoleSchema,
+    kind: z.literal('plan'),
+    items: z.array(
+      z.object({ text: z.string(), status: z.enum(['pending', 'in-progress', 'done']) }),
+    ),
+    depth: z.number().optional(),
+  }),
+  z.object({
+    id: z.string(),
+    role: TurnRoleSchema,
+    kind: z.literal('error'),
+    message: z.string(),
+    origin: z.enum(['tool', 'loop', 'daemon']).optional(),
+    depth: z.number().optional(),
+  }),
+  z.object({
+    id: z.string(),
+    kind: z.literal('subagent'),
+    childWorktree: z.string(),
+    event: z.enum(['spawn-proposal', 'spawn', 'running', 'idle', 'done', 'rollup']),
+    depth: z.number().optional(),
+    rollup: z
+      .object({
+        tools: z.number().optional(),
+        tokens: z.number().optional(),
+        cost: z.number().optional(),
+        status: z.string().optional(),
+      })
+      .optional(),
   }),
 ]);
 export type TurnFrame = z.infer<typeof TurnFrameSchema>;

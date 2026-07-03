@@ -27,20 +27,21 @@ export function reloadToViewFrames(turns: PersistedTurnWire[]): TurnFrame[] {
 /**
  * The daemon→console turn mapping: one CON-PUSH record → the console `TurnFrame`s
  * the transcript renders. The wire vocabulary (M0 `push.ts`) is richer than the
- * view's, so lifecycle-only frames (turn-boundary/subagent/reconcile) and the
+ * view's, so lifecycle-only frames (turn-boundary/reconcile) and the
  * bare `permission` frame are dropped here; `cost`/`status` pushes are not turns
  * and the shell handles them separately. This is the console edge — the sole place
  * the M0 shape is translated — so the renderer works only in view types.
  *
  * Floor notes (deferred with the R-7 store): a `tool_result` frame carries only a
  * `handle`, so its `tool` label is empty until handle→tool correlation lands;
- * `thinking`/`error` render as agent text lines (the view has no dedicated kind);
- * live approvals ride the deferred deny/approval push channel.
+ * live approvals ride the deferred deny/approval push channel. Now maps `thinking`,
+ * `error`, `subagent`, and `plan` (TodoWrite) frames to their dedicated kinds.
  */
 export function pushToViewFrames(push: Push): TurnFrame[] {
   if (push.kind !== 'turn') return [];
   const id = `${push.sessionId}:${push.seq}`;
-  const frame = mapFrame(push.frame, id);
+  const depth = push.parentTurn ? 1 : undefined;
+  const frame = mapFrame(push.frame, id, depth);
   return frame === undefined ? [] : [frame];
 }
 
@@ -54,19 +55,37 @@ export function pushToBanner(push: Push): Banner | undefined {
   return push.kind === 'banner' ? push.banner : undefined;
 }
 
-function mapFrame(frame: WireTurnFrame, id: string): TurnFrame | undefined {
+const TODO_STATUS: Record<string, 'pending' | 'in-progress' | 'done'> = {
+  pending: 'pending', in_progress: 'in-progress', completed: 'done',
+};
+
+function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame | undefined {
+  const d = depth === undefined ? {} : { depth };
   switch (frame.t) {
     case 'text':
-      return { id, role: frame.role === 'user' ? 'you' : 'agent', kind: 'text', text: frame.text };
+      return { id, role: frame.role === 'user' ? 'you' : 'agent', kind: 'text', text: frame.text, ...d };
     case 'thinking':
-      return { id, role: 'agent', kind: 'text', text: frame.text };
+      return { id, role: 'agent', kind: 'thinking', text: frame.text, ...d };
     case 'error':
-      return { id, role: 'agent', kind: 'text', text: `⚠ ${frame.message}` };
+      return { id, role: 'agent', kind: 'error', message: frame.message, origin: frame.origin, ...d };
     case 'tool_use':
-      return { id, role: 'agent', kind: 'tool-use', tool: frame.tool, input: JSON.stringify(frame.input) };
+      if (frame.tool === 'TodoWrite') return { id, role: 'agent', kind: 'plan', items: toPlanItems(frame.input), ...d };
+      return { id, role: 'agent', kind: 'tool-use', tool: frame.tool, input: JSON.stringify(frame.input), handle: frame.handle, ...d };
     case 'tool_result':
-      return { id, role: 'agent', kind: 'tool-result', tool: '', output: frame.pointer, ok: frame.ok };
+      return { id, role: 'agent', kind: 'tool-result', tool: '', output: frame.pointer, ok: frame.ok, handle: frame.handle, ...d };
+    case 'subagent':
+      return { id, kind: 'subagent', childWorktree: frame.childWorktree, event: frame.event, ...d };
     default:
-      return undefined;
+      return undefined; // turn-boundary, reconcile, permission — deferred/handled elsewhere
   }
+}
+
+function toPlanItems(input: Record<string, unknown>): { text: string; status: 'pending' | 'in-progress' | 'done' }[] {
+  const todos = Array.isArray((input as { todos?: unknown }).todos) ? (input as { todos: unknown[] }).todos : [];
+  return todos.flatMap((t) => {
+    if (typeof t !== 'object' || t === null) return [];
+    const { content, status } = t as { content?: unknown; status?: unknown };
+    if (typeof content !== 'string') return [];
+    return [{ text: content, status: TODO_STATUS[String(status)] ?? 'pending' }];
+  });
 }
