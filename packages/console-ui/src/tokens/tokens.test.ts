@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { resolveTokens, tokensToCss, SEMANTIC_TOKEN_NAMES } from './tokens.js';
 
@@ -20,5 +22,11 @@ describe('design tokens', () => {
 
   it('emits a :root block containing the accent var', () => {
     expect(tokensToCss('dark', 'compact')).toContain('--color-accent: #c39a3e;');
+  });
+
+  it('sets Fira Code as the mono font with ligatures enabled', () => {
+    const css = readFileSync(fileURLToPath(new URL('../theme.css', import.meta.url)), 'utf8');
+    expect(css).toMatch(/--font-mono:[^;]*Fira Code Variable/);
+    expect(css).toMatch(/font-feature-settings:\s*['"]liga['"]\s*1,\s*['"]calt['"]\s*1/);
   });
 });

@@ -12,7 +12,12 @@ export interface MarkdownProps {
 
 export function Markdown({ source, className }: MarkdownProps): React.JSX.Element {
   return (
-    <div className={cx('text-body leading-[1.5] text-fg', className)}>
+    <div
+      className={cx(
+        'text-body leading-[1.5] text-fg [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        className,
+      )}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -34,6 +39,27 @@ export function Markdown({ source, className }: MarkdownProps): React.JSX.Elemen
               <Code>{text}</Code>
             );
           },
+          h1: ({ children }) => <h1 className="mt-6 mb-4 text-heading font-semibold text-fg">{children}</h1>,
+          h2: ({ children }) => <h2 className="mt-6 mb-4 text-body font-semibold text-fg">{children}</h2>,
+          h3: ({ children }) => <h3 className="mt-4 mb-2 text-label font-semibold text-fg">{children}</h3>,
+          p: ({ children }) => <p className="mb-4">{children}</p>,
+          ul: ({ children }) => <ul className="mb-4 pl-8 list-disc space-y-1">{children}</ul>,
+          ol: ({ children }) => <ol className="mb-4 pl-8 list-decimal space-y-1">{children}</ol>,
+          blockquote: ({ children }) => (
+            <blockquote className="mb-4 border-l-4 border-hairline pl-4 text-muted">{children}</blockquote>
+          ),
+          hr: () => <hr className="my-6 border-border-default" />,
+          table: ({ children }) => (
+            <div className="mb-4 overflow-x-auto">
+              <table className="w-full border-collapse text-label">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="border border-hairline bg-subtle px-3 py-1.5 text-left font-medium text-fg">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => <td className="border border-hairline px-3 py-1.5 align-top">{children}</td>,
         }}
       >
         {source}

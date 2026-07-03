@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { Composer } from './Composer.js';
 
 describe('Composer', () => {
+  it('gives the outer container a raised surface', () => {
+    const { container } = render(<Composer onSend={vi.fn()} />);
+    expect(container.firstElementChild).toHaveClass('bg-raised');
+  });
   it('sends on Enter and clears', async () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} />);

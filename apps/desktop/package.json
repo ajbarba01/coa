@@ -15,15 +15,15 @@
     "@coa/console-viewmodel": "workspace:*",
     "@coa/core": "workspace:*",
     "@coa/shared": "workspace:*",
-    "hast-util-to-jsx-runtime": "^2.3.6",
+    "@fontsource-variable/fira-code": "^5.2.7",
     "lucide-react": "^0.400.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-syntax-highlighter": "^16.1.1",
-    "shiki": "^4.3.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^26.0.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -33,7 +33,6 @@
     "electron-builder": "^25.0.0",
     "electron-vite": "^3.0.0",
     "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0",
     "vite": "^6.0.0"
   }
 }

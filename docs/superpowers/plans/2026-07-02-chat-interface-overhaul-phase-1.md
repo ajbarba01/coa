@@ -1446,4 +1446,250 @@ git commit -m "feat: surface a live chat status indicator and refresh the UI doc
 
 ---
 
+---
+
+## Task 15: Fira Code for the code/mono surfaces (ligatures on)
+
+**Files:**
+- Modify: `apps/desktop/package.json` (dep), `apps/desktop/src/renderer/main.tsx` (font import),
+  `packages/console-ui/src/theme.css` (`--font-mono` token + ligature rule)
+- Test: `packages/console-ui/src/tokens/tokens.test.ts` (or a new `theme.test.ts`) — a content guard
+
+**Interfaces:**
+- Produces: `font-mono` (used by `Code`/`CodeBlock`/raw block) now resolves to Fira Code first; ligatures render on
+  `code, pre`. Chat prose (sans body) is unchanged.
+
+- [ ] **Step 1: Add the font dependency.** `corepack pnpm -C apps/desktop add @fontsource-variable/fira-code`.
+
+- [ ] **Step 2: Import the font in the renderer entry.** In `apps/desktop/src/renderer/main.tsx`, add at the top
+  (with the other side-effect imports): `import '@fontsource-variable/fira-code';`. (The variable font family name is
+  `'Fira Code Variable'`.)
+
+- [ ] **Step 3: Write the failing guard test.** In `packages/console-ui/src/tokens/tokens.test.ts` (read the file's
+  style first), add a test that reads `theme.css` and asserts the mono token + ligatures are wired:
+```ts
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+it('sets Fira Code as the mono font with ligatures enabled', () => {
+  const css = readFileSync(fileURLToPath(new URL('../theme.css', import.meta.url)), 'utf8');
+  expect(css).toMatch(/--font-mono:[^;]*Fira Code Variable/);
+  expect(css).toMatch(/font-feature-settings:\s*['"]liga['"]\s*1,\s*['"]calt['"]\s*1/);
+});
+```
+
+- [ ] **Step 4: Run it, verify it fails.** `corepack pnpm vitest run packages/console-ui/src/tokens/tokens.test.ts`
+  → FAIL.
+
+- [ ] **Step 5: Add the token + ligature rule to `theme.css`.** Inside the existing `@theme inline { … }` block, add:
+```css
+  --font-mono: 'Fira Code Variable', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+```
+and, OUTSIDE the `@theme` block (a base element rule, once), add:
+```css
+code, pre {
+  font-feature-settings: 'liga' 1, 'calt' 1;
+}
+```
+
+- [ ] **Step 6: Run it, verify it passes.** Same command → PASS.
+
+- [ ] **Step 7: Verify build + eyeball.** `corepack pnpm -C apps/desktop build` succeeds; `corepack pnpm -C
+  apps/desktop typecheck` 0 errors. Launch `pnpm -C apps/desktop dev` → Components → Chat mockups: the code block
+  renders in Fira Code with ligatures (`=>`, `!==`, `->`); message prose stays sans. Confirm the full console-ui
+  suite still passes.
+
+- [ ] **Step 8: Commit.**
+```bash
+git add apps/desktop/package.json pnpm-lock.yaml apps/desktop/src/renderer/main.tsx packages/console-ui/src/theme.css packages/console-ui/src/tokens/tokens.test.ts
+git commit -m "feat: render code in Fira Code with ligatures"
+```
+
+---
+
+## Task 16: Polish the Markdown member's styling
+
+**Files:**
+- Modify: `packages/console-ui/src/dense/Markdown.tsx` (react-markdown `components` overrides)
+- Test: `packages/console-ui/src/dense/Markdown.test.tsx`
+
+**Interfaces:**
+- Produces: GFM block elements render token-styled — headings (size/weight/spacing), lists (markers + indent),
+  **tables** (bordered, padded cells, emphasized header, horizontal-scroll wrapper), blockquotes (left rule, muted),
+  `hr`, paragraph spacing. Fenced code still routes to `CodeBlock` (no nested `<pre>`).
+
+- [ ] **Step 1: Write the failing tests.** In `Markdown.test.tsx`:
+```tsx
+it('renders a GFM table with bordered header and cells', () => {
+  const src = '| A | B |\n| - | - |\n| 1 | 2 |';
+  const { container } = render(<Markdown source={src} />);
+  const table = container.querySelector('table');
+  expect(table).not.toBeNull();
+  expect(container.querySelectorAll('th')).toHaveLength(2);
+  expect(container.querySelector('th')?.className).toMatch(/border/);
+});
+it('styles headings and blockquotes with tokens', () => {
+  const { container } = render(<Markdown source={'# Title\n\n> quote'} />);
+  expect(container.querySelector('h1')?.className).toMatch(/text-/);
+  expect(container.querySelector('blockquote')?.className).toMatch(/border-l/);
+});
+```
+
+- [ ] **Step 2: Run it, verify it fails.** `corepack pnpm vitest run packages/console-ui/src/dense/Markdown.test.tsx`
+  → FAIL (unstyled elements).
+
+- [ ] **Step 3: Add token-styled component overrides.** In `Markdown.tsx`, extend the `components` map (keep the
+  existing `a`→`Link` and `code`→`Code`/`CodeBlock`). Add overrides using ONLY semantic token classes (read
+  `theme.css`/`COMPONENTS.md` for the real token names; the classes below are illustrative — use the kit's actual
+  `text-*`/`border-*`/`bg-*`/spacing tokens):
+```tsx
+          h1: ({ children }) => <h1 className="mt-3 mb-1.5 text-title font-semibold text-fg">{children}</h1>,
+          h2: ({ children }) => <h2 className="mt-3 mb-1.5 text-heading font-semibold text-fg">{children}</h2>,
+          h3: ({ children }) => <h3 className="mt-2 mb-1 text-label font-semibold text-fg">{children}</h3>,
+          p: ({ children }) => <p className="my-1.5">{children}</p>,
+          ul: ({ children }) => <ul className="my-1.5 ml-4 list-disc space-y-0.5">{children}</ul>,
+          ol: ({ children }) => <ol className="my-1.5 ml-4 list-decimal space-y-0.5">{children}</ol>,
+          blockquote: ({ children }) => (
+            <blockquote className="my-2 border-l-2 border-hairline pl-3 text-muted">{children}</blockquote>
+          ),
+          hr: () => <hr className="my-3 border-border-default" />,
+          pre: ({ children }) => <>{children}</>, // CodeBlock provides its own <pre>; avoid a nested one
+          table: ({ children }) => (
+            <div className="my-2 overflow-x-auto">
+              <table className="w-full border-collapse text-label">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="border border-hairline bg-subtle px-2 py-1 text-left font-medium text-fg">{children}</th>
+          ),
+          td: ({ children }) => <td className="border border-hairline px-2 py-1 align-top">{children}</td>,
+```
+Confirm each token class exists in the kit (`grep` the token names in `theme.css`); substitute the real name if a
+guessed one (e.g. `text-title`, `text-heading`) isn't defined. Do NOT introduce raw hex/px/rem.
+
+- [ ] **Step 4: Run it, verify it passes.** Same command → PASS.
+
+- [ ] **Step 5: Verify + eyeball.** Full `corepack pnpm -C packages/console-ui test` green; `corepack pnpm -C
+  apps/desktop build` succeeds. `pnpm -C apps/desktop dev` → Components → Chat mockups: the markdown specimen now
+  shows a bordered table, spaced headings/lists, and a styled blockquote.
+
+- [ ] **Step 6: Commit.**
+```bash
+git add packages/console-ui/src/dense/Markdown.tsx packages/console-ui/src/dense/Markdown.test.tsx
+git commit -m "feat: style markdown headings, lists, tables and blockquotes"
+```
+
+---
+
+## Task 17: Retune markdown + transcript spacing to github-markdown-css values
+
+**Files:**
+- Modify: `packages/console-ui/src/dense/Markdown.tsx` (override classNames), `packages/console-ui/src/dense/Transcript.tsx` (row spacing/indent)
+- Test: `packages/console-ui/src/dense/Markdown.test.tsx`
+
+**Interfaces:**
+- Produces: markdown renders with GitHub-standard spacing; the transcript agent-turn indent is one clean step.
+
+**Reference values (github-markdown-css, mapped to Tailwind on the 16px root — verify each token/utility exists):**
+block spacing 16px (`mb-4`), headings 24px-top/16px-bottom (`mt-6 mb-4`), list padding-left 2em (`pl-8`), item gap
+~4px (`space-y-1`), blockquote 16px indent + 4px rule (`border-l-4 pl-4`), hr 24px (`my-6`), table cells ~6×13px
+(`px-3 py-1.5`), line-height 1.5 (`leading-[1.5]`), first block top-margin stripped.
+
+- [ ] **Step 1: Write the failing test.** In `Markdown.test.tsx`, assert the tuned spacing is present:
+```tsx
+it('applies github-standard block spacing to paragraphs and lists', () => {
+  const { container } = render(<Markdown source={'para\n\n- a\n- b'} />);
+  expect(container.querySelector('p')?.className).toMatch(/mb-4/);
+  expect(container.querySelector('ul')?.className).toMatch(/pl-8/);
+});
+it('strips the top margin from the first block', () => {
+  const { container } = render(<Markdown source={'# H\n\ntext'} />);
+  // the Markdown container carries the first-child margin reset
+  expect(container.firstElementChild?.className).toMatch(/first/);
+});
+```
+
+- [ ] **Step 2: Run it, verify it fails.** `corepack pnpm vitest run packages/console-ui/src/dense/Markdown.test.tsx` → FAIL.
+
+- [ ] **Step 3: Apply the spacing.** In `Markdown.tsx`: add `[&>*:first-child]:mt-0 [&>*:last-child]:mb-0` to the
+  wrapper `div`; update the block overrides to the reference values above (`p`→`mb-4`, `h1`→`mt-6 mb-4 text-heading
+  font-semibold`, `h2`→`mt-6 mb-4 text-body font-semibold`, `h3`→`mt-4 mb-2 text-label font-semibold`,
+  `ul`/`ol`→`mb-4 pl-8` + `space-y-1`, `blockquote`→`mb-4 border-l-4 border-hairline pl-4 text-muted`,
+  `hr`→`my-6 border-border-default`, `table` wrapper→`mb-4`, `th`/`td` padding→`px-3 py-1.5`). Keep the `a`/`code`/`pre`
+  overrides. Use only real kit tokens (grep `theme.css`); substitute any that don't exist.
+
+- [ ] **Step 4: Run it, verify it passes.** Same command → PASS.
+
+- [ ] **Step 5: Retune the transcript indent.** In `Transcript.tsx`, make the agent dotted-spine indent one clean
+  step: `ml-2 border-l border-dotted border-border-default pl-4` (16px content offset); nested subagent one more step
+  (`ml-4 border-solid`); give rows a touch more vertical breathing room (`py-2` on the shared wrapper). Keep the
+  `isUser` flush block. Run `corepack pnpm -C packages/console-ui test Transcript` → green.
+
+- [ ] **Step 6: Verify + eyeball + commit.** Full `corepack pnpm -C packages/console-ui test` green; `corepack pnpm -C
+  apps/desktop build` succeeds. Eyeball the Chat mockups showcase (spacing reads like GitHub). Then:
+```bash
+git add packages/console-ui/src/dense/Markdown.tsx packages/console-ui/src/dense/Markdown.test.tsx packages/console-ui/src/dense/Transcript.tsx
+git commit -m "feat: retune markdown and transcript spacing to standard values"
+```
+
+---
+
+## Task 18: Per-block status dots + distinct user/composer surfaces
+
+**Files:**
+- Modify: `packages/console-ui/src/dense/Transcript.tsx` (dot gutter + `dotTone` + user-block bg),
+  `packages/console-ui/src/dense/Composer.tsx` (composer bg)
+- Test: `packages/console-ui/src/dense/Transcript.test.tsx`, `Composer.test.tsx`
+
+**Interfaces:**
+- Produces: `dotTone(frame: TranscriptFrame): 'success' | 'danger' | 'neutral'` (exported for testing) and a left
+  gutter dot per row; user turns + composer carry a distinct raised surface.
+
+- [ ] **Step 1: Write the failing tests.**
+```tsx
+it('tones the status dot by outcome', () => {
+  expect(dotTone({ id:'1', role:'agent', kind:'tool-result', tool:'x', output:'ok', ok:true })).toBe('success');
+  expect(dotTone({ id:'2', role:'agent', kind:'tool-result', tool:'x', output:'e', ok:false })).toBe('danger');
+  expect(dotTone({ id:'3', role:'agent', kind:'error', message:'boom' })).toBe('danger');
+  expect(dotTone({ id:'4', role:'agent', kind:'text', text:'hi' })).toBe('neutral');
+});
+it('renders a status dot at the start of a row', () => {
+  const { container } = render(<TranscriptRow frame={{ id:'1', role:'agent', kind:'text', text:'hi' }} />);
+  expect(container.querySelector('[data-dot]')).not.toBeNull();
+});
+```
+
+- [ ] **Step 2: Run it, verify it fails.** `corepack pnpm -C packages/console-ui test Transcript` → FAIL.
+
+- [ ] **Step 3: Implement `dotTone` + the gutter dot.** Add an exported pure `dotTone(frame)`:
+```tsx
+export function dotTone(frame: TranscriptFrame): 'success' | 'danger' | 'neutral' {
+  if (frame.kind === 'error' || frame.kind === 'deny') return 'danger';
+  if (frame.kind === 'tool-result') return frame.ok ? 'success' : 'danger';
+  return 'neutral';
+}
+```
+Give each row a fixed-width left gutter holding a small dot centered near the top:
+`<span data-dot className={cx('mt-1.5 inline-block size-1.5 shrink-0 rounded-full', tone)} />` where `tone` maps
+`success`→`bg-success`, `danger`→`bg-danger`, `neutral`→`bg-muted` (VERIFY these bg tokens exist in `theme.css`; if
+the green is named differently, use the kit's real success token; `bg-muted`/`bg-fg` for the neutral "white" dot —
+pick the one that reads as a light dot on the dark canvas). Restructure the shared row wrapper (and the
+approval/deny/subagent/thinking/error/plan early-returns) so the dot sits in a consistent left gutter before the
+content — factor a small `RowShell` wrapper if it reduces duplication across the branches.
+
+- [ ] **Step 4: Distinct surfaces.** User turns: ensure the flush block uses a surface a clear step above the canvas
+  (keep/adjust `bg-raised` → the kit's clearly-raised token). Composer: give the kit `Composer`'s outer container a
+  subtle raised background (a token a step above the canvas) so the composer zone stands out; add a `Composer` test
+  asserting the container carries the raised bg class. Verify tokens are real; no raw values.
+
+- [ ] **Step 5: Run it, verify it passes.** `corepack pnpm -C packages/console-ui test` (full) → green.
+
+- [ ] **Step 6: Verify + eyeball + commit.** `corepack pnpm -C apps/desktop build` succeeds; eyeball the showcase
+  (dots on the left, green/red/neutral; user + composer stand out). Then:
+```bash
+git add packages/console-ui/src/dense/Transcript.tsx packages/console-ui/src/dense/Transcript.test.tsx packages/console-ui/src/dense/Composer.tsx packages/console-ui/src/dense/Composer.test.tsx
+git commit -m "feat: add per-block status dots and distinct user and composer surfaces"
+```
+
+---
+
 _Last reviewed: 2026-07-02_

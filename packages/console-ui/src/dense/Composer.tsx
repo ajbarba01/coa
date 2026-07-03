@@ -38,7 +38,7 @@ export function Composer({
   };
 
   return (
-    <div className="flex flex-col gap-2 border-t border-border-default p-2.5">
+    <div className="flex flex-col gap-2 border-t border-border-default bg-raised p-2.5">
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}

@@ -92,6 +92,17 @@ sharing) are architecturally out of reach without a reverse IDE→coa channel an
   302 chunks for marginal fidelity gain on common-language snippets; it stays a possible future swap behind the same
   `CodeBlock` props (`shiki/core` + hand-registered languages) if VS-Code-grade fidelity is later wanted.
 - **Virtualization/autoscroll:** existing `react-virtuoso` `followOutput`.
+- **Mono typography — Fira Code (added 2026-07-02).** The **code/mono surfaces** (fenced + inline code) use
+  **Fira Code** via `@fontsource-variable/fira-code`, with **ligatures on** (`font-feature-settings: 'liga' 1, 'calt'
+  1` on `code, pre`). Set as the first family of a new `--font-mono` token in `theme.css`'s `@theme` block. **Chat
+  prose stays the sans body font** — a direct check of the VS Code Claude Code extension (2026-07-02) confirmed it is
+  *not* mono for normal output/markdown, so coa's existing sans-prose + mono-code split already matches it; no
+  whole-chat mono.
+- **Markdown styling polish (added 2026-07-02).** The `Markdown` member styles GFM block elements
+  (headings, lists, **tables**, blockquotes, `hr`, paragraph spacing) with semantic tokens for a polished render —
+  this is a *styling* pass over the existing react-markdown + remark-gfm output (which already parses GFM tables),
+  **not** a renderer swap. VS Code's own extension markdown is reportedly under-styled (issue #45841); the goal is to
+  render *better* than it, inside the forge system.
 
 ## 5. The frame model (spine)
 
@@ -152,6 +163,17 @@ send → idle) rides the status indicator; per-block/per-tool durations are defe
 - **Expand button** → MVP inline expand (large draft area/modal), shaped to later target the side editor panel.
 
 **Status** — a status indicator (header or composer-adjacent) driven by the `status` Push.
+
+**Visual tuning (2026-07-02, post-live review).**
+- **Spacing follows `github-markdown-css` (the de-facto standard).** Markdown block spacing 16px, headings 24px-top/
+  16px-bottom with a size ramp, list padding-left 2em, blockquote 16px indent + 4px rule, table cells ~6×13px, hr
+  24px, line-height 1.5; the first block's top margin is stripped. The transcript's agent-turn indent is a single
+  clean step; nested subagent adds one more.
+- **Per-block status dot (left gutter).** Each turn shows a small dot at its left: **green** = success (a `tool-result
+  ok`, a done plan), **red** = error/failed (`error`, `deny`, `tool-result` not-ok), **neutral/white** = everything
+  else. Status-coded, not role-coded; maps to data already on the frame (`dotTone(frame)`).
+- **Distinct "your" surfaces.** User turns and the composer get a subtle raised tint (a surface a clear step above
+  the canvas) so your input zones stand out from the agent stream; stays within the forge palette (no brass).
 
 ## 7. Backend tail (behind the M8 catalogue)
 

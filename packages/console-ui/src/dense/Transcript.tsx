@@ -136,6 +136,51 @@ function ToolCard({
   );
 }
 
+/** Pure classification of a frame's outcome for the gutter status dot: errors and
+ *  denies read danger, a tool-result's `ok` flag decides success vs danger, and
+ *  everything else (text/tool-use/thinking/plan/approval/subagent/raw) is neutral —
+ *  informational, not an outcome. Exported for unit testing. */
+export function dotTone(frame: TranscriptFrame): 'success' | 'danger' | 'neutral' {
+  if (frame.kind === 'error' || frame.kind === 'deny') return 'danger';
+  if (frame.kind === 'tool-result') return frame.ok ? 'success' : 'danger';
+  return 'neutral';
+}
+
+const dotToneClass = {
+  success: 'bg-success',
+  danger: 'bg-danger',
+  neutral: 'bg-muted',
+} as const;
+
+/** Every row's shared shell: a fixed-width left gutter carrying the status dot,
+ *  ahead of the row's own indent/role styling. Factored out so every early-return
+ *  branch (approval/deny/subagent/thinking/error/plan) and the shared text/tool
+ *  branch get the dot without duplicating the gutter markup. The dot is decorative
+ *  (the row's own content already states its outcome), so it's `aria-hidden`. */
+function RowShell({
+  frame,
+  indent,
+  className,
+  children,
+}: {
+  frame: TranscriptFrame;
+  indent?: React.CSSProperties | undefined;
+  className?: string | undefined;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const tone = dotTone(frame);
+  return (
+    <div style={indent} className={cx('flex gap-2', className)}>
+      <span
+        data-dot
+        aria-hidden
+        className={cx('mt-1.5 inline-block size-1.5 shrink-0 rounded-full', dotToneClass[tone])}
+      />
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
 /** Renders a single frame by kind. Exported so it is unit-testable without the
  *  virtualized container (which needs measured heights jsdom does not provide). */
 export function TranscriptRow({
@@ -150,7 +195,7 @@ export function TranscriptRow({
 
   if (frame.kind === 'approval') {
     return (
-      <div style={indent} className="px-2 py-1.5">
+      <RowShell frame={frame} indent={indent} className="px-2 py-1.5">
         <div className="rounded-surface border border-border-default bg-raised p-2">
           <div className="flex items-center gap-2 text-label">
             <span className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
@@ -183,30 +228,30 @@ export function TranscriptRow({
             </div>
           )}
         </div>
-      </div>
+      </RowShell>
     );
   }
 
   if (frame.kind === 'deny') {
     return (
-      <div className="px-2 py-1.5">
+      <RowShell frame={frame} className="px-2 py-1.5">
         <DenyNotice kind={frame.denyKind} reason={frame.reason} />
-      </div>
+      </RowShell>
     );
   }
 
   if (frame.kind === 'raw') {
     return (
-      <div className="px-2 py-0.5">
+      <RowShell frame={frame} className="px-2 py-0.5">
         <Code block>{frame.text}</Code>
-      </div>
+      </RowShell>
     );
   }
 
   if (frame.kind === 'subagent') {
     const r = frame.rollup;
     return (
-      <div style={indent} className="px-2 py-1.5">
+      <RowShell frame={frame} indent={indent} className="px-2 py-1.5">
         <div className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2 py-1 text-caption">
           <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">subagent</span>
           <span className="text-muted">{frame.event}</span>
@@ -219,18 +264,18 @@ export function TranscriptRow({
             </span>
           )}
         </div>
-      </div>
+      </RowShell>
     );
   }
 
   if (frame.kind === 'thinking') {
     return (
-      <div style={indent} className="px-2 py-1.5">
+      <RowShell frame={frame} indent={indent} className="px-2 py-1.5">
         <div className="rounded-surface border border-hairline bg-subtle px-2 py-1.5">
           <div className="text-eyebrow uppercase tracking-[0.06em] text-faint">thinking</div>
           <div className="mt-1 text-label italic text-muted">{frame.text}</div>
         </div>
-      </div>
+      </RowShell>
     );
   }
 
@@ -238,7 +283,7 @@ export function TranscriptRow({
     const glyph = { pending: Circle, 'in-progress': CircleDot, done: CircleCheck } as const;
     const label = { pending: 'pending', 'in-progress': 'in progress', done: 'done' } as const;
     return (
-      <div style={indent} className="px-2 py-1.5">
+      <RowShell frame={frame} indent={indent} className="px-2 py-1.5">
         <div className="rounded-surface border border-hairline bg-subtle p-2">
           <div className="text-eyebrow uppercase tracking-[0.06em] text-faint">plan</div>
           <ul className="mt-1 flex flex-col gap-1">
@@ -256,20 +301,20 @@ export function TranscriptRow({
             })}
           </ul>
         </div>
-      </div>
+      </RowShell>
     );
   }
 
   if (frame.kind === 'error') {
     return (
-      <div style={indent} className="px-2 py-1.5">
+      <RowShell frame={frame} indent={indent} className="px-2 py-1.5">
         <div
           role="alert"
           className="rounded-surface border border-danger/40 bg-danger-tint px-2 py-1.5 text-label text-danger-text"
         >
           {frame.message}
         </div>
-      </div>
+      </RowShell>
     );
   }
 
@@ -277,27 +322,25 @@ export function TranscriptRow({
   const isUser = role === 'you';
   const nested = (depth ?? 0) > 0;
   return (
-    <div
-      style={indent}
-      data-role={role}
-      data-spine={!isUser}
-      data-nested={nested}
-      className={cx(
-        'px-2 py-1.5',
-        isUser
-          ? 'my-1 rounded-surface border border-hairline bg-raised'
-          : 'ml-2 border-l border-dotted border-border-default pl-3',
-        nested && 'ml-5 border-solid', // subagent: deeper indent + solid spine so nesting stays legible
-      )}
-    >
-      <div className="min-w-0 flex-1">
+    <RowShell frame={frame} indent={indent} className="px-2 py-2">
+      <div
+        data-role={role}
+        data-spine={!isUser}
+        data-nested={nested}
+        className={cx(
+          isUser
+            ? 'my-1 rounded-surface border border-hairline bg-raised'
+            : 'ml-2 border-l border-dotted border-border-default pl-4',
+          nested && 'ml-4 border-solid', // subagent: one more step + solid spine so nesting stays legible
+        )}
+      >
         {frame.kind === 'text' && <Markdown source={frame.text} />}
         {frame.kind === 'tool-use' && <ToolCard tool={frame.tool} payload={frame.input} />}
         {frame.kind === 'tool-result' && (
           <ToolCard tool={frame.tool} payload={frame.output} ok={frame.ok} />
         )}
       </div>
-    </div>
+    </RowShell>
   );
 }
 

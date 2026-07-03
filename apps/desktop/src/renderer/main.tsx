@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import { tokensToCss } from '@coa/console-ui';
+import '@fontsource-variable/fira-code';
 import './globals.css';
 
 const style = document.createElement('style');

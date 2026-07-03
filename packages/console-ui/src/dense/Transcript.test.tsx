@@ -2,9 +2,28 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { Transcript, TranscriptRow, type TranscriptFrame } from './Transcript.js';
+import { dotTone, Transcript, TranscriptRow, type TranscriptFrame } from './Transcript.js';
+
+describe('dotTone', () => {
+  it('tones the status dot by outcome', () => {
+    expect(
+      dotTone({ id: '1', role: 'agent', kind: 'tool-result', tool: 'x', output: 'ok', ok: true }),
+    ).toBe('success');
+    expect(
+      dotTone({ id: '2', role: 'agent', kind: 'tool-result', tool: 'x', output: 'e', ok: false }),
+    ).toBe('danger');
+    expect(dotTone({ id: '3', role: 'agent', kind: 'error', message: 'boom' })).toBe('danger');
+    expect(dotTone({ id: '4', role: 'agent', kind: 'text', text: 'hi' })).toBe('neutral');
+  });
+});
 
 describe('TranscriptRow', () => {
+  it('renders a status dot at the start of a row', () => {
+    const { container } = render(
+      <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'text', text: 'hi' }} />,
+    );
+    expect(container.querySelector('[data-dot]')).not.toBeNull();
+  });
   it('renders a text frame with its text', () => {
     render(<TranscriptRow frame={{ id: 't1', role: 'you', kind: 'text', text: 'do the thing' }} />);
     expect(screen.getByText('do the thing')).toBeTruthy();

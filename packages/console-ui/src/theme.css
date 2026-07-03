@@ -69,4 +69,17 @@
   --spacing-control-md: var(--control-h-md, 36px);
   /* Checkbox / radio box size — one shared, density-driven indicator dimension. */
   --spacing-control-indicator: var(--control-indicator, 18px);
+  /* Code/mono surfaces (inline `Code`, `CodeBlock`, raw block) — Fira Code first,
+     with ligatures enabled via the base rule below. Chat prose stays sans. */
+  --font-mono: 'Fira Code Variable', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    'Liberation Mono', monospace;
+}
+
+/* Ligatures on every code/mono surface (=>. !==, ->, etc.). Code-surfaces only —
+   chat message prose stays the sans body font. */
+code,
+pre {
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
 }

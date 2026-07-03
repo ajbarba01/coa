@@ -24,4 +24,27 @@ describe('Markdown', () => {
     const boxes = screen.getAllByRole('checkbox');
     expect(boxes[0]).toBeChecked();
   });
+  it('renders a GFM table with bordered header and cells', () => {
+    const src = '| A | B |\n| - | - |\n| 1 | 2 |';
+    const { container } = render(<Markdown source={src} />);
+    const table = container.querySelector('table');
+    expect(table).not.toBeNull();
+    expect(container.querySelectorAll('th')).toHaveLength(2);
+    expect(container.querySelector('th')?.className).toMatch(/border/);
+  });
+  it('styles headings and blockquotes with tokens', () => {
+    const { container } = render(<Markdown source={'# Title\n\n> quote'} />);
+    expect(container.querySelector('h1')?.className).toMatch(/text-/);
+    expect(container.querySelector('blockquote')?.className).toMatch(/border-l/);
+  });
+  it('applies github-standard block spacing to paragraphs and lists', () => {
+    const { container } = render(<Markdown source={'para\n\n- a\n- b'} />);
+    expect(container.querySelector('p')?.className).toMatch(/mb-4/);
+    expect(container.querySelector('ul')?.className).toMatch(/pl-8/);
+  });
+  it('strips the top margin from the first block', () => {
+    const { container } = render(<Markdown source={'# H\n\ntext'} />);
+    // the Markdown container carries the first-child margin reset
+    expect(container.firstElementChild?.className).toMatch(/first/);
+  });
 });
