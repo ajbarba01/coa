@@ -74,6 +74,7 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
         kind: 'tool-use',
         tool: f.tool,
         input: f.input,
+        handle: f.handle,
         depth: f.depth,
       };
     case 'tool-result':
@@ -84,6 +85,7 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
         tool: f.tool,
         output: f.output,
         ok: f.ok,
+        handle: f.handle,
         depth: f.depth,
       };
     case 'approval':
@@ -97,6 +99,21 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
       };
     case 'deny':
       return { id: f.id, kind: 'deny', denyKind: f.denyKind, reason: f.reason };
+    case 'thinking':
+      return { id: f.id, role: f.role, kind: 'thinking', text: f.text, depth: f.depth };
+    case 'error':
+      return { id: f.id, role: f.role, kind: 'error', message: f.message, origin: f.origin, depth: f.depth };
+    case 'plan':
+      return { id: f.id, role: f.role, kind: 'plan', items: f.items, depth: f.depth };
+    case 'subagent':
+      return {
+        id: f.id,
+        kind: 'subagent',
+        childWorktree: f.childWorktree,
+        event: f.event,
+        depth: f.depth,
+        rollup: f.rollup,
+      };
   }
 }
 
@@ -114,6 +131,14 @@ export function frameToRawLine(f: TurnFrame): string {
       return `> control: approval_request ${f.tool} (${f.requestId})`;
     case 'deny':
       return `> control: deny ${f.denyKind} ${f.reason}`;
+    case 'thinking':
+      return `> ${f.role}: thinking ${f.text}`;
+    case 'error':
+      return `> ${f.role}: error ${f.message}`;
+    case 'plan':
+      return `> ${f.role}: plan ${f.items.map((i) => `[${i.status}] ${i.text}`).join('; ')}`;
+    case 'subagent':
+      return `> control: subagent ${f.event} ${f.childWorktree}`;
   }
 }
 

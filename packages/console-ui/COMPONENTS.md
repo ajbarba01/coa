@@ -180,9 +180,9 @@ A virtualized turn stream of role-tagged conversation frames.
 - **Use it when:** Showing the agent conversation — text, tool calls, thinking, plans, approvals, denies, errors, subagent activity, or the raw loop.
 - **Don't use it when:** Showing one long document — use Longform/PromptView. Showing tabular records — use Table.
 - **Anatomy:** A labelled log region virtualizing per-kind rows (text as markdown, tool-use, tool-result, thinking, plan, approval, deny, error, subagent, raw).
-- **Variants & states:** text, tool-use, tool-result, thinking, plan, approval, approval-resolved, deny, error, subagent, raw, empty
+- **Variants & states:** user-turn, text, tool-use, tool-result, thinking, plan, approval, approval-resolved, deny, error, subagent, nested, raw, empty
 - **Accessibility:** role=log with an aria-label; approval actions are native focusable buttons; payloads render byte-faithfully.
-- **Related:** DenyNotice, Code, Table
+- **Related:** DenyNotice, Code, Markdown, Table
 
 ## Feedback
 

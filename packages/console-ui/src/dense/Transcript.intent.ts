@@ -14,6 +14,7 @@ export const transcriptIntent: ComponentIntent = assertIntent({
   anatomy:
     'A labelled log region virtualizing per-kind rows (text as markdown, tool-use, tool-result, thinking, plan, approval, deny, error, subagent, raw).',
   variantsStates: [
+    'user-turn',
     'text',
     'tool-use',
     'tool-result',
@@ -24,10 +25,11 @@ export const transcriptIntent: ComponentIntent = assertIntent({
     'deny',
     'error',
     'subagent',
+    'nested',
     'raw',
     'empty',
   ],
   accessibility:
     'role=log with an aria-label; approval actions are native focusable buttons; payloads render byte-faithfully.',
-  related: ['DenyNotice', 'Code', 'Table'],
+  related: ['DenyNotice', 'Code', 'Markdown', 'Table'],
 });

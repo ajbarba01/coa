@@ -57,6 +57,34 @@ describe('toGovernedFrame', () => {
     };
     expect(toGovernedFrame(f)).toMatchObject({ kind: 'approval', requestId: 'r1' });
   });
+
+  it('maps a plan view frame to a plan transcript frame', () => {
+    expect(
+      toGovernedFrame({
+        id: '1',
+        role: 'agent',
+        kind: 'plan',
+        items: [{ text: 'x', status: 'pending' }],
+      }),
+    ).toMatchObject({ kind: 'plan', items: [{ text: 'x', status: 'pending' }] });
+  });
+
+  it('maps a thinking view frame to a thinking transcript frame', () => {
+    expect(toGovernedFrame({ id: '2', role: 'agent', kind: 'thinking', text: 'hmm' })).toMatchObject(
+      { kind: 'thinking', text: 'hmm' },
+    );
+  });
+
+  it('renders every new kind to a raw line without throwing', () => {
+    for (const f of [
+      { id: '1', role: 'agent', kind: 'thinking', text: 't' },
+      { id: '2', role: 'agent', kind: 'error', message: 'e' },
+      { id: '3', role: 'agent', kind: 'plan', items: [{ text: 'p', status: 'done' }] },
+      { id: '4', kind: 'subagent', childWorktree: 'w', event: 'spawn' },
+    ] as const) {
+      expect(typeof frameToRawLine(f)).toBe('string');
+    }
+  });
 });
 
 describe('selectChatVm', () => {
