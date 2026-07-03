@@ -78,16 +78,31 @@ export function buildBaseOptions(args: {
   ];
 
   return {
-    systemPrompt: backend.systemPrompt,
+    // coa LAYERS its rendered prompt ON the `claude_code` preset rather than
+    // replacing it: the preset supplies Claude Code's own baseline (tool-use,
+    // code-quality, environment guidance — the pieces `PRESET_COVERED_PIECES`
+    // drops from `backend.systemPrompt` so they aren't duplicated), and coa's
+    // `append` layers its own authority (identity, orientation, role, standing
+    // reminders) on top. `append` is omitted entirely when there is nothing to
+    // add, rather than appending an empty string.
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      ...(backend.systemPrompt !== '' ? { append: backend.systemPrompt } : {}),
+    },
     allowedTools: backend.allowedTools,
     disallowedTools,
     permissionMode: asPermissionMode(sandbox.permissionMode),
     // B1 — isolate the session from on-disk config (D108). Omitting these lets the
     // SDK default load ALL setting sources (the target repo's CLAUDE.md +
     // .claude/settings + ~/.claude) as authority coa did NOT author, and pull in
-    // MCP servers coa did not register. coa authors its own standing authority via
-    // the rendered `systemPrompt`; mid-session re-read moves to the daemon-authored
-    // reminder hooks (D133), which do not depend on setting sources.
+    // MCP servers coa did not register. This is a SEPARATE mechanism from the
+    // preset above: the preset supplies Anthropic-authored baseline behavior,
+    // while `settingSources: []` blocks the TARGET REPO's own on-disk
+    // config/MCP servers from leaking in. coa authors its own standing
+    // authority via the rendered `systemPrompt`; mid-session re-read moves to
+    // the daemon-authored reminder hooks (D133), which do not depend on
+    // setting sources.
     settingSources: [],
     strictMcpConfig: true,
     ...(tools !== undefined ? { tools } : {}),

@@ -60,7 +60,7 @@ describe('buildBaseOptions — the static query() options from the rendered conf
       backend: backend({ systemPrompt: 'HEAD', allowedTools: ['get_symbol'] }),
       sandbox: sandbox(),
     });
-    expect(opts.systemPrompt).toBe('HEAD');
+    expect(opts.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'HEAD' });
     expect(opts.allowedTools).toEqual(['get_symbol']);
   });
 

@@ -37,7 +37,7 @@ describe('assembleSessionOptions — the per-session query() options', () => {
     const opts = assemble({
       backend: backend({ systemPrompt: 'HEAD', allowedTools: ['get_symbol'] }),
     });
-    expect(opts.systemPrompt).toBe('HEAD');
+    expect(opts.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'HEAD' });
     expect(opts.allowedTools).toEqual(['get_symbol']);
   });
 

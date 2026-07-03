@@ -112,6 +112,28 @@ describe('renderNative — standing authority (systemReminders → prompt + re-a
   });
 });
 
+describe('renderNative — layering on the claude_code preset (dropping preset-covered pieces)', () => {
+  it('drops the baseline pieces the claude_code preset already covers, keeping coa-specific ones', () => {
+    const out = renderNative(
+      config({
+        prefixHead: [
+          ordered(piece('baseline-identity', 'ID-BODY'), 0),
+          ordered(piece('baseline-tool-use', 'TOOLUSE-BODY'), 1),
+          ordered(piece('baseline-code-quality', 'QUALITY-BODY'), 2),
+          ordered(piece('baseline-environment', 'ENV-BODY'), 3),
+          ordered(piece('role-swe', 'ROLE-BODY'), 4),
+        ],
+      }),
+    );
+
+    expect(out.systemPrompt).toContain('ID-BODY');
+    expect(out.systemPrompt).toContain('ROLE-BODY');
+    expect(out.systemPrompt).not.toContain('TOOLUSE-BODY');
+    expect(out.systemPrompt).not.toContain('QUALITY-BODY');
+    expect(out.systemPrompt).not.toContain('ENV-BODY');
+  });
+});
+
 describe('renderNative — the static prompt excludes deferred-delivery content', () => {
   it('does not fold pull-only or scope-pushed bodies into the systemPrompt', () => {
     const out = renderNative(

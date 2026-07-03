@@ -10,6 +10,19 @@ function renderReminder(r: Reminder): string {
 }
 
 /**
+ * Baseline pieces the `claude_code` preset already covers — dropped from the Claude append so coa
+ * layers ON the preset without duplicating it. coa-specific pieces (baseline-identity,
+ * coa-orientation, role sections) are deliberately absent here: they carry coa's own authority the
+ * preset lacks. This set is the backend-specific delta and is meant to be tuned once an A/B harness
+ * exists.
+ */
+export const PRESET_COVERED_PIECES: ReadonlySet<string> = new Set([
+  'baseline-tool-use',
+  'baseline-code-quality',
+  'baseline-environment',
+]);
+
+/**
  * The neutral→native renderer (M9). Turns M5's backend-NEUTRAL `NeutralConfig`
  * into the Claude-SDK-native {@link BackendConfig}. Pure and deterministic (P1) —
  * the only place backend binding happens, so swapping the backend edits this
@@ -22,6 +35,7 @@ function renderReminder(r: Reminder): string {
 export function renderNative(neutralConfig: NeutralConfig): BackendConfig {
   const prefix = [...neutralConfig.prefixHead]
     .sort((a, b) => a.order - b.order)
+    .filter((o) => !PRESET_COVERED_PIECES.has(o.piece.name))
     .map((o) => o.piece.body)
     .join('\n\n');
 
