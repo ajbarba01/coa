@@ -139,7 +139,7 @@ describe('assembleAgent — pieces, mcps, advisories', () => {
 
     expect(names[0]).toBe('baseline-identity'); // core pieces lead
     expect(names[names.length - 1]).toBe('baseline-environment'); // volatile last
-    expect(names.indexOf('pkg-coding')).toBeGreaterThan(names.indexOf('baseline-code-quality'));
+    expect(names.indexOf('pkg-coding')).toBeGreaterThan(names.indexOf('baseline-identity'));
     expect(names.indexOf('role-x')).toBeGreaterThan(names.indexOf('pkg-coding'));
     expect(names.indexOf('skill-x')).toBeGreaterThan(names.indexOf('role-x'));
     expect(names.indexOf('skill-x')).toBeLessThan(names.indexOf('baseline-environment'));

@@ -43,7 +43,7 @@ const session = {
 
 describe('ClaudeSdkAdapter — pure ports + floor state', () => {
   it('renderNative delegates to the pure renderer and returns the rendered config', () => {
-    expect(adapter().renderNative(neutral()).systemPrompt).toBe('BODY');
+    expect(adapter().renderNative(neutral()).systemPrompt).toBe('# coa governance layer\n\nBODY');
   });
 
   it('capabilityProfile reports the barebones baseline (valid M0 profile, refs absent)', () => {

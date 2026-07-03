@@ -35,7 +35,7 @@ describe('renderNative — the prefix (the byte-stable, most-stable-first system
       }),
     );
 
-    expect(out.systemPrompt).toBe('BODY-A\n\nBODY-B');
+    expect(out.systemPrompt).toBe('# coa governance layer\n\nBODY-A\n\nBODY-B');
   });
 
   it('is deterministic — same input renders byte-identically (no cache self-bust)', () => {
@@ -89,7 +89,7 @@ describe('renderNative — standing authority (systemReminders → prompt + re-a
       config({ prefixHead: [ordered(piece('a', 'HEAD'), 0)], systemReminders: [reminder] }),
     );
 
-    expect(out.systemPrompt.startsWith('HEAD')).toBe(true);
+    expect(out.systemPrompt.startsWith('# coa governance layer\n\nHEAD')).toBe(true);
     expect(out.systemPrompt).toContain('no-raw-sql');
     expect(out.systemPrompt).toContain('use the query builder');
   });
@@ -117,20 +117,48 @@ describe('renderNative — layering on the claude_code preset (dropping preset-c
     const out = renderNative(
       config({
         prefixHead: [
-          ordered(piece('baseline-identity', 'ID-BODY'), 0),
-          ordered(piece('baseline-tool-use', 'TOOLUSE-BODY'), 1),
-          ordered(piece('baseline-code-quality', 'QUALITY-BODY'), 2),
-          ordered(piece('baseline-environment', 'ENV-BODY'), 3),
-          ordered(piece('role-swe', 'ROLE-BODY'), 4),
+          ordered(piece('baseline-identity', 'ID-BODY', { slot: 'identity' }), 0),
+          ordered(piece('baseline-tone', 'TONE-BODY', { slot: 'tone' }), 1),
+          ordered(piece('baseline-tool-use', 'TOOLUSE-BODY', { slot: 'tool-use' }), 2),
+          ordered(piece('baseline-environment', 'ENV-BODY', { slot: 'volatile' }), 3),
+          ordered(piece('role-swe', 'ROLE-BODY', { slot: 'roles' }), 4),
         ],
       }),
     );
 
-    expect(out.systemPrompt).toContain('ID-BODY');
     expect(out.systemPrompt).toContain('ROLE-BODY');
+    expect(out.systemPrompt).not.toContain('ID-BODY');
+    expect(out.systemPrompt).not.toContain('TONE-BODY');
     expect(out.systemPrompt).not.toContain('TOOLUSE-BODY');
-    expect(out.systemPrompt).not.toContain('QUALITY-BODY');
     expect(out.systemPrompt).not.toContain('ENV-BODY');
+  });
+
+  it('keeps coa-specific slotted pieces under their DC-6 section headers, under the boundary', () => {
+    const out = renderNative(
+      config({
+        prefixHead: [
+          ordered(piece('coa-orientation', 'ORIENT-BODY', { slot: 'governance' }), 0),
+          ordered(piece('pkg-coding', 'CODING-BODY', { slot: 'code-discipline' }), 1),
+        ],
+      }),
+    );
+
+    expect(out.systemPrompt.startsWith('# coa governance layer\n\n')).toBe(true);
+    expect(out.systemPrompt).toContain('## Operating under coa\n\nORIENT-BODY');
+    expect(out.systemPrompt).toContain('## Changing code\n\nCODING-BODY');
+  });
+
+  it('emits an empty systemPrompt (no bare boundary) when everything is dropped and there is no authority', () => {
+    const out = renderNative(
+      config({
+        prefixHead: [
+          ordered(piece('baseline-identity', 'ID-BODY', { slot: 'identity' }), 0),
+          ordered(piece('baseline-tone', 'TONE-BODY', { slot: 'tone' }), 1),
+        ],
+      }),
+    );
+
+    expect(out.systemPrompt).toBe('');
   });
 });
 
@@ -148,7 +176,7 @@ describe('renderNative — the static prompt excludes deferred-delivery content'
       }),
     );
 
-    expect(out.systemPrompt).toBe('PREFIX-ONLY');
+    expect(out.systemPrompt).toBe('# coa governance layer\n\nPREFIX-ONLY');
     expect(out.systemPrompt).not.toContain('SCOPE-PUSHED-BODY');
     expect(out.systemPrompt).not.toContain('pulled-ref');
   });

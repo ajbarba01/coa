@@ -1,4 +1,4 @@
-import type { AgentPackage, PackageSummary, Piece, Role, RoleSummary } from '@coa/shared';
+import type { AgentPackage, PackageSummary, Piece, Role, RoleSummary, SlotId } from '@coa/shared';
 import { CORE_PACKAGE_ID } from './assemble-agent.js';
 import { baselineStablePieces } from './baseline-pieces.js';
 
@@ -15,12 +15,13 @@ import { baselineStablePieces } from './baseline-pieces.js';
  * resolver adds the volatile model/env tail whenever `core` is included.
  */
 
-function behaviorPiece(name: string, description: string, body: string): Piece {
+function behaviorPiece(name: string, description: string, body: string, slot: SlotId): Piece {
   return {
     name,
     description,
     body,
     axes: { delivery: 'push', salience: 'never', provenance: 'authored' },
+    slot,
   };
 }
 
@@ -56,7 +57,8 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       behaviorPiece(
         'coa-orientation',
         'what coa is and how it governs',
-        'You are running inside coa, a local governance layer over your agent loop. Your file changes are recorded on a change spine and may be flagged for review, and a human can watch and steer in a console. Prefer coa’s governed tools (get_symbol, find_references, edit_symbol) where they are available.',
+        'You run inside coa. Your file changes are recorded on a change spine and may be flagged for review, and a human can watch and steer. Prefer coa’s governed tools (get_symbol, find_references, edit_symbol) where they are available.',
+        'governance',
       ),
     ],
     toolRefs: [],
@@ -71,7 +73,16 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       behaviorPiece(
         'pkg-coding',
         'coding conduct',
-        'Make the smallest correct change. Prefer edit_symbol for localized edits and apply_patch for multi-hunk changes. Run checks after editing and fix what you break.',
+        [
+          'Make the smallest correct change that satisfies the request; keep edits localized.',
+          'Match the surrounding code’s style, naming, and idiom; comment to explain why, not what.',
+          'Prefer edit_symbol for localized edits and apply_patch for multi-hunk changes over rewriting whole files.',
+          'Run the project’s checks after editing and fix what you break.',
+          'Handle errors rather than swallowing them; report outcomes honestly.',
+        ]
+          .map((l) => `- ${l}`)
+          .join('\n'),
+        'code-discipline',
       ),
     ],
   },
@@ -86,6 +97,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
         'pkg-planning',
         'planning conduct',
         'For multi-step work, outline the plan and surface tradeoffs before large changes. Check the assembled context and governance before editing.',
+        'roles',
       ),
     ],
   },
@@ -100,6 +112,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
         'pkg-research',
         'research conduct',
         'Gather evidence before concluding and note where each fact came from. Prefer the codebase graph over guessing; use the web only for what the repo cannot answer.',
+        'tool-use',
       ),
     ],
   },
@@ -118,6 +131,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
         'pkg-coa-butler',
         'butler conduct',
         'You can manage coa itself — assemble and configure agents, packages, and roles for the user. Confirm before creating or changing an agent; these actions are governed and audited.',
+        'governance',
       ),
     ],
   },
@@ -133,7 +147,8 @@ export const STARTER_ROLES: readonly Role[] = [
       behaviorPiece(
         'role-swe',
         'how the software-engineer role works',
-        "Make the smallest correct change that satisfies the request and keep edits localized to what it needs. Run the project's checks after editing and fix what you break. Surface tradeoffs before a large or hard-to-reverse change.",
+        'You implement code changes end to end and are accountable for them working.',
+        'roles',
       ),
     ],
   },
@@ -146,7 +161,8 @@ export const STARTER_ROLES: readonly Role[] = [
       behaviorPiece(
         'role-researcher',
         'how the researcher role works',
-        'Investigate and explain without editing code. Gather evidence from the codebase before reaching for the web, and note where each finding came from. Prefer reading the graph over guessing.',
+        'You investigate and explain; you do not edit code.',
+        'roles',
       ),
     ],
   },

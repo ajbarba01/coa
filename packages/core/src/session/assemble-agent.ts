@@ -16,7 +16,7 @@ import type { AssemblePiecesContext } from './session.js';
  * Ordering: package Pieces (defaults in registry order, then the role's opt-ins) →
  * role Pieces → skill Pieces → the volatile baseline tail (model/env, injected
  * only when `core` is included so it lands last, cache-friendly, D-P2). The
- * `core` package's own Pieces (identity/tool-use/quality) lead because it
+ * `core` package's own Pieces (identity/tone/tool-use) lead because it
  * is the first default. Tools + mcps are set-unions (never doubled); Pieces are
  * deduped by name (first wins). Unknown/excluded ids are dropped, never thrown
  * (SC-1 degrade-don't-cage).

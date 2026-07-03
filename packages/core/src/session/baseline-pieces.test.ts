@@ -51,7 +51,7 @@ describe('baselinePieces', () => {
   it('uses a coa-neutral identity — never impersonates Claude Code', () => {
     const identity = baselinePieces(CTX).find((p) => p.name === 'baseline-identity');
     expect(identity?.body).not.toMatch(/claude code/i);
-    expect(identity?.body).toMatch(/coa governance/i);
+    expect(identity?.body).toMatch(/governance layer/i);
   });
 
   it('carries no coa-added safety/refusal guardrail (governance surfaces it, not the prompt)', () => {
@@ -59,5 +59,18 @@ describe('baselinePieces', () => {
     expect(pieces.some((p) => p.name === 'baseline-safety')).toBe(false);
     const bodies = pieces.map((p) => p.body).join('\n');
     expect(bodies).not.toMatch(/refuse|refusal|malicious/i);
+  });
+
+  it('assigns every baseline piece a DC-6 slot', () => {
+    for (const piece of baselinePieces(CTX)) expect(piece.slot).toBeDefined();
+  });
+
+  it('carries a concise tone piece in the tone slot', () => {
+    const tone = baselinePieces(CTX).find((p) => p.name === 'baseline-tone');
+    expect(tone?.slot).toBe('tone');
+  });
+
+  it('keeps the baseline universal — no task-specific code-editing conduct', () => {
+    expect(baselinePieces(CTX).some((p) => p.name === 'baseline-code-quality')).toBe(false);
   });
 });

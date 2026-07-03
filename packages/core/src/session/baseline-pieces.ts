@@ -1,4 +1,4 @@
-import type { CapabilityFrame, Piece } from '@coa/shared';
+import type { CapabilityFrame, Piece, SlotId } from '@coa/shared';
 import type { AssemblePiecesContext } from './session.js';
 
 /**
@@ -33,60 +33,58 @@ export interface BaselineContext {
   date: string;
 }
 
-/** A standing, pushed-into-prompt, human-authored Piece (no reminder cadence). */
-function authoredPush(name: string, description: string, body: string): Piece {
+/** A standing, pushed-into-prompt, human-authored Piece (no reminder cadence), placed in a DC-6 section slot. */
+function authoredPush(name: string, description: string, body: string, slot: SlotId): Piece {
   return {
     name,
     description,
     body,
     axes: { delivery: 'push', salience: 'never', provenance: 'authored' },
+    slot,
   };
 }
 
 const IDENTITY = authoredPush(
   'baseline-identity',
   'who the agent is and how it operates',
-  [
-    'You are a software-engineering agent operating under coa governance.',
-    'A human is present and steers the work. When you have enough to act, act —',
-    'do not narrate options you will not take or re-litigate settled decisions.',
-  ].join(' '),
+  'You are an AI assistant operating under coa, a local governance layer over your agent loop. A human is present and steers the work. When you have enough to act, act — do not narrate options you will not take or re-litigate settled decisions.',
+  'identity',
+);
+
+const TONE = authoredPush(
+  'baseline-tone',
+  'response length and directness',
+  'Be concise and direct. Answer in as few words as the task allows; a short reply is usually best. Skip preamble and postamble — do not open with “Sure”, “Great question”, or a restatement of the request. Lead with the substance.',
+  'tone',
 );
 
 const TOOL_USE = authoredPush(
   'baseline-tool-use',
   'how to use the available tools well',
   [
-    'Prefer the dedicated file and search tools over shell equivalents when one',
-    'fits. Make independent tool calls in parallel. A denied tool call means the',
-    'human declined it — adjust rather than retrying it verbatim. Prefer small,',
-    'targeted edits (a diff) over rewriting whole files.',
-  ].join(' '),
-);
-
-const CODE_QUALITY = authoredPush(
-  'baseline-code-quality',
-  'output-quality expectations',
-  [
-    'Match the surrounding code’s style, naming, and idiom. Comment to explain',
-    'why, not what. Handle errors rather than swallowing them. Report outcomes',
-    'honestly — if a step failed or was skipped, say so plainly.',
-  ].join(' '),
+    'Prefer the dedicated file and search tools over shell equivalents when one fits.',
+    'Make independent tool calls in parallel.',
+    'A denied tool call means the human declined it — adjust rather than retrying it verbatim.',
+  ]
+    .map((l) => `- ${l}`)
+    .join('\n'),
+  'tool-use',
 );
 
 /** Author the volatile environment Piece from the session-invariant facts (ordered last, per D-P2). */
 function environmentPiece(ctx: BaselineContext): Piece {
   const lines = [`Platform: ${ctx.platform}`, `Date: ${ctx.date}`];
-  return authoredPush('baseline-environment', 'the session runtime facts', lines.join('\n'));
+  return authoredPush('baseline-environment', 'the session runtime facts', lines.join('\n'), 'volatile');
 }
 
 /**
- * The stable authored guidance — identity, tool-use, and code-quality.
+ * The stable authored guidance — identity, tone, and tool-use. Universal only:
+ * task-specific conduct (e.g. code-editing discipline) lives in packages, not here.
  * Session-invariant, so it forms the cache-warm prefix; the agent-assembly
  * resolver inserts role/package/skill Pieces after it and the volatile tail last.
  */
 export function baselineStablePieces(): Piece[] {
-  return [IDENTITY, TOOL_USE, CODE_QUALITY];
+  return [IDENTITY, TONE, TOOL_USE];
 }
 
 /**

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { slotIdSchema } from './slots.js';
+
 /**
  * The ONE composable content atom (the TAX-* collapse). The former kinds
  * (knowledge/protocol/behaviour) dissolve into three orthogonal axes; `Role`
@@ -27,6 +29,8 @@ export const pieceSchema = z.object({
   description: z.string(),
   body: z.string(),
   axes: contentAxesSchema,
+  /** Which DC-6 section this Piece renders in; absent ⇒ the end bucket (rendered last, no header). */
+  slot: slotIdSchema.optional(),
   /** The TAX-2 authority link — `governed-by` edges to constraints. */
   governedBy: z.array(z.string()).optional(),
   bundle: z.string().optional(),

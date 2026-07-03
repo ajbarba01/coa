@@ -1,4 +1,4 @@
-import type { NeutralConfig, Reminder } from '@coa/shared';
+import { renderSections, type NeutralConfig, type Reminder } from '@coa/shared';
 import type { BackendConfig, BackendFile } from '@coa/spi';
 
 /** The worktree-relative re-anchor file — gitignored + reconciler-excluded (S-5). */
@@ -11,14 +11,14 @@ function renderReminder(r: Reminder): string {
 
 /**
  * Baseline pieces the `claude_code` preset already covers — dropped from the Claude append so coa
- * layers ON the preset without duplicating it. coa-specific pieces (baseline-identity,
- * coa-orientation, role sections) are deliberately absent here: they carry coa's own authority the
- * preset lacks. This set is the backend-specific delta and is meant to be tuned once an A/B harness
- * exists.
+ * layers ON the preset without duplicating it. coa-specific pieces (coa-orientation, pkg-coding,
+ * role sections) are deliberately absent here: they carry coa's own authority the preset lacks.
+ * This set is the backend-specific delta and is meant to be tuned once an A/B harness exists.
  */
 export const PRESET_COVERED_PIECES: ReadonlySet<string> = new Set([
+  'baseline-identity',
+  'baseline-tone',
   'baseline-tool-use',
-  'baseline-code-quality',
   'baseline-environment',
 ]);
 
@@ -33,11 +33,11 @@ export const PRESET_COVERED_PIECES: ReadonlySet<string> = new Set([
  * self-busts the prompt cache.
  */
 export function renderNative(neutralConfig: NeutralConfig): BackendConfig {
-  const prefix = [...neutralConfig.prefixHead]
+  const pieces = [...neutralConfig.prefixHead]
     .sort((a, b) => a.order - b.order)
-    .filter((o) => !PRESET_COVERED_PIECES.has(o.piece.name))
-    .map((o) => o.piece.body)
-    .join('\n\n');
+    .map((o) => o.piece)
+    .filter((piece) => !PRESET_COVERED_PIECES.has(piece.name));
+  const sections = renderSections(pieces);
 
   // Standing authority (the salient systemReminders): there is no programmatic
   // mid-session role:system channel (verified SDK fact), so it lands in the
@@ -45,7 +45,8 @@ export function renderNative(neutralConfig: NeutralConfig): BackendConfig {
   // .claude file. Pull-only + scope-pushed content is deferred (TAX-1) and never
   // folded into the static prompt.
   const authority = neutralConfig.systemReminders.map(renderReminder);
-  const systemPrompt = authority.length > 0 ? [prefix, authority.join('\n')].join('\n\n') : prefix;
+  const inner = [sections, authority.join('\n')].filter((s) => s !== '').join('\n\n');
+  const systemPrompt = inner === '' ? '' : `# coa governance layer\n\n${inner}`;
   const files: BackendFile[] =
     authority.length > 0 ? [{ path: REANCHOR_PATH, content: authority.join('\n') }] : [];
 
