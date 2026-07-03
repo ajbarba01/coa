@@ -1,4 +1,7 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { rgPath } from '@vscode/ripgrep';
+import { globSync } from 'tinyglobby';
 import type { PieceRef, Producer, ProducerInput, SymbolRef } from '@coa/shared';
 import { compile } from '../compiler/compile.js';
 import { createGovernanceAnchorProducer } from '../context/governance-anchor.js';
@@ -6,6 +9,7 @@ import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
+import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { homedir } from 'node:os';
 import { buildConsoleHandlers } from '../rpc/console-handlers.js';
 import { buildAuthHandlers } from '../rpc/auth-handlers.js';
@@ -82,6 +86,13 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
       return config;
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
+    baseCatalogue: buildGovernedTools(
+      {
+        ...governedToolDeps(kernel, governance, flags, options.root ?? '.'),
+        base: baseToolDeps(kernel, options.root ?? '.'),
+      },
+      { includeBaseTools: true },
+    ),
   };
 
   return { core, kernel, flags, governance };
@@ -216,5 +227,58 @@ function governedToolDeps(
       },
       flagsForAgent: (scope) => flags.flagsForAgent(scope),
     },
+  };
+}
+
+/**
+ * Wire the pure-API base-tool ports (Read/Glob/Grep/Write/Edit/Bash) to real disk +
+ * process I/O: `@vscode/ripgrep`'s bundled binary backs `searchFiles`, `tinyglobby`
+ * backs `listFiles`, and `exec` wraps `spawnSync` so a spawn failure degrades to a
+ * non-zero exit rather than throwing (SC-1). Mirrors `governedToolDeps` — same
+ * kernel, same forward-slash-normalized worktree root.
+ */
+function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
+  const worktreeRoot = root.replace(/\\/g, '/');
+  return {
+    worktreeRoot,
+    worktree: 'main',
+    readFile: (absolutePath) => readFileSync(absolutePath, 'utf8'),
+    writeFile: (absolutePath, bytes) => writeFileSync(absolutePath, bytes),
+    fileExists: (absolutePath) => existsSync(absolutePath),
+    listFiles: (pattern, baseAbsolute) =>
+      globSync(pattern, { cwd: baseAbsolute, absolute: true, dot: false }),
+    searchFiles: ({ pattern, baseAbsolute, glob, mode }) => {
+      const args = [
+        mode === 'files' ? '--files-with-matches' : '--line-number',
+        ...(glob ? ['--glob', glob] : []),
+        '--',
+        pattern,
+        baseAbsolute,
+      ];
+      const out = spawnSync(rgPath, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+      const lines = (out.stdout ?? '').split('\n').filter((line) => line.length > 0);
+      if (mode === 'files') return lines.map((file) => ({ file: file.replace(/\\/g, '/') }));
+      return lines.map((line) => {
+        const m = /^(.*?):(\d+):(.*)$/.exec(line);
+        return m && m[1] !== undefined && m[2] !== undefined && m[3] !== undefined
+          ? { file: m[1].replace(/\\/g, '/'), line: Number(m[2]), text: m[3] }
+          : { file: line.replace(/\\/g, '/') };
+      });
+    },
+    exec: (command, opts) => {
+      const out = spawnSync(command, {
+        cwd: opts.cwd,
+        shell: true,
+        encoding: 'utf8',
+        maxBuffer: 32 * 1024 * 1024,
+        ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+      });
+      return {
+        stdout: out.stdout ?? '',
+        stderr: out.stderr ?? (out.error ? String(out.error.message) : ''),
+        exitCode: out.status ?? (out.error ? -1 : 0),
+      };
+    },
+    emit: (draft) => kernel.emit(draft),
   };
 }

@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, it } from 'vitest';
 import type { InjectionBundle, SymbolRecord } from '@coa/shared';
 import { buildGovernedTools, type GovernedToolDeps } from './governed-tools.js';
+import type { BaseToolDeps } from './base-tools.js';
 
 const RECORD: SymbolRecord = { name: 'parseConfig', definedIn: 'src/config.ts' };
 const BUNDLE: InjectionBundle = { groups: [{ concernKey: 'c1', flags: [] }] };
@@ -118,5 +119,42 @@ describe('buildGovernedTools', () => {
     );
     expect(tools.find((t) => t.name === 'edit_symbol')?.partition).toBe('kernel');
     expect(tools.find((t) => t.name === 'why')?.partition).toBe('on-demand');
+  });
+});
+
+const BASE_NAMES = ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'];
+
+function baseDeps(): BaseToolDeps {
+  return {
+    worktreeRoot: '/repo',
+    worktree: 'main',
+    readFile: () => '',
+    writeFile: () => {},
+    fileExists: () => false,
+    listFiles: () => [],
+    searchFiles: () => [],
+    exec: () => ({ stdout: '', stderr: '', exitCode: 0 }),
+    emit: () => 0,
+  };
+}
+
+describe('buildGovernedTools — base-tool gate', () => {
+  it('omits base tools by default', () => {
+    const names = buildGovernedTools(makeDeps()).map((t) => t.name);
+    for (const n of BASE_NAMES) expect(names).not.toContain(n);
+  });
+
+  it('includes the six base tools when includeBaseTools is set', () => {
+    const names = buildGovernedTools({ ...makeDeps(), base: baseDeps() }, { includeBaseTools: true }).map(
+      (t) => t.name,
+    );
+    for (const n of BASE_NAMES) expect(names).toContain(n);
+  });
+
+  it('a base tool invoke returns an unapplied result on a bad path (SC-1, never throws)', () => {
+    const tools = buildGovernedTools({ ...makeDeps(), base: baseDeps() }, { includeBaseTools: true });
+    const read = tools.find((t) => t.name === 'Read');
+    const res = read?.invoke({ path: '../escape' });
+    expect(res).toBeDefined();
   });
 });

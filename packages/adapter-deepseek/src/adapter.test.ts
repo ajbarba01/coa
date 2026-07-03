@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { NeutralConfig, SessionConfig, TurnFrame } from '@coa/shared';
-import type { CanUseTool, StopPredicate } from '@coa/spi';
+import type { CanUseTool, RegisteredTool, StopPredicate } from '@coa/spi';
 import { DeepSeekAdapter } from './adapter.js';
 import type { FetchLike } from './complete.js';
 
@@ -127,6 +127,32 @@ describe('DeepSeekAdapter', () => {
     adapter.interceptTool(allow);
     adapter.interceptStop(allowStop);
     await expect(adapter.runLoop(SESSION)).rejects.toThrow('renderNative');
+  });
+
+  it('forwards a registered base tool (e.g. Read) onto the wire tools list', async () => {
+    const captured: Captured = {};
+    const readTool: RegisteredTool = {
+      name: 'Read',
+      description: 'Read a file',
+      partition: 'kernel',
+      inputSchema: {},
+      invoke: async () => ({ result: { ok: true }, handle: 'raw:Read', pointer: 'p:Read' }),
+    };
+    const adapter = new DeepSeekAdapter({
+      sessionId: 's1',
+      input: 'go',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch(captured),
+    });
+    adapter.renderNative(NEUTRAL);
+    adapter.registerTools([readTool]);
+    adapter.interceptTool(allow);
+    adapter.interceptStop(allowStop);
+
+    await adapter.runLoop(SESSION);
+
+    const tools = captured.body?.['tools'] as Array<{ function: { name: string } }> | undefined;
+    expect(tools?.map((t) => t.function.name)).toContain('Read');
   });
 
   it('reports the barebones capability profile and the refs null-fallback', () => {

@@ -43,13 +43,24 @@ const denied = (rel: string): ConfineResult => ({
 /** Resolve `candidate` against the worktree and confine it, or reject with a typed error. */
 export function confinePath(candidate: string, policy: ConfinementPolicy): ConfineResult {
   const root = policy.worktreeRoot;
-  const resolved = path.posix.resolve(root, candidate);
+  // A Windows worktree root is a drive-letter path (`C:/Users/…`), which POSIX does
+  // NOT treat as absolute — `path.posix.resolve` would read it as relative and mangle
+  // the result against cwd (`/…/cwd/C:/…`). Map any non-POSIX-absolute root into POSIX
+  // space for the traversal math only; the returned path is rebuilt from the original
+  // root so it stays OS-openable (Windows opens forward-slash drive paths).
+  const posixRoot = path.posix.isAbsolute(root) ? root : `/${root}`;
+  const resolved = path.posix.resolve(posixRoot, candidate);
   const real = policy.realpath ? policy.realpath(resolved) : resolved;
-  const rel = path.posix.relative(root, real);
-  if (rel === '' || rel.startsWith('..') || path.posix.isAbsolute(rel)) return escape(candidate);
+  const rel = path.posix.relative(posixRoot, real);
+  // rel === '' is the worktree root itself — in-bounds, never an escape. Only
+  // a `..` prefix (climbs above root) or an absolute-outside path escapes.
+  if (rel.startsWith('..') || path.posix.isAbsolute(rel)) return escape(candidate);
 
   const forbidden = policy.denyRead ?? WORKTREE_FORBIDDEN;
   if (forbidden.some((glob) => matchGlob(glob, rel))) return denied(rel);
 
-  return { ok: true, path: real };
+  // Rebuild from the ORIGINAL root (preserving its drive prefix) rather than the
+  // POSIX-mapped `real`, so the fs-facing path is OS-openable. `rel === ''` is the
+  // root itself.
+  return { ok: true, path: rel === '' ? root : path.posix.join(root, rel) };
 }

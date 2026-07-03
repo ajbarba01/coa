@@ -8,6 +8,7 @@ import {
   type ToolResponse,
 } from '@coa/shared';
 import type { RegisteredTool } from '@coa/spi';
+import { BASE_TOOL_CATALOGUE, baseToolSpecs, type BaseToolDeps } from './base-tools.js';
 import { TOOL_CATALOGUE } from './catalogue.js';
 import { enrich, type EnrichDeps } from './enrich.js';
 import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
@@ -45,17 +46,19 @@ export interface GovernedToolDeps {
   inspect: InspectDeps;
   /** The cross-cutting return enrichment (M4.ground + M3.flagsForAgent). */
   enrich: EnrichDeps;
+  /** The pure-API base-tool ports; present only when built with includeBaseTools. */
+  base?: BaseToolDeps;
 }
 
 /** One tool's input schema + its dispatch into the M6 handler, typed against the shape. */
-interface ToolSpec {
+export interface ToolSpec {
   shape: z.ZodRawShape;
   dispatch: (args: unknown, deps: GovernedToolDeps) => ToolResponse<unknown>;
   refOf?: (args: unknown) => SymbolRef | undefined;
 }
 
 /** Bind a tool spec, preserving the parsed-args type from the Zod shape. */
-function spec<S extends z.ZodRawShape>(
+export function spec<S extends z.ZodRawShape>(
   shape: S,
   dispatch: (args: z.infer<z.ZodObject<S>>, deps: GovernedToolDeps) => ToolResponse<unknown>,
   refOf?: (args: z.infer<z.ZodObject<S>>) => SymbolRef | undefined,
@@ -121,9 +124,17 @@ function invokeSpec(
  * Build the governed tool surface for a session: the v1 catalogue, each wired to
  * the live handler ports and ready for M9 to register as in-process MCP tools.
  */
-export function buildGovernedTools(deps: GovernedToolDeps): RegisteredTool[] {
-  return TOOL_CATALOGUE.map((entry) => {
-    const toolSpec = SPECS[entry.name];
+export function buildGovernedTools(
+  deps: GovernedToolDeps,
+  opts?: { includeBaseTools?: boolean },
+): RegisteredTool[] {
+  if (opts?.includeBaseTools && deps.base === undefined) {
+    throw new Error('buildGovernedTools: includeBaseTools requires deps.base');
+  }
+  const entries = opts?.includeBaseTools ? [...TOOL_CATALOGUE, ...BASE_TOOL_CATALOGUE] : TOOL_CATALOGUE;
+  const specs = opts?.includeBaseTools ? { ...SPECS, ...baseToolSpecs() } : SPECS;
+  return entries.map((entry) => {
+    const toolSpec = specs[entry.name];
     if (toolSpec === undefined) {
       throw new Error(`buildGovernedTools: no dispatch spec for catalogue tool '${entry.name}'`);
     }

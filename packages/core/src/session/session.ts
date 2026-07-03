@@ -110,6 +110,8 @@ export interface SessionDeps {
   gate: () => StopDecision;
   /** M6's governed tool catalogue (names; the rich surface is registered by M9). */
   catalogue: ToolCatalogue;
+  /** The pure-API tool catalogue (governance + base tools); used for non-claude providers. */
+  baseCatalogue: ToolCatalogue;
   /** M1 checkpoint at the session boundary. */
   checkpoint: () => void;
   /** Construct the per-session backend adapter (M9, injected — M8 holds no backend type). */
@@ -222,7 +224,7 @@ export async function createSession(
 
   adapter.renderNative(neutral);
   adapter.denyBuiltins();
-  adapter.registerTools(deps.catalogue);
+  adapter.registerTools(provider === 'claude' ? deps.catalogue : deps.baseCatalogue);
   adapter.interceptTool(
     buildCanUseTool({ capState: deps.capState, perToolDeny: deps.perToolDeny }),
   );

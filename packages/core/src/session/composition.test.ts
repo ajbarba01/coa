@@ -30,6 +30,7 @@ function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } 
     sandboxPolicy: (ctx) => governance.sandboxPolicy(ctx),
     compile: (pieces, frame) => compile(pieces, frame).config,
     catalogue: TOOL_CATALOGUE,
+    baseCatalogue: [],
   };
 }
 

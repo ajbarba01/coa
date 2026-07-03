@@ -4,6 +4,7 @@ import {
   barebonesProfile,
   type BackendConfig,
   type CanUseTool,
+  type RegisteredTool,
   type RuntimeAdapter,
   type RuntimeUsage,
   type StopPredicate,
@@ -104,6 +105,7 @@ function harness(over: Partial<SessionDeps> = {}): {
     perToolDeny: () => undefined,
     gate: () => ({ allow: true }),
     catalogue: [],
+    baseCatalogue: [],
     checkpoint: () => {
       stats.checkpoints += 1;
     },
@@ -204,6 +206,36 @@ describe('createSession', () => {
     });
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
     expect(spend).toEqual([{ costUsd: 0.5, tokensIn: 1, tokensOut: 2, account: 'work' }]);
+  });
+
+  it('registers the base catalogue for a non-claude provider and the plain one for claude', async () => {
+    const registered: Record<string, string[]> = {};
+    const makeAdapter =
+      (label: string) =>
+      (init: SessionAdapterInit): RuntimeAdapter => {
+        const adapter = new FakeAdapter(init);
+        adapter.registerTools = (cat) => {
+          registered[label] = cat.map((t) => t.name);
+        };
+        return adapter;
+      };
+
+    const h = harness({
+      catalogue: [{ name: 'edit_symbol' } as RegisteredTool],
+      baseCatalogue: [{ name: 'edit_symbol' } as RegisteredTool, { name: 'Read' } as RegisteredTool],
+    });
+
+    await createSession(
+      { role: 'coder', scope: '.', input: 'x', model: { provider: 'deepseek', model: 'x' } },
+      { ...h.deps, createAdapter: makeAdapter('deepseek') },
+    );
+    await createSession(
+      { role: 'coder', scope: '.', input: 'x', model: { provider: 'claude', model: 'y' } },
+      { ...h.deps, createAdapter: makeAdapter('claude') },
+    );
+
+    expect(registered['deepseek']).toContain('Read');
+    expect(registered['claude']).not.toContain('Read');
   });
 });
 

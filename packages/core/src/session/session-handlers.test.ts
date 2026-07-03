@@ -89,6 +89,7 @@ function deps(frames: TurnFrame[], fail = false): SessionDeps {
     perToolDeny: () => undefined,
     gate: () => ({ allow: true }),
     catalogue: [],
+    baseCatalogue: [],
     checkpoint: () => {},
     createAdapter: (init) => new FrameAdapter(init, frames, fail),
   };

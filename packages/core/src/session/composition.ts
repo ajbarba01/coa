@@ -43,6 +43,8 @@ export interface DaemonCore {
   compile: (pieces: Piece[], frame: CapabilityFrame) => NeutralConfig;
   /** M6 — the governed tool catalogue. */
   catalogue: ToolCatalogue;
+  /** M6 — the pure-API catalogue (governance + base tools); used for non-claude providers. */
+  baseCatalogue: ToolCatalogue;
 }
 
 /** The per-session injection points: the backend factory + the not-yet-built worktree/context floors. */
@@ -80,6 +82,7 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     perToolDeny: core.perToolDeny,
     gate: core.gate,
     catalogue: core.catalogue,
+    baseCatalogue: core.baseCatalogue,
     checkpoint: core.checkpoint,
     createAdapter: wiring.createAdapter,
     ...(wiring.trust !== undefined ? { trust: wiring.trust } : {}),
