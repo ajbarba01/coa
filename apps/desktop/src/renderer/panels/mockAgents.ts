@@ -12,7 +12,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     color: 'teal',
     scope: 'project',
     model: 'sonnet',
-    role: 'researcher',
+    roles: ['researcher'],
   },
   {
     ref: 'roles/tdd-implementer',
@@ -21,7 +21,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     color: 'blue',
     scope: 'project',
     model: 'sonnet',
-    role: 'swe',
+    roles: ['swe'],
   },
   {
     ref: 'roles/refactor-bot',
@@ -30,7 +30,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
     color: 'coral',
     scope: 'project',
     model: 'opus',
-    role: 'swe',
+    roles: ['swe'],
   },
   {
     ref: 'personal/scratch-helper',

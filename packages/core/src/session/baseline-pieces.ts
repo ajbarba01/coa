@@ -53,18 +53,6 @@ const IDENTITY = authoredPush(
   ].join(' '),
 );
 
-const SAFETY = authoredPush(
-  'baseline-safety',
-  'refusal posture and destructive-action care',
-  [
-    'Refuse destructive, mass-targeting, or clearly malicious requests; legitimate',
-    'security work with a clear context is fine. For actions that are hard to',
-    'reverse or reach outside the worktree, confirm first unless told to proceed.',
-    'Before deleting or overwriting something you did not create, inspect it and',
-    'surface any mismatch instead of proceeding.',
-  ].join(' '),
-);
-
 const TOOL_USE = authoredPush(
   'baseline-tool-use',
   'how to use the available tools well',
@@ -93,12 +81,12 @@ function environmentPiece(ctx: BaselineContext): Piece {
 }
 
 /**
- * The stable authored guidance — identity, safety, tool-use, and code-quality.
+ * The stable authored guidance — identity, tool-use, and code-quality.
  * Session-invariant, so it forms the cache-warm prefix; the agent-assembly
  * resolver inserts role/package/skill Pieces after it and the volatile tail last.
  */
 export function baselineStablePieces(): Piece[] {
-  return [IDENTITY, SAFETY, TOOL_USE, CODE_QUALITY];
+  return [IDENTITY, TOOL_USE, CODE_QUALITY];
 }
 
 /**

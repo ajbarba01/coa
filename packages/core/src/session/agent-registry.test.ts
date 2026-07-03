@@ -1,4 +1,4 @@
-import { packageSummarySchema, roleSummarySchema } from '@coa/shared';
+import { packageSummarySchema, pieceSchema, roleSummarySchema } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
 import {
   STARTER_PACKAGES,
@@ -72,5 +72,16 @@ describe('agent-registry summaries — the picker projections', () => {
     expect(packages).toHaveLength(STARTER_PACKAGES.length);
     for (const r of roles) expect(roleSummarySchema.parse(r)).toEqual(r);
     for (const p of packages) expect(packageSummarySchema.parse(p)).toEqual(p);
+  });
+
+  it('gives every starter role its own prose section so a role shapes conduct', () => {
+    expect(STARTER_ROLES.length).toBeGreaterThan(0);
+    for (const role of STARTER_ROLES) {
+      expect(role.pieces?.length ?? 0).toBeGreaterThan(0);
+      for (const piece of role.pieces ?? []) {
+        expect(pieceSchema.safeParse(piece).success).toBe(true);
+        expect(piece.axes.delivery).toBe('push');
+      }
+    }
   });
 });

@@ -32,7 +32,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       'The recommended floor — read, search, the governed kernel, and the baseline conduct.',
     inclusion: 'default',
     advise: true,
-    // The stable baseline conduct (identity/safety/tool-use/quality); the resolver
+    // The stable baseline conduct (identity/tool-use/quality); the resolver
     // adds the volatile model/env tail when this package is included.
     pieces: baselineStablePieces(),
     toolRefs: [
@@ -129,12 +129,26 @@ export const STARTER_ROLES: readonly Role[] = [
     name: 'Software Engineer',
     description: 'Writes and edits code, with planning.',
     packageIds: ['coding', 'planning'],
+    pieces: [
+      behaviorPiece(
+        'role-swe',
+        'how the software-engineer role works',
+        "Make the smallest correct change that satisfies the request and keep edits localized to what it needs. Run the project's checks after editing and fix what you break. Surface tradeoffs before a large or hard-to-reverse change.",
+      ),
+    ],
   },
   {
     id: 'researcher',
     name: 'Researcher',
     description: 'Investigates and explains; no edits.',
     packageIds: ['research', 'planning'],
+    pieces: [
+      behaviorPiece(
+        'role-researcher',
+        'how the researcher role works',
+        'Investigate and explain without editing code. Gather evidence from the codebase before reaching for the web, and note where each finding came from. Prefer reading the graph over guessing.',
+      ),
+    ],
   },
 ];
 

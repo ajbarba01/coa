@@ -44,6 +44,8 @@ import {
 
 const createParams = z.object({
   role: z.string().default(''),
+  /** The chosen roles (assembly selection); preferred over `role` when present. */
+  roles: z.array(z.string()).optional(),
   scope: z.string().default(''),
   input: z.string(),
   model: modelSelectionSchema.optional(),
@@ -93,6 +95,7 @@ export function buildSessionHandlers(
       // under the frozen prompt is detectable.
       const currentConfig: PromptConfig = {
         role: params.role,
+        ...(params.roles !== undefined ? { roles: [...params.roles].sort() } : {}),
         ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
         ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
       };
@@ -106,7 +109,10 @@ export function buildSessionHandlers(
         if (cs.getMeta(id) === undefined) {
           cs.create({
             id,
-            agentRef: params.role,
+            // Known mock coupling: `agentRef` stands in for a real agent reference;
+            // prefer the first selected role when present. A proper agent-ref is out
+            // of scope here.
+            agentRef: params.roles?.[0] ?? params.role,
             title: deriveTitle(params.input),
             scope: params.scope,
           });
@@ -165,6 +171,7 @@ export function buildSessionHandlers(
         void createSession(
           {
             role: params.role,
+            ...(params.roles !== undefined ? { roles: params.roles } : {}),
             scope: params.scope,
             input: params.input,
             ...(params.model ? { model: params.model } : {}),

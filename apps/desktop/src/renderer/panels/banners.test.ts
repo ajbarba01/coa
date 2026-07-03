@@ -2,18 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { computeChatBanners, configKey } from './banners.js';
 
 const NOW = '2026-07-02T12:00:00Z';
-const base = { agentConfig: { role: 'swe' }, now: NOW } as const;
+const base = { agentConfig: { roles: ['swe'] }, now: NOW } as const;
 
 describe('configKey', () => {
   it('is order- and duplicate-independent and treats omitted as empty', () => {
-    expect(configKey({ role: 'swe', packageIds: ['a', 'b'] })).toBe(
-      configKey({ role: 'swe', packageIds: ['b', 'a', 'a'] }),
+    expect(configKey({ roles: ['swe'], packageIds: ['a', 'b'] })).toBe(
+      configKey({ roles: ['swe'], packageIds: ['b', 'a', 'a'] }),
     );
-    expect(configKey({ role: 'swe' })).toBe(configKey({ role: 'swe', packageIds: [], exclude: [] }));
+    expect(configKey({ roles: ['swe'] })).toBe(
+      configKey({ roles: ['swe'], packageIds: [], exclude: [] }),
+    );
+  });
+  it('is insensitive to role selection order', () => {
+    expect(configKey({ roles: ['swe', 'researcher'] })).toBe(
+      configKey({ roles: ['researcher', 'swe'] }),
+    );
   });
   it('changes with the role or package selection', () => {
-    expect(configKey({ role: 'swe' })).not.toBe(configKey({ role: 'writer' }));
-    expect(configKey({ role: 'swe' })).not.toBe(configKey({ role: 'swe', packageIds: ['x'] }));
+    expect(configKey({ roles: ['swe'] })).not.toBe(configKey({ roles: ['writer'] }));
+    expect(configKey({ roles: ['swe'] })).not.toBe(
+      configKey({ roles: ['swe'], packageIds: ['x'] }),
+    );
   });
 });
 
@@ -73,32 +82,50 @@ describe('computeChatBanners — drift', () => {
   const pinned = { provider: 'claude', model: 'opus', updatedAt: NOW };
 
   it('is silent with no frozen prompt yet (nothing to drift from)', () => {
-    expect(computeChatBanners({ ...base, pinned, agentConfig: { role: 'swe', packageIds: ['x'] } })).toEqual([]);
+    expect(
+      computeChatBanners({ ...base, pinned, agentConfig: { roles: ['swe'], packageIds: ['x'] } }),
+    ).toEqual([]);
   });
 
   it('flags when the agent config diverges from the running prompt config', () => {
     const banners = computeChatBanners({
       ...base,
       pinned,
-      frozenConfig: { role: 'swe' },
-      agentConfig: { role: 'swe', packageIds: ['research'] },
+      frozenConfig: { roles: ['swe'] },
+      agentConfig: { roles: ['swe'], packageIds: ['research'] },
     });
     expect(banners.some((b) => b.kind === 'drift')).toBe(true);
   });
 
   it('is silent when the config matches the running prompt (a revert clears it)', () => {
     expect(
-      computeChatBanners({ ...base, pinned, frozenConfig: { role: 'swe' }, agentConfig: { role: 'swe' } }),
+      computeChatBanners({
+        ...base,
+        pinned,
+        frozenConfig: { roles: ['swe'] },
+        agentConfig: { roles: ['swe'] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('is silent when the roles match but were selected in a different order', () => {
+    expect(
+      computeChatBanners({
+        ...base,
+        pinned,
+        frozenConfig: { roles: ['swe', 'researcher'] },
+        agentConfig: { roles: ['researcher', 'swe'] },
+      }),
     ).toEqual([]);
   });
 
   it('stays dismissed for the dismissed config key, and re-shows once the config changes again', () => {
-    const dismissedKey = configKey({ role: 'swe', packageIds: ['research'] });
+    const dismissedKey = configKey({ roles: ['swe'], packageIds: ['research'] });
     const dismissed = computeChatBanners({
       ...base,
       pinned,
-      frozenConfig: { role: 'swe' },
-      agentConfig: { role: 'swe', packageIds: ['research'] },
+      frozenConfig: { roles: ['swe'] },
+      agentConfig: { roles: ['swe'], packageIds: ['research'] },
       dismissedDriftKey: dismissedKey,
     });
     expect(dismissed.some((b) => b.kind === 'drift')).toBe(false);
@@ -106,8 +133,8 @@ describe('computeChatBanners — drift', () => {
     const changedAgain = computeChatBanners({
       ...base,
       pinned,
-      frozenConfig: { role: 'swe' },
-      agentConfig: { role: 'swe', packageIds: ['research', 'docs'] },
+      frozenConfig: { roles: ['swe'] },
+      agentConfig: { roles: ['swe'], packageIds: ['research', 'docs'] },
       dismissedDriftKey: dismissedKey,
     });
     expect(changedAgain.some((b) => b.kind === 'drift')).toBe(true);

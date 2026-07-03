@@ -374,6 +374,21 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     expect(store.getCompilation('c1')?.config).toEqual({ role: 'swe', packageIds: ['research'] });
   });
 
+  it('stamps the frozen compilation with the sorted role list when multiple roles are selected', async () => {
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store);
+    await handlers['createSession']!.handle({
+      input: 'first',
+      role: '',
+      scope: '',
+      conversationId: 'c1',
+      roles: ['swe', 'researcher'],
+    });
+    expect(store.getCompilation('c1')?.config.roles).toEqual(['researcher', 'swe']);
+    expect(store.getCompilation('c1')?.configHash).toBe(
+      configHashOf({ role: '', roles: ['swe', 'researcher'] }),
+    );
+  });
+
   it('recompilePrompt drops the frozen prompt and the resume token so the next turn recompiles', async () => {
     const conn = connection();
     const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);

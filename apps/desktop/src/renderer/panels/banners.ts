@@ -13,9 +13,9 @@ import type { Banner, ModelSelection } from '@coa/console-viewmodel';
  *    dismissable; it persists until dismissed or the config matches the prompt again.
  */
 
-/** The drift-relevant slice of a prompt config (role + package selection). */
+/** The drift-relevant slice of a prompt config (role selection + package selection). */
 export interface PromptConfigView {
-  role?: string | undefined;
+  roles?: readonly string[] | undefined;
   packageIds?: readonly string[] | undefined;
   exclude?: readonly string[] | undefined;
 }
@@ -24,12 +24,13 @@ export interface PromptConfigView {
  *  Claude 5 min; a provider absent here ⇒ staleness off (e.g. DeepSeek). */
 const STALENESS_MS: Record<string, number> = { claude: 5 * 60_000 };
 
-/** A canonical key for a prompt config (role + sorted-unique packages/exclusions),
- *  so two configs compare structurally and a drift dismissal can be keyed to one. */
+/** A canonical key for a prompt config (sorted-unique roles + packages/exclusions),
+ *  so two configs compare structurally and a drift dismissal can be keyed to one.
+ *  Role selection order never spuriously trips drift. */
 export function configKey(config: PromptConfigView | undefined): string {
   const norm = (ids: readonly string[] | undefined): string[] => [...new Set(ids ?? [])].sort();
   return JSON.stringify({
-    role: config?.role ?? '',
+    roles: norm(config?.roles),
     packageIds: norm(config?.packageIds),
     exclude: norm(config?.exclude),
   });

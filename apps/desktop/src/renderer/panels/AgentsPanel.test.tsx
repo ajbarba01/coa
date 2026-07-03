@@ -192,60 +192,72 @@ const PACKAGES: PackageSummary[] = [
   { id: 'planning', name: 'Planning', description: '', inclusion: 'opt-in', toolRefs: [] },
   { id: 'research', name: 'Research', description: '', inclusion: 'opt-in', toolRefs: [] },
 ];
-const swe = ROLES[0];
+const swe = ROLES[0]!;
+const researcher = ROLES[1]!;
 
 describe('includedPackageIds', () => {
   it('unions the defaults with the role’s opt-ins', () => {
-    const set = includedPackageIds(PACKAGES, swe, {});
+    const set = includedPackageIds(PACKAGES, [swe], {});
     expect([...set].sort()).toEqual(['coa-orientation', 'coding', 'core', 'planning']);
   });
 
   it('adds the user’s extra opt-ins and drops the user’s exclusions', () => {
-    const set = includedPackageIds(PACKAGES, swe, { packageIds: ['research'], exclude: ['core'] });
+    const set = includedPackageIds(PACKAGES, [swe], { packageIds: ['research'], exclude: ['core'] });
     expect(set.has('research')).toBe(true);
     expect(set.has('core')).toBe(false);
   });
 
-  it('is defaults-only with no role', () => {
-    expect([...includedPackageIds(PACKAGES, undefined, {})].sort()).toEqual([
+  it('is defaults-only with no roles selected', () => {
+    expect([...includedPackageIds(PACKAGES, [], {})].sort()).toEqual([
       'coa-orientation',
       'core',
+    ]);
+  });
+
+  it('unions every selected role’s opt-ins', () => {
+    const set = includedPackageIds(PACKAGES, [swe, researcher], {});
+    expect([...set].sort()).toEqual([
+      'coa-orientation',
+      'coding',
+      'core',
+      'planning',
+      'research',
     ]);
   });
 });
 
 describe('packageAdvisories', () => {
   it('reports advised packages that ended up absent (a nudge)', () => {
-    const included = includedPackageIds(PACKAGES, swe, { exclude: ['core'] });
+    const included = includedPackageIds(PACKAGES, [swe], { exclude: ['core'] });
     expect(packageAdvisories(PACKAGES, included).map((p) => p.id)).toEqual(['core']);
   });
 
   it('is empty when every advised package is present', () => {
-    expect(packageAdvisories(PACKAGES, includedPackageIds(PACKAGES, swe, {}))).toEqual([]);
+    expect(packageAdvisories(PACKAGES, includedPackageIds(PACKAGES, [swe], {}))).toEqual([]);
   });
 });
 
 describe('togglePackage', () => {
   it('excludes a default package that is currently included', () => {
-    expect(togglePackage(PACKAGES, swe, {}, 'core')).toEqual({ exclude: ['core'] });
+    expect(togglePackage(PACKAGES, [swe], {}, 'core')).toEqual({ exclude: ['core'] });
   });
 
   it('excludes a role-supplied opt-in rather than fighting the role', () => {
-    expect(togglePackage(PACKAGES, swe, {}, 'coding')).toEqual({ exclude: ['coding'] });
+    expect(togglePackage(PACKAGES, [swe], {}, 'coding')).toEqual({ exclude: ['coding'] });
   });
 
   it('adds a fresh opt-in via packageIds', () => {
-    expect(togglePackage(PACKAGES, swe, {}, 'research')).toEqual({ packageIds: ['research'] });
+    expect(togglePackage(PACKAGES, [swe], {}, 'research')).toEqual({ packageIds: ['research'] });
   });
 
   it('removes a user opt-in from packageIds when turned back off', () => {
-    expect(togglePackage(PACKAGES, swe, { packageIds: ['research'] }, 'research')).toEqual({
+    expect(togglePackage(PACKAGES, [swe], { packageIds: ['research'] }, 'research')).toEqual({
       packageIds: [],
     });
   });
 
   it('re-includes an excluded package by clearing the exclusion', () => {
-    expect(togglePackage(PACKAGES, swe, { exclude: ['core'] }, 'core')).toEqual({ exclude: [] });
+    expect(togglePackage(PACKAGES, [swe], { exclude: ['core'] }, 'core')).toEqual({ exclude: [] });
   });
 });
 
@@ -390,13 +402,65 @@ describe('AgentsView', () => {
       }),
     ) as Extract<ReturnType<typeof selectAgentsVm>, { status: 'ready' }>;
 
-  it('renders the role picker with the agent’s role and the package checkboxes', () => {
+  it('renders the role multi-select with the agent’s roles checked and the package checkboxes', () => {
     render(<AgentsView vm={withCatalogue(MOCK_AGENTS)} host={host} />);
-    expect(screen.getByText('Role')).toBeTruthy();
-    // reviewer runs as the researcher role — its opt-ins are checked, others not.
+    expect(screen.getByText('Roles')).toBeTruthy();
+    // reviewer runs as the researcher role — its checkbox is checked, swe is not.
+    expect(screen.getByRole('checkbox', { name: 'Researcher' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).not.toBeChecked();
+    // its opt-ins are checked, others not.
     expect(screen.getByRole('checkbox', { name: 'Core · default' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Research' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Coding' })).not.toBeChecked();
+  });
+
+  it('unions two selected roles’ packages', () => {
+    const agent: AgentSummary = {
+      ref: 'roles/x',
+      name: 'x',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: ['swe', 'researcher'],
+    };
+    render(<AgentsView vm={withCatalogue([agent])} host={host} />);
+    expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Researcher' })).toBeChecked();
+    // swe brings in coding+planning, researcher brings in research+planning — union of both.
+    expect(screen.getByRole('checkbox', { name: 'Coding' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Research' })).toBeChecked();
+  });
+
+  it('selects a role via the checklist, updating the agent’s role list', async () => {
+    const updateAgent = vi.fn();
+    const agent: AgentSummary = {
+      ref: 'roles/x',
+      name: 'x',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: ['swe'],
+    };
+    render(<AgentsView vm={withCatalogue([agent], { updateAgent })} host={host} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Researcher' }));
+    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', { roles: ['swe', 'researcher'] });
+  });
+
+  it('deselecting the only role leaves an empty selection with no placeholder artifact', async () => {
+    const updateAgent = vi.fn();
+    const agent: AgentSummary = {
+      ref: 'roles/x',
+      name: 'x',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: ['swe'],
+    };
+    render(<AgentsView vm={withCatalogue([agent], { updateAgent })} host={host} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Software Engineer' }));
+    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', { roles: [] });
+    expect(screen.queryByText(/None/i)).toBeNull();
+    expect(screen.queryByText(/Select…/i)).toBeNull();
   });
 
   it('toggles an off package on through updateAgent (adds a user opt-in)', async () => {
@@ -415,7 +479,7 @@ describe('AgentsView', () => {
       icon: 'bot',
       color: 'slate',
       scope: 'project',
-      role: 'researcher',
+      roles: ['researcher'],
       exclude: ['core'],
     };
     const { container } = render(<AgentsView vm={withCatalogue([agent])} host={host} />);

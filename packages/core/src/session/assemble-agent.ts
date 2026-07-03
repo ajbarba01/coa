@@ -16,7 +16,7 @@ import type { AssemblePiecesContext } from './session.js';
  * Ordering: package Pieces (defaults in registry order, then the role's opt-ins) →
  * role Pieces → skill Pieces → the volatile baseline tail (model/env, injected
  * only when `core` is included so it lands last, cache-friendly, D-P2). The
- * `core` package's own Pieces (identity/safety/tool-use/quality) lead because it
+ * `core` package's own Pieces (identity/tool-use/quality) lead because it
  * is the first default. Tools + mcps are set-unions (never doubled); Pieces are
  * deduped by name (first wins). Unknown/excluded ids are dropped, never thrown
  * (SC-1 degrade-don't-cage).
@@ -30,11 +30,11 @@ import type { AssemblePiecesContext } from './session.js';
 export const CORE_PACKAGE_ID = 'core';
 
 export interface AgentSpec {
-  /** The chosen role (its opt-in packages + role Pieces). */
-  role: Role;
-  /** Opt-in packages the user turned on beyond the role's (unioned with `role.packageIds`). */
+  /** The chosen roles (their opt-in packages + role Pieces), unioned. Empty ⇒ defaults only. */
+  roles: readonly Role[];
+  /** Opt-in packages the user turned on beyond the roles' (unioned with each role's `packageIds`). */
   packageIds?: readonly string[];
-  /** Extra skill Pieces layered on top of the role (user-added / CHAT-10). */
+  /** Extra skill Pieces layered on top of the roles (user-added / CHAT-10). */
   skills?: readonly Piece[];
   /** Package ids to turn off (a `default` package the user removed). Authoritative over inclusion. */
   exclude?: readonly string[];
@@ -75,9 +75,10 @@ export function assembleAgent(
   const all = [...registry.values()];
   const defaultIds = all.filter((pkg) => pkg.inclusion === 'default').map((pkg) => pkg.id);
 
+  const rolePackageIds = spec.roles.flatMap((r) => r.packageIds);
   const includedIds = dedupe([
     ...defaultIds,
-    ...spec.role.packageIds,
+    ...rolePackageIds,
     ...(spec.packageIds ?? []),
   ]).filter((id) => registry.has(id) && !excluded.has(id));
   const included = includedIds
@@ -88,9 +89,10 @@ export function assembleAgent(
   const mcpServers = dedupe(included.flatMap((pkg) => pkg.mcpServers ?? []));
 
   const volatile = includedIds.includes(CORE_PACKAGE_ID) ? baselineVolatilePieces(ctx) : [];
+  const rolePieces = spec.roles.flatMap((r) => r.pieces ?? []);
   const pieces = dedupeByName([
     ...included.flatMap((pkg) => pkg.pieces),
-    ...(spec.role.pieces ?? []),
+    ...rolePieces,
     ...(spec.skills ?? []),
     ...volatile,
   ]);
@@ -109,12 +111,14 @@ function isoDateUtc(when: Date): string {
 
 /**
  * Build an `assemblePieces` implementation backed by the package/role registries.
- * A **known** role is resolved through {@link assembleAgent} — its packages shape
- * the pieces + the (restricting) tool frame. An **unknown or unset** role is the
- * permissive floor: the baseline scaffold with an empty frame (D85 pass-through —
- * every backend tool stays available), so callers that don't pick a role (e.g.
- * the CLI's `coa run`) behave exactly as before. `platform`/`now` are injected so
- * the function stays testable. Skills + exclusions ride the console path later.
+ * **Known** roles are resolved through {@link assembleAgent} — their packages shape
+ * the pieces + the (restricting) tool frame, unioned across every role. **Unknown
+ * or unset** roles are the permissive floor: the baseline scaffold with an empty
+ * frame (D85 pass-through — every backend tool stays available), so callers that
+ * don't pick a role (e.g. the CLI's `coa run`) behave exactly as before.
+ * `ctx.roles` is preferred when present; otherwise the single `ctx.role` is used
+ * (back-compat). `platform`/`now` are injected so the function stays testable.
+ * Skills + exclusions ride the console path later.
  */
 export function createRegistryAssemblePieces(deps: {
   roles: ReadonlyMap<string, Role>;
@@ -125,12 +129,15 @@ export function createRegistryAssemblePieces(deps: {
   const now = deps.now ?? ((): Date => new Date());
   return (ctx) => {
     const baselineCtx: BaselineContext = { platform: deps.platform, date: isoDateUtc(now()) };
-    const role = deps.roles.get(ctx.role);
-    if (role === undefined) {
+    const ids = ctx.roles ?? (ctx.role !== undefined && ctx.role !== '' ? [ctx.role] : []);
+    const roles = ids
+      .map((id) => deps.roles.get(id))
+      .filter((r): r is Role => r !== undefined);
+    if (roles.length === 0) {
       return { pieces: baselinePieces(baselineCtx), frame: { allow: [], deny: [] } };
     }
     const spec: AgentSpec = {
-      role,
+      roles,
       ...(ctx.packageIds !== undefined ? { packageIds: ctx.packageIds } : {}),
       ...(ctx.exclude !== undefined ? { exclude: ctx.exclude } : {}),
       ...(ctx.skills !== undefined ? { skills: ctx.skills } : {}),

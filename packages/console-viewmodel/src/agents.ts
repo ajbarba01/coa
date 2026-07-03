@@ -61,9 +61,10 @@ export const AgentSummarySchema = z.object({
   provider: z.string().optional(),
   /** The agent's faithful reasoning config; absent ⇒ the backend/SDK default depth. */
   reasoning: claudeReasoningSchema.optional(),
-  /** The registry role this agent runs as (a `listRoles` id); absent ⇒ the permissive
-   *  baseline floor (no role restriction). Drives the `role` sent to `createSession`. */
-  role: z.string().optional(),
+  /** The registry roles this agent runs as (`listRoles` ids); absent/empty ⇒ the
+   *  permissive baseline floor (no role restriction). Drives the `roles` sent to
+   *  `createSession`. */
+  roles: z.array(z.string()).optional(),
   /** Opt-in packages the user added on top of the role's (`listPackages` ids). */
   packageIds: z.array(z.string()).optional(),
   /** Default packages the user turned off (authoritative over inclusion, like the resolver's). */
@@ -89,13 +90,14 @@ export const SessionSummarySchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
   reasoning: claudeReasoningSchema.optional(),
-  /** The source config (role + package selection) the session's RUNNING prompt was
-   *  compiled from — surfaced so the console can flag prompt drift predictively (the
-   *  config a send would use vs. what the live prompt reflects). Absent until the first
-   *  turn freezes a prompt; cleared by a recompile. */
+  /** The source config (role selection + package selection) the session's RUNNING
+   *  prompt was compiled from — surfaced so the console can flag prompt drift
+   *  predictively (the config a send would use vs. what the live prompt reflects).
+   *  Absent until the first turn freezes a prompt; cleared by a recompile. `roles`
+   *  is a sorted copy (selection order never spuriously trips drift). */
   promptConfig: z
     .object({
-      role: z.string(),
+      roles: z.array(z.string()).optional(),
       packageIds: z.array(z.string()).optional(),
       exclude: z.array(z.string()).optional(),
     })

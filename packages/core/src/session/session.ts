@@ -60,6 +60,8 @@ export interface ActiveAccountResolution {
 /** The per-session facts M8 hands `assemblePieces` so it can author the standing scaffold (incl. the env block). */
 export interface AssemblePiecesContext {
   role: string;
+  /** The chosen roles (assembly selection); preferred over `role` when present. */
+  roles?: string[];
   scope: string;
   /** The bound session worktree (the agent's working directory). Available to
    *  context assembly, but deliberately NOT written into the baseline prompt —
@@ -124,6 +126,8 @@ export interface SessionDeps {
 export async function createSession(
   req: {
     role: string;
+    /** The chosen roles (assembly selection); preferred over `role` when present. */
+    roles?: string[];
     scope: string;
     input: string | AsyncIterable<string>;
     model?: ModelSelection;
@@ -168,6 +172,7 @@ export async function createSession(
   } else {
     const assembled = deps.assemblePieces({
       role: req.role,
+      ...(req.roles !== undefined ? { roles: req.roles } : {}),
       scope: req.scope,
       worktree,
       ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),

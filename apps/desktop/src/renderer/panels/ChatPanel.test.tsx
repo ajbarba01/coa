@@ -267,7 +267,7 @@ describe('raw + approval projection', () => {
     const onBannerAction = vi.fn();
     const agent = {
       ref: 'a/x', name: 'x', icon: 'bot' as const, color: 'slate' as const,
-      scope: 'personal' as const, role: 'swe', packageIds: ['research'],
+      scope: 'personal' as const, roles: ['swe'], packageIds: ['research'],
     };
     const vm = selectChatVm(
       makeState({
@@ -276,7 +276,7 @@ describe('raw + approval projection', () => {
           agents: { status: 'ok', value: [agent] },
           sessions: {
             status: 'ok',
-            value: [{ id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, promptConfig: { role: 'swe' } }],
+            value: [{ id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, promptConfig: { roles: ['swe'] } }],
           },
         },
         ui: { activeSessionId: 's1' },
@@ -414,7 +414,7 @@ describe('ChatView states-first', () => {
     icon: 'bot' as const,
     color: 'slate' as const,
     scope: 'personal' as const,
-    role: 'swe',
+    roles: ['swe'],
     packageIds: ['research'],
   };
   const driftState = (ui: Partial<ConsoleState['ui']> = {}, actions = {}) =>
@@ -425,7 +425,7 @@ describe('ChatView states-first', () => {
         sessions: {
           status: 'ok',
           value: [
-            { id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, provider: 'claude', model: 'opus', promptConfig: { role: 'swe' } },
+            { id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, provider: 'claude', model: 'opus', promptConfig: { roles: ['swe'] } },
           ],
         },
       },

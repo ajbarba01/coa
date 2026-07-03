@@ -39,6 +39,9 @@ export interface FrozenCompilation {
  */
 export interface PromptConfig {
   role: string;
+  /** The chosen roles (canonical going forward); a sorted copy so selection order
+   *  never spuriously trips drift. Absent ⇒ falls back to `role` (single-role callers). */
+  roles?: readonly string[] | undefined;
   packageIds?: readonly string[] | undefined;
   exclude?: readonly string[] | undefined;
 }
@@ -68,8 +71,12 @@ export function promptVersionOf(neutral: NeutralConfig): string {
  *  one. Never folds in the model, so a model switch leaves this hash unchanged. */
 export function configHashOf(config: PromptConfig): string {
   const asSet = (ids: readonly string[] | undefined): string[] => [...new Set(ids ?? [])].sort();
+  // Roles are the canonical role selection; a config with no `roles` falls back to
+  // the singular `role` so legacy single-role configs still hash correctly.
+  const roles = config.roles ?? (config.role !== '' ? [config.role] : []);
   const canonical = {
     role: config.role,
+    roles: asSet(roles),
     packageIds: asSet(config.packageIds),
     exclude: asSet(config.exclude),
   };

@@ -54,6 +54,18 @@ describe('agent summary schema', () => {
   it('parses an agent list', () => {
     expect(AgentListSchema.parse([{ ref: 'a', name: 'a', scope: 'project' }])).toHaveLength(1);
   });
+
+  it('accepts a role list and drops a legacy singular role', () => {
+    const a = AgentSummarySchema.parse({
+      ref: 'r',
+      name: 'n',
+      scope: 'project',
+      roles: ['swe', 'researcher'],
+      role: 'swe',
+    });
+    expect(a.roles).toEqual(['swe', 'researcher']);
+    expect(a).not.toHaveProperty('role');
+  });
 });
 
 describe('session summary schema', () => {
@@ -65,5 +77,16 @@ describe('session summary schema', () => {
 
   it('rejects a session without an agent', () => {
     expect(() => SessionSummarySchema.parse({ id: 's1', title: 't', updatedAt: 'now' })).toThrow();
+  });
+
+  it('accepts a promptConfig with a role list', () => {
+    const s = {
+      id: 's1',
+      agentRef: 'roles/reviewer',
+      title: 'fix auth',
+      updatedAt: '2026-07-01',
+      promptConfig: { roles: ['researcher', 'swe'] },
+    };
+    expect(SessionSummarySchema.parse(s)).toEqual(s);
   });
 });

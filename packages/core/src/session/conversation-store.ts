@@ -69,6 +69,8 @@ export type ResumeStamp = z.infer<typeof resumeStampSchema>;
 
 const promptConfigSchema = z.object({
   role: z.string(),
+  /** The chosen roles (canonical); a sorted copy. Absent ⇒ falls back to `role`. */
+  roles: z.array(z.string()).optional(),
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
 });

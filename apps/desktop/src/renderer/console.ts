@@ -41,7 +41,7 @@ export interface ConsoleBridge {
   startSession(params: {
     input: string;
     conversationId?: string;
-    role?: string;
+    roles?: string[];
     model?: ModelSelection;
     packageIds?: string[];
     exclude?: string[];
@@ -365,7 +365,7 @@ export async function startConsole(
       const session = sessions.find((s) => s.id === sessionId);
       const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
       const key = configKey({
-        role: agent?.role,
+        roles: agent?.roles,
         packageIds: agent?.packageIds,
         exclude: agent?.exclude,
       });
@@ -472,8 +472,8 @@ export async function startConsole(
       .startSession({
         input: body,
         conversationId: id,
-        // The registry role the agent is assembled as; absent ⇒ the permissive floor.
-        ...(agent?.role ? { role: agent.role } : {}),
+        // The registry roles the agent is assembled as; absent/empty ⇒ the permissive floor.
+        ...(agent?.roles && agent.roles.length > 0 ? { roles: agent.roles } : {}),
         // Assembly selection (only applied when a role is set — see the resolver's floor).
         ...(agent?.packageIds && agent.packageIds.length > 0
           ? { packageIds: agent.packageIds }

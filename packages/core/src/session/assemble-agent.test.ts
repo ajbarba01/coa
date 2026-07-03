@@ -25,20 +25,20 @@ function mini(...packages: AgentPackage[]): Map<string, AgentPackage> {
 
 describe('assembleAgent — inclusion', () => {
   it('includes default packages (core scaffold) for an empty role', () => {
-    const { frame, pieces } = assembleAgent({ role: emptyRole }, registry, CTX);
+    const { frame, pieces } = assembleAgent({ roles: [emptyRole] }, registry, CTX);
     expect(frame.allow).toContain('get_symbol'); // core toolRefs
     expect(frame.allow).toContain('Read');
     expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(true); // core pieces
   });
 
   it('excluding core degrades to the raw loop — no scaffold, no volatile tail (nothing mandatory)', () => {
-    const { pieces } = assembleAgent({ role: emptyRole, exclude: ['core'] }, registry, CTX);
+    const { pieces } = assembleAgent({ roles: [emptyRole], exclude: ['core'] }, registry, CTX);
     expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(false);
     expect(pieces.some((p) => p.name === 'baseline-environment')).toBe(false);
   });
 
   it('turns on the role’s opt-in packages on top of the defaults', () => {
-    const { frame } = assembleAgent({ role: swe }, registry, CTX);
+    const { frame } = assembleAgent({ roles: [swe] }, registry, CTX);
     expect(frame.allow).toEqual(
       expect.arrayContaining(['edit_symbol', 'apply_patch', 'context_status']),
     );
@@ -67,29 +67,56 @@ describe('assembleAgent — inclusion', () => {
       { id: 'b', name: 'b', description: '', inclusion: 'opt-in', pieces: [], toolRefs: ['Bash'] },
     );
     const role: Role = { id: 'r', name: 'r', description: '', packageIds: ['a', 'b'] };
-    const { frame } = assembleAgent({ role }, reg, CTX);
+    const { frame } = assembleAgent({ roles: [role] }, reg, CTX);
     expect(frame.allow.filter((t) => t === 'Bash')).toHaveLength(1);
     expect(frame.allow.filter((t) => t === 'Read')).toHaveLength(1);
   });
 
   it('skips unknown package ids instead of throwing', () => {
     const role: Role = { id: 'r', name: 'r', description: '', packageIds: ['nope', 'coding'] };
-    const { frame } = assembleAgent({ role }, registry, CTX);
+    const { frame } = assembleAgent({ roles: [role] }, registry, CTX);
     expect(frame.allow).toContain('edit_symbol');
   });
 
   it('turns on user-added opt-in packages beyond the role’s', () => {
-    const { frame } = assembleAgent({ role: emptyRole, packageIds: ['research'] }, registry, CTX);
+    const { frame } = assembleAgent({ roles: [emptyRole], packageIds: ['research'] }, registry, CTX);
     expect(frame.allow).toContain('WebSearch'); // research toolRef, not in the empty role
   });
 
   it('lets an exclusion override a user-added package (exclude wins)', () => {
     const { frame } = assembleAgent(
-      { role: emptyRole, packageIds: ['research'], exclude: ['research'] },
+      { roles: [emptyRole], packageIds: ['research'], exclude: ['research'] },
       registry,
       CTX,
     );
     expect(frame.allow).not.toContain('WebSearch');
+  });
+
+  it('unions the packages and concatenates the prose Pieces of multiple roles', () => {
+    const roleA: Role = {
+      id: 'a', name: 'A', description: '', packageIds: ['pa'],
+      pieces: [{ name: 'role-a', description: 'd', body: 'ba', axes: { delivery: 'push', salience: 'never', provenance: 'authored' } }],
+    };
+    const roleB: Role = {
+      id: 'b', name: 'B', description: '', packageIds: ['pb'],
+      pieces: [{ name: 'role-b', description: 'd', body: 'bb', axes: { delivery: 'push', salience: 'never', provenance: 'authored' } }],
+    };
+    const reg = mini(
+      { id: 'pa', name: 'PA', description: '', inclusion: 'opt-in', pieces: [], toolRefs: ['TA'] },
+      { id: 'pb', name: 'PB', description: '', inclusion: 'opt-in', pieces: [], toolRefs: ['TB'] },
+    );
+    const out = assembleAgent({ roles: [roleA, roleB] }, reg, CTX);
+    expect(out.pieces.map((p) => p.name)).toEqual(expect.arrayContaining(['role-a', 'role-b']));
+    expect(out.frame.allow).toEqual(expect.arrayContaining(['TA', 'TB']));
+  });
+
+  it('assembles a single role deterministically (frame includes its tool)', () => {
+    const role: Role = {
+      id: 'a', name: 'A', description: '', packageIds: ['pa'],
+      pieces: [{ name: 'role-a', description: 'd', body: 'ba', axes: { delivery: 'push', salience: 'never', provenance: 'authored' } }],
+    };
+    const reg = mini({ id: 'pa', name: 'PA', description: '', inclusion: 'opt-in', pieces: [], toolRefs: ['TA'] });
+    expect(assembleAgent({ roles: [role] }, reg, CTX).frame.allow).toContain('TA');
   });
 });
 
@@ -108,7 +135,7 @@ describe('assembleAgent — pieces, mcps, advisories', () => {
       packageIds: ['coding'],
       pieces: [{ ...skill, name: 'role-x' }],
     };
-    const names = assembleAgent({ role, skills: [skill] }, registry, CTX).pieces.map((p) => p.name);
+    const names = assembleAgent({ roles: [role], skills: [skill] }, registry, CTX).pieces.map((p) => p.name);
 
     expect(names[0]).toBe('baseline-identity'); // core pieces lead
     expect(names[names.length - 1]).toBe('baseline-environment'); // volatile last
@@ -140,15 +167,15 @@ describe('assembleAgent — pieces, mcps, advisories', () => {
       },
     );
     const role: Role = { id: 'r', name: 'r', description: '', packageIds: ['a'] };
-    const { mcpServers } = assembleAgent({ role }, reg, CTX);
+    const { mcpServers } = assembleAgent({ roles: [role] }, reg, CTX);
     expect([...mcpServers].sort()).toEqual(['fs', 'playwright']);
   });
 
   it('reports an advised package that ends up absent, and stays quiet when it is present', () => {
-    const absent = assembleAgent({ role: emptyRole, exclude: ['coa-orientation'] }, registry, CTX);
+    const absent = assembleAgent({ roles: [emptyRole], exclude: ['coa-orientation'] }, registry, CTX);
     expect(absent.advisories).toContain('coa-orientation');
 
-    const present = assembleAgent({ role: emptyRole }, registry, CTX);
+    const present = assembleAgent({ roles: [emptyRole] }, registry, CTX);
     expect(present.advisories).not.toContain('coa-orientation');
     expect(present.advisories).not.toContain('core');
   });
@@ -188,6 +215,24 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
     });
     expect(frame.allow).toContain('WebSearch'); // the added research package
     expect(frame.allow).not.toContain('get_symbol'); // core excluded ⇒ its tools gone
+  });
+
+  it('assembles multiple roles passed via ctx.roles', () => {
+    const { pieces } = assemble({ role: '', roles: ['swe', 'researcher'], scope: 'src', worktree: '/w' });
+    const names = pieces.map((p) => p.name);
+    expect(names).toContain('role-swe');
+    expect(names).toContain('role-researcher');
+  });
+
+  it('falls back to ctx.role when ctx.roles is absent (back-compat)', () => {
+    const { pieces } = assemble({ role: 'swe', scope: 'src', worktree: '/w' });
+    expect(pieces.map((p) => p.name)).toContain('role-swe');
+  });
+
+  it('degrades to the baseline floor when no known roles resolve', () => {
+    const { pieces, frame } = assemble({ role: '', roles: ['nope'], scope: 'src', worktree: '/w' });
+    expect(frame.allow).toEqual([]);
+    expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(true);
   });
 });
 

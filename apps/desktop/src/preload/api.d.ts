@@ -29,7 +29,7 @@ declare global {
       startSession(params: {
         input: string;
         conversationId?: string;
-        role?: string;
+        roles?: string[];
         scope?: string;
         model?: ModelSelection;
         packageIds?: string[];

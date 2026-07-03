@@ -351,6 +351,29 @@ describe('startConsole (inspector-first)', () => {
     );
   });
 
+  it('sends the agent selected role list to the daemon', async () => {
+    // c1's agent (roles/reviewer, from MOCK_AGENTS) runs as the researcher role.
+    const bridge = fakeBridge();
+    const { container } = await mount(bridge);
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Message the agent"]',
+    );
+    const send = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Send',
+    );
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(textarea, 'audit the flow');
+      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      send!.click();
+    });
+    expect(bridge.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ roles: ['researcher'] }),
+    );
+  });
+
   it('toggles the conversation into raw mode', async () => {
     const { container, controller } = await mount();
     const rawButton = (): Element | null =>

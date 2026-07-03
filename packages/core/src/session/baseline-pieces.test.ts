@@ -10,7 +10,7 @@ const CTX: BaselineContext = {
 describe('baselinePieces', () => {
   it('emits valid Pieces that are all pushed + authored (they shape the prompt)', () => {
     const pieces = baselinePieces(CTX);
-    expect(pieces.length).toBeGreaterThanOrEqual(5);
+    expect(pieces.length).toBeGreaterThanOrEqual(4);
     for (const piece of pieces) {
       expect(pieceSchema.safeParse(piece).success).toBe(true);
       expect(piece.axes.delivery).toBe('push');
@@ -52,5 +52,12 @@ describe('baselinePieces', () => {
     const identity = baselinePieces(CTX).find((p) => p.name === 'baseline-identity');
     expect(identity?.body).not.toMatch(/claude code/i);
     expect(identity?.body).toMatch(/coa governance/i);
+  });
+
+  it('carries no coa-added safety/refusal guardrail (governance surfaces it, not the prompt)', () => {
+    const pieces = baselinePieces(CTX);
+    expect(pieces.some((p) => p.name === 'baseline-safety')).toBe(false);
+    const bodies = pieces.map((p) => p.body).join('\n');
+    expect(bodies).not.toMatch(/refuse|refusal|malicious/i);
   });
 });

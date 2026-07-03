@@ -279,7 +279,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       : {}),
     ...(activeSession?.promptConfig !== undefined ? { frozenConfig: activeSession.promptConfig } : {}),
     agentConfig: {
-      ...(activeAgent?.role !== undefined ? { role: activeAgent.role } : {}),
+      ...(activeAgent?.roles !== undefined ? { roles: activeAgent.roles } : {}),
       ...(activeAgent?.packageIds !== undefined ? { packageIds: activeAgent.packageIds } : {}),
       ...(activeAgent?.exclude !== undefined ? { exclude: activeAgent.exclude } : {}),
     },

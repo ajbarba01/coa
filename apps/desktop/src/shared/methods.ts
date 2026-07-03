@@ -19,7 +19,7 @@ export const StartSessionParamsSchema = z.object({
   input: z.string(),
   /** The persistent conversation this send belongs to (R-7); absent ⇒ an ephemeral one-shot. */
   conversationId: z.string().optional(),
-  role: z.string().optional(),
+  roles: z.array(z.string()).optional(),
   scope: z.string().optional(),
   model: modelSelectionSchema.optional(),
   /** Assembly selection: opt-in packages added / default packages excluded (role-gated). */
