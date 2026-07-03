@@ -25,13 +25,17 @@
     "react-dom": "^19.0.0"
   },
   "dependencies": {
+    "hast-util-to-jsx-runtime": "^2.3.6",
     "lucide-react": "^0.400.0",
     "radix-ui": "^1.1.0",
-    "react-virtuoso": "^4.18.10"
+    "react-syntax-highlighter": "^16.1.1",
+    "react-virtuoso": "^4.18.10",
+    "shiki": "^4.3.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }

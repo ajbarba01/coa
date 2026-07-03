@@ -63,6 +63,7 @@ import {
 } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 import { Family, Row } from './showcase/Specimen.js';
+import { ChatMockupsSection } from './showcase/ChatMockups.js';
 
 /** A no-op handler for the inert showcase specimens (nothing here drives the daemon). */
 const noop = (): void => {};
@@ -783,6 +784,7 @@ function ShowcaseView(_props: { vm: null; host: PanelHostApi }): React.JSX.Eleme
           Every primitive in <Code>@coa/console-ui</Code>, grouped by family — a live reference for
           the hardening pass. Specimens are inert.
         </p>
+        <ChatMockupsSection />
         <FoundationsSection />
         <ActionsSection />
         <InputsSection />
