@@ -118,6 +118,104 @@ describe('startConsole (inspector-first)', () => {
     expect(container.querySelector('[data-panel-id="conversation"] [role="log"]')).not.toBeNull();
   });
 
+  it('keeps the status pill running across a status running push and a following turn frame', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    });
+    expect(dock().textContent).toContain('running for');
+
+    // A following turn frame must not clear the pill — only a status push does.
+    await act(async () => {
+      emit?.({
+        kind: 'turn',
+        sessionId: 'c1',
+        worktree: 'w',
+        seq: 0,
+        frame: { t: 'text', text: 'hi' },
+      });
+    });
+    expect(dock().textContent).toContain('running for');
+  });
+
+  it('clears the status pill on a status done push', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    });
+    expect(dock().textContent).toContain('running for');
+
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'done' });
+    });
+    expect(dock().textContent).toContain('idle');
+  });
+
+  it('clears the status pill on a status error push', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    });
+    expect(dock().textContent).toContain('running for');
+
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'error' });
+    });
+    expect(dock().textContent).toContain('idle');
+  });
+
+  it('clears the status pill when the dispatch itself fails', async () => {
+    const bridge = fakeBridge({
+      startSession: vi.fn().mockRejectedValue(new Error('boom')),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Message the agent"]',
+    );
+    const send = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Send',
+    );
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(textarea, 'add tests');
+      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      send!.click();
+    });
+    // The dispatch-failure catch clears the pill (a failed send never streams a status).
+    expect(dock().textContent).toContain('idle');
+  });
+
   it('shows a predictive cache banner the moment a model is staged, and clears it on send', async () => {
     const { fireEvent } = await import('@testing-library/react');
     const bridge = fakeBridge({

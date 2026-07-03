@@ -390,15 +390,23 @@ export async function startConsole(
     push();
   };
 
-  // Phase-1 status floor: `sending`/`sentAt` drive the chat pane's running-status pill
-  // (idle vs. "running for Ns"). This is a placeholder — Phase 2's full 6-state `status`
-  // Push replaces it with per-block timing; until then, set on send and cleared on the
-  // next frame the daemon streams back.
+  // `sending`/`sentAt` drive the chat pane's running-status pill (idle vs. "running for
+  // Ns"). Set optimistically on send for instant feedback, then driven by the daemon's
+  // real `status` push: `running` (re)affirms it, `done`/`error`/`idle` clear it. Turn
+  // frames no longer touch it — clearing on every push was the bug that flipped the
+  // pill back to idle on the first streamed frame.
   const clearSending = (): void => {
     if (state.ui.sending === undefined && state.ui.sentAt === undefined) return;
     const ui = { ...state.ui, sending: false };
     delete ui.sentAt;
     state = { ...state, ui };
+  };
+
+  const affirmSending = (): void => {
+    state = {
+      ...state,
+      ui: { ...state.ui, sending: true, sentAt: state.ui.sentAt ?? Date.now() },
+    };
   };
 
   // Forward every daemon push into the active conversation; a completed session
@@ -407,9 +415,16 @@ export async function startConsole(
   const unsubscribePush = bridge.onPush((payload) => {
     const parsed = pushSchema.safeParse(payload);
     if (!parsed.success) return;
-    clearSending();
-    appendTurns(pushToViewFrames(parsed.data));
-    if (parsed.data.kind === 'status' && parsed.data.state === 'done') void refreshSessionList();
+    const frames = pushToViewFrames(parsed.data);
+    if (parsed.data.kind === 'status') {
+      if (parsed.data.state === 'running') affirmSending();
+      else clearSending();
+      if (parsed.data.state === 'done') void refreshSessionList();
+      // A status push carries no turn frames, so appendTurns' own push() won't fire —
+      // publish the sending/sentAt change here.
+      if (frames.length === 0) push();
+    }
+    appendTurns(frames);
   });
 
   let youSeq = 0;

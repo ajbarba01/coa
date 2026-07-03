@@ -504,11 +504,18 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
                 description="Message the agent below to start a governed session."
               />
             ) : (
-              <Transcript frames={vm.frames} onRespond={vm.onRespond} label="Conversation" />
+              <Transcript
+                frames={vm.frames}
+                onRespond={vm.onRespond}
+                label="Conversation"
+                busy={vm.sessionStatus === 'running'}
+                busySince={vm.runningSince}
+              />
             )}
           </div>
           <Composer
             onSend={vm.onSend}
+            running={vm.sessionStatus === 'running'}
             slotStart={
               <>
                 <Combobox
