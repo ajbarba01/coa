@@ -17,6 +17,7 @@ import {
   Tooltip,
   TooltipProvider,
   Transcript,
+  cx,
 } from '@coa/console-ui';
 import { useEffect, useState } from 'react';
 import type { AgentRailItem, RespondFn, SwitcherGroup, TranscriptFrame } from '@coa/console-ui';
@@ -32,6 +33,15 @@ import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
 import { ChevronDown, MessageSquare, MessageSquarePlus } from 'lucide-react';
 import type { ConsoleState } from './state.js';
+
+// Frame identity caches: the wire `TurnFrame` objects in `state.data.turns.value` are
+// STABLE across renders (`appendTurns` builds `[...prev, ...new]`, so previously-seen
+// turns keep their object identity). `toGovernedFrame`/`frameToRawLine` are pure
+// functions of `f` alone, so their outputs can be cached by `f` identity — this is what
+// lets `Transcript`'s `MemoRow` (a `React.memo` keyed on the frame prop) actually hit
+// instead of re-rendering the whole transcript on every streamed frame.
+const governedFrameCache = new WeakMap<TurnFrame, TranscriptFrame>();
+const rawFrameCache = new WeakMap<TurnFrame, TranscriptFrame>();
 
 export type ChatVm =
   | { status: 'loading' }
@@ -57,6 +67,9 @@ export type ChatVm =
       onRespond: RespondFn;
       onSend: (text: string) => void;
       toggleRaw: () => void;
+      /** The active session id, if any — drives the composer's disabled/hint state
+       *  (no session means nothing to send a message into). */
+      activeSessionId?: string | undefined;
       /** The agent drawer + one session switcher (selection follows the session). */
       rail: AgentRailItem[];
       activeAgentRef?: string | undefined;
@@ -242,8 +255,35 @@ export function buildSessionGroups(
   return groups;
 }
 
+/** Pure: splices console-local "switched model" notes into a governed frame list,
+ *  positioned by each note's `afterCount` (the number of turn-derived frames already
+ *  appended when the note was recorded) — so a note lands right after the send it
+ *  describes. An `afterCount` past the end of `frames` appends at the end (defensive:
+ *  should not happen live, since notes are recorded against the same buffer they're
+ *  later spliced into). Never called in raw mode — a UI note isn't loop output, so
+ *  `coa raw` omits it (D85: raw is the verbatim, unfiltered projection). Exported for
+ *  unit testing independent of the whole vm. */
+export function interleaveNotes(
+  frames: TranscriptFrame[],
+  notes: { afterCount: number; text: string }[],
+  sessionId = '',
+): TranscriptFrame[] {
+  if (notes.length === 0) return frames;
+  const result: TranscriptFrame[] = [...frames];
+  // Insert from the end backward so earlier insertions don't shift later afterCount
+  // offsets (which are all expressed against the ORIGINAL frame list).
+  const ordered = notes.map((n, i) => ({ ...n, index: i })).sort((a, b) => b.afterCount - a.afterCount);
+  for (const note of ordered) {
+    const at = Math.min(Math.max(note.afterCount, 0), result.length);
+    result.splice(at, 0, { id: `note:${sessionId}:${note.index}`, kind: 'note', text: note.text });
+  }
+  return result;
+}
+
 /** Pure: projects the polled turn stream + agent/session state into the chat vm.
- *  In raw mode every frame becomes its verbatim line (D85). */
+ *  In raw mode every frame becomes its verbatim line (D85); "switched model" notes are
+ *  a console-local synthetic frame (never sent to the agent) interleaved only in
+ *  governed mode — raw stays the verbatim, unfiltered projection. */
 export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOString()): ChatVm {
   const r = state.data.turns;
   if (r.status !== 'ok') return r;
@@ -251,15 +291,33 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
   const { rawMode, resolvedApprovals, activeSessionId } = state.ui;
   const { actions } = state;
+  const governedFrames = r.value.map((f) => {
+    let base = governedFrameCache.get(f);
+    if (base === undefined) {
+      base = toGovernedFrame(f);
+      governedFrameCache.set(f, base);
+    }
+    // The approval-resolved overlay depends on ui state, so it is layered on fresh each
+    // time (never cached) — every other frame reuses its cached, stable identity.
+    if (base.kind === 'approval' && resolvedApprovals[base.requestId] !== undefined) {
+      return { ...base, resolved: resolvedApprovals[base.requestId] };
+    }
+    return base;
+  });
   const frames: TranscriptFrame[] = rawMode
-    ? r.value.map((f) => ({ id: f.id, kind: 'raw', text: frameToRawLine(f) }))
-    : r.value.map((f) => {
-        const g = toGovernedFrame(f);
-        if (g.kind === 'approval' && resolvedApprovals[g.requestId] !== undefined) {
-          return { ...g, resolved: resolvedApprovals[g.requestId] };
+    ? r.value.map((f) => {
+        let raw = rawFrameCache.get(f);
+        if (raw === undefined) {
+          raw = { id: f.id, kind: 'raw', text: frameToRawLine(f) };
+          rawFrameCache.set(f, raw);
         }
-        return g;
-      });
+        return raw;
+      })
+    : interleaveNotes(
+        governedFrames,
+        activeSessionId !== undefined ? (state.ui.notesBySession[activeSessionId] ?? []) : [],
+        activeSessionId ?? '',
+      );
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   // With no active session (a fresh store), default the rail selection to the first
   // agent so "New session" is enabled — otherwise the first session can never be
@@ -328,6 +386,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
     toggleRaw: state.actions.toggleRaw,
+    activeSessionId,
     rail: buildRailItems(agents, state.ui.settings.pinnedAgents),
     activeAgentRef,
     sessionTitle: activeSession?.title ?? 'No session',
@@ -431,6 +490,28 @@ function BannerStrip({
   );
 }
 
+/** Inert permission-mode selector shown alongside model/effort in the composer's
+ *  `slotStart`. Not wired to the daemon — a future permission-gate module (SPEC
+ *  M3) owns the real enforcement; this is a presentational placeholder only. */
+const PERMISSION_MODE_OPTIONS = [
+  { value: 'default', label: 'SDK default' },
+  { value: 'auto-accept-edits', label: 'Auto-accept edits' },
+  { value: 'plan', label: 'Plan' },
+];
+
+function PermissionModeSlot(): React.JSX.Element {
+  const [mode, setMode] = useState('default');
+  return (
+    <Select
+      label="Permission"
+      className="max-w-[9rem]"
+      options={PERMISSION_MODE_OPTIONS}
+      value={mode}
+      onValueChange={setMode}
+    />
+  );
+}
+
 function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {
   if (vm.status !== 'ready') {
     return (
@@ -508,7 +589,12 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           onTogglePin={vm.onTogglePin}
           onConfigure={vm.onConfigure}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className={cx(
+            'flex min-h-0 min-w-0 flex-1 flex-col',
+            vm.sessionStatus === 'running' && 'ring-1 ring-inset ring-info/50',
+          )}
+        >
           <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
           <div className="min-h-0 flex-1 p-3.5">
             {vm.frames.length === 0 ? (
@@ -531,6 +617,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           <Composer
             onSend={vm.onSend}
             running={vm.sessionStatus === 'running'}
+            disabled={vm.activeSessionId === undefined}
             slotStart={
               <>
                 <Combobox
@@ -556,6 +643,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
                     onValueChange={vm.onPickEffort}
                   />
                 )}
+                <PermissionModeSlot />
               </>
             }
           />

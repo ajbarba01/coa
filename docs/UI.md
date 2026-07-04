@@ -68,7 +68,13 @@ binding; full detail + exact token values live in the design spec
   `TITLE_BAR_HEIGHT`.
 - **Check the Components tab** — a live, states-first catalogue of every primitive — before wiring a
   component into a surface.
+- **Virtualization is not the default for a chat transcript.** The 2026-07-04 chat rebuild reversed the two
+  prior chat specs (both pinned `react-virtuoso`): `Transcript` now renders every frame to the DOM (no
+  windowing), because full-transcript text selection and in-page Ctrl-F both require every row present.
+  `content-visibility: auto` on each row keeps off-screen rows out of layout/paint without unmounting them, and
+  native scroll drives stick-to-bottom. Reach for virtualization only when a stream's unbounded length actually
+  costs more than the selection/find loss — it is no longer the assumed default for this surface.
 
 ---
 
-_Last reviewed: 2026-07-02_
+_Last reviewed: 2026-07-04_

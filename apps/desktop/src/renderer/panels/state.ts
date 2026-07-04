@@ -76,6 +76,12 @@ export interface ConsoleUi {
   /** Bumped per session on every `sendMessage` — drives the transcript's snap-to-sent
    *  (`jumpNonce`), so a send re-pins the view to bottom even after a manual scroll-up. */
   sendNonce: Record<string, number>;
+  /** Console-local "switched model" system notes per session, positioned by the count of
+   *  turn-derived frames already appended when the note was recorded (`afterCount`) — the
+   *  vm splices each note in after that many turns so it lands next to the send it
+   *  describes. Never sent to the agent; a `ChatVm`/`interleaveNotes` concern, not the wire
+   *  `TurnFrame` buffer. */
+  notesBySession: Record<string, { afterCount: number; text: string }[]>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -141,6 +147,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       dismissedDrift: {},
       runStatus: {},
       sendNonce: {},
+      notesBySession: {},
     },
     actions,
   };

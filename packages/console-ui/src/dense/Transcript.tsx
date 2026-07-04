@@ -1,10 +1,13 @@
 import { ArrowUp, ChevronRight, Circle, CircleCheck, CircleDot } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../actions/Button.js';
+import { CopyButton } from '../actions/CopyButton.js';
 import { IconButton } from '../actions/IconButton.js';
 import { Code } from '../data/Code.js';
 import { DenyNotice } from '../feedback/DenyNotice.js';
 import { Spinner } from '../feedback/Spinner.js';
+import { findMatches } from './find.js';
+import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
 import { nearBottom, previousPromptIndex } from './scrollState.js';
 import { cx } from '../lib/cx.js';
@@ -56,6 +59,7 @@ export type TranscriptFrame =
     }
   | { id: string; kind: 'deny'; denyKind: 'close-gate' | 'cost-cap'; reason: string }
   | { id: string; kind: 'raw'; text: string }
+  | { id: string; kind: 'note'; text: string }
   | {
       id: string;
       role: TranscriptRole;
@@ -218,7 +222,10 @@ function ThinkingCard({ text }: { text: string }): React.JSX.Element {
         <ChevronRight
           aria-hidden
           size={12}
-          className={cx('shrink-0 transition-transform motion-reduce:transition-none', open && 'rotate-90')}
+          className={cx(
+            'shrink-0 transition-transform motion-reduce:transition-none',
+            open && 'rotate-90',
+          )}
         />
         <span className="text-eyebrow uppercase tracking-[0.06em] text-faint transition-colors group-hover:text-muted">
           Thinking
@@ -231,7 +238,7 @@ function ThinkingCard({ text }: { text: string }): React.JSX.Element {
 
 /** Pure classification of a frame's outcome for the gutter status dot: errors and
  *  denies read danger, a tool-result's `ok` flag decides success vs danger, and
- *  everything else (text/tool-use/thinking/plan/approval/subagent/raw) is neutral —
+ *  everything else (text/tool-use/thinking/plan/approval/subagent/raw/note) is neutral —
  *  informational, not an outcome. Exported for unit testing. */
 export function dotTone(frame: TranscriptFrame): 'success' | 'danger' | 'neutral' {
   if (frame.kind === 'error' || frame.kind === 'deny') return 'danger';
@@ -350,7 +357,13 @@ export function TranscriptRow({
 
   if (frame.kind === 'approval') {
     return (
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} indent={indent} className="py-2">
+      <RowShell
+        frame={frame}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+        indent={indent}
+        className="py-2"
+      >
         <div className="rounded-surface border border-border-default bg-raised p-2">
           <div className="flex items-center gap-2 text-label">
             <span className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
@@ -403,10 +416,29 @@ export function TranscriptRow({
     );
   }
 
+  if (frame.kind === 'note') {
+    // A console-local synthetic system note (e.g. a mid-session model switch) — never
+    // sent to the agent, so it renders as a quiet centered rule rather than a turn: no
+    // spine dot emphasis, no gutter, just a flanked caption.
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-caption text-faint">
+        <span className="h-px flex-1 bg-hairline" />
+        <span>{frame.text}</span>
+        <span className="h-px flex-1 bg-hairline" />
+      </div>
+    );
+  }
+
   if (frame.kind === 'subagent') {
     const r = frame.rollup;
     return (
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} indent={indent} className="py-2">
+      <RowShell
+        frame={frame}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+        indent={indent}
+        className="py-2"
+      >
         <div className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2 py-1 text-caption">
           <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">subagent</span>
           <span className="text-muted">{frame.event}</span>
@@ -431,7 +463,13 @@ export function TranscriptRow({
       // `pt-2.5` (not the shared `py-2`) centers the caret+"Thinking" line on the gutter
       // dot — the header is the frame's only always-visible line, so it is the one that
       // must land on the dot, not the row's overall padding.
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} indent={indent} className="pt-2.5 pb-2">
+      <RowShell
+        frame={frame}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+        indent={indent}
+        className="pt-2.5 pb-2"
+      >
         <ThinkingCard text={frame.text} />
       </RowShell>
     );
@@ -441,7 +479,13 @@ export function TranscriptRow({
     const glyph = { pending: Circle, 'in-progress': CircleDot, done: CircleCheck } as const;
     const label = { pending: 'pending', 'in-progress': 'in progress', done: 'done' } as const;
     return (
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} indent={indent} className="py-2">
+      <RowShell
+        frame={frame}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+        indent={indent}
+        className="py-2"
+      >
         <div className="rounded-surface border border-hairline bg-subtle p-2">
           <div className="text-eyebrow uppercase tracking-[0.06em] text-faint">plan</div>
           <ul className="mt-1 flex flex-col gap-1">
@@ -465,7 +509,13 @@ export function TranscriptRow({
 
   if (frame.kind === 'error') {
     return (
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} indent={indent} className="py-2">
+      <RowShell
+        frame={frame}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+        indent={indent}
+        className="py-2"
+      >
         <div
           role="alert"
           className="rounded-surface border border-danger/40 bg-danger-tint px-2 py-1.5 text-label text-danger-text"
@@ -496,7 +546,16 @@ export function TranscriptRow({
         data-nested={nested}
         className={cx('min-w-0', isUser && 'my-1 rounded-surface bg-raised px-3 py-2 shadow-sm')}
       >
-        {frame.kind === 'text' && <Markdown source={frame.text} />}
+        {frame.kind === 'text' && (
+          <div className="group relative">
+            {!isUser && (
+              <div className="absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100">
+                <CopyButton text={frame.text} />
+              </div>
+            )}
+            <Markdown source={frame.text} />
+          </div>
+        )}
         {frame.kind === 'tool' && (
           <ToolCard
             tool={frame.tool}
@@ -506,13 +565,20 @@ export function TranscriptRow({
           />
         )}
         {frame.kind === 'tool-use' && <ToolCard tool={frame.tool} input={frame.input} />}
-        {frame.kind === 'tool-result' && (
-          <ToolCard tool={frame.tool} output={frame.output} />
-        )}
+        {frame.kind === 'tool-result' && <ToolCard tool={frame.tool} output={frame.output} />}
       </div>
     </RowShell>
   );
 }
+
+/** Caches the merged `tool` frame produced for a given `tool-use` frame, keyed by that
+ *  `tool-use` object's identity, alongside the paired `tool-result` object it was built
+ *  from (or `undefined` if still pending). Lets a later fold reuse the same merged
+ *  object — and so keep `MemoRow`'s memo hitting — when neither input has changed. */
+const foldedToolCache = new WeakMap<
+  TranscriptFrame,
+  { result: TranscriptFrame | undefined; merged: TranscriptFrame }
+>();
 
 /** Pairs each `tool-use` with its matching `tool-result` (by shared `handle`) into a
  *  single merged `tool` frame, so the transcript renders one card per tool call
@@ -520,32 +586,55 @@ export function TranscriptRow({
  *  `output`/`ok` (still running); an orphan `tool-result` (no preceding use, or an
  *  unseen handle) passes through unchanged — defensive, shouldn't happen live. Every
  *  other kind (including `raw`, so raw mode stays verbatim) passes through in
- *  original order. Pure and exported for unit testing; the container calls this
- *  once per `frames` change. */
+ *  original order, by reference (stable identity once the caller's frame list itself
+ *  is stable — see `ChatPanel`'s frame caches). Pure and exported for unit testing;
+ *  the container calls this once per `frames` change. */
 export function foldToolFrames(frames: TranscriptFrame[]): TranscriptFrame[] {
   const folded: TranscriptFrame[] = [];
   const indexByHandle = new Map<string, number>();
+  // Track which `tool-use` frame backs each folded index, so a later tool-result can
+  // look up + update the identity cache keyed on that tool-use.
+  const useFrameByIndex = new Map<number, TranscriptFrame>();
   for (const frame of frames) {
     if (frame.kind === 'tool-use') {
-      const merged: TranscriptFrame = {
-        id: frame.id,
-        role: frame.role,
-        kind: 'tool',
-        tool: frame.tool,
-        input: frame.input,
-        handle: frame.handle,
-        depth: frame.depth,
-      };
+      const cached = foldedToolCache.get(frame);
+      // A fresh tool-use with no result seen yet reuses its cached pending merge only
+      // if the cache also recorded no result — i.e. nothing has changed.
+      const merged: TranscriptFrame =
+        cached !== undefined && cached.result === undefined
+          ? cached.merged
+          : {
+              id: frame.id,
+              role: frame.role,
+              kind: 'tool',
+              tool: frame.tool,
+              input: frame.input,
+              handle: frame.handle,
+              depth: frame.depth,
+            };
+      if (cached === undefined || cached.result === undefined) {
+        foldedToolCache.set(frame, { result: undefined, merged });
+      }
       const index = folded.length;
       folded.push(merged);
+      useFrameByIndex.set(index, frame);
       if (frame.handle !== undefined) indexByHandle.set(frame.handle, index);
       continue;
     }
     if (frame.kind === 'tool-result') {
       const index = frame.handle !== undefined ? indexByHandle.get(frame.handle) : undefined;
       const target = index !== undefined ? folded[index] : undefined;
-      if (index !== undefined && target !== undefined && target.kind === 'tool') {
-        folded[index] = { ...target, output: frame.output, ok: frame.ok };
+      const useFrame = index !== undefined ? useFrameByIndex.get(index) : undefined;
+      if (index !== undefined && target !== undefined && target.kind === 'tool' && useFrame !== undefined) {
+        const cached = foldedToolCache.get(useFrame);
+        if (cached !== undefined && cached.result === frame) {
+          // Same tool-use, same tool-result reference as last time — reuse the merge.
+          folded[index] = cached.merged;
+          continue;
+        }
+        const merged: TranscriptFrame = { ...target, output: frame.output, ok: frame.ok };
+        foldedToolCache.set(useFrame, { result: frame, merged });
+        folded[index] = merged;
         continue;
       }
       folded.push(frame);
@@ -568,7 +657,11 @@ function formatWorkingElapsed(sinceMs: number, nowMs: number): string {
  *  own 1s interval (mirrors `RunningPill`'s pattern), cleaned up on unmount. Exported so
  *  it is unit-testable directly — a Virtuoso `components.Footer` slot cannot be reached
  *  through the jsdom-free container tests. */
-export function WorkingFooter({ busySince }: { busySince?: number | undefined }): React.JSX.Element {
+export function WorkingFooter({
+  busySince,
+}: {
+  busySince?: number | undefined;
+}): React.JSX.Element {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (busySince === undefined) return;
@@ -579,8 +672,8 @@ export function WorkingFooter({ busySince }: { busySince?: number | undefined })
     return () => clearInterval(t);
   }, [busySince]);
   return (
-    <div className="flex items-center justify-center gap-2 px-2 py-1.5 text-caption text-faint">
-      <Spinner label="working" size={12} />
+    <div className="flex items-center justify-center gap-2 px-2 py-1.5 text-body text-muted">
+      <Spinner label="working" size={14} />
       <span>working…{busySince !== undefined && ` ${formatWorkingElapsed(busySince, now)}`}</span>
     </div>
   );
@@ -594,15 +687,38 @@ const MemoRow = memo(function MemoRow({
   frame,
   onRespond,
   index,
+  findActive = false,
 }: {
   frame: TranscriptFrame;
   onRespond?: RespondFn | undefined;
   index: number;
+  /** True when this row is the active find-in-conversation match — rings the row so
+   *  prev/next navigation has a visible landing target. */
+  findActive?: boolean | undefined;
 }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  // Appear-on-mount via the Web Animations API rather than a CSS keyframe (no
+  // globals.css touch — see the task's workspace note). Skipped under
+  // prefers-reduced-motion; `animate` is guarded since jsdom stubs it inconsistently.
+  useLayoutEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    ref.current?.animate?.(
+      [
+        { opacity: 0, transform: 'translateY(4px)' },
+        { opacity: 1, transform: 'none' },
+      ],
+      { duration: 140, easing: 'ease-out' },
+    );
+  }, []);
   return (
     <div
+      ref={ref}
       data-row-index={index}
-      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties}
+      data-find-active={findActive || undefined}
+      className={cx(findActive && 'rounded-surface ring-1 ring-info bg-info-tint')}
+      style={
+        { contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties
+      }
     >
       <TranscriptRow frame={frame} onRespond={onRespond} />
     </div>
@@ -630,6 +746,58 @@ export function Transcript({
 
   // Folded once per frames change (was recomputed every render).
   const items = useMemo(() => foldToolFrames(frames), [frames]);
+
+  // Find-in-conversation (Ctrl/Cmd+F): every frame is in the DOM (no windowing), so
+  // find can search the full transcript, not just the visible window.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [activeMatch, setActiveMatch] = useState(0);
+  const matches = useMemo(() => findMatches(items, findQuery), [items, findQuery]);
+
+  // Ctrl/Cmd+F opens the in-transcript find bar instead of the browser's own find,
+  // since every frame already renders to the DOM. Scoped to this component's
+  // lifetime via add/removeEventListener in the effect cleanup.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindOpen(true);
+      } else if (e.key === 'Escape' && findOpen) {
+        setFindOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [findOpen]);
+
+  // Reset to the first match whenever the query (or the underlying frame set) changes
+  // matches, so navigation never lands on a stale index past the new match count.
+  useEffect(() => {
+    setActiveMatch(0);
+  }, [findQuery, items]);
+
+  const scrollToMatch = (matchIndex: number): void => {
+    const match = matches[matchIndex];
+    if (match === undefined) return;
+    const row = scroller.current?.querySelector(`[data-row-index="${match.index}"]`);
+    if (row instanceof HTMLElement) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
+  const findNext = (): void => {
+    if (matches.length === 0) return;
+    const next = (activeMatch + 1) % matches.length;
+    setActiveMatch(next);
+    scrollToMatch(next);
+  };
+
+  const findPrev = (): void => {
+    if (matches.length === 0) return;
+    const prev = (activeMatch - 1 + matches.length) % matches.length;
+    setActiveMatch(prev);
+    scrollToMatch(prev);
+  };
+
+  const activeMatchFrameIndex = matches[activeMatch]?.index;
 
   // Stick-to-bottom: while pinned and content grows, keep the sentinel in view. A
   // ResizeObserver on the content fires on every appended/streamed row.
@@ -668,7 +836,8 @@ export function Transcript({
     const rows = el.querySelectorAll('[data-row-index]');
     let top = 0;
     rows.forEach((r) => {
-      if (r instanceof HTMLElement && r.offsetTop <= el.scrollTop + 4) top = Number(r.dataset['rowIndex']);
+      if (r instanceof HTMLElement && r.offsetTop <= el.scrollTop + 4)
+        top = Number(r.dataset['rowIndex']);
     });
     const target = previousPromptIndex(items, top);
     if (target === undefined) return;
@@ -692,13 +861,34 @@ export function Transcript({
       >
         <div className="mx-auto flex max-w-180 flex-col gap-1">
           {items.map((item, index) => (
-            <MemoRow key={item.id} frame={item} onRespond={onRespond} index={index} />
+            <MemoRow
+              key={item.id}
+              frame={item}
+              onRespond={onRespond}
+              index={index}
+              findActive={findOpen && index === activeMatchFrameIndex}
+            />
           ))}
           {busy === true && <WorkingFooter busySince={busySince} />}
           <div ref={sentinel} aria-hidden className="h-0" />
         </div>
       </div>
-      <div className="pointer-events-none absolute right-2 top-2 z-10">
+      {findOpen && (
+        <div className="pointer-events-none absolute right-2 top-2 z-20">
+          <FindBar
+            query={findQuery}
+            onQueryChange={setFindQuery}
+            current={matches.length === 0 ? 0 : activeMatch + 1}
+            total={matches.length}
+            onPrev={findPrev}
+            onNext={findNext}
+            onClose={() => setFindOpen(false)}
+          />
+        </div>
+      )}
+      <div
+        className={cx('pointer-events-none absolute right-2 z-10', findOpen ? 'top-12' : 'top-2')}
+      >
         <IconButton
           icon={ArrowUp}
           label="Previous prompt"
@@ -710,7 +900,12 @@ export function Transcript({
       </div>
       {showJump && (
         <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
-          <Button variant="secondary" size="sm" className="pointer-events-auto bg-raised" onClick={jumpToLatest}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="pointer-events-auto bg-raised"
+            onClick={jumpToLatest}
+          >
             Jump to latest
           </Button>
         </div>

@@ -2,6 +2,7 @@ import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import {
   pushSchema,
   pushToViewFrames,
+  reasoningValue,
   reloadToViewFrames,
   type AgentSummary,
   type CapState,
@@ -16,6 +17,7 @@ import {
   type TurnFrame,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
+import { modelLabel } from './panels/AgentsPanel.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { resolveSelection } from './panels/selection.js';
@@ -23,6 +25,18 @@ import { configKey } from './panels/banners.js';
 import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
 import { applySettings } from './theme.js';
+
+/** Builds the "switched model" note text from an applied override, e.g.
+ *  `switched to Opus 4.8 · high`. `models` resolves the friendly label when the
+ *  descriptor is known; falls back to the raw model id otherwise. Effort is omitted
+ *  when the override carries no reasoning (defensive — a bare model switch shouldn't
+ *  claim an effort it didn't set). Exported for unit testing. */
+export function modelSwitchNoteText(override: ModelSelection, models: ModelDescriptor[]): string {
+  const descriptor = models.find((m) => m.id === override.model);
+  const label = descriptor ? modelLabel(descriptor) : (override.model ?? 'default model');
+  const effort = override.reasoning ? reasoningValue(override.reasoning) : undefined;
+  return effort !== undefined && effort !== 'off' ? `switched to ${label} · ${effort}` : `switched to ${label}`;
+}
 
 /** The subset of `window.coa` the controller needs (injected for testing). */
 export interface ConsoleBridge {
@@ -430,7 +444,6 @@ export async function startConsole(
         sendNonce: { ...state.ui.sendNonce, [id]: (state.ui.sendNonce[id] ?? 0) + 1 },
       },
     };
-    appendTurns(id, [{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
     // Resolve the selection as a COHERENT UNIT: the override is a partial patch over
@@ -443,6 +456,26 @@ export async function startConsole(
     const resolved = resolveSelection(activeSession, agent);
     const override = state.ui.modelOverride[id];
     const model: ModelSelection = override ? { ...resolved, ...override } : resolved;
+    // A model/effort override applied on this send drops a console-local "switched
+    // model" note into the transcript — BEFORE the user turn, so it reads as the
+    // context the send ran under. Never sent to the agent (a synthetic UI frame, not a
+    // wire TurnFrame) and omitted in `coa raw` (D85: raw is the verbatim loop only).
+    if (override !== undefined) {
+      const models = state.data.models.status === 'ok' ? state.data.models.value : [];
+      const afterCount = turnsBySession.get(id)?.length ?? 0;
+      const noteText = modelSwitchNoteText(override, models);
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          notesBySession: {
+            ...state.ui.notesBySession,
+            [id]: [...(state.ui.notesBySession[id] ?? []), { afterCount, text: noteText }],
+          },
+        },
+      };
+    }
+    appendTurns(id, [{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     // The pending pick is being applied now: clear the override and optimistically pin
     // it locally, so the predictive cache banner clears on send (the daemon persists the
     // same pin, which a later refresh confirms).

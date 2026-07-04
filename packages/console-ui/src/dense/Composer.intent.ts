@@ -12,8 +12,8 @@ export const composerIntent: ComponentIntent = assertIntent({
     'A structured form input — use Field/TextField/Select.',
   ],
   anatomy:
-    'A resizable textarea over a toolbar row: host-provided slotStart (model/effort selects), slotEnd (e.g. expand), and a trailing Send/Stop toggle.',
-  variantsStates: ['idle', 'running', 'disabled', 'multiline'],
+    'A floating rounded control surface (not a full-width bordered panel): an auto-growing textarea over a toolbar row — a leading attach control, host-provided slotStart (model/effort/permission selects), host-provided slotEnd, a mic control, and a trailing glyph Send/Stop toggle. Attach and mic render disabled (inert) until a host wires a handler.',
+  variantsStates: ['idle', 'running', 'disabled', 'multiline', 'attach-inert', 'mic-inert'],
   accessibility:
     'The textarea carries an aria-label; Enter sends (unless Shift or IME-composing), Shift+Enter inserts a newline, Esc calls onInterrupt while running; Send/Stop are native focusable buttons.',
   related: ['Transcript', 'Button', 'Select'],

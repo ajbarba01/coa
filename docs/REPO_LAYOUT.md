@@ -24,7 +24,7 @@ coa/
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
     adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
-    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core)
+    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core). `dense/` holds the chat-surface members (Composer, the non-virtualized Transcript + its internal FindBar, plus pure helpers scrollState.ts/find.ts); `smoothScroll.ts` was removed with the virtualized transcript, and `group.ts`/`groupByUserTurn` is now orphaned (no longer imported by Transcript — a follow-up cleanup).
     console-layout/          M10 — @coa/console-layout (panel registry + versioned layout descriptor + engine port + StaticEngine; pure react/react-resizable-panels/zod, no electron/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
@@ -102,8 +102,11 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
   the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.
 - **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
   `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
-- **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react`/`react-virtuoso` (+ its own
-  tokens), never `electron`/`core` (enforced: `console-ui-no-electron-core`).
+- **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react` (+ its own tokens), never
+  `electron`/`core` (enforced: `console-ui-no-electron-core`). `react-virtuoso` is a listed dependency but is now
+  **unused in source** — the chat rebuild (2026-07-04) dropped virtualization for a non-virtualized `Transcript`
+  (full-transcript selection + Ctrl-F need every row in the DOM); dropping the dependency is a follow-up, held back
+  only because `package.json`/the lockfile carry an unrelated in-flight change.
 - **`console-layout` is the pure layout core** — it imports only `react`/`react-resizable-panels`/`zod`, never
   `electron`/`core` (enforced: `console-layout-no-electron-core`). It stays generic over the panel view-model (no
   `console-ui`/`console-viewmodel` import); concrete panels live in the shell.
@@ -179,4 +182,4 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 
 ---
 
-_Last reviewed: 2026-06-30_
+_Last reviewed: 2026-07-04_

@@ -2,6 +2,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { TranscriptFrame } from '@coa/console-ui';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import {
   buildRailItems,
@@ -9,6 +10,7 @@ import {
   chatPanel,
   formatElapsed,
   frameToRawLine,
+  interleaveNotes,
   relativeTime,
   selectChatVm,
   toGovernedFrame,
@@ -178,6 +180,132 @@ describe('selectChatVm', () => {
     );
     expect(vm.status === 'ready' && vm.sessionStatus).toBe('idle');
     expect(vm.status === 'ready' && vm.runningSince).toBeUndefined();
+  });
+
+  it('interleaves a "switched model" note into the governed frames at its recorded position', () => {
+    const vm = selectChatVm(
+      stateWith(
+        {
+          status: 'ok',
+          value: [
+            { id: '1', role: 'you', kind: 'text', text: 'hi' },
+            { id: '2', role: 'agent', kind: 'text', text: 'hello' },
+          ],
+        },
+        { notesBySession: { 's-audit-auth': [{ afterCount: 1, text: 'switched to Opus 4.8 · high' }] } },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.frames.map((f) => f.kind)).toEqual(['text', 'note', 'text']);
+      const note = vm.frames[1];
+      expect(note && note.kind === 'note' ? note.text : undefined).toBe(
+        'switched to Opus 4.8 · high',
+      );
+    }
+  });
+
+  it('omits switched-model notes in raw mode (raw stays verbatim loop output)', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [{ id: '1', role: 'you', kind: 'text', text: 'hi' }] },
+        {
+          rawMode: true,
+          notesBySession: { 's-audit-auth': [{ afterCount: 0, text: 'switched to Opus 4.8 · high' }] },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.frames.every((f) => f.kind === 'raw')).toBe(true);
+      expect(vm.frames.some((f) => f.kind === 'note')).toBe(false);
+    }
+  });
+
+  it('keeps stable frame identity for unchanged turns across renders (memo regression guard)', () => {
+    const turns: TurnFrame[] = [
+      { id: '1', role: 'you', kind: 'text', text: 'hi' },
+      { id: '2', role: 'agent', kind: 'text', text: 'hello' },
+    ];
+    const state1 = stateWith({ status: 'ok', value: turns });
+    const vm1 = selectChatVm(state1);
+    // Simulate a later daemon push: previously-seen turns keep object identity
+    // (appendTurns builds [...prev, ...new]); only the new turn is a new object.
+    const turns2: TurnFrame[] = [...turns, { id: '3', role: 'agent', kind: 'text', text: 'more' }];
+    const state2 = stateWith({ status: 'ok', value: turns2 });
+    const vm2 = selectChatVm(state2);
+    expect(vm1.status).toBe('ready');
+    expect(vm2.status).toBe('ready');
+    if (vm1.status === 'ready' && vm2.status === 'ready') {
+      expect(vm2.frames.length).toBe(vm1.frames.length + 1);
+      expect(vm2.frames[0]).toBe(vm1.frames[0]);
+      expect(vm2.frames[1]).toBe(vm1.frames[1]);
+    }
+  });
+
+  it('keeps stable frame identity for unchanged turns in raw mode too', () => {
+    const turns: TurnFrame[] = [
+      { id: '1', role: 'you', kind: 'text', text: 'hi' },
+      { id: '2', role: 'agent', kind: 'text', text: 'hello' },
+    ];
+    const state1 = stateWith({ status: 'ok', value: turns }, { rawMode: true });
+    const vm1 = selectChatVm(state1);
+    const turns2: TurnFrame[] = [...turns, { id: '3', role: 'agent', kind: 'text', text: 'more' }];
+    const state2 = stateWith({ status: 'ok', value: turns2 }, { rawMode: true });
+    const vm2 = selectChatVm(state2);
+    expect(vm1.status).toBe('ready');
+    expect(vm2.status).toBe('ready');
+    if (vm1.status === 'ready' && vm2.status === 'ready') {
+      expect(vm2.frames.length).toBe(vm1.frames.length + 1);
+      expect(vm2.frames[0]).toBe(vm1.frames[0]);
+      expect(vm2.frames[1]).toBe(vm1.frames[1]);
+    }
+  });
+});
+
+describe('interleaveNotes', () => {
+  const frames: TranscriptFrame[] = [
+    { id: 't1', role: 'you', kind: 'text', text: 'first' },
+    { id: 't2', role: 'agent', kind: 'text', text: 'reply' },
+    { id: 't3', role: 'you', kind: 'text', text: 'second' },
+  ];
+
+  it('splices a note in after its afterCount-th frame', () => {
+    const result = interleaveNotes(
+      frames,
+      [{ afterCount: 2, text: 'switched to Opus 4.8 · high' }],
+      's1',
+    );
+    expect(result.map((f) => f.id)).toEqual(['t1', 't2', 'note:s1:0', 't3']);
+    expect(result[2]).toMatchObject({ kind: 'note', text: 'switched to Opus 4.8 · high' });
+  });
+
+  it('is a no-op with no notes', () => {
+    expect(interleaveNotes(frames, [])).toEqual(frames);
+  });
+
+  it('inserts a note at position 0 (afterCount 0)', () => {
+    const result = interleaveNotes(frames, [{ afterCount: 0, text: 'switched to Sonnet' }]);
+    expect(result[0]).toMatchObject({ kind: 'note' });
+    expect(result.map((f) => f.id).slice(1)).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('inserts multiple notes at their respective positions, stably ordered', () => {
+    const result = interleaveNotes(frames, [
+      { afterCount: 1, text: 'first switch' },
+      { afterCount: 3, text: 'second switch' },
+    ]);
+    expect(result.map((f) => (f.kind === 'note' ? f.text : f.id))).toEqual([
+      't1',
+      'first switch',
+      't2',
+      't3',
+      'second switch',
+    ]);
+  });
+
+  it('appends a note whose afterCount exceeds the frame count at the end', () => {
+    const result = interleaveNotes(frames, [{ afterCount: 99, text: 'late note' }]);
+    expect(result.at(-1)).toMatchObject({ kind: 'note', text: 'late note' });
+    expect(result).toHaveLength(4);
   });
 });
 

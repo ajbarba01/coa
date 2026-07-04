@@ -168,8 +168,8 @@ A multiline auto-growing message composer with a send/stop toggle.
 
 - **Use it when:** Sending a message into a live governed session — chat input with model/effort controls and a running-turn stop action.
 - **Don't use it when:** A single-line filter or search field — use TextField. A structured form input — use Field/TextField/Select.
-- **Anatomy:** A resizable textarea over a toolbar row: host-provided slotStart (model/effort selects), slotEnd (e.g. expand), and a trailing Send/Stop toggle.
-- **Variants & states:** idle, running, disabled, multiline
+- **Anatomy:** A floating rounded control surface (not a full-width bordered panel): an auto-growing textarea over a toolbar row — a leading attach control, host-provided slotStart (model/effort/permission selects), host-provided slotEnd, a mic control, and a trailing glyph Send/Stop toggle. Attach and mic render disabled (inert) until a host wires a handler.
+- **Variants & states:** idle, running, disabled, multiline, attach-inert, mic-inert
 - **Accessibility:** The textarea carries an aria-label; Enter sends (unless Shift or IME-composing), Shift+Enter inserts a newline, Esc calls onInterrupt while running; Send/Stop are native focusable buttons.
 - **Related:** Transcript, Button, Select
 
@@ -186,13 +186,13 @@ Renders GitHub-flavored markdown as kit elements, with highlighted, copy-able co
 
 ### Transcript
 
-A virtualized turn stream of role-tagged conversation frames.
+A non-virtualized turn stream of role-tagged conversation frames.
 
-- **Use it when:** Showing the agent conversation — text, tool calls, thinking, plans, approvals, denies, errors, subagent activity, or the raw loop.
+- **Use it when:** Showing the agent conversation — text, tool calls, thinking, plans, approvals, denies, errors, subagent activity, a switched-model note, or the raw loop.
 - **Don't use it when:** Showing one long document — use Longform/PromptView. Showing tabular records — use Table.
-- **Anatomy:** A labelled log region virtualizing per-kind rows (text as markdown, tool-use, tool-result, thinking, plan, approval, deny, error, subagent, raw).
-- **Variants & states:** user-turn, text, tool-use, tool-result, thinking, plan, approval, approval-resolved, deny, error, subagent, nested, raw, empty
-- **Accessibility:** role=log with an aria-label; approval actions are native focusable buttons; payloads render byte-faithfully.
+- **Anatomy:** A labelled log region rendering every frame to the DOM (no windowing) as per-kind rows (text as markdown, tool-use, tool-result, thinking, plan, approval, deny, error, subagent, note, raw), with content-visibility keeping off-screen rows out of layout/paint; native scroll drives stick-to-bottom with a jump-to-latest/jump-to-prompt control, and an internal Ctrl/Cmd+F find bar searches the full transcript.
+- **Variants & states:** user-turn, text, tool-use, tool-result, thinking, plan, approval, approval-resolved, deny, error, subagent, note, nested, raw, find-open, empty
+- **Accessibility:** role=log with an aria-label; approval actions are native focusable buttons; the find bar is a labelled search region; payloads render byte-faithfully.
 - **Related:** DenyNotice, Code, Markdown, Table
 
 ## Feedback

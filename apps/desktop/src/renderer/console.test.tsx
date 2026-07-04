@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startConsole, type ConsoleBridge } from './console.js';
+import { modelSwitchNoteText, startConsole, type ConsoleBridge } from './console.js';
 import { LAYOUT_EPOCH, makeDescriptor } from './panels/routing.js';
 
 /** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
@@ -63,6 +63,36 @@ async function mount(bridge = fakeBridge()) {
   });
   return { container, controller };
 }
+
+describe('modelSwitchNoteText', () => {
+  it('labels a known model with its effort', () => {
+    const text = modelSwitchNoteText(
+      { model: 'opus', reasoning: { mode: 'effort', effort: 'high' } },
+      [{ id: 'opus', provider: 'claude', displayName: 'Opus', description: 'Opus 4.8 · smart' }],
+    );
+    expect(text).toBe('switched to Opus 4.8 · high');
+  });
+
+  it('falls back to the raw model id when the descriptor is unknown', () => {
+    expect(modelSwitchNoteText({ model: 'mystery-model' }, [])).toBe('switched to mystery-model');
+  });
+
+  it('omits the effort segment when no reasoning is set (defensive)', () => {
+    expect(
+      modelSwitchNoteText({ model: 'opus' }, [
+        { id: 'opus', provider: 'claude', displayName: 'Opus', description: 'Opus 4.8 · smart' },
+      ]),
+    ).toBe('switched to Opus 4.8');
+  });
+
+  it('omits the effort segment for an "off" reasoning mode', () => {
+    expect(
+      modelSwitchNoteText({ model: 'opus', reasoning: { mode: 'off' } }, [
+        { id: 'opus', provider: 'claude', displayName: 'Opus', description: 'Opus 4.8 · smart' },
+      ]),
+    ).toBe('switched to Opus 4.8');
+  });
+});
 
 describe('startConsole (inspector-first)', () => {
   it('mounts the inspector layout: nav rail, cost main, chat dock', async () => {
@@ -203,7 +233,7 @@ describe('startConsole (inspector-first)', () => {
       'textarea[aria-label="Message the agent"]',
     );
     const send = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent?.trim() === 'Send',
+      (b) => b.getAttribute('aria-label') === 'Send',
     );
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
     await act(async () => {
@@ -372,7 +402,7 @@ describe('startConsole (inspector-first)', () => {
       'textarea[aria-label="Message the agent"]',
     );
     const send = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent?.trim() === 'Send',
+      (b) => b.getAttribute('aria-label') === 'Send',
     );
     expect(textarea).not.toBeNull();
     expect(send).toBeDefined();
@@ -399,7 +429,7 @@ describe('startConsole (inspector-first)', () => {
       'textarea[aria-label="Message the agent"]',
     );
     const send = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent?.trim() === 'Send',
+      (b) => b.getAttribute('aria-label') === 'Send',
     );
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
     await act(async () => {

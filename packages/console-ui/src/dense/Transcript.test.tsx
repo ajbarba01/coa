@@ -57,7 +57,15 @@ describe('foldToolFrames', () => {
         input: '{"path":"a.ts"}',
         handle: 'h1',
       },
-      { id: 'r1', role: 'agent', kind: 'tool-result', tool: 'Read', output: '42 lines', ok: true, handle: 'h1' },
+      {
+        id: 'r1',
+        role: 'agent',
+        kind: 'tool-result',
+        tool: 'Read',
+        output: '42 lines',
+        ok: true,
+        handle: 'h1',
+      },
     ];
     const folded = foldToolFrames(frames);
     expect(folded).toHaveLength(1);
@@ -84,7 +92,15 @@ describe('foldToolFrames', () => {
 
   it('passes through an orphan tool-result unchanged', () => {
     const frames: TranscriptFrame[] = [
-      { id: 'r1', role: 'agent', kind: 'tool-result', tool: 'Bash', output: 'boom', ok: false, handle: 'missing' },
+      {
+        id: 'r1',
+        role: 'agent',
+        kind: 'tool-result',
+        tool: 'Bash',
+        output: 'boom',
+        ok: false,
+        handle: 'missing',
+      },
     ];
     const folded = foldToolFrames(frames);
     expect(folded).toEqual(frames);
@@ -95,7 +111,15 @@ describe('foldToolFrames', () => {
       { id: 't1', role: 'you', kind: 'text', text: 'hi' },
       { id: 'u1', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{}', handle: 'h1' },
       { id: 't2', role: 'agent', kind: 'text', text: 'ok' },
-      { id: 'r1', role: 'agent', kind: 'tool-result', tool: 'Read', output: 'x', ok: true, handle: 'h1' },
+      {
+        id: 'r1',
+        role: 'agent',
+        kind: 'tool-result',
+        tool: 'Read',
+        output: 'x',
+        ok: true,
+        handle: 'h1',
+      },
     ];
     const folded = foldToolFrames(frames);
     expect(folded.map((f) => f.id)).toEqual(['t1', 'u1', 't2']);
@@ -106,6 +130,40 @@ describe('foldToolFrames', () => {
   it('leaves raw frames untouched (raw mode stays verbatim)', () => {
     const frames: TranscriptFrame[] = [{ id: 'raw1', kind: 'raw', text: 'verbatim' }];
     expect(foldToolFrames(frames)).toEqual(frames);
+  });
+
+  it('leaves note frames untouched', () => {
+    const frames: TranscriptFrame[] = [{ id: 'n1', kind: 'note', text: 'switched to Opus' }];
+    expect(foldToolFrames(frames)).toEqual(frames);
+  });
+
+  it('reuses the same merged tool object across calls when the tool-use/result pair is unchanged (memo regression guard)', () => {
+    const toolUse: TranscriptFrame = {
+      id: 'u1',
+      role: 'agent',
+      kind: 'tool-use',
+      tool: 'Read',
+      input: '{"path":"a.ts"}',
+      handle: 'h1',
+    };
+    const toolResult: TranscriptFrame = {
+      id: 'r1',
+      role: 'agent',
+      kind: 'tool-result',
+      tool: 'Read',
+      output: '42 lines',
+      ok: true,
+      handle: 'h1',
+    };
+    const frames = [toolUse, toolResult];
+    const first = foldToolFrames(frames);
+    const second = foldToolFrames([toolUse, toolResult]);
+    expect(second[0]).toBe(first[0]);
+
+    // Changing the result (new object) must recompute — fresh identity.
+    const toolResult2: TranscriptFrame = { ...toolResult, output: '43 lines' };
+    const third = foldToolFrames([toolUse, toolResult2]);
+    expect(third[0]).not.toBe(first[0]);
   });
 });
 
@@ -152,6 +210,16 @@ describe('TranscriptRow', () => {
       <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'text', text: 'run `ls` now' }} />,
     );
     expect(screen.getByText('ls').tagName).toBe('CODE');
+  });
+
+  it('offers a copy action on an assistant text turn', () => {
+    render(<TranscriptRow frame={{ id: 'a', role: 'agent', kind: 'text', text: '# hi' }} />);
+    expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
+  });
+
+  it('omits the copy action on a user text turn', () => {
+    render(<TranscriptRow frame={{ id: 'u', role: 'you', kind: 'text', text: 'hi' }} />);
+    expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
   });
 
   it('renders a user turn as a flush distinct block without a role label', () => {
@@ -320,7 +388,14 @@ describe('TranscriptRow', () => {
   it('tones the gutter dot danger for a failed tool-result', () => {
     const { container } = render(
       <TranscriptRow
-        frame={{ id: '2', role: 'agent', kind: 'tool-result', tool: 'Bash', output: 'boom', ok: false }}
+        frame={{
+          id: '2',
+          role: 'agent',
+          kind: 'tool-result',
+          tool: 'Bash',
+          output: 'boom',
+          ok: false,
+        }}
       />,
     );
     expect(container.querySelector('[data-dot]')?.className).toMatch(/bg-danger/);
@@ -457,12 +532,16 @@ describe('TranscriptRow', () => {
   });
 
   it('tints the thinking label on hover', () => {
-    render(<TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning' }} />);
+    render(
+      <TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning' }} />,
+    );
     expect(screen.getByText('Thinking').className).toContain('group-hover:text-muted');
   });
 
   it('renders an error frame with a danger tone and its message', () => {
-    render(<TranscriptRow frame={{ id: '2', role: 'agent', kind: 'error', message: 'it broke' }} />);
+    render(
+      <TranscriptRow frame={{ id: '2', role: 'agent', kind: 'error', message: 'it broke' }} />,
+    );
     expect(screen.getByRole('alert')).toHaveTextContent('it broke');
   });
 
@@ -497,6 +576,15 @@ describe('TranscriptRow', () => {
     expect(block?.className).not.toContain('border-hairline');
     expect(block?.className).not.toContain('border-b');
   });
+
+  it('renders a centered system note', () => {
+    render(<TranscriptRow frame={{ id: 'n', kind: 'note', text: 'switched to Opus 4.8 · high' }} />);
+    expect(screen.getByText(/switched to Opus/)).toBeInTheDocument();
+  });
+
+  it('tones a note frame neutral (no spine emphasis)', () => {
+    expect(dotTone({ id: 'n', kind: 'note', text: 'switched to Opus 4.8 · high' })).toBe('neutral');
+  });
 });
 
 describe('Transcript container', () => {
@@ -526,13 +614,23 @@ describe('Transcript container', () => {
   });
 
   it('shows a jump-to-latest control when scrolled away from the bottom', () => {
-    const frames = Array.from({ length: 30 }, (_, i) => ({ id: String(i), role: 'agent' as const, kind: 'text' as const, text: `m${i}` }));
+    const frames = Array.from({ length: 30 }, (_, i) => ({
+      id: String(i),
+      role: 'agent' as const,
+      kind: 'text' as const,
+      text: `m${i}`,
+    }));
     render(<Transcript frames={frames} showJumpToLatest />);
     expect(screen.getByRole('button', { name: /latest/i })).toBeInTheDocument();
   });
 
   it('gives the jump-to-latest control the composer surface background', () => {
-    const frames = Array.from({ length: 30 }, (_, i) => ({ id: String(i), role: 'agent' as const, kind: 'text' as const, text: `m${i}` }));
+    const frames = Array.from({ length: 30 }, (_, i) => ({
+      id: String(i),
+      role: 'agent' as const,
+      kind: 'text' as const,
+      text: `m${i}`,
+    }));
     render(<Transcript frames={frames} showJumpToLatest />);
     expect(screen.getByRole('button', { name: /latest/i }).className).toMatch(/bg-raised/);
   });
@@ -585,11 +683,74 @@ describe('Transcript container', () => {
   });
 });
 
+describe('Transcript find-in-conversation', () => {
+  const frames: TranscriptFrame[] = [
+    { id: 'a', role: 'agent', kind: 'text', text: 'Hello World' },
+    { id: 'b', role: 'agent', kind: 'text', text: 'nothing here' },
+    { id: 'c', role: 'you', kind: 'text', text: 'say hello again' },
+  ];
+
+  it('opens the find bar on Ctrl+F and closes it on Escape', () => {
+    render(<Transcript frames={frames} />);
+    expect(screen.queryByRole('search', { name: /find/i })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    expect(screen.getByRole('search', { name: /find/i })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('search', { name: /find/i })).not.toBeInTheDocument();
+  });
+
+  it('opens the find bar on Cmd+F (metaKey)', () => {
+    render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', metaKey: true });
+    expect(screen.getByRole('search', { name: /find/i })).toBeInTheDocument();
+  });
+
+  it('closes the find bar via its own close button', async () => {
+    render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    await userEvent.click(screen.getByRole('button', { name: /close find/i }));
+    expect(screen.queryByRole('search', { name: /find/i })).not.toBeInTheDocument();
+  });
+
+  it('typing a query updates the match count', async () => {
+    render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    await userEvent.type(screen.getByRole('textbox', { name: /find/i }), 'hello');
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+  });
+
+  it('prev/next scroll through matches', async () => {
+    render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    await userEvent.type(screen.getByRole('textbox', { name: /find/i }), 'hello');
+    scrollIntoViewSpy.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: /next match/i }));
+    expect(screen.getByText('2/2')).toBeInTheDocument();
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
+    scrollIntoViewSpy.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: /previous match/i }));
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
+  });
+
+  it('marks the active match row with data-find-active', async () => {
+    const { container } = render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    await userEvent.type(screen.getByRole('textbox', { name: /find/i }), 'hello');
+    expect(container.querySelector('[data-find-active="true"]')).not.toBeNull();
+  });
+});
+
 describe('WorkingFooter', () => {
   it('renders a spinner and the working label', () => {
     render(<WorkingFooter />);
     expect(screen.getByText(/working…/i)).toBeInTheDocument();
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('renders the working footer at body size', () => {
+    render(<WorkingFooter busySince={Date.now()} />);
+    expect(screen.getByText(/working/i).closest('div')?.className).toContain('text-body');
   });
 
   it('shows no elapsed counter without a busySince', () => {
