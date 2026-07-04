@@ -12,6 +12,7 @@ import type { RpcConnection } from '../rpc/stream.js';
 import { closeSession as closeSessionCore, createSession, type SessionDeps } from './session.js';
 import type { ConversationStore } from './conversation-store.js';
 import { planMemory, type MemoryPlan } from './memory-plan.js';
+import { describeLoopFailure } from './loop-failure.js';
 import {
   configHashOf,
   frozenModelMatches,
@@ -241,7 +242,13 @@ export function buildSessionHandlers(
             status(session.id, session.worktree, 'done');
           })
           .catch((err: unknown) => {
-            const message = err instanceof Error ? err.message : 'session failed';
+            // A mid-turn throw (most often a dropped connection to the provider)
+            // leaves the backend session id captured but this turn's canonical
+            // transcript unsaved — a resume on the next send would replay a phantom
+            // server session the model never advanced. Drop the token so the next
+            // send replays the last-good transcript instead (fail-safe, not resume).
+            if (persistIn !== undefined) persistIn.store.clearBackendSession(persistIn.convId);
+            const message = describeLoopFailure(err);
             if (started !== undefined) {
               record({ t: 'error', message, origin: 'loop' });
               status(started.id, started.worktree, 'error');

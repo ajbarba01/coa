@@ -231,6 +231,32 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
     ]);
   });
 
+  it('clears the stale resume token when a send fails mid-turn, so the next send replays a consistent transcript', async () => {
+    const conn = connection();
+    // Turn 1 succeeds and captures a resumable backend session.
+    await buildSessionHandlers(deps([{ t: 'text', text: 'reply' }]), conn, store)['createSession']!.handle({
+      input: 'first',
+      role: '',
+      scope: '',
+      conversationId: 'c1',
+    });
+    await conn.settled;
+    expect(store.getMeta('c1')?.backendSessionId).toBe('backend-c1');
+
+    // Turn 2 throws mid-loop (a dropped connection). The stale resume token must be
+    // dropped so the next send replays the last-good transcript rather than resuming a
+    // phantom server session the model never actually advanced (the "confused agent" bug).
+    const conn2 = connection();
+    await buildSessionHandlers(deps([], true), conn2, store)['createSession']!.handle({
+      input: 'second',
+      role: '',
+      scope: '',
+      conversationId: 'c1',
+    });
+    await conn2.settled;
+    expect(store.getMeta('c1')?.backendSessionId).toBeUndefined();
+  });
+
   it('resends the whole prior transcript as history on the next send (pure-API memory)', async () => {
     const inits: SessionAdapterInit[] = [];
     const handlers = buildSessionHandlers(
