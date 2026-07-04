@@ -72,3 +72,6 @@ export {
 export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
 export { Markdown, type MarkdownProps } from './dense/Markdown.js';
 export { Composer, type ComposerProps } from './dense/Composer.js';
+export { describeTool, type ToolDescriptor } from './dense/toolRegistry.js';
+export { diffLines, type DiffLine, type LineDiff } from './dense/toolDiff.js';
+export { estimateTokens, formatTokens } from './dense/tokenEstimate.js';

@@ -17,6 +17,10 @@ import {
 } from '@coa/console-ui';
 import { Maximize2 } from 'lucide-react';
 import { Family, Row } from './Specimen.js';
+import { CompactToolLine } from './toolblocks/CompactToolLine.js';
+import { GroupedActivityLog } from './toolblocks/GroupedActivityLog.js';
+import { RichToolCard } from './toolblocks/RichToolCard.js';
+import { TOOL_CALLS } from './toolblocks/samples.js';
 
 const noop = (): void => {};
 
@@ -252,19 +256,72 @@ function LiveMarkdown(): React.JSX.Element {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Tool blocks (design gate) — three directions over one shared sample set     */
+/* spanning both Claude and coa tools.                                         */
+/* -------------------------------------------------------------------------- */
+
+/** A bordered transcript-like frame that stacks tool-block specimens. */
+function ToolBlockFrame({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex w-full max-w-2xl flex-col gap-1 rounded-surface border border-hairline bg-surface p-2">
+      {children}
+    </div>
+  );
+}
+
+function CompactDirection(): React.JSX.Element {
+  return (
+    <ToolBlockFrame>
+      {TOOL_CALLS.map((call) => (
+        <CompactToolLine key={call.id} call={call} />
+      ))}
+    </ToolBlockFrame>
+  );
+}
+
+function GroupedDirection(): React.JSX.Element {
+  return (
+    <ToolBlockFrame>
+      <GroupedActivityLog calls={TOOL_CALLS} />
+    </ToolBlockFrame>
+  );
+}
+
+function RichDirection(): React.JSX.Element {
+  return (
+    <ToolBlockFrame>
+      {TOOL_CALLS.map((call) => (
+        <RichToolCard key={call.id} call={call} />
+      ))}
+    </ToolBlockFrame>
+  );
+}
 
 export function ChatMockupsSection(): React.JSX.Element {
   return (
-    <Family name="Chat mockups (design gate)">
-      <Row label="Transcript rows" align="start">
-        <TranscriptSpecimens />
-      </Row>
-      <Row label="Composer" align="start">
-        <ComposerSpecimens />
-      </Row>
-      <Row label="Live markdown" align="start">
-        <LiveMarkdown />
-      </Row>
-    </Family>
+    <>
+      <Family name="Chat mockups (design gate)">
+        <Row label="Transcript rows" align="start">
+          <TranscriptSpecimens />
+        </Row>
+        <Row label="Composer" align="start">
+          <ComposerSpecimens />
+        </Row>
+        <Row label="Live markdown" align="start">
+          <LiveMarkdown />
+        </Row>
+      </Family>
+      <Family name="Tool blocks (design gate)">
+        <Row label="1 · Compact line" align="start">
+          <CompactDirection />
+        </Row>
+        <Row label="2 · Grouped log" align="start">
+          <GroupedDirection />
+        </Row>
+        <Row label="3 · Rich card" align="start">
+          <RichDirection />
+        </Row>
+      </Family>
+    </>
   );
 }
