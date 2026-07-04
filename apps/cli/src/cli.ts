@@ -18,6 +18,7 @@ import {
   type RpcServer,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
+import { runWebCommand } from './web-cli.js';
 import { buildSessionDeps } from './session-deps.js';
 import { parseRunArgs, renderPush } from './run-render.js';
 
@@ -55,10 +56,12 @@ const READS: Record<string, (args: string[]) => { method: string; params?: RpcPa
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   const [command, ...args] = argv;
   if (command === undefined) {
-    io.err('usage: coa <run|auth|cap|flags|why|decision|timeline> [args]');
+    io.err('usage: coa <run|auth|websearch|webfetch|cap|flags|why|decision|timeline> [args]');
     return 1;
   }
   if (command === 'auth') return runAuthCommand(args, io);
+  if (command === 'websearch') return runWebCommand('search', args, io);
+  if (command === 'webfetch') return runWebCommand('fetch', args, io);
   if (command === 'run') return runSession(args, io);
   const build = READS[command];
   if (build === undefined) {

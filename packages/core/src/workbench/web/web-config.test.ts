@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { webConfigSchema, buildWebToolDeps } from './web-config.js';
 import type { CooldownStore } from './routing.js';
@@ -112,6 +115,24 @@ describe('buildWebToolDeps', () => {
     const res = await deps.fetchChain('https://x.test');
     expect(res.status).toBe('exhausted');
     expect(marks[0]?.id).toBe('tavily:TAVILY_KEY_1');
+  });
+
+  it('resolves a key-file credential by reading the saved secret from disk', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-webkey-'));
+    const keyPath = join(dir, 'web-fc1');
+    writeFileSync(keyPath, 'fc-saved-secret\n'); // trailing newline is trimmed on read
+    const marks: Array<{ id: string }> = [];
+    const store: CooldownStore = { isCoolingDown: () => false, markCooldown: (id) => marks.push({ id }), clear: () => {} };
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 429, headers: { get: () => null }, json: async () => ({}), text: async () => '' }));
+    const cfg = webConfigSchema.parse({
+      fetch: { providers: [{ kind: 'firecrawl', credentials: [{ type: 'key-file', path: keyPath }] }], freeFloor: false },
+    });
+    const deps = buildWebToolDeps(cfg, {}, { store, now: () => 0 });
+    const res = await deps.fetchChain('https://x.test');
+    rmSync(dir, { recursive: true, force: true });
+    // The hop only exists if the key resolved from the file; the cooldown id keys on the PATH, never the secret.
+    expect(res.status).toBe('exhausted');
+    expect(marks[0]?.id).toBe(`firecrawl:${keyPath}`);
   });
 
   it('includes the injected summarizer when provided', () => {

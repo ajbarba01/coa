@@ -7,6 +7,7 @@ import {
   createRegistryAssemblePieces,
   packageRegistry,
   roleRegistry,
+  WebConfigStore,
   type ActiveAccountResolution,
   type DaemonCoreHandle,
   type ModelCacheAccount,
@@ -49,10 +50,16 @@ export interface BuiltSession {
 /** Construct the daemon core and bind it (plus the Claude backend) into session deps. */
 export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   const root = options.root ?? process.cwd();
+  // Load the user-global web-key config (`~/.coa/web.yaml`); offer the web tools only
+  // when at least one provider is configured (D85 — an unconfigured user gets today's
+  // behavior). Credentials resolve at chain assembly from env vars / coa-saved key files.
+  const web = new WebConfigStore(homedir()).read();
+  const hasWeb = (web.search?.providers.length ?? 0) > 0 || (web.fetch?.providers.length ?? 0) > 0;
   const handle = createDaemonCore({
     walPath: options.walPath,
     root,
     producers: buildGenerationProducers(root),
+    ...(hasWeb ? { web } : {}),
     ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { locatorSchema, type Locator } from '@coa/shared';
 import type {
@@ -67,11 +68,26 @@ export type WebConfig = z.infer<typeof webConfigSchema>;
 export type WebFetchConfig = z.infer<typeof fetchConfigSchema>;
 export type WebSearchConfig = z.infer<typeof searchConfigSchema>;
 
-/** Resolve an env-var locator; other locator kinds resolve to `undefined` (env-only for now). */
+/**
+ * Resolve a credential locator to its secret — a POINTER, never a secret stored in
+ * `web.yaml` (credential-blind): an `env-var` locator names the variable that holds
+ * the key; a `key-file` locator names a coa-written 0600 file to read it from
+ * (mirrors the DeepSeek `resolveApiKey`). `config-dir`/`ambient` resolve to
+ * `undefined` (not a web-key kind). A missing var/file ⇒ `undefined` (the credential
+ * is simply absent from the chain).
+ */
 function resolveKey(locator: Locator, env: Record<string, string | undefined>): string | undefined {
   if (locator.type === 'env-var') {
     const value = env[locator.name];
     return value !== undefined && value !== '' ? value : undefined;
+  }
+  if (locator.type === 'key-file') {
+    try {
+      const value = readFileSync(locator.path, 'utf8').trim();
+      return value !== '' ? value : undefined;
+    } catch {
+      return undefined;
+    }
   }
   return undefined;
 }

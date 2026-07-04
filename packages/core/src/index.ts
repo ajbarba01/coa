@@ -279,3 +279,12 @@ export { SignalBus, type SignalEvent } from './signal-bus.js';
 export { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
 export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
 export { buildAuthHandlers } from './rpc/auth-handlers.js';
+export { type WebConfig } from './workbench/web/web-config.js';
+export {
+  WebConfigStore,
+  webConfigPath,
+  webKeyFilePath,
+  SEARCH_KINDS,
+  FETCH_KINDS,
+  type WebChain,
+} from './workbench/web/web-config-store.js';
