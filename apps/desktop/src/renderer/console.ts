@@ -424,7 +424,11 @@ export async function startConsole(
     youSeq += 1;
     state = {
       ...state,
-      ui: { ...state.ui, runStatus: { ...state.ui.runStatus, [id]: { since: Date.now() } } },
+      ui: {
+        ...state.ui,
+        runStatus: { ...state.ui.runStatus, [id]: { since: Date.now() } },
+        sendNonce: { ...state.ui.sendNonce, [id]: (state.ui.sendNonce[id] ?? 0) + 1 },
+      },
     };
     appendTurns(id, [{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);

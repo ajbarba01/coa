@@ -2,12 +2,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dotTone,
   foldToolFrames,
-  groupItemStart,
-  itemSpine,
   toolQuickInfo,
   Transcript,
   TranscriptRow,
@@ -15,42 +13,13 @@ import {
   type TranscriptFrame,
 } from './Transcript.js';
 
-/** Spy on the scroll-lerp seam so header-click / jump-to-latest tests can assert the
- *  scroll was kicked off without depending on Virtuoso's DOM measurement (which jsdom
- *  can't do). The lerp's own behaviour is unit-tested in `smoothScroll.test.ts`. */
-const startSmoothScrollSpy = vi.fn(() => vi.fn());
-vi.mock('./smoothScroll.js', () => ({
-  startSmoothScroll: (...args: unknown[]) => startSmoothScrollSpy(...args),
-}));
-
-/** A minimal stand-in for `GroupedVirtuoso` that renders every group header and item
- *  eagerly (no virtualization/measurement, which jsdom can't do). It feeds the outer
- *  element to `scrollerRef` so the component captures a live scroller for the lerp.
- *  Mirrors the real component's `groupCounts`/`groupContent`/`itemContent` contract
- *  and renders `components.Footer` when supplied, like Virtuoso's own footer slot. */
-vi.mock('react-virtuoso', () => ({
-  GroupedVirtuoso: function FakeGroupedVirtuoso(props: {
-    groupCounts: number[];
-    groupContent: (index: number) => React.ReactNode;
-    itemContent: (index: number) => React.ReactNode;
-    components?: { Footer?: React.ComponentType };
-    scrollerRef?: (el: HTMLElement | Window | null) => void;
-  }) {
-    const total = props.groupCounts.reduce((a, b) => a + b, 0);
-    const Footer = props.components?.Footer;
-    return (
-      <div ref={(el) => props.scrollerRef?.(el)}>
-        {props.groupCounts.map((_, gi) => (
-          <div key={gi}>{props.groupContent(gi)}</div>
-        ))}
-        {Array.from({ length: total }, (_, i) => (
-          <div key={i}>{props.itemContent(i)}</div>
-        ))}
-        {Footer && <Footer />}
-      </div>
-    );
-  },
-}));
+// jsdom has no real layout, so scrollIntoView is unimplemented — stub it so the
+// pin/jump effects (which call it) don't throw, and so tests can assert it fired.
+const scrollIntoViewSpy = vi.fn();
+beforeEach(() => {
+  Element.prototype.scrollIntoView = scrollIntoViewSpy;
+  scrollIntoViewSpy.mockClear();
+});
 
 describe('dotTone', () => {
   it('tones the status dot by outcome', () => {
@@ -74,40 +43,6 @@ describe('dotTone', () => {
     expect(dotTone({ id: '7', role: 'agent', kind: 'tool', tool: 'Read', input: '{}' })).toBe(
       'neutral',
     );
-  });
-});
-
-describe('groupItemStart', () => {
-  it('returns 0 for the first group', () => {
-    expect(groupItemStart([2, 3, 1], 0)).toBe(0);
-  });
-
-  it('sums counts of preceding groups', () => {
-    expect(groupItemStart([2, 3, 1], 1)).toBe(2);
-    expect(groupItemStart([2, 3, 1], 2)).toBe(5);
-  });
-
-  it('returns 0 for an out-of-range group index', () => {
-    expect(groupItemStart([2, 3, 1], -1)).toBe(0);
-  });
-});
-
-describe('itemSpine', () => {
-  it('drops the top segment on a run\'s first row and the bottom on its last', () => {
-    // groups of 2 and 3 items → runs [0,1] and [2,3,4]
-    expect(itemSpine([2, 3], 0)).toEqual({ top: false, bottom: true }); // first of run 1
-    expect(itemSpine([2, 3], 1)).toEqual({ top: true, bottom: false }); // last of run 1
-    expect(itemSpine([2, 3], 2)).toEqual({ top: false, bottom: true }); // first of run 2
-    expect(itemSpine([2, 3], 3)).toEqual({ top: true, bottom: true }); // middle of run 2
-    expect(itemSpine([2, 3], 4)).toEqual({ top: true, bottom: false }); // last of run 2
-  });
-
-  it('trims both ends for a lone-item run (just a dot, no line)', () => {
-    expect(itemSpine([1], 0)).toEqual({ top: false, bottom: false });
-  });
-
-  it('defaults to a full through-line for an out-of-range index', () => {
-    expect(itemSpine([2], 5)).toEqual({ top: true, bottom: true });
   });
 });
 
@@ -559,6 +494,19 @@ describe('Transcript container', () => {
     expect(container.querySelector('[role="log"]')).toBeNull();
   });
 
+  it('renders every frame to the DOM (non-virtualized)', () => {
+    const frames: TranscriptFrame[] = Array.from({ length: 60 }, (_, i) => ({
+      id: `t${i}`,
+      role: 'agent' as const,
+      kind: 'text' as const,
+      text: `line ${i}`,
+    }));
+    render(<Transcript frames={frames} />);
+    // Every line is present — including ones far off-screen (would be absent if windowed).
+    expect(screen.getByText('line 0')).toBeInTheDocument();
+    expect(screen.getByText('line 59')).toBeInTheDocument();
+  });
+
   it('shows a jump-to-latest control when scrolled away from the bottom', () => {
     const frames = Array.from({ length: 30 }, (_, i) => ({ id: String(i), role: 'agent' as const, kind: 'text' as const, text: `m${i}` }));
     render(<Transcript frames={frames} showJumpToLatest />);
@@ -571,96 +519,19 @@ describe('Transcript container', () => {
     expect(screen.getByRole('button', { name: /latest/i }).className).toMatch(/bg-raised/);
   });
 
-  it('renders the sticky user header as a clickable button with the composer surface', () => {
-    const grouped: TranscriptFrame[] = [
-      { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
-      { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
-      { id: 'u2', role: 'you', kind: 'text', text: 'second prompt' },
-      { id: 'a2', role: 'agent', kind: 'text', text: 'reply two' },
-    ];
-    render(<Transcript frames={grouped} />);
-    const header = screen.getByRole('button', { name: /second prompt/ });
-    expect(header.className).toMatch(/bg-raised/);
-  });
-
-  it('renders the sticky user header as a compact single-line bar with the full text on hover', () => {
-    const long = 'a very long user prompt that must stay on one line in the sticky header';
-    const grouped: TranscriptFrame[] = [
-      { id: 'u1', role: 'you', kind: 'text', text: long },
-      { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
-    ];
-    render(<Transcript frames={grouped} />);
-    const header = screen.getByRole('button', { name: new RegExp(long.slice(0, 12)) });
-    // Compact + uniform: a single truncated line (so GroupedVirtuoso pushes headers cleanly),
-    // with the full prompt available on hover.
-    expect(header.querySelector('.truncate')).not.toBeNull();
-    expect(header).toHaveAttribute('title', long);
-  });
-
-  it('breaks the spine at the user turn (no dot or connector line on the header)', () => {
+  it('breaks the spine at the user turn (no connector line on the row)', () => {
     const grouped: TranscriptFrame[] = [
       { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
       { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
     ];
-    render(<Transcript frames={grouped} />);
-    // The user turn is set apart from the spine: its header row carries neither a dot nor a
-    // connector line, so the timeline breaks before/after it (adjacent agent dots bookend).
-    const header = screen.getByRole('button', { name: /first prompt/ });
-    const headerRow = header.closest('.gap-2');
-    expect(headerRow).not.toBeNull();
-    expect(headerRow?.querySelector('[data-dot]')).toBeNull();
-    expect(headerRow?.querySelector('[data-spine-line]')).toBeNull();
-  });
-
-  it('starts a smooth scroll when the sticky header is clicked', async () => {
-    startSmoothScrollSpy.mockClear();
-    const grouped: TranscriptFrame[] = [
-      { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
-      { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
-      { id: 'a1b', role: 'agent', kind: 'text', text: 'reply one b' },
-      { id: 'u2', role: 'you', kind: 'text', text: 'second prompt' },
-      { id: 'a2', role: 'agent', kind: 'text', text: 'reply two' },
-    ];
-    render(<Transcript frames={grouped} />);
-    await userEvent.click(screen.getByRole('button', { name: /second prompt/ }));
-    // The scroll target is resolved lazily off the DOM inside the lerp, so here we only
-    // assert the lerp was kicked off (with a scroller + a resolver); the easing/cancel
-    // behaviour is covered directly in smoothScroll.test.ts.
-    expect(startSmoothScrollSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('starts a smooth scroll to the bottom when jump-to-latest is clicked', async () => {
-    startSmoothScrollSpy.mockClear();
-    const frames = Array.from({ length: 30 }, (_, i) => ({
-      id: String(i),
-      role: 'agent' as const,
-      kind: 'text' as const,
-      text: `m${i}`,
-    }));
-    render(<Transcript frames={frames} showJumpToLatest />);
-    await userEvent.click(screen.getByRole('button', { name: /latest/i }));
-    expect(startSmoothScrollSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('flashes the landed row after the header scrolls, then clears after the timeout', () => {
-    vi.useFakeTimers();
-    try {
-      const grouped: TranscriptFrame[] = [
-        { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
-        { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
-        { id: 'u2', role: 'you', kind: 'text', text: 'second prompt' },
-        { id: 'a2', role: 'agent', kind: 'text', text: 'reply two' },
-      ];
-      const { container } = render(<Transcript frames={grouped} />);
-      fireEvent.click(screen.getByRole('button', { name: /second prompt/ }));
-      expect(container.querySelector('[data-flash="true"]')).not.toBeNull();
-      act(() => {
-        vi.advanceTimersByTime(1200);
-      });
-      expect(container.querySelector('[data-flash="true"]')).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
+    const { container } = render(<Transcript frames={grouped} />);
+    // The user turn is set apart from the spine: its own row carries no connector line
+    // (RowShell's isUser check), so the timeline breaks around it (a run reads continuous
+    // between user turns without any group math).
+    const userRole = container.querySelector('[data-role="you"]');
+    const userRow = userRole?.closest('.gap-2');
+    expect(userRow).not.toBeNull();
+    expect(userRow?.querySelector('[data-spine-line]')).toBeNull();
   });
 
   it('renders the working footer while busy', () => {
@@ -671,6 +542,28 @@ describe('Transcript container', () => {
   it('renders no footer when not busy', () => {
     render(<Transcript frames={frames} />);
     expect(screen.queryByText(/working…/i)).not.toBeInTheDocument();
+  });
+
+  it('re-pins to bottom when jumpNonce changes', () => {
+    const { rerender } = render(<Transcript frames={frames} jumpNonce={0} showJumpToLatest />);
+    // showJumpToLatest forces the button on; after a jumpNonce bump the component pins.
+    scrollIntoViewSpy.mockClear();
+    rerender(<Transcript frames={frames} jumpNonce={1} />);
+    // Not directly observable in jsdom; assert the sentinel scrollIntoView was called.
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
+  });
+
+  it('renders a "previous prompt" control that jumps to the nearest user row above', async () => {
+    const grouped: TranscriptFrame[] = [
+      { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
+      { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
+      { id: 'u2', role: 'you', kind: 'text', text: 'second prompt' },
+      { id: 'a2', role: 'agent', kind: 'text', text: 'reply two' },
+    ];
+    render(<Transcript frames={grouped} />);
+    scrollIntoViewSpy.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: /previous prompt/i }));
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
   });
 });
 

@@ -1,13 +1,12 @@
-import { ChevronRight, Circle, CircleCheck, CircleDot } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { GroupedVirtuoso } from 'react-virtuoso';
+import { ArrowUp, ChevronRight, Circle, CircleCheck, CircleDot } from 'lucide-react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../actions/Button.js';
+import { IconButton } from '../actions/IconButton.js';
 import { Code } from '../data/Code.js';
 import { DenyNotice } from '../feedback/DenyNotice.js';
 import { Spinner } from '../feedback/Spinner.js';
-import { groupByUserTurn } from './group.js';
 import { Markdown } from './Markdown.js';
-import { startSmoothScroll } from './smoothScroll.js';
+import { nearBottom, previousPromptIndex } from './scrollState.js';
 import { cx } from '../lib/cx.js';
 
 export type TranscriptRole = 'you' | 'agent' | 'subagent';
@@ -100,7 +99,10 @@ export type RespondFn = (requestId: string, decision: 'approve' | 'deny') => voi
 export interface TranscriptProps {
   frames: TranscriptFrame[];
   /** Fired when an inline approval card is actioned. Surfacing only — the console
-   *  never denies; the daemon owns the real decision (SC-1). */
+   *  never denies; the daemon owns the real decision (SC-1). MUST be referentially
+   *  stable across renders (e.g. a stable action ref, not an inline arrow) — `MemoRow`
+   *  is a `React.memo` keyed on prop identity, so an unstable `onRespond` would
+   *  re-render every row on every streamed frame, defeating that memoization. */
   onRespond?: RespondFn | undefined;
   label?: string | undefined;
   className?: string | undefined;
@@ -113,6 +115,9 @@ export interface TranscriptProps {
   busy?: boolean | undefined;
   /** Epoch ms the current run started, for the footer's live elapsed counter. */
   busySince?: number | undefined;
+  /** Bump (change value) to force a re-pin to bottom even if the user has scrolled
+   *  up — e.g. on sending a new message, so the new turn snaps into view. */
+  jumpNonce?: number | undefined;
 }
 
 /** Known file-touching tools whose input JSON carries a reviewable path. Tool names
@@ -323,10 +328,10 @@ function RowShell({
   );
 }
 
-/** Renders a single frame by kind. Exported so it is unit-testable without the
- *  virtualized container (which needs measured heights jsdom does not provide).
- *  `spineTop`/`spineBottom` (from the container's {@link itemSpine}) trim the connector
- *  at a run's first/last row; standalone renders default to a full through-line. */
+/** Renders a single frame by kind. Exported so it is unit-testable independent of the
+ *  container. `spineTop`/`spineBottom` default to a full through-line — the spine breaks
+ *  only at user rows, via {@link RowShell}'s own `isUser` check, so a run reads continuous
+ *  between user turns without any group math. */
 export function TranscriptRow({
   frame,
   onRespond,
@@ -511,7 +516,7 @@ export function TranscriptRow({
  *  unseen handle) passes through unchanged — defensive, shouldn't happen live. Every
  *  other kind (including `raw`, so raw mode stays verbatim) passes through in
  *  original order. Pure and exported for unit testing; the container calls this
- *  before grouping. */
+ *  once per `frames` change. */
 export function foldToolFrames(frames: TranscriptFrame[]): TranscriptFrame[] {
   const folded: TranscriptFrame[] = [];
   const indexByHandle = new Map<string, number>();
@@ -546,39 +551,6 @@ export function foldToolFrames(frames: TranscriptFrame[]): TranscriptFrame[] {
   return folded;
 }
 
-/** The item index (into the flattened `items` array) of a group's first row: the sum
- *  of every preceding group's count. Pure so the sticky header's scroll target is
- *  unit-testable without a virtualized container. Out-of-range indices (e.g. the
- *  leading headerless group has no "previous" group) fall back to `0`. Exported for
- *  unit testing. */
-export function groupItemStart(counts: number[], groupIndex: number): number {
-  if (groupIndex <= 0) return 0;
-  let start = 0;
-  for (let i = 0; i < groupIndex && i < counts.length; i++) {
-    start += counts[i] ?? 0;
-  }
-  return start;
-}
-
-/** Whether a flattened item row extends the spine up (`top`) and down (`bottom`), from
- *  its position within its group (one agent run between user turns). A run's first row
- *  drops `top` and its last row drops `bottom`, so the connector ends exactly at the run's
- *  end dots. Out-of-range indices default to a full through-line. Pure, exported for tests. */
-export function itemSpine(counts: number[], index: number): { top: boolean; bottom: boolean } {
-  let start = 0;
-  for (const count of counts) {
-    if (index < start + count) {
-      return { top: index !== start, bottom: index !== start + count - 1 };
-    }
-    start += count;
-  }
-  return { top: true, bottom: true };
-}
-
-/** How long the landed row stays flagged `data-flash` after a header-click scroll.
- *  Long enough to register as a deliberate highlight, short enough to feel transient. */
-const FLASH_MS = 1000;
-
 /** Pure: seconds elapsed since `sinceMs`, formatted for the working footer's counter.
  *  Mirrors `ChatPanel`'s `formatElapsed` (kept local — console-ui does not depend on
  *  the desktop app). */
@@ -609,9 +581,34 @@ export function WorkingFooter({ busySince }: { busySince?: number | undefined })
   );
 }
 
-/** A virtualized turn stream (react-virtuoso), grouped by prompt so the nearest user
- *  message stays visible as a sticky header. Empty is the panel's concern (it owns
- *  the EmptyState), so an empty stream renders nothing here. */
+/** Memoized so a streamed frame re-renders only the appended row, and `content-visibility`
+ *  lets the browser skip layout/paint for off-screen rows while keeping them in the DOM
+ *  (full-transcript selection + Ctrl-F). `contain-intrinsic-size` is a height estimate that
+ *  prevents scrollbar jump; tuned to a typical row. */
+const MemoRow = memo(function MemoRow({
+  frame,
+  onRespond,
+  index,
+}: {
+  frame: TranscriptFrame;
+  onRespond?: RespondFn | undefined;
+  index: number;
+}): React.JSX.Element {
+  return (
+    <div
+      data-row-index={index}
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties}
+    >
+      <TranscriptRow frame={frame} onRespond={onRespond} />
+    </div>
+  );
+});
+
+/** A non-virtualized turn stream: every frame renders to the DOM (no windowing), so
+ *  selection and Ctrl-F work across the full transcript; `content-visibility: auto` on
+ *  each row keeps off-screen rows out of layout/paint without unmounting them. Native
+ *  scroll + a bottom sentinel drive stick-to-bottom. Empty is the panel's concern (it
+ *  owns the EmptyState), so an empty stream renders nothing here. */
 export function Transcript({
   frames,
   onRespond,
@@ -620,138 +617,95 @@ export function Transcript({
   showJumpToLatest,
   busy,
   busySince,
+  jumpNonce,
 }: TranscriptProps): React.JSX.Element | null {
-  const [atBottom, setAtBottom] = useState(true);
-  const [flashId, setFlashId] = useState<string | undefined>(undefined);
-  const flashTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // The live scroller DOM node (captured via Virtuoso's `scrollerRef`) and the cancel
-  // handle for any in-flight lerp, so a new scroll or an unmount stops the old one.
-  const scroller = useRef<HTMLElement | null>(null);
-  const cancelScroll = useRef<(() => void) | undefined>(undefined);
+  const scroller = useRef<HTMLDivElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const [pinned, setPinned] = useState(true);
 
-  const smoothScrollTo = (resolveTarget: () => number | undefined): void => {
-    cancelScroll.current?.();
-    if (scroller.current === null) return;
-    cancelScroll.current = startSmoothScroll(scroller.current, resolveTarget);
+  // Folded once per frames change (was recomputed every render).
+  const items = useMemo(() => foldToolFrames(frames), [frames]);
+
+  // Stick-to-bottom: while pinned and content grows, keep the sentinel in view. A
+  // ResizeObserver on the content fires on every appended/streamed row.
+  useLayoutEffect(() => {
+    if (!pinned) return;
+    sentinel.current?.scrollIntoView({ block: 'end' });
+  });
+
+  // Snap-to-sent: a bump of jumpNonce (e.g. on send) force-pins to bottom even if the
+  // user had scrolled up, so their new turn snaps into view. Skipped on mount
+  // (jumpNonce === undefined) — only a change fires it.
+  useLayoutEffect(() => {
+    if (jumpNonce === undefined) return;
+    setPinned(true);
+    sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [jumpNonce]);
+
+  const onScroll = (): void => {
+    const el = scroller.current;
+    if (el === null) return;
+    setPinned(nearBottom(el.scrollTop, el.clientHeight, el.scrollHeight));
   };
 
-  useEffect(() => {
-    return () => {
-      if (flashTimeout.current !== undefined) clearTimeout(flashTimeout.current);
-      cancelScroll.current?.();
-    };
-  }, []);
+  const jumpToLatest = (): void => {
+    setPinned(true);
+    sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  };
 
-  // The footer slot is ALWAYS registered (a stable, memoized component) and renders the
-  // working row only while `busy` — so when a run finishes the slot flips to `null`,
-  // unmounting `WorkingFooter` (which stops its interval and resets the elapsed clock for
-  // the next run). Conditionally *omitting* `components` instead leaves Virtuoso showing
-  // the last footer, which is why it never stopped.
-  const footerComponents = useMemo(
-    () => ({
-      Footer: (): React.JSX.Element | null =>
-        busy === true ? <WorkingFooter busySince={busySince} /> : null,
-    }),
-    [busy, busySince],
-  );
-
-  if (frames.length === 0) return null;
-  const { counts, headers, items } = groupByUserTurn(foldToolFrames(frames));
-
-  const jumpToHeader = (groupIndex: number, frameId: string): void => {
-    // Ease to the group's first row, measured live off the DOM each frame so the target
-    // stays accurate as rows mount; the sticky header height is subtracted so the row
-    // lands just below it (not hidden behind it). The lerp cancels the moment the user
-    // scrolls and stops when close enough — so it lands and stays instead of fighting.
-    const itemIndex = groupItemStart(counts, groupIndex);
-    smoothScrollTo(() => {
-      const el = scroller.current;
-      if (el === null) return undefined;
-      const item = el.querySelector(`[data-item-index="${itemIndex}"]`);
-      if (!(item instanceof HTMLElement)) return undefined;
-      const sticky = el.querySelector('[data-sticky-header]');
-      const stickyHeight = sticky instanceof HTMLElement ? sticky.offsetHeight : 0;
-      const offset = item.getBoundingClientRect().top - el.getBoundingClientRect().top;
-      return Math.max(0, el.scrollTop + offset - stickyHeight);
+  /** Scrolls to the nearest user row above the viewport top ("↑ previous prompt").
+   *  The topmost row whose offset is at/above the current scrollTop approximates the
+   *  first fully-visible row; previousPromptIndex walks up from there to the nearest
+   *  user turn. */
+  const jumpToPrompt = (): void => {
+    const el = scroller.current;
+    if (el === null) return;
+    const rows = el.querySelectorAll('[data-row-index]');
+    let top = 0;
+    rows.forEach((r) => {
+      if (r instanceof HTMLElement && r.offsetTop <= el.scrollTop + 4) top = Number(r.dataset['rowIndex']);
     });
-    if (flashTimeout.current !== undefined) clearTimeout(flashTimeout.current);
-    setFlashId(frameId);
-    flashTimeout.current = setTimeout(() => setFlashId(undefined), FLASH_MS);
+    const target = previousPromptIndex(items, top);
+    if (target === undefined) return;
+    const el2 = el.querySelector(`[data-row-index="${target}"]`);
+    if (el2 instanceof HTMLElement) el2.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setPinned(false);
   };
+
+  if (items.length === 0) return null;
+  const showJump = showJumpToLatest ?? !pinned;
 
   return (
-    <div role="log" aria-label={label} className={cx('relative h-full min-h-0', className)}>
-      <GroupedVirtuoso
-        scrollerRef={(el) => {
-          scroller.current = el instanceof HTMLElement ? el : null;
-        }}
-        groupCounts={counts}
-        // Only stick to the bottom while a turn is streaming (`busy`) AND the user is
-        // already at the bottom. When idle we never auto-scroll, so clicking jump-to-latest
-        // or a sticky header lands you there and STAYS — no re-pin fighting a manual scroll.
-        followOutput={busy === true ? (isAtBottom) => (isAtBottom ? 'auto' : false) : false}
-        atBottomStateChange={setAtBottom}
-        groupContent={(index) => {
-          const header = headers[index];
-          if (header === undefined || header.kind !== 'text') return <div className="h-0" />;
-          const isFlashed = flashId !== undefined && flashId === header.id;
-          // The sticky header is a COMPACT, single-line bar of uniform height. GroupedVirtuoso
-          // only pushes one sticky header cleanly out of frame with the next when headers are
-          // short and uniform — tall/variable/multiline headers overlap instead (a documented
-          // react-virtuoso limitation). The full prompt is available on hover (`title`). The
-          // user turn is NOT on the spine: the line breaks before/after it (agent dots bookend),
-          // and the solid backing (matching the Pane) fully hides the outgoing header on push.
-          return (
-            <div
-              data-sticky-header
-              className="flex gap-2 border-b border-hairline bg-surface px-2 py-2"
-            >
-              <div aria-hidden className="w-4 shrink-0" />
-              <button
-                type="button"
-                onClick={() => jumpToHeader(index, header.id)}
-                title={header.text}
-                data-flash={isFlashed}
-                className={cx(
-                  'min-w-0 flex-1 cursor-pointer rounded-surface border border-hairline bg-raised px-2 py-1.5 text-left hover:bg-element',
-                  isFlashed && 'bg-info-tint ring-1 ring-inset ring-info/40',
-                )}
-              >
-                <div className="truncate text-label text-fg">{header.text}</div>
-              </button>
-            </div>
-          );
-        }}
-        itemContent={(index) => {
-          const spine = itemSpine(counts, index);
-          const item = items[index];
-          return item === undefined ? null : (
-            <TranscriptRow
-              frame={item}
-              onRespond={onRespond}
-              spineTop={spine.top}
-              spineBottom={spine.bottom}
-            />
-          );
-        }}
-        computeItemKey={(index) => items[index]?.id ?? index}
-        components={footerComponents}
-      />
-      {(showJumpToLatest ?? !atBottom) && (
+    <div className={cx('relative h-full min-h-0', className)}>
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        role="log"
+        aria-label={label}
+        // Native scroll; content capped to a readable measure and centered (§5.2).
+        className="h-full overflow-y-auto"
+      >
+        <div className="mx-auto flex max-w-180 flex-col">
+          {items.map((item, index) => (
+            <MemoRow key={item.id} frame={item} onRespond={onRespond} index={index} />
+          ))}
+          {busy === true && <WorkingFooter busySince={busySince} />}
+          <div ref={sentinel} aria-hidden className="h-0" />
+        </div>
+      </div>
+      <div className="pointer-events-none absolute right-2 top-2 z-10">
+        <IconButton
+          icon={ArrowUp}
+          label="Previous prompt"
+          variant="secondary"
+          size="sm"
+          className="pointer-events-auto bg-raised"
+          onClick={jumpToPrompt}
+        />
+      </div>
+      {showJump && (
         <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="pointer-events-auto bg-raised"
-            // Ease to the true bottom, recomputed each frame so it tracks a list that is
-            // still growing; cancels on any manual scroll and stops when close enough.
-            onClick={() =>
-              smoothScrollTo(() => {
-                const el = scroller.current;
-                return el === null ? undefined : Math.max(0, el.scrollHeight - el.clientHeight);
-              })
-            }
-          >
+          <Button variant="secondary" size="sm" className="pointer-events-auto bg-raised" onClick={jumpToLatest}>
             Jump to latest
           </Button>
         </div>

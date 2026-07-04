@@ -73,6 +73,10 @@ export type ChatVm =
       sessionStatus: 'idle' | 'running';
       /** Epoch ms the in-flight send started; set only while `sessionStatus === 'running'`. */
       runningSince?: number;
+      /** Bumped on every send for the active session — passed through as the
+       *  transcript's `jumpNonce` so sending snaps the view to the new turn even after
+       *  a manual scroll-up. */
+      sendNonce: number;
     };
 
 /** Map a daemon turn frame to its governed transcript frame. Approvals/denies pass
@@ -343,6 +347,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     },
     sessionStatus: active ? 'running' : 'idle',
     ...(active ? { runningSince: active.since } : {}),
+    sendNonce: activeSessionId !== undefined ? (state.ui.sendNonce[activeSessionId] ?? 0) : 0,
   };
 }
 
@@ -519,6 +524,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
                 label="Conversation"
                 busy={vm.sessionStatus === 'running'}
                 busySince={vm.runningSince}
+                jumpNonce={vm.sendNonce}
               />
             )}
           </div>

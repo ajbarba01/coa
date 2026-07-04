@@ -73,6 +73,9 @@ export interface ConsoleUi {
    *  clear it. Turn frames no longer touch it — clearing on every push was the bug that
    *  flipped the pill back to idle on the first streamed frame. */
   runStatus: Record<string, { since: number }>;
+  /** Bumped per session on every `sendMessage` — drives the transcript's snap-to-sent
+   *  (`jumpNonce`), so a send re-pins the view to bottom even after a manual scroll-up. */
+  sendNonce: Record<string, number>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -137,6 +140,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       modelOverride: {},
       dismissedDrift: {},
       runStatus: {},
+      sendNonce: {},
     },
     actions,
   };
