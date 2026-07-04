@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
 import type { ChangeEventDraft } from '../event.js';
 import { createSsotConstraintProducer } from '../context/ssot-constraint.js';
-import { createDaemonCore, type DaemonCoreHandle } from './daemon.js';
+import { createDaemonCore, gitignoreToIgnoreGlobs, listFilesFor, type DaemonCoreHandle } from './daemon.js';
 
 const GOLDEN_GOOD = '__stub_good__';
 const GOLDEN_BAD = '__stub_bad__';
@@ -258,5 +258,60 @@ describe('createDaemonCore', () => {
     const getSymbol = handle.core.catalogue.find((t) => t.name === 'get_symbol');
     const res = await getSymbol!.invoke({ ref: { name: 'parseConfig' } });
     expect(res.result).toEqual({ found: true, symbol: record });
+  });
+});
+
+describe('gitignoreToIgnoreGlobs', () => {
+  it('drops comments and blank lines', () => {
+    expect(gitignoreToIgnoreGlobs(['# a comment', '', '   '])).toEqual([]);
+  });
+
+  it('translates a bare directory name to a recursive ignore', () => {
+    expect(gitignoreToIgnoreGlobs(['node_modules'])).toEqual(['**/node_modules/**']);
+  });
+
+  it('translates a trailing-slash directory name to a recursive ignore', () => {
+    expect(gitignoreToIgnoreGlobs(['dist/'])).toEqual(['**/dist/**']);
+  });
+
+  it('translates a leading-slash (root-anchored) entry to a root-relative glob', () => {
+    expect(gitignoreToIgnoreGlobs(['/build'])).toEqual(['build/**']);
+  });
+
+  it('leaves an extension-style pattern as-is', () => {
+    expect(gitignoreToIgnoreGlobs(['*.log'])).toEqual(['*.log']);
+  });
+});
+
+describe('listFilesFor', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'coa-listfiles-'));
+    mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'pkg', 'index.js'), '');
+    mkdirSync(join(root, '.git'), { recursive: true });
+    writeFileSync(join(root, '.git', 'HEAD'), '');
+    writeFileSync(join(root, 'a.ts'), '');
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('always excludes node_modules and .git even with no .gitignore', () => {
+    const matches = listFilesFor('**/*', root);
+    expect(matches.some((m) => m.includes('node_modules'))).toBe(false);
+    expect(matches.some((m) => m.includes('.git'))).toBe(false);
+    expect(matches.some((m) => m.endsWith('a.ts'))).toBe(true);
+  });
+
+  it('also excludes paths matched by the worktree .gitignore', () => {
+    writeFileSync(join(root, '.gitignore'), 'dist\n');
+    mkdirSync(join(root, 'dist'), { recursive: true });
+    writeFileSync(join(root, 'dist', 'out.js'), '');
+    const matches = listFilesFor('**/*', root);
+    expect(matches.some((m) => m.includes('dist'))).toBe(false);
+    expect(matches.some((m) => m.endsWith('a.ts'))).toBe(true);
   });
 });

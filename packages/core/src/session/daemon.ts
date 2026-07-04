@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { rgPath } from '@vscode/ripgrep';
 import { globSync } from 'tinyglobby';
@@ -237,6 +238,60 @@ function governedToolDeps(
  * non-zero exit rather than throwing (SC-1). Mirrors `governedToolDeps` — same
  * kernel, same forward-slash-normalized worktree root.
  */
+/** Always-ignored noise, regardless of the worktree's `.gitignore` (S-1-adjacent: keeps tool results sane). */
+const ALWAYS_IGNORE_GLOBS: readonly string[] = ['**/node_modules/**', '**/.git/**'];
+
+/**
+ * Translate `.gitignore` lines into `tinyglobby` `ignore` globs. A reasonable, not
+ * exhaustive, translation: comments (`#…`) and blank lines are dropped; a
+ * leading-slash (root-anchored) entry becomes a root-relative glob; a bare or
+ * trailing-slash directory name becomes a recursive "anywhere under a dir named
+ * this" ignore; anything else (e.g. `*.log`) passes through unchanged. Never throws.
+ */
+export function gitignoreToIgnoreGlobs(lines: readonly string[]): string[] {
+  const globs: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.length === 0 || line.startsWith('#')) continue;
+    if (line.startsWith('/')) {
+      const rest = line.slice(1).replace(/\/$/, '');
+      globs.push(`${rest}/**`);
+      continue;
+    }
+    if (line.endsWith('/')) {
+      globs.push(`**/${line.slice(0, -1)}/**`);
+      continue;
+    }
+    if (!line.includes('/') && !line.includes('*') && !line.includes('.')) {
+      // A bare name with no extension-like dot or glob char: treat as a directory name.
+      globs.push(`**/${line}/**`);
+      continue;
+    }
+    globs.push(line);
+  }
+  return globs;
+}
+
+/** Read `<worktreeRoot>/.gitignore` (if present) and merge it with the always-ignore set. Never throws. */
+function ignoreGlobsFor(worktreeRoot: string): string[] {
+  try {
+    const text = readFileSync(join(worktreeRoot, '.gitignore'), 'utf8');
+    return [...ALWAYS_IGNORE_GLOBS, ...gitignoreToIgnoreGlobs(text.split('\n'))];
+  } catch {
+    return [...ALWAYS_IGNORE_GLOBS];
+  }
+}
+
+/**
+ * The `listFiles` port body: glob under `baseAbsolute`, excluding node_modules/.git
+ * plus anything the worktree's `.gitignore` names. Exported for focused unit
+ * testing without a full `baseToolDeps`/kernel setup.
+ */
+export function listFilesFor(pattern: string, baseAbsolute: string, worktreeRoot?: string): string[] {
+  const ignore = ignoreGlobsFor(worktreeRoot ?? baseAbsolute);
+  return globSync(pattern, { cwd: baseAbsolute, absolute: true, dot: false, ignore });
+}
+
 function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
   const worktreeRoot = root.replace(/\\/g, '/');
   return {
@@ -245,8 +300,7 @@ function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
     readFile: (absolutePath) => readFileSync(absolutePath, 'utf8'),
     writeFile: (absolutePath, bytes) => writeFileSync(absolutePath, bytes),
     fileExists: (absolutePath) => existsSync(absolutePath),
-    listFiles: (pattern, baseAbsolute) =>
-      globSync(pattern, { cwd: baseAbsolute, absolute: true, dot: false }),
+    listFiles: (pattern, baseAbsolute) => listFilesFor(pattern, baseAbsolute, worktreeRoot),
     searchFiles: ({ pattern, baseAbsolute, glob, mode }) => {
       const args = [
         mode === 'files' ? '--files-with-matches' : '--line-number',

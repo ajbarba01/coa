@@ -3,7 +3,7 @@ import type { TurnFrame } from '@coa/shared';
 import type { RegisteredTool, ToolCatalogue } from '@coa/spi';
 import type { CompletionResult } from './complete.js';
 import type { DriverMessage } from './complete.js';
-import { runGovernedLoop, toToolDefs, type GovernedLoopDeps } from './driver.js';
+import { runGovernedLoop, toToolDefs, TOOL_RESULT_CHAR_CAP, type GovernedLoopDeps } from './driver.js';
 
 const USAGE = { tokensIn: 10, tokensOut: 5, costUsd: 0.5 };
 
@@ -191,6 +191,43 @@ describe('runGovernedLoop', () => {
       { role: 'tool', toolCallId: 'c1', content: JSON.stringify({ ok: true, args: { name: 'pay' } }) },
       { role: 'assistant', content: 'the answer' },
     ]);
+  });
+
+  it('caps an oversized tool result before it enters the conversation (history-poison backstop)', async () => {
+    const result = { blob: 'x'.repeat(TOOL_RESULT_CHAR_CAP * 4) };
+    const fullLen = JSON.stringify(result).length;
+    const invoke = vi.fn(async () => ({ result, handle: 'raw', pointer: 'P' }));
+    const onMessages = vi.fn();
+    const complete = scriptedComplete([
+      { text: '', toolCalls: [{ id: 'c1', name: 'big', arguments: {} }], usage: USAGE },
+      text('done'),
+    ]);
+
+    await runGovernedLoop(
+      deps({ catalogue: [tool('big', invoke)], complete: complete.fn, onMessages }),
+    );
+
+    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find((m) => m.role === 'tool')!;
+    // The verbatim raw store still holds the full result; only what enters the resent
+    // transcript is bounded, with a marker telling the model how much was truncated.
+    expect(toolMsg.content.length).toBeLessThan(TOOL_RESULT_CHAR_CAP + 200);
+    expect(toolMsg.content).toContain(`truncated by coa: showing ${TOOL_RESULT_CHAR_CAP} of ${fullLen} chars`);
+  });
+
+  it('leaves a small tool result untouched', async () => {
+    const invoke = vi.fn(async () => ({ result: { ok: true }, handle: 'raw', pointer: 'P' }));
+    const onMessages = vi.fn();
+    const complete = scriptedComplete([
+      { text: '', toolCalls: [{ id: 'c1', name: 'small', arguments: {} }], usage: USAGE },
+      text('done'),
+    ]);
+
+    await runGovernedLoop(
+      deps({ catalogue: [tool('small', invoke)], complete: complete.fn, onMessages }),
+    );
+
+    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find((m) => m.role === 'tool')!;
+    expect(toolMsg.content).toBe(JSON.stringify({ ok: true }));
   });
 
   it('is bounded by maxIterations when the model never stops, still settling', async () => {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+﻿import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { ulid } from 'ulid';
 import { z } from 'zod';
@@ -67,6 +67,22 @@ export type GlobResult = { matches: readonly string[] };
 export type GrepHit = { file: string; line?: number; text?: string };
 export type GrepResult = { hits: readonly GrepHit[] };
 
+/**
+ * Read caps (Claude-Code parity). Without these the pure-API `Read` returns the whole
+ * file, and since the loop resends full history every turn one fat read poisons every
+ * later turn. Defaults: at most {@link DEFAULT_READ_LINE_LIMIT} lines when the model
+ * gives no `limit`, each line truncated to {@link MAX_LINE_LENGTH} chars.
+ */
+export const DEFAULT_READ_LINE_LIMIT = 2000;
+export const MAX_LINE_LENGTH = 2000;
+
+/** A NUL byte in the head is the standard "this is binary, don't display it" heuristic (git/Claude Code). */
+function isBinary(text: string): boolean {
+  const head = Math.min(text.length, 8000);
+  for (let i = 0; i < head; i += 1) if (text.charCodeAt(i) === 0) return true;
+  return false;
+}
+
 /** `Read` — confined file read, returned as `cat -n`-style numbered lines. */
 export function readFileTool(
   req: { path: string; offset?: number | undefined; limit?: number | undefined },
@@ -80,10 +96,17 @@ export function readFileTool(
   } catch {
     return wrap({ found: false, reason: 'not-found' }, 'read:miss', req.path);
   }
+  if (isBinary(text)) {
+    const bytes = Buffer.byteLength(text, 'utf8');
+    return wrap({ found: true, content: `[coa: binary file (${bytes} bytes), not displayed]` }, `read:${req.path}`, req.path);
+  }
   return wrap({ found: true, content: numberLines(text, req.offset, req.limit) }, `read:${req.path}`, req.path);
 }
 
-/** `Glob` — confined glob; returns worktree-relative matches. */
+/** Hard ceiling on `Glob` matches returned to the model (a huge repo can still blow past ignores). */
+export const GLOB_MATCH_CAP = 1000;
+
+/** `Glob` — confined glob; returns worktree-relative matches, capped at {@link GLOB_MATCH_CAP}. */
 export function glob(
   req: { pattern: string; path?: string | undefined },
   deps: BaseToolDeps,
@@ -91,11 +114,17 @@ export function glob(
   const base = req.path ?? '.';
   const confined = confine(base, deps);
   if (!confined.ok) return wrap({ matches: [] }, 'glob:rejected', base);
-  const matches = deps.listFiles(req.pattern, confined.path).map((abs) => toRel(deps.worktreeRoot, abs));
+  const matches = deps
+    .listFiles(req.pattern, confined.path)
+    .map((abs) => toRel(deps.worktreeRoot, abs))
+    .slice(0, GLOB_MATCH_CAP);
   return wrap({ matches }, `glob:${req.pattern}`, req.pattern);
 }
 
-/** `Grep` — confined ripgrep search; returns worktree-relative hits. */
+/** Hard ceiling on `Grep` hits returned to the model — mirrors {@link GLOB_MATCH_CAP} (a broad pattern still explodes). */
+export const GREP_HIT_CAP = 1000;
+
+/** `Grep` — confined ripgrep search; returns worktree-relative hits, capped at {@link GREP_HIT_CAP}. */
 export function grep(
   req: {
     pattern: string;
@@ -115,6 +144,7 @@ export function grep(
       ...(req.glob ? { glob: req.glob } : {}),
       mode: req.output_mode === 'files_with_matches' ? 'files' : 'content',
     })
+    .slice(0, GREP_HIT_CAP)
     .map((hit) => ({ ...hit, file: toRel(deps.worktreeRoot, hit.file) }));
   return wrap({ hits }, `grep:${req.pattern}`, req.pattern);
 }
@@ -135,17 +165,31 @@ export function toRel(root: string, absolute: string): string {
   return path.posix.relative(root, absolute);
 }
 
-/** `cat -n`-style numbering with an optional 1-based `offset` start line and `limit`. */
+/** Truncate a single line to {@link MAX_LINE_LENGTH}, marking the cut (parity with Claude Code's Read). */
+function truncateLine(line: string): string {
+  if (line.length <= MAX_LINE_LENGTH) return line;
+  return `${line.slice(0, MAX_LINE_LENGTH)}… [line truncated by coa]`;
+}
+
+/**
+ * `cat -n`-style numbering with an optional 1-based `offset` start line and `limit`.
+ * An absent/zero `limit` caps at {@link DEFAULT_READ_LINE_LIMIT} rather than the whole
+ * file, and when that default cap hides trailing lines a footer tells the model to page.
+ */
 export function numberLines(text: string, offset?: number, limit?: number): string {
   const lines = text.split('\n');
   // A trailing newline yields a final empty element; drop it so counts match `wc -l + 1`.
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   const start = offset && offset > 0 ? offset - 1 : 0;
-  const end = limit && limit > 0 ? start + limit : lines.length;
-  return lines
-    .slice(start, end)
-    .map((line, i) => `${start + i + 1}\t${line}`)
-    .join('\n');
+  const explicit = limit !== undefined && limit > 0;
+  const end = start + (explicit ? limit : DEFAULT_READ_LINE_LIMIT);
+  const window = lines.slice(start, end);
+  const numbered = window.map((line, i) => `${start + i + 1}\t${truncateLine(line)}`).join('\n');
+  // Only warn when our own default cap hid lines — an explicit page knows it is paging.
+  if (!explicit && lines.length > end) {
+    return `${numbered}\n[truncated by coa: showing ${window.length} of ${lines.length} lines — pass offset to page]`;
+  }
+  return numbered;
 }
 
 /** Build a distilled-handle tool return (grounding/flags are added by the enrich decorator). */
@@ -244,15 +288,35 @@ function emitFileChange(
  * maintainer-authorized S-2 deviation, at parity with Claude Code's shell). The
  * exec port never throws — a spawn failure comes back as a non-zero exitCode.
  */
+/**
+ * Bash caps (Claude-Code parity). The pure-API shell has no SDK guard, so left
+ * unbounded a `yes`-style command floods the transcript and a runaway command hangs
+ * the loop. Each output stream is truncated to {@link BASH_OUTPUT_CAP} chars, and an
+ * absent `timeout` defaults to {@link DEFAULT_BASH_TIMEOUT_MS} so nothing runs forever.
+ */
+export const BASH_OUTPUT_CAP = 30000;
+export const DEFAULT_BASH_TIMEOUT_MS = 120000;
+
+/** Bound one output stream, marking the cut so the model knows more was produced. */
+function capOutput(stream: string): string {
+  if (stream.length <= BASH_OUTPUT_CAP) return stream;
+  return `${stream.slice(0, BASH_OUTPUT_CAP)}\n[truncated by coa: showing ${BASH_OUTPUT_CAP} of ${stream.length} chars]`;
+}
+
 export function bash(
   req: { command: string; timeout?: number | undefined; description?: string | undefined },
   deps: BaseToolDeps,
 ): ToolResponse<ExecResult> {
   const result = deps.exec(req.command, {
     cwd: deps.worktreeRoot,
-    ...(req.timeout !== undefined ? { timeoutMs: req.timeout } : {}),
+    timeoutMs: req.timeout ?? DEFAULT_BASH_TIMEOUT_MS,
   });
-  return wrap(result, `bash:${result.exitCode}`, 'bash');
+  const capped: ExecResult = {
+    stdout: capOutput(result.stdout),
+    stderr: capOutput(result.stderr),
+    exitCode: result.exitCode,
+  };
+  return wrap(capped, `bash:${result.exitCode}`, 'bash');
 }
 
 /** The pure-API base-tool catalogue — always-loaded (kernel), tagged by capability group. */

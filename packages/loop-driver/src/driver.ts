@@ -20,6 +20,23 @@ import type { CompleteFn, DriverMessage, ToolDef } from './complete.js';
 /** A hard bound on model round-trips — a fail-safe against a non-terminating loop. */
 export const DEFAULT_MAX_ITERATIONS = 24;
 
+/**
+ * A catastrophe backstop on how many characters of any single tool result may enter
+ * the resent transcript. Per-tool handlers do the primary bounding (Read line/char
+ * caps, Bash/Grep output caps); this is the defense-in-depth net that keeps an
+ * uncapped or future tool — or a pathological result — from poisoning every later
+ * turn, since the pure-API loop resends the whole history each round-trip. Sized well
+ * above the per-tool caps so a normally-capped result is never clipped. The verbatim
+ * raw store (getToolDetail) keeps the full result; only the resent copy is bounded.
+ */
+export const TOOL_RESULT_CHAR_CAP = 200_000;
+
+/** Bound a tool-result string for the transcript, appending a marker when it truncates. */
+export function capToolResult(content: string, cap = TOOL_RESULT_CHAR_CAP): string {
+  if (content.length <= cap) return content;
+  return `${content.slice(0, cap)}\n\n[truncated by coa: showing ${cap} of ${content.length} chars]`;
+}
+
 export interface GovernedLoopDeps {
   sessionId: string;
   /** The one backend-specific surface — a pure model round-trip. */
@@ -144,7 +161,7 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       messages.push({
         role: 'tool',
         toolCallId: call.id,
-        content: JSON.stringify(response.result),
+        content: capToolResult(JSON.stringify(response.result)),
       });
     }
   }
