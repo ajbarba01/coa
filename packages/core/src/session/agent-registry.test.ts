@@ -128,4 +128,12 @@ describe('agent-registry summaries — the picker projections', () => {
     const piece = orientation?.pieces?.find((p) => p.name === 'coa-orientation');
     expect(piece?.slot).toBe('governance');
   });
+
+  it('grants the planning and research packages the web tools', () => {
+    for (const id of ['planning', 'research']) {
+      const pkg = STARTER_PACKAGES.find((p) => p.id === id);
+      expect(pkg?.toolRefs).toContain('WebSearch');
+      expect(pkg?.toolRefs).toContain('WebFetch');
+    }
+  });
 });

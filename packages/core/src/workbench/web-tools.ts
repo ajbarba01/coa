@@ -18,39 +18,48 @@ export interface SearchHit {
   snippet: string;
 }
 
-/** The swappable search backend (no-lock-in seam). Default adapter: Parallel.ai. */
-export interface SearchProvider {
-  search(req: {
-    query: string;
-    allowedDomains?: readonly string[];
-    blockedDomains?: readonly string[];
-    maxResults?: number;
-  }): Promise<readonly SearchHit[]>;
+/** The neutral search request the routed search providers accept. */
+export interface SearchRequest {
+  query: string;
+  allowedDomains?: readonly string[];
+  blockedDomains?: readonly string[];
+  maxResults?: number;
 }
+
+/** A routed search provider — a keyed hop in the {@link RoutedSearch} chain (no-lock-in seam). */
+export interface SearchProvider {
+  search(req: SearchRequest): Promise<ProviderOutcome<readonly SearchHit[]>>;
+}
+
+/** The assembled, cooldown-aware search chain the WebSearch handler runs (built in web-config). */
+export type RoutedSearch = (req: SearchRequest) => Promise<ChainResult<readonly SearchHit[]>>;
 
 export type WebSearchResult =
   | { results: readonly SearchHit[] }
   | { results: readonly []; reason: string };
 
-/** `WebSearch` — mirrors Claude's args (query + optional domain filters). */
+/** `WebSearch` — mirrors Claude's args (query + optional domain filters). Runs the routed chain. */
 export async function webSearch(
   req: {
     query: string;
     allowed_domains?: readonly string[] | undefined;
     blocked_domains?: readonly string[] | undefined;
   },
-  deps: { search: SearchProvider },
+  deps: { searchChain: RoutedSearch },
 ): Promise<ToolResponse<WebSearchResult>> {
-  try {
-    const results = await deps.search.search({
-      query: req.query,
-      ...(req.allowed_domains ? { allowedDomains: req.allowed_domains } : {}),
-      ...(req.blocked_domains ? { blockedDomains: req.blocked_domains } : {}),
-    });
-    return wrap({ results }, `web_search:${req.query}`, req.query);
-  } catch (err) {
-    return wrap({ results: [], reason: String(err) }, `web_search:error:${req.query}`, req.query);
+  const result = await deps.searchChain({
+    query: req.query,
+    ...(req.allowed_domains ? { allowedDomains: req.allowed_domains } : {}),
+    ...(req.blocked_domains ? { blockedDomains: req.blocked_domains } : {}),
+  });
+  if (result.status === 'ok') {
+    return wrap({ results: result.value }, `web_search:${req.query}`, req.query);
   }
+  return wrap(
+    { results: [], reason: result.lastReason ?? 'no-search-provider' },
+    `web_search:error:${req.query}`,
+    req.query,
+  );
 }
 
 /** The optional page-summarizer (a stripped model call). Absent ⇒ raw-markdown mode (D85). */
@@ -106,7 +115,7 @@ export async function webFetch(
 
 /** The pure-API web-tool ports; present only when the adapter wires egress. */
 export interface WebToolDeps {
-  search: SearchProvider;
+  searchChain: RoutedSearch;
   fetchChain: RoutedFetch;
   summarizer?: Summarizer;
 }
@@ -139,7 +148,7 @@ export function webToolSpecs(): Record<string, ToolSpec> {
         allowed_domains: z.array(z.string()).optional(),
         blocked_domains: z.array(z.string()).optional(),
       },
-      (a, d: GovernedToolDeps) => webSearch(a, { search: w(d).search }),
+      (a, d: GovernedToolDeps) => webSearch(a, { searchChain: w(d).searchChain }),
     ),
     WebFetch: spec({ url: z.string(), prompt: z.string() }, (a, d: GovernedToolDeps) => {
       const wd = w(d);

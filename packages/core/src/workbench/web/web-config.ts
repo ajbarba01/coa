@@ -4,53 +4,68 @@ import { locatorSchema, type Locator } from '@coa/shared';
 import type {
   FetchProvider,
   RoutedFetch,
+  RoutedSearch,
+  SearchHit,
   SearchProvider,
   Summarizer,
   WebToolDeps,
 } from '../web-tools.js';
 import { makeParallelSearch } from './parallel.js';
-import { makeFirecrawlFetch } from './firecrawl.js';
+import { makeFirecrawlFetch, makeFirecrawlSearch } from './firecrawl.js';
+import { makeTavilyFetch, makeTavilySearch } from './tavily.js';
 import { makePlainFetch } from './plain-fetch.js';
-import { runChain, nextLocalMidnight, type ChainEntry, type CooldownStore } from './routing.js';
+import {
+  runChain,
+  nextLocalMidnight,
+  type ChainEntry,
+  type CooldownStore,
+  type ProviderOutcome,
+} from './routing.js';
 import { KeyStateStore, locatorId } from './key-state-store.js';
 
 /**
- * The web-egress config: the (increment-2) search provider + the fetch-routing block.
- * Reuses the shared account {@link Locator} (M0) for every credential pointer — one
- * credential-blind schema for the whole system. `.strip()` + Zod-validated at the edge.
+ * The web-egress config: the routed search chain + the routed fetch chain. Every
+ * credential is the shared account {@link Locator} (M0) — one credential-blind
+ * schema for the whole system. `.strip()` + Zod-validated at the edge.
  */
-const firecrawlProviderSchema = z.object({
-  kind: z.literal('firecrawl'),
+const fetchProviderSchema = z.object({
+  kind: z.enum(['firecrawl', 'tavily']),
   credentials: z.array(locatorSchema).default([]),
 });
 
 const fetchConfigSchema = z
   .object({
-    providers: z.array(firecrawlProviderSchema).default([]),
+    providers: z.array(fetchProviderSchema).default([]),
     freeFloor: z.boolean().default(true),
     summarizer: z
-      .object({
-        provider: z.literal('deepseek'),
-        model: z.string().min(1),
-        credential: locatorSchema,
-      })
+      .object({ provider: z.literal('deepseek'), model: z.string().min(1), credential: locatorSchema })
       .optional(),
+    quotaCooldown: z.union([z.literal('next-midnight'), z.number().positive()]).default('next-midnight'),
+  })
+  .strip();
+
+const searchProviderSchema = z.object({
+  kind: z.enum(['tavily', 'firecrawl', 'parallel']),
+  credentials: z.array(locatorSchema).default([]),
+});
+
+const searchConfigSchema = z
+  .object({
+    providers: z.array(searchProviderSchema).default([]),
     quotaCooldown: z.union([z.literal('next-midnight'), z.number().positive()]).default('next-midnight'),
   })
   .strip();
 
 export const webConfigSchema = z
   .object({
-    // Search side (unrouted; increment 2 routes it). Optional so a fetch-only config validates.
-    provider: z.enum(['parallel', 'exa', 'tavily', 'brave']).default('parallel'),
-    credential: locatorSchema.optional(),
-    // Fetch side (this increment): the routed provider chain + summarizer default.
+    search: searchConfigSchema.optional(),
     fetch: fetchConfigSchema.optional(),
   })
   .strip();
 
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type WebFetchConfig = z.infer<typeof fetchConfigSchema>;
+export type WebSearchConfig = z.infer<typeof searchConfigSchema>;
 
 /** Resolve an env-var locator; other locator kinds resolve to `undefined` (env-only for now). */
 function resolveKey(locator: Locator, env: Record<string, string | undefined>): string | undefined {
@@ -61,21 +76,16 @@ function resolveKey(locator: Locator, env: Record<string, string | undefined>): 
   return undefined;
 }
 
-/** A no-op search provider — WebSearch stays registered but inert until a key is configured (SC-1). */
-const NULL_SEARCH: SearchProvider = { search: async () => [] };
-
-function buildSearch(config: WebConfig, env: Record<string, string | undefined>): SearchProvider {
-  if (config.provider !== 'parallel' || config.credential === undefined) return NULL_SEARCH;
-  const apiKey = resolveKey(config.credential, env);
-  return apiKey !== undefined ? makeParallelSearch({ apiKey }) : NULL_SEARCH;
+/** Resolve a `'next-midnight'`-or-duration cooldown config into an absolute-deadline function. */
+function quotaCooldown(cfg: 'next-midnight' | number | undefined): (now: number) => number {
+  const q = cfg ?? 'next-midnight';
+  return (n) => (q === 'next-midnight' ? nextLocalMidnight(n) : n + q);
 }
 
 /**
- * Assemble the routed fetch chain: each resolvable Firecrawl credential becomes a
- * keyed hop (`firecrawl:<locatorId>`), in priority order, followed by the free
- * plain-fetch floor (default on). An unresolvable credential is simply absent from
- * the chain. The `quotaCooldown` config resolves the deadline for quota/ambiguous
- * limits (`'next-midnight'` or an explicit duration in ms).
+ * Assemble the routed fetch chain: each resolvable credential becomes a keyed hop
+ * (`<kind>:<locatorId>`) in priority order, followed by the free plain-fetch floor
+ * (default on). An unresolvable credential is simply absent from the chain.
  */
 function buildFetchChain(
   fetchCfg: WebFetchConfig | undefined,
@@ -89,7 +99,7 @@ function buildFetchChain(
       const apiKey = resolveKey(cred, env);
       if (apiKey === undefined) continue;
       providers.push({
-        provider: makeFirecrawlFetch({ apiKey }),
+        provider: provider.kind === 'tavily' ? makeTavilyFetch({ apiKey }) : makeFirecrawlFetch({ apiKey }),
         keyStateId: `${provider.kind}:${locatorId(cred)}`,
       });
     }
@@ -98,24 +108,61 @@ function buildFetchChain(
     (fetchCfg?.freeFloor ?? true)
       ? { provider: makePlainFetch(), keyStateId: 'plain-fetch:free' }
       : undefined;
-  const quotaCooldownUntil = (n: number): number => {
-    const q = fetchCfg?.quotaCooldown ?? 'next-midnight';
-    return q === 'next-midnight' ? nextLocalMidnight(n) : n + q;
-  };
+  const until = quotaCooldown(fetchCfg?.quotaCooldown);
   return (url) => {
     const entries: ChainEntry<string>[] = [
       ...providers.map((p) => ({ run: () => p.provider.fetch(url), keyStateId: p.keyStateId })),
       ...(floor ? [{ run: () => floor.provider.fetch(url), keyStateId: floor.keyStateId }] : []),
     ];
-    return runChain(entries, store, now(), quotaCooldownUntil);
+    return runChain(entries, store, now(), until);
+  };
+}
+
+/** Build one search adapter for a provider kind (credential-blind — the key is passed in). */
+function makeSearchAdapter(kind: 'tavily' | 'firecrawl' | 'parallel', apiKey: string): SearchProvider {
+  if (kind === 'tavily') return makeTavilySearch({ apiKey });
+  if (kind === 'firecrawl') return makeFirecrawlSearch({ apiKey });
+  return makeParallelSearch({ apiKey });
+}
+
+/**
+ * Assemble the routed search chain: each resolvable credential becomes a keyed hop
+ * in priority order. There is NO free floor for search (no free search backend), so
+ * an empty or fully-exhausted chain resolves to `exhausted` and the handler returns
+ * empty results (SC-1 / D85).
+ */
+function buildSearchChain(
+  searchCfg: WebSearchConfig | undefined,
+  env: Record<string, string | undefined>,
+  store: CooldownStore,
+  now: () => number,
+): RoutedSearch {
+  const providers: Array<{ provider: SearchProvider; keyStateId: string }> = [];
+  for (const provider of searchCfg?.providers ?? []) {
+    for (const cred of provider.credentials) {
+      const apiKey = resolveKey(cred, env);
+      if (apiKey === undefined) continue;
+      providers.push({
+        provider: makeSearchAdapter(provider.kind, apiKey),
+        keyStateId: `${provider.kind}:${locatorId(cred)}`,
+      });
+    }
+  }
+  const until = quotaCooldown(searchCfg?.quotaCooldown);
+  return (req) => {
+    const entries: ChainEntry<readonly SearchHit[]>[] = providers.map((p) => ({
+      run: () => p.provider.search(req),
+      keyStateId: p.keyStateId,
+    }));
+    return runChain(entries, store, now(), until);
   };
 }
 
 /**
- * Build the pure-API web-tool ports from config. The fetch chain always exists (the
- * free floor guarantees it — D85), so this always returns a {@link WebToolDeps} when
- * a `web` block is configured; WebSearch degrades to an inert provider without a key.
- * The summarizer is injected by the caller (composed at the daemon root).
+ * Build the pure-API web-tool ports from config. Both chains share one
+ * {@link KeyStateStore}, so a key used for both search and fetch shares one cooldown.
+ * Absent `web.search` ⇒ the search chain is empty ⇒ WebSearch returns empty results
+ * (D85). The summarizer is injected by the caller (composed at the daemon root).
  */
 export function buildWebToolDeps(
   config: WebConfig,
@@ -125,7 +172,7 @@ export function buildWebToolDeps(
   const store = opts?.store ?? new KeyStateStore(opts?.home ?? homedir());
   const now = opts?.now ?? ((): number => Date.now());
   return {
-    search: buildSearch(config, env),
+    searchChain: buildSearchChain(config.search, env, store, now),
     fetchChain: buildFetchChain(config.fetch, env, store, now),
     ...(opts?.summarizer ? { summarizer: opts.summarizer } : {}),
   };

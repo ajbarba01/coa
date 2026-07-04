@@ -274,10 +274,7 @@ describe('createDaemonCore', () => {
     try {
       handle = createDaemonCore({
         walPath: join(dir, 'log.ndjson'),
-        web: {
-          provider: 'parallel',
-          credential: { type: 'env-var', name: 'PARALLEL_API_KEY' },
-        },
+        web: { search: { providers: [{ kind: 'parallel', credentials: [{ type: 'env-var', name: 'PARALLEL_API_KEY' }] }] } },
       });
       const names = handle.core.baseCatalogue.map((t) => t.name);
       expect(names).toContain('WebSearch');
@@ -301,7 +298,7 @@ describe('createDaemonCore', () => {
     try {
       handle = createDaemonCore({
         walPath: join(dir, 'log.ndjson'),
-        web: { provider: 'parallel', credential: { type: 'env-var', name: 'MISSING_KEY_VAR' } },
+        web: { search: { providers: [{ kind: 'parallel', credentials: [{ type: 'env-var', name: 'MISSING_KEY_VAR' }] }] } },
       });
       const names = handle.core.baseCatalogue.map((t) => t.name);
       expect(names).toContain('WebFetch');
@@ -318,7 +315,6 @@ describe('createDaemonCore', () => {
       handle = createDaemonCore({
         walPath: join(dir, 'log.ndjson'),
         web: {
-          provider: 'parallel',
           fetch: {
             providers: [],
             freeFloor: true,

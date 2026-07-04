@@ -1,30 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import {
   webSearch,
-  type SearchProvider,
+  type RoutedSearch,
   webFetch,
   type RoutedFetch,
   WEB_TOOL_CATALOGUE,
   webToolSpecs,
 } from './web-tools.js';
 
-const okProvider = (hits: { title: string; url: string; snippet: string }[]): SearchProvider => ({
-  search: async () => hits,
-});
-
 describe('webSearch', () => {
-  it('returns provider hits wrapped as a distilled handle', async () => {
-    const provider = okProvider([{ title: 'T', url: 'https://x.test', snippet: 'S' }]);
-    const res = await webSearch({ query: 'find x' }, { search: provider });
+  const okChain = (hits: { title: string; url: string; snippet: string }[]): RoutedSearch =>
+    async () => ({ status: 'ok', value: hits, clean: true });
+
+  it('returns the chain hits wrapped as a distilled handle', async () => {
+    const res = await webSearch(
+      { query: 'find x' },
+      { searchChain: okChain([{ title: 'T', url: 'https://x.test', snippet: 'S' }]) },
+    );
     expect(res.result).toEqual({ results: [{ title: 'T', url: 'https://x.test', snippet: 'S' }] });
     expect(res.pointer).toBe('find x');
   });
 
-  it('SC-1: a provider throw degrades to an empty result with a reason (never throws)', async () => {
-    const provider: SearchProvider = { search: async () => { throw new Error('boom'); } };
-    const res = await webSearch({ query: 'q' }, { search: provider });
-    expect(res.result.results).toEqual([]);
-    expect('reason' in res.result && res.result.reason).toBeTruthy();
+  it('SC-1: an exhausted chain returns empty results with a reason (never throws)', async () => {
+    const res = await webSearch(
+      { query: 'q' },
+      { searchChain: async () => ({ status: 'exhausted', lastReason: 'all-down' }) },
+    );
+    expect(res.result).toEqual({ results: [], reason: 'all-down' });
   });
 });
 
@@ -107,7 +109,7 @@ describe('web tool registration', () => {
 
   it('dispatches WebSearch through its spec into web deps', async () => {
     const specs = webToolSpecs();
-    const deps = { web: { search: { search: async () => [{ title: 'T', url: 'u', snippet: 's' }] } } };
+    const deps = { web: { searchChain: async () => ({ status: 'ok' as const, value: [{ title: 'T', url: 'u', snippet: 's' }], clean: true }) } };
     const res = specs.WebSearch?.dispatch({ query: 'q' }, deps as never);
     await expect(Promise.resolve(res as never)).resolves.toMatchObject({ pointer: 'q' });
   });
@@ -116,7 +118,7 @@ describe('web tool registration', () => {
     const specs = webToolSpecs();
     const deps = {
       web: {
-        search: { search: async () => [] },
+        searchChain: async () => ({ status: 'exhausted' as const }),
         fetchChain: async () => ({ status: 'ok', value: 'hi', clean: false }),
       },
     };

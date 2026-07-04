@@ -140,7 +140,7 @@ function baseDeps(): BaseToolDeps {
 
 describe('buildGovernedTools — web-tool gate', () => {
   const webDeps = () => ({
-    search: { search: async () => [{ title: 'T', url: 'https://x.test', snippet: 'S' }] },
+    searchChain: async () => ({ status: 'ok' as const, value: [{ title: 'T', url: 'https://x.test', snippet: 'S' }], clean: true }),
     fetchChain: async () => ({ status: 'ok' as const, value: 'hi', clean: false }),
   });
 

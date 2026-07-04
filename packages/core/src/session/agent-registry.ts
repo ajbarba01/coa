@@ -91,7 +91,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
     name: 'Planning',
     description: 'Read the assembled context and plan multi-step work before acting.',
     inclusion: 'opt-in',
-    toolRefs: ['context_status', 'get_piece'],
+    toolRefs: ['context_status', 'get_piece', 'WebSearch', 'WebFetch'],
     pieces: [
       behaviorPiece(
         'pkg-planning',
