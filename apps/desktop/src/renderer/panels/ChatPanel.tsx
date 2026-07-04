@@ -362,6 +362,10 @@ function RunningPill({ since }: { since?: number }): React.JSX.Element {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (since === undefined) return;
+    // `now` may be stale from a previous run (state persists across mounts) — resync
+    // immediately, don't wait for the first 1s tick, or the counter briefly reads a
+    // bogus/negative elapsed value against the new `since`.
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [since]);
@@ -441,7 +445,6 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
       titleSlot={
         <TooltipProvider>
           <div className="flex min-w-0 items-center gap-1">
-            <RunningPill {...(vm.sessionStatus === 'running' ? { since: vm.runningSince } : {})} />
             <SwitcherMenu
               label="Sessions"
               searchable
@@ -481,7 +484,12 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           </div>
         </TooltipProvider>
       }
-      actions={<RawToggle on={vm.rawMode} onToggle={vm.toggleRaw} />}
+      actions={
+        <div className="flex items-center gap-2">
+          <RawToggle on={vm.rawMode} onToggle={vm.toggleRaw} />
+          <RunningPill {...(vm.sessionStatus === 'running' ? { since: vm.runningSince } : {})} />
+        </div>
+      }
       flush
     >
       <div className="flex h-full min-h-0">
@@ -494,7 +502,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           onTogglePin={vm.onTogglePin}
           onConfigure={vm.onConfigure}
         />
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
           <div className="min-h-0 flex-1 p-3.5">
             {vm.frames.length === 0 ? (

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act, forwardRef, useImperativeHandle } from 'react';
+import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   dotTone,
@@ -15,28 +15,31 @@ import {
   type TranscriptFrame,
 } from './Transcript.js';
 
+/** Spy on the scroll-lerp seam so header-click / jump-to-latest tests can assert the
+ *  scroll was kicked off without depending on Virtuoso's DOM measurement (which jsdom
+ *  can't do). The lerp's own behaviour is unit-tested in `smoothScroll.test.ts`. */
+const startSmoothScrollSpy = vi.fn(() => vi.fn());
+vi.mock('./smoothScroll.js', () => ({
+  startSmoothScroll: (...args: unknown[]) => startSmoothScrollSpy(...args),
+}));
+
 /** A minimal stand-in for `GroupedVirtuoso` that renders every group header and item
- *  eagerly (no virtualization/measurement, which jsdom can't do) and exposes
- *  `scrollToIndex` on the ref so header-click tests can spy on it. Mirrors the real
- *  component's `groupCounts`/`groupContent`/`itemContent` contract closely enough for
- *  render-level assertions without depending on Virtuoso's DOM measurement. Also renders
- *  `components.Footer` when supplied, mirroring Virtuoso's own footer slot. */
-const scrollToIndexSpy = vi.fn();
+ *  eagerly (no virtualization/measurement, which jsdom can't do). It feeds the outer
+ *  element to `scrollerRef` so the component captures a live scroller for the lerp.
+ *  Mirrors the real component's `groupCounts`/`groupContent`/`itemContent` contract
+ *  and renders `components.Footer` when supplied, like Virtuoso's own footer slot. */
 vi.mock('react-virtuoso', () => ({
-  GroupedVirtuoso: forwardRef(function FakeGroupedVirtuoso(
-    props: {
-      groupCounts: number[];
-      groupContent: (index: number) => React.ReactNode;
-      itemContent: (index: number) => React.ReactNode;
-      components?: { Footer?: React.ComponentType };
-    },
-    ref: React.ForwardedRef<{ scrollToIndex: typeof scrollToIndexSpy }>,
-  ) {
-    useImperativeHandle(ref, () => ({ scrollToIndex: scrollToIndexSpy }));
+  GroupedVirtuoso: function FakeGroupedVirtuoso(props: {
+    groupCounts: number[];
+    groupContent: (index: number) => React.ReactNode;
+    itemContent: (index: number) => React.ReactNode;
+    components?: { Footer?: React.ComponentType };
+    scrollerRef?: (el: HTMLElement | Window | null) => void;
+  }) {
     const total = props.groupCounts.reduce((a, b) => a + b, 0);
     const Footer = props.components?.Footer;
     return (
-      <div>
+      <div ref={(el) => props.scrollerRef?.(el)}>
         {props.groupCounts.map((_, gi) => (
           <div key={gi}>{props.groupContent(gi)}</div>
         ))}
@@ -46,7 +49,7 @@ vi.mock('react-virtuoso', () => ({
         {Footer && <Footer />}
       </div>
     );
-  }),
+  },
 }));
 
 describe('dotTone', () => {
@@ -609,8 +612,8 @@ describe('Transcript container', () => {
     expect(headerRow?.querySelector('[data-spine-line]')).toBeNull();
   });
 
-  it('scrolls to the group item index when the sticky header is clicked', async () => {
-    scrollToIndexSpy.mockClear();
+  it('starts a smooth scroll when the sticky header is clicked', async () => {
+    startSmoothScrollSpy.mockClear();
     const grouped: TranscriptFrame[] = [
       { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
       { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
@@ -620,8 +623,23 @@ describe('Transcript container', () => {
     ];
     render(<Transcript frames={grouped} />);
     await userEvent.click(screen.getByRole('button', { name: /second prompt/ }));
-    // group 0 has 2 items (reply one, reply one b); group 1 (second prompt) starts at index 2
-    expect(scrollToIndexSpy).toHaveBeenCalledWith({ index: 2, align: 'start', behavior: 'smooth' });
+    // The scroll target is resolved lazily off the DOM inside the lerp, so here we only
+    // assert the lerp was kicked off (with a scroller + a resolver); the easing/cancel
+    // behaviour is covered directly in smoothScroll.test.ts.
+    expect(startSmoothScrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts a smooth scroll to the bottom when jump-to-latest is clicked', async () => {
+    startSmoothScrollSpy.mockClear();
+    const frames = Array.from({ length: 30 }, (_, i) => ({
+      id: String(i),
+      role: 'agent' as const,
+      kind: 'text' as const,
+      text: `m${i}`,
+    }));
+    render(<Transcript frames={frames} showJumpToLatest />);
+    await userEvent.click(screen.getByRole('button', { name: /latest/i }));
+    expect(startSmoothScrollSpy).toHaveBeenCalledTimes(1);
   });
 
   it('flashes the landed row after the header scrolls, then clears after the timeout', () => {

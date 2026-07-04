@@ -65,12 +65,13 @@ async function mount(bridge = fakeBridge()) {
 }
 
 describe('startConsole (inspector-first)', () => {
-  it('mounts the inspector layout: nav rail, cost main, chat+account dock', async () => {
+  it('mounts the inspector layout: nav rail, cost main, chat dock', async () => {
     const { container } = await mount();
     expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
     expect(container.querySelector('[data-panel-id="cost"]')).not.toBeNull();
     expect(container.querySelector('[data-panel-id="conversation"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="account"]')).not.toBeNull();
+    // account + agent config are nav-routed main surfaces now, not dock panes
+    expect(container.querySelector('[data-panel-id="account"]')).toBeNull();
     expect(container.querySelector('[data-panel-id="agent"]')).toBeNull();
   });
 

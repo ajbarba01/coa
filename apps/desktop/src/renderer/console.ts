@@ -437,13 +437,16 @@ export async function startConsole(
     appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
-    // Resolve the selection as a COHERENT UNIT: a deliberate in-chat override wins,
-    // else an already-pinned session keeps routing to the backend its memory lives in
-    // (its whole provider/model/reasoning pin), else the agent config seeds a brand-new
-    // session. Resolving field-by-field was the haiku→deepseek crash (a pinned model +
-    // a since-switched agent provider).
+    // Resolve the selection as a COHERENT UNIT: the override is a partial patch over
+    // the resolved selection (session pin or agent config) — not a whole replacement.
+    // onPickEffort sends only {reasoning}, so treating the override as the full
+    // model selection silently drops the provider + model and falls back to Claude
+    // (the session.ts default). Resolving field-by-field was the haiku→deepseek crash
+    // (a pinned model + a since-switched agent provider); merging the override on top
+    // of the resolved selection avoids the same category of error.
+    const resolved = resolveSelection(activeSession, agent);
     const override = state.ui.modelOverride[id];
-    const model: ModelSelection = override ?? resolveSelection(activeSession, agent);
+    const model: ModelSelection = override ? { ...resolved, ...override } : resolved;
     // The pending pick is being applied now: clear the override and optimistically pin
     // it locally, so the predictive cache banner clears on send (the daemon persists the
     // same pin, which a later refresh confirms).

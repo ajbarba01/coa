@@ -14,7 +14,10 @@ export function Markdown({ source, className }: MarkdownProps): React.JSX.Elemen
   return (
     <div
       className={cx(
-        'text-body leading-[1.5] text-fg [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        // `min-w-0 break-words` keeps a long unbreakable token (a URL, a hash) from
+        // widening the row past its column — the root cause of the transcript's
+        // horizontal overflow + sticky-header spill + scroll jitter.
+        'min-w-0 wrap-break-word text-body leading-[1.5] text-fg [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         className,
       )}
     >
