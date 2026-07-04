@@ -13,8 +13,8 @@ export interface ToolManifestEntry {
   name: string;
   partition: ToolPartition;
   description: string;
-  /** Capability group for frame-level allow-listing (base tools only, for now). */
-  group?: 'read' | 'write' | 'exec';
+  /** Capability group for frame-level allow-listing (base tools + egress web tools). */
+  group?: 'read' | 'write' | 'exec' | 'egress';
 }
 
 /** The buildable v1 catalogue, partitioned by the D99 four-gate / D100 schema-budget test. */

@@ -259,6 +259,52 @@ describe('createDaemonCore', () => {
     const res = await getSymbol!.invoke({ ref: { name: 'parseConfig' } });
     expect(res.result).toEqual({ found: true, symbol: record });
   });
+
+  it('offers WebSearch/WebFetch in baseCatalogue when a web config + resolvable key are present', () => {
+    const prior = process.env.PARALLEL_API_KEY;
+    process.env.PARALLEL_API_KEY = 'sk-test';
+    try {
+      handle = createDaemonCore({
+        walPath: join(dir, 'log.ndjson'),
+        web: {
+          provider: 'parallel',
+          credential: { type: 'env-var', name: 'PARALLEL_API_KEY' },
+        },
+      });
+      const names = handle.core.baseCatalogue.map((t) => t.name);
+      expect(names).toContain('WebSearch');
+      expect(names).toContain('WebFetch');
+    } finally {
+      if (prior === undefined) delete process.env.PARALLEL_API_KEY;
+      else process.env.PARALLEL_API_KEY = prior;
+    }
+  });
+
+  it('omits WebSearch/WebFetch from baseCatalogue with no web config', () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    const names = handle.core.baseCatalogue.map((t) => t.name);
+    expect(names).not.toContain('WebSearch');
+    expect(names).not.toContain('WebFetch');
+  });
+
+  it('omits WebSearch/WebFetch from baseCatalogue when the configured key does not resolve', () => {
+    const prior = process.env.MISSING_KEY_VAR;
+    delete process.env.MISSING_KEY_VAR;
+    try {
+      handle = createDaemonCore({
+        walPath: join(dir, 'log.ndjson'),
+        web: {
+          provider: 'parallel',
+          credential: { type: 'env-var', name: 'MISSING_KEY_VAR' },
+        },
+      });
+      const names = handle.core.baseCatalogue.map((t) => t.name);
+      expect(names).not.toContain('WebSearch');
+      expect(names).not.toContain('WebFetch');
+    } finally {
+      if (prior !== undefined) process.env.MISSING_KEY_VAR = prior;
+    }
+  });
 });
 
 describe('gitignoreToIgnoreGlobs', () => {

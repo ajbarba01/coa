@@ -56,7 +56,7 @@ shippable apps.
 | M3 Constraint & Flag         | `packages/core` → a **consumer** + gate | Flags projection + the one close-gate service.                                     |
 | M4 Context Engine            | `packages/core` → **consumer/services** | Staleness consumer + generation/assembly/grounding/detection services.            |
 | M5 Config Compiler           | `packages/core/compiler/`              | `compile(pieces) -> NeutralConfig`; **promotable to a standalone `compiler` package if it grows.** |
-| M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface; `workbench/base-tools.ts` (Read/Glob/Grep/Write/Edit/Bash for non-`claude` providers) pulls in `@vscode/ripgrep` + `tinyglobby`. |
+| M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface; `workbench/base-tools.ts` (Read/Glob/Grep/Write/Edit/Bash for non-`claude` providers) pulls in `@vscode/ripgrep` + `tinyglobby`; `workbench/web/web-config.ts` (credential-gated WebSearch/WebFetch) pulls in `turndown`. |
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
 | M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
 | M9 Runtime Adapter           | `packages/spi` + `packages/loop-driver` + `packages/adapter-claude-sdk` + `packages/adapter-deepseek` | Ports (types) + the shared pure-API loop driver + the SDK backend + the thin DeepSeek backend. |

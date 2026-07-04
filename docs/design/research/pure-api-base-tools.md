@@ -124,6 +124,18 @@ adapter is handed fs/exec deps; core stays neutral.
   `pnpm typecheck`. A live DeepSeek smoke test (costs money, needs `DEEPSEEK_API_KEY`) only on the
   maintainer's say-so; unit + mock coverage is the default.
 
+## Egress tools (WebSearch/WebFetch)
+
+The pure-API path also gains two egress tools, `WebSearch`/`WebFetch` (`packages/core/src/workbench/
+web-tools.ts`), credential-gated at the composition root. `packages/core/src/workbench/web/web-config.ts`
+holds `webConfigSchema` (reuses the shared M0 `Locator`/`locatorSchema` for the credential pointer) and
+`buildWebToolDeps(config, env)`, which returns `undefined` — tools simply not offered (D85) — when the
+provider isn't wired (only `parallel` at launch) or the key doesn't resolve. `packages/core/src/session/
+daemon.ts` wires `DaemonCoreOptions.web` into `baseCatalogue`, setting `includeWebTools` only when deps
+are actually present. `makeParallelSearch` (`web/parallel.ts`) is the search adapter; `fetch` uses the
+global `fetch`; HTML→markdown uses `turndown`. The summarizer (`web/summarizer.ts`) is optional and not
+constructed by the daemon — absent ⇒ WebFetch runs in raw-markdown mode.
+
 ## Out of scope (this increment)
 
 Per-session worktree; group-level allow-listing UX; Bash OS sandbox / process isolation; any change to

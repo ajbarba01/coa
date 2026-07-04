@@ -9,6 +9,7 @@ import {
 } from '@coa/shared';
 import type { RegisteredTool } from '@coa/spi';
 import { BASE_TOOL_CATALOGUE, baseToolSpecs, type BaseToolDeps } from './base-tools.js';
+import { WEB_TOOL_CATALOGUE, webToolSpecs, type WebToolDeps } from './web-tools.js';
 import { TOOL_CATALOGUE } from './catalogue.js';
 import { enrich, type EnrichDeps } from './enrich.js';
 import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
@@ -48,19 +49,28 @@ export interface GovernedToolDeps {
   enrich: EnrichDeps;
   /** The pure-API base-tool ports; present only when built with includeBaseTools. */
   base?: BaseToolDeps;
+  /** The pure-API web-tool ports; present only when built with includeWebTools. */
+  web?: WebToolDeps;
 }
 
-/** One tool's input schema + its dispatch into the M6 handler, typed against the shape. */
+/**
+ * One tool's input schema + its dispatch into the M6 handler, typed against the shape.
+ * Dispatch may be sync (the retrieve/mutate/inspect handlers) or async (the egress web
+ * tools) — `invokeSpec` awaits either uniformly before `enrich` sees the response.
+ */
 export interface ToolSpec {
   shape: z.ZodRawShape;
-  dispatch: (args: unknown, deps: GovernedToolDeps) => ToolResponse<unknown>;
+  dispatch: (args: unknown, deps: GovernedToolDeps) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
   refOf?: (args: unknown) => SymbolRef | undefined;
 }
 
 /** Bind a tool spec, preserving the parsed-args type from the Zod shape. */
 export function spec<S extends z.ZodRawShape>(
   shape: S,
-  dispatch: (args: z.infer<z.ZodObject<S>>, deps: GovernedToolDeps) => ToolResponse<unknown>,
+  dispatch: (
+    args: z.infer<z.ZodObject<S>>,
+    deps: GovernedToolDeps,
+  ) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>,
   refOf?: (args: z.infer<z.ZodObject<S>>) => SymbolRef | undefined,
 ): ToolSpec {
   return {
@@ -98,18 +108,18 @@ const SPECS: Record<string, ToolSpec> = {
 };
 
 /** Validate, dispatch, and enrich one tool call (SC-1: never throws, never denies). */
-function invokeSpec(
+async function invokeSpec(
   name: string,
   toolSpec: ToolSpec,
   raw: unknown,
   deps: GovernedToolDeps,
-): ToolResponse<unknown> {
+): Promise<ToolResponse<unknown>> {
   const parsed = z.object(toolSpec.shape).safeParse(raw);
   if (!parsed.success) {
     const error: CoaError = { code: 'invalid-args', message: parsed.error.message };
     return { result: { applied: false, error }, handle: `${name}:invalid-args`, pointer: name };
   }
-  const response = toolSpec.dispatch(parsed.data, deps);
+  const response = await toolSpec.dispatch(parsed.data, deps);
   const ref = toolSpec.refOf?.(parsed.data);
   const call: ToolCall = {
     tool: name,
@@ -126,13 +136,24 @@ function invokeSpec(
  */
 export function buildGovernedTools(
   deps: GovernedToolDeps,
-  opts?: { includeBaseTools?: boolean },
+  opts?: { includeBaseTools?: boolean; includeWebTools?: boolean },
 ): RegisteredTool[] {
   if (opts?.includeBaseTools && deps.base === undefined) {
     throw new Error('buildGovernedTools: includeBaseTools requires deps.base');
   }
-  const entries = opts?.includeBaseTools ? [...TOOL_CATALOGUE, ...BASE_TOOL_CATALOGUE] : TOOL_CATALOGUE;
-  const specs = opts?.includeBaseTools ? { ...SPECS, ...baseToolSpecs() } : SPECS;
+  if (opts?.includeWebTools && deps.web === undefined) {
+    throw new Error('buildGovernedTools: includeWebTools requires deps.web');
+  }
+  let entries = TOOL_CATALOGUE;
+  let specs = SPECS;
+  if (opts?.includeBaseTools) {
+    entries = [...entries, ...BASE_TOOL_CATALOGUE];
+    specs = { ...specs, ...baseToolSpecs() };
+  }
+  if (opts?.includeWebTools) {
+    entries = [...entries, ...WEB_TOOL_CATALOGUE];
+    specs = { ...specs, ...webToolSpecs() };
+  }
   return entries.map((entry) => {
     const toolSpec = specs[entry.name];
     if (toolSpec === undefined) {

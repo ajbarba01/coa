@@ -138,6 +138,38 @@ function baseDeps(): BaseToolDeps {
   };
 }
 
+describe('buildGovernedTools — web-tool gate', () => {
+  const webDeps = () => ({
+    search: { search: async () => [{ title: 'T', url: 'https://x.test', snippet: 'S' }] },
+    fetch: async () => ({ ok: true, status: 200, contentType: 'text/html', body: '<p>hi</p>' }),
+    htmlToMarkdown: (h: string) => h.replace(/<[^>]+>/g, '').trim(),
+  });
+
+  it('omits web tools by default', () => {
+    const names = buildGovernedTools(makeDeps()).map((t) => t.name);
+    expect(names).not.toContain('WebSearch');
+    expect(names).not.toContain('WebFetch');
+  });
+
+  it('includes WebSearch/WebFetch when deps.web is set', () => {
+    const names = buildGovernedTools({ ...makeDeps(), web: webDeps() }, { includeWebTools: true }).map(
+      (t) => t.name,
+    );
+    expect(names).toContain('WebSearch');
+    expect(names).toContain('WebFetch');
+  });
+
+  it('awaits the async WebSearch dispatch so enrich sees the resolved response, not a Promise', async () => {
+    const tools = buildGovernedTools(
+      { ...makeDeps(), web: webDeps() },
+      { includeWebTools: true },
+    );
+    const tool = tools.find((t) => t.name === 'WebSearch');
+    const res = await tool!.invoke({ query: 'q' });
+    expect(res.result).toEqual({ results: [{ title: 'T', url: 'https://x.test', snippet: 'S' }] });
+  });
+});
+
 describe('buildGovernedTools — base-tool gate', () => {
   it('omits base tools by default', () => {
     const names = buildGovernedTools(makeDeps()).map((t) => t.name);
@@ -151,10 +183,10 @@ describe('buildGovernedTools — base-tool gate', () => {
     for (const n of BASE_NAMES) expect(names).toContain(n);
   });
 
-  it('a base tool invoke returns an unapplied result on a bad path (SC-1, never throws)', () => {
+  it('a base tool invoke returns an unapplied result on a bad path (SC-1, never throws)', async () => {
     const tools = buildGovernedTools({ ...makeDeps(), base: baseDeps() }, { includeBaseTools: true });
     const read = tools.find((t) => t.name === 'Read');
-    const res = read?.invoke({ path: '../escape' });
-    expect(res).toBeDefined();
+    const res = await read?.invoke({ path: '../escape' });
+    expect((res?.result as { found: boolean }).found).toBe(false);
   });
 });

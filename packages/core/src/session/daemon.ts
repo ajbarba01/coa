@@ -11,6 +11,7 @@ import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
+import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
 import { homedir } from 'node:os';
 import { buildConsoleHandlers } from '../rpc/console-handlers.js';
 import { buildAuthHandlers } from '../rpc/auth-handlers.js';
@@ -40,6 +41,12 @@ export interface DaemonCoreOptions {
   allowedTools?: string[];
   /** The M3 producers (M4's, injected) to register and drive off the kernel feed (R-3). */
   producers?: readonly Producer[];
+  /**
+   * The web-egress config (credential-gated); when present and a key resolves,
+   * `baseCatalogue` gains `WebSearch`/`WebFetch` (D85 — absent/unresolved ⇒ the
+   * tools are simply not offered).
+   */
+  web?: WebConfig;
 }
 
 export interface DaemonCoreHandle {
@@ -87,13 +94,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
       return config;
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
-    baseCatalogue: buildGovernedTools(
-      {
-        ...governedToolDeps(kernel, governance, flags, options.root ?? '.'),
-        base: baseToolDeps(kernel, options.root ?? '.'),
-      },
-      { includeBaseTools: true },
-    ),
+    baseCatalogue: buildBaseCatalogue(kernel, governance, flags, options),
   };
 
   return { core, kernel, flags, governance };
@@ -290,6 +291,30 @@ function ignoreGlobsFor(worktreeRoot: string): string[] {
 export function listFilesFor(pattern: string, baseAbsolute: string, worktreeRoot?: string): string[] {
   const ignore = ignoreGlobsFor(worktreeRoot ?? baseAbsolute);
   return globSync(pattern, { cwd: baseAbsolute, absolute: true, dot: false, ignore });
+}
+
+/**
+ * Build the pure-API catalogue: governance + base tools, plus the web tools
+ * (`WebSearch`/`WebFetch`) when `options.web` is configured AND a credential
+ * resolves — `buildWebToolDeps` returns `undefined` otherwise, and the
+ * `includeWebTools` flag is only set when deps are actually present (D85:
+ * `buildGovernedTools` throws if the flag is set without `deps.web`).
+ */
+function buildBaseCatalogue(
+  kernel: ChangeKernel,
+  governance: Governance,
+  flags: FlagPipeline,
+  options: DaemonCoreOptions,
+) {
+  const web = options.web ? buildWebToolDeps(options.web, process.env) : undefined;
+  return buildGovernedTools(
+    {
+      ...governedToolDeps(kernel, governance, flags, options.root ?? '.'),
+      base: baseToolDeps(kernel, options.root ?? '.'),
+      ...(web ? { web } : {}),
+    },
+    { includeBaseTools: true, ...(web ? { includeWebTools: true } : {}) },
+  );
 }
 
 function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
