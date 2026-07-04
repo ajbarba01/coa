@@ -24,6 +24,11 @@ describe('Markdown', () => {
     const boxes = screen.getAllByRole('checkbox');
     expect(boxes[0]).toBeChecked();
   });
+  it('wraps fenced code in a horizontally scrollable block', () => {
+    render(<Markdown source={'```ts\nconst x = 1;\n```'} />);
+    const pre = document.querySelector('pre');
+    expect(pre?.parentElement?.className).toContain('overflow-x-auto');
+  });
   it('renders a GFM table with bordered header and cells', () => {
     const src = '| A | B |\n| - | - |\n| 1 | 2 |';
     const { container } = render(<Markdown source={src} />);

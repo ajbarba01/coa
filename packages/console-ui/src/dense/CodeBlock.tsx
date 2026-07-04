@@ -33,7 +33,7 @@ export function CodeBlock({ code, language }: CodeBlockProps): React.JSX.Element
         <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">{language ?? 'text'}</span>
         <CopyButton text={code} />
       </div>
-      <div className="p-2">
+      <div className="overflow-x-auto p-2">
         <SyntaxHighlighter
           language={language}
           style={HLJS_TOKEN_STYLE}

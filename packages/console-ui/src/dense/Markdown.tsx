@@ -63,6 +63,25 @@ export function Markdown({ source, className }: MarkdownProps): React.JSX.Elemen
             </th>
           ),
           td: ({ children }) => <td className="border border-hairline px-3 py-1.5 align-top">{children}</td>,
+          // remark-gfm renders task-list checkboxes as a plain disabled <input>; keep
+          // the real input (role=checkbox, checked state) for a11y/testability but
+          // theme it with token utilities instead of the raw browser control.
+          input: ({ type, checked, disabled }) =>
+            type === 'checkbox' ? (
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                readOnly
+                className={cx(
+                  'mr-1.5 inline-block size-3.5 shrink-0 appearance-none rounded-[3px] border align-middle',
+                  checked ? 'border-accent bg-accent' : 'border-hairline',
+                )}
+              />
+            ) : null,
+          li: ({ className: c, children }) => (
+            <li className={cx('leading-normal', (c ?? '').includes('task-list-item') && 'list-none')}>{children}</li>
+          ),
         }}
       >
         {source}

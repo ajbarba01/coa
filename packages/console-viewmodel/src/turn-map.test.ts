@@ -36,6 +36,10 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     });
   });
 
+  it('drops empty-text thinking frames', () => {
+    expect(pushToViewFrames(turn({ t: 'thinking', text: '  ' }))).toEqual([]);
+  });
+
   it('maps error to an error frame with origin', () => {
     expect(pushToViewFrames(turn({ t: 'error', message: 'boom', origin: 'tool' }))[0]).toMatchObject({
       kind: 'error', message: 'boom', origin: 'tool',

@@ -212,7 +212,7 @@ function ThinkingCard({ text }: { text: string }): React.JSX.Element {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-left motion-reduce:transition-none"
+        className="group flex items-center gap-1.5 text-left motion-reduce:transition-none"
         aria-expanded={open}
       >
         <ChevronRight
@@ -220,7 +220,9 @@ function ThinkingCard({ text }: { text: string }): React.JSX.Element {
           size={12}
           className={cx('shrink-0 transition-transform motion-reduce:transition-none', open && 'rotate-90')}
         />
-        <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">Thinking</span>
+        <span className="text-eyebrow uppercase tracking-[0.06em] text-faint transition-colors group-hover:text-muted">
+          Thinking
+        </span>
       </button>
       {open && <div className="pl-4.5 text-label italic text-muted">{text}</div>}
     </div>
@@ -422,6 +424,9 @@ export function TranscriptRow({
   }
 
   if (frame.kind === 'thinking') {
+    // Defensive: the viewmodel already drops blank thinking frames (turn-map.ts), but an
+    // empty expander is dishonest UI, so guard here too rather than trust the caller.
+    if (frame.text.trim().length === 0) return <></>;
     return (
       // `pt-2.5` (not the shared `py-2`) centers the caret+"Thinking" line on the gutter
       // dot — the header is the frame's only always-visible line, so it is the one that
@@ -480,16 +485,16 @@ export function TranscriptRow({
       spineTop={spineTop}
       spineBottom={spineBottom}
       indent={indent}
-      // Plain prose (`text-body leading-[1.5]`) needs a smaller top offset than the
-      // shared `py-3` to center its first line on the gutter dot; tool cards keep the
-      // uniform padding since their own box interior handles that alignment.
-      className={frame.kind === 'text' ? 'pt-[6.5px] pb-3' : 'py-3'}
+      // Uniform vertical rhythm for every text/tool row (~20-24px between turns
+      // combined with the container's `gap-1`); tool cards' own box interior handles
+      // their internal alignment.
+      className="py-3"
     >
       <div
         data-role={role}
         data-spine={!isUser}
         data-nested={nested}
-        className={cx('min-w-0', isUser && 'my-1 rounded-surface border border-hairline bg-raised')}
+        className={cx('min-w-0', isUser && 'my-1 rounded-surface bg-raised px-3 py-2 shadow-sm')}
       >
         {frame.kind === 'text' && <Markdown source={frame.text} />}
         {frame.kind === 'tool' && (
@@ -685,7 +690,7 @@ export function Transcript({
         // Native scroll; content capped to a readable measure and centered (§5.2).
         className="h-full overflow-y-auto"
       >
-        <div className="mx-auto flex max-w-180 flex-col">
+        <div className="mx-auto flex max-w-180 flex-col gap-1">
           {items.map((item, index) => (
             <MemoRow key={item.id} frame={item} onRespond={onRespond} index={index} />
           ))}

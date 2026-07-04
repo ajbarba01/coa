@@ -451,6 +451,16 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('considering')).toBeInTheDocument();
   });
 
+  it('does not render an expandable thinking block when the text is empty', () => {
+    render(<TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: '   ' }} />);
+    expect(screen.queryByRole('button', { name: /thinking/i })).toBeNull();
+  });
+
+  it('tints the thinking label on hover', () => {
+    render(<TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning' }} />);
+    expect(screen.getByText('Thinking').className).toContain('group-hover:text-muted');
+  });
+
   it('renders an error frame with a danger tone and its message', () => {
     render(<TranscriptRow frame={{ id: '2', role: 'agent', kind: 'error', message: 'it broke' }} />);
     expect(screen.getByRole('alert')).toHaveTextContent('it broke');
@@ -478,6 +488,14 @@ describe('TranscriptRow', () => {
   it('renders a user text frame via markdown, same as any other role', () => {
     render(<TranscriptRow frame={{ id: 'u1', role: 'you', kind: 'text', text: 'run `ls` now' }} />);
     expect(screen.getByText('ls').tagName).toBe('CODE');
+  });
+
+  it('renders a user turn as a tinted block without a full border or bottom rule', () => {
+    render(<TranscriptRow frame={{ id: 'u', role: 'you', kind: 'text', text: 'hello' }} />);
+    const block = screen.getByText('hello').closest('[data-role="you"]');
+    expect(block?.className).toContain('bg-raised');
+    expect(block?.className).not.toContain('border-hairline');
+    expect(block?.className).not.toContain('border-b');
   });
 });
 

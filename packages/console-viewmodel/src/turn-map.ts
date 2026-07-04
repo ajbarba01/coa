@@ -65,7 +65,11 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
     case 'text':
       return { id, role: frame.role === 'user' ? 'you' : 'agent', kind: 'text', text: frame.text, ...d };
     case 'thinking':
-      return { id, role: 'agent', kind: 'thinking', text: frame.text, ...d };
+      // Opus often emits blank/redacted thinking — an empty expander is dishonest UI,
+      // so drop the frame entirely rather than render nothing to expand.
+      return frame.text.trim().length === 0
+        ? undefined
+        : { id, role: 'agent', kind: 'thinking', text: frame.text, ...d };
     case 'error':
       return { id, role: 'agent', kind: 'error', message: frame.message, origin: frame.origin, ...d };
     case 'tool_use':
