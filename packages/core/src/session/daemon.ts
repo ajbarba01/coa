@@ -12,6 +12,10 @@ import { ChangeKernel } from '../kernel.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
+import { makeDeepSeekComplete } from '@coa/adapter-deepseek';
+import { makeSummarizer } from '../workbench/web/summarizer.js';
+import type { Summarizer } from '../workbench/web-tools.js';
+import type { Locator } from '@coa/shared';
 import { homedir } from 'node:os';
 import { buildConsoleHandlers } from '../rpc/console-handlers.js';
 import { buildAuthHandlers } from '../rpc/auth-handlers.js';
@@ -295,10 +299,12 @@ export function listFilesFor(pattern: string, baseAbsolute: string, worktreeRoot
 
 /**
  * Build the pure-API catalogue: governance + base tools, plus the web tools
- * (`WebSearch`/`WebFetch`) when `options.web` is configured AND a credential
- * resolves — `buildWebToolDeps` returns `undefined` otherwise, and the
- * `includeWebTools` flag is only set when deps are actually present (D85:
- * `buildGovernedTools` throws if the flag is set without `deps.web`).
+ * (`WebSearch`/`WebFetch`) whenever `options.web` is configured — the free
+ * floor (D85) guarantees `buildWebToolDeps` always returns deps in that case,
+ * so `includeWebTools` is set whenever a `web` block is present. WebFetch's
+ * summarizer is composed here from `web.fetch.summarizer` (a DeepSeek
+ * `complete()` bound to a cheap model) and injected as `opts.summarizer`;
+ * absent config or an unresolved key degrades to `undefined` (raw markdown).
  */
 function buildBaseCatalogue(
   kernel: ChangeKernel,
@@ -306,7 +312,10 @@ function buildBaseCatalogue(
   flags: FlagPipeline,
   options: DaemonCoreOptions,
 ) {
-  const web = options.web ? buildWebToolDeps(options.web, process.env) : undefined;
+  const summarizer = options.web ? buildFetchSummarizer(options.web, governance) : undefined;
+  const web = options.web
+    ? buildWebToolDeps(options.web, process.env, { ...(summarizer ? { summarizer } : {}) })
+    : undefined;
   return buildGovernedTools(
     {
       ...governedToolDeps(kernel, governance, flags, options.root ?? '.'),
@@ -315,6 +324,31 @@ function buildBaseCatalogue(
     },
     { includeBaseTools: true, ...(web ? { includeWebTools: true } : {}) },
   );
+}
+
+/**
+ * Compose the WebFetch summarizer (§5) from `web.fetch.summarizer`: a minimal
+ * `makeSummarizer` over the DeepSeek `complete()` primitive, model config-driven,
+ * cost recorded to the M7 ledger. Absent config or an unresolved key ⇒ `undefined`
+ * (D85 raw-markdown floor). Runs only on non-clean content (the handler decides).
+ */
+export function buildFetchSummarizer(web: WebConfig, governance: Governance): Summarizer | undefined {
+  const cfg = web.fetch?.summarizer;
+  if (cfg === undefined || cfg.provider !== 'deepseek') return undefined;
+  const apiKey = resolveEnvVar(cfg.credential);
+  if (apiKey === undefined) return undefined;
+  return makeSummarizer({
+    complete: makeDeepSeekComplete({ apiKey, model: cfg.model }),
+    // Audited (ledger) but NOT charged to the M7 cost-cap this increment — a scoped deferral (see spec Deferred + OPEN.md).
+    recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
+  });
+}
+
+/** Resolve an env-var locator against `process.env`; other kinds ⇒ `undefined` (env-only for now). */
+function resolveEnvVar(locator: Locator): string | undefined {
+  if (locator.type !== 'env-var') return undefined;
+  const value = process.env[locator.name];
+  return value !== undefined && value !== '' ? value : undefined;
 }
 
 function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {

@@ -3,7 +3,7 @@ import {
   webSearch,
   type SearchProvider,
   webFetch,
-  type FetchLike,
+  type RoutedFetch,
   WEB_TOOL_CATALOGUE,
   webToolSpecs,
 } from './web-tools.js';
@@ -11,9 +11,6 @@ import {
 const okProvider = (hits: { title: string; url: string; snippet: string }[]): SearchProvider => ({
   search: async () => hits,
 });
-
-const okFetch = (body: string, contentType = 'text/html'): FetchLike =>
-  async () => ({ ok: true, status: 200, contentType, body });
 
 describe('webSearch', () => {
   it('returns provider hits wrapped as a distilled handle', async () => {
@@ -32,61 +29,73 @@ describe('webSearch', () => {
 });
 
 describe('webFetch', () => {
-  const md = (html: string) => html.replace(/<[^>]+>/g, '').trim();
+  const okChain = (value: string, clean: boolean): RoutedFetch => async () => ({
+    status: 'ok',
+    value,
+    clean,
+  });
 
-  it('summarizes via the Summarizer when one is configured', async () => {
+  it('summarizes non-clean content when a Summarizer is configured', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'what is x?' },
-      { fetch: okFetch('<p>hello</p>'), htmlToMarkdown: md, summarizer: { summarize: async () => 'SUMMARY' } },
+      { fetchChain: okChain('hello', false), summarizer: { summarize: async () => 'SUMMARY' } },
     );
     expect(res.result).toMatchObject({ fetched: true, content: 'SUMMARY', summarized: true });
   });
 
-  it('D85: degrades to raw markdown when no summarizer is configured', async () => {
+  it('returns clean content as-is, SKIPPING the summarizer', async () => {
+    let called = false;
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
-      { fetch: okFetch('<p>hello</p>'), htmlToMarkdown: md },
+      {
+        fetchChain: okChain('# clean markdown', true),
+        summarizer: { summarize: async () => { called = true; return 'NOPE'; } },
+      },
     );
+    expect(called).toBe(false);
+    expect(res.result).toMatchObject({ fetched: true, content: '# clean markdown', summarized: false });
+  });
+
+  it('D85: degrades to raw markdown when no summarizer is configured', async () => {
+    const res = await webFetch({ url: 'https://x.test', prompt: 'p' }, { fetchChain: okChain('hello', false) });
     expect(res.result).toMatchObject({ fetched: true, content: 'hello', summarized: false });
   });
 
   it('truncates raw markdown to maxChars', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
-      { fetch: okFetch('<p>abcdef</p>'), htmlToMarkdown: md, maxChars: 3 },
+      { fetchChain: okChain('abcdef', false), maxChars: 3 },
     );
     expect((res.result as { content: string }).content).toBe('abc');
   });
 
   it('caps the markdown fed to the summarizer at maxChars', async () => {
     let seen = '';
-    const res = await webFetch(
+    await webFetch(
       { url: 'https://x.test', prompt: 'p' },
       {
-        fetch: okFetch('<p>abcdef</p>'),
-        htmlToMarkdown: (h) => h.replace(/<[^>]+>/g, '').trim(),
+        fetchChain: okChain('abcdef', false),
         summarizer: { summarize: async ({ markdown }) => { seen = markdown; return 'S'; } },
         maxChars: 3,
       },
     );
     expect(seen).toBe('abc');
-    expect(res.result).toMatchObject({ fetched: true, summarized: true });
   });
 
-  it('SC-1: a non-HTML content type returns an unapplied result', async () => {
-    const res = await webFetch(
-      { url: 'https://x.test/data.bin', prompt: 'p' },
-      { fetch: okFetch('binary', 'application/octet-stream'), htmlToMarkdown: md },
-    );
-    expect(res.result).toMatchObject({ fetched: false });
-  });
-
-  it('SC-1: a fetch throw returns an unapplied result (never throws)', async () => {
+  it('SC-1: an exhausted chain returns an unapplied result carrying the last reason', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
-      { fetch: async () => { throw new Error('dns'); }, htmlToMarkdown: md },
+      { fetchChain: async () => ({ status: 'exhausted', lastReason: 'dead-url' }) },
     );
-    expect(res.result).toMatchObject({ fetched: false });
+    expect(res.result).toMatchObject({ fetched: false, reason: 'dead-url' });
+  });
+
+  it('SC-1: a summarizer throw degrades to raw markdown (never throws)', async () => {
+    const res = await webFetch(
+      { url: 'https://x.test', prompt: 'p' },
+      { fetchChain: okChain('hello', false), summarizer: { summarize: async () => { throw new Error('x'); } } },
+    );
+    expect(res.result).toMatchObject({ fetched: true, content: 'hello', summarized: false });
   });
 });
 
@@ -107,8 +116,8 @@ describe('web tool registration', () => {
     const specs = webToolSpecs();
     const deps = {
       web: {
-        fetch: async () => ({ ok: true, status: 200, contentType: 'text/html', body: '<p>hi</p>' }),
-        htmlToMarkdown: (h: string) => h.replace(/<[^>]+>/g, '').trim(),
+        search: { search: async () => [] },
+        fetchChain: async () => ({ status: 'ok', value: 'hi', clean: false }),
       },
     };
     const res = specs.WebFetch?.dispatch({ url: 'https://x.test', prompt: 'p' }, deps as never);

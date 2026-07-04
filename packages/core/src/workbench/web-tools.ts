@@ -3,6 +3,7 @@ import type { ToolResponse } from '@coa/shared';
 import { wrap } from './base-tools.js';
 import { spec, type ToolSpec, type GovernedToolDeps } from './governed-tools.js';
 import type { ToolManifestEntry } from './catalogue.js';
+import type { ProviderOutcome, ChainResult } from './web/routing.js';
 
 /**
  * The pure-API web tools (WebSearch/WebFetch). coa supplies these only on the
@@ -52,21 +53,18 @@ export async function webSearch(
   }
 }
 
-/** A minimal fetch surface (injectable so handlers are unit-testable with no network). */
-export type FetchLike = (url: string) => Promise<{
-  ok: boolean;
-  status: number;
-  contentType: string;
-  body: string;
-}>;
-
-/** HTML→markdown conversion (injected; the concrete lib is chosen at the wiring layer). */
-export type HtmlToMarkdown = (html: string) => string;
-
 /** The optional page-summarizer (a stripped model call). Absent ⇒ raw-markdown mode (D85). */
 export interface Summarizer {
   summarize(req: { markdown: string; prompt: string }): Promise<string>;
 }
+
+/** A routed fetch provider — a keyed hop in the {@link RoutedFetch} chain (no-lock-in seam). */
+export interface FetchProvider {
+  fetch(url: string): Promise<ProviderOutcome<string>>;
+}
+
+/** The assembled, cooldown-aware fetch chain the WebFetch handler runs (built in web-config). */
+export type RoutedFetch = (url: string) => Promise<ChainResult<string>>;
 
 export type WebFetchResult =
   | { fetched: true; content: string; summarized: boolean }
@@ -74,26 +72,28 @@ export type WebFetchResult =
 
 const DEFAULT_MAX_CHARS = 100_000;
 
-/** `WebFetch` — mirrors Claude's args (url + prompt). Fetch → HTML→markdown → optional summarize. */
+/**
+ * `WebFetch` — mirrors Claude's args (url + prompt). Runs the routed {@link RoutedFetch}
+ * chain, then: on `exhausted` (only possible with the free floor off) → an SC-1 unapplied
+ * result; on `ok` clean content (Firecrawl) → return as-is, SKIPPING the summarizer; on `ok`
+ * non-clean content (free floor) → summarize if configured, else the capped markdown. The
+ * up-front `maxChars` cap bounds both the summarizer input and the returned markdown (SC-1).
+ */
 export async function webFetch(
   req: { url: string; prompt: string },
-  deps: { fetch: FetchLike; htmlToMarkdown: HtmlToMarkdown; summarizer?: Summarizer; maxChars?: number },
+  deps: { fetchChain: RoutedFetch; summarizer?: Summarizer; maxChars?: number },
 ): Promise<ToolResponse<WebFetchResult>> {
-  let resp: Awaited<ReturnType<FetchLike>>;
-  try {
-    resp = await deps.fetch(req.url);
-  } catch (err) {
-    return wrap({ fetched: false, reason: `fetch-failed: ${String(err)}` }, 'web_fetch:error', req.url);
+  const result = await deps.fetchChain(req.url);
+  if (result.status === 'exhausted') {
+    return wrap(
+      { fetched: false, reason: result.lastReason ?? 'no-provider-succeeded' },
+      'web_fetch:error',
+      req.url,
+    );
   }
-  if (!resp.ok) return wrap({ fetched: false, reason: `http-${resp.status}` }, 'web_fetch:error', req.url);
-  if (!resp.contentType.includes('html') && !resp.contentType.includes('text/plain')) {
-    return wrap({ fetched: false, reason: `unsupported-content-type: ${resp.contentType}` }, 'web_fetch:error', req.url);
-  }
-  // Cap once, up front, so the SC-1 oversized-body bound applies to BOTH the summarizer
-  // input and the raw-markdown fallback (not just the fallback).
   const cap = deps.maxChars ?? DEFAULT_MAX_CHARS;
-  const markdown = deps.htmlToMarkdown(resp.body).slice(0, cap);
-  if (deps.summarizer) {
+  const markdown = result.value.slice(0, cap);
+  if (!result.clean && deps.summarizer) {
     try {
       const content = await deps.summarizer.summarize({ markdown, prompt: req.prompt });
       return wrap({ fetched: true, content, summarized: true }, `web_fetch:${req.url}`, req.url);
@@ -107,8 +107,7 @@ export async function webFetch(
 /** The pure-API web-tool ports; present only when the adapter wires egress. */
 export interface WebToolDeps {
   search: SearchProvider;
-  fetch: FetchLike;
-  htmlToMarkdown: HtmlToMarkdown;
+  fetchChain: RoutedFetch;
   summarizer?: Summarizer;
 }
 
@@ -145,8 +144,7 @@ export function webToolSpecs(): Record<string, ToolSpec> {
     WebFetch: spec({ url: z.string(), prompt: z.string() }, (a, d: GovernedToolDeps) => {
       const wd = w(d);
       return webFetch(a, {
-        fetch: wd.fetch,
-        htmlToMarkdown: wd.htmlToMarkdown,
+        fetchChain: wd.fetchChain,
         ...(wd.summarizer ? { summarizer: wd.summarizer } : {}),
       });
     }),

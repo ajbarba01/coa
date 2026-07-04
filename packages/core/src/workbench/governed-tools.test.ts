@@ -141,8 +141,7 @@ function baseDeps(): BaseToolDeps {
 describe('buildGovernedTools — web-tool gate', () => {
   const webDeps = () => ({
     search: { search: async () => [{ title: 'T', url: 'https://x.test', snippet: 'S' }] },
-    fetch: async () => ({ ok: true, status: 200, contentType: 'text/html', body: '<p>hi</p>' }),
-    htmlToMarkdown: (h: string) => h.replace(/<[^>]+>/g, '').trim(),
+    fetchChain: async () => ({ status: 'ok' as const, value: 'hi', clean: false }),
   });
 
   it('omits web tools by default', () => {

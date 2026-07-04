@@ -5,7 +5,15 @@ import { join } from 'node:path';
 import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
 import type { ChangeEventDraft } from '../event.js';
 import { createSsotConstraintProducer } from '../context/ssot-constraint.js';
-import { createDaemonCore, gitignoreToIgnoreGlobs, listFilesFor, type DaemonCoreHandle } from './daemon.js';
+import type { Governance } from '../governance/governance.js';
+import { webConfigSchema } from '../workbench/web/web-config.js';
+import {
+  buildFetchSummarizer,
+  createDaemonCore,
+  gitignoreToIgnoreGlobs,
+  listFilesFor,
+  type DaemonCoreHandle,
+} from './daemon.js';
 
 const GOLDEN_GOOD = '__stub_good__';
 const GOLDEN_BAD = '__stub_bad__';
@@ -287,22 +295,98 @@ describe('createDaemonCore', () => {
     expect(names).not.toContain('WebFetch');
   });
 
-  it('omits WebSearch/WebFetch from baseCatalogue when the configured key does not resolve', () => {
+  it('offers WebFetch via the free floor even when the search key does not resolve', () => {
     const prior = process.env.MISSING_KEY_VAR;
     delete process.env.MISSING_KEY_VAR;
     try {
       handle = createDaemonCore({
         walPath: join(dir, 'log.ndjson'),
-        web: {
-          provider: 'parallel',
-          credential: { type: 'env-var', name: 'MISSING_KEY_VAR' },
-        },
+        web: { provider: 'parallel', credential: { type: 'env-var', name: 'MISSING_KEY_VAR' } },
       });
       const names = handle.core.baseCatalogue.map((t) => t.name);
-      expect(names).not.toContain('WebSearch');
-      expect(names).not.toContain('WebFetch');
+      expect(names).toContain('WebFetch');
+      expect(names).toContain('WebSearch'); // registered but inert without a key (SC-1)
     } finally {
       if (prior !== undefined) process.env.MISSING_KEY_VAR = prior;
+    }
+  });
+
+  it('composes a DeepSeek summarizer from web.fetch.summarizer when its key resolves', () => {
+    const prior = process.env.DEEPSEEK_SUMMARIZER_KEY;
+    process.env.DEEPSEEK_SUMMARIZER_KEY = 'ds-secret';
+    try {
+      handle = createDaemonCore({
+        walPath: join(dir, 'log.ndjson'),
+        web: {
+          provider: 'parallel',
+          fetch: {
+            providers: [],
+            freeFloor: true,
+            summarizer: {
+              provider: 'deepseek',
+              model: 'deepseek-chat',
+              credential: { type: 'env-var', name: 'DEEPSEEK_SUMMARIZER_KEY' },
+            },
+            quotaCooldown: 'next-midnight',
+          },
+        },
+      });
+      // The tools are offered; the summarizer path is wired without throwing at composition.
+      const names = handle.core.baseCatalogue.map((t) => t.name);
+      expect(names).toContain('WebFetch');
+    } finally {
+      if (prior === undefined) delete process.env.DEEPSEEK_SUMMARIZER_KEY;
+      else process.env.DEEPSEEK_SUMMARIZER_KEY = prior;
+    }
+  });
+});
+
+describe('buildFetchSummarizer', () => {
+  const stubGovernance = { record: () => {} } as unknown as Governance;
+
+  it('returns undefined when web.fetch.summarizer is absent', () => {
+    const web = webConfigSchema.parse({});
+    expect(buildFetchSummarizer(web, stubGovernance)).toBeUndefined();
+  });
+
+  it('returns undefined when the summarizer credential does not resolve', () => {
+    const prior = process.env.UNSET_SUMMARIZER_KEY;
+    delete process.env.UNSET_SUMMARIZER_KEY;
+    try {
+      const web = webConfigSchema.parse({
+        fetch: {
+          summarizer: {
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            credential: { type: 'env-var', name: 'UNSET_SUMMARIZER_KEY' },
+          },
+        },
+      });
+      expect(buildFetchSummarizer(web, stubGovernance)).toBeUndefined();
+    } finally {
+      if (prior !== undefined) process.env.UNSET_SUMMARIZER_KEY = prior;
+    }
+  });
+
+  it('returns a Summarizer when the credential resolves', () => {
+    const prior = process.env.SET_SUMMARIZER_KEY;
+    process.env.SET_SUMMARIZER_KEY = 'ds-secret';
+    try {
+      const web = webConfigSchema.parse({
+        fetch: {
+          summarizer: {
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            credential: { type: 'env-var', name: 'SET_SUMMARIZER_KEY' },
+          },
+        },
+      });
+      const summarizer = buildFetchSummarizer(web, stubGovernance);
+      expect(summarizer).toBeDefined();
+      expect(typeof summarizer?.summarize).toBe('function');
+    } finally {
+      if (prior === undefined) delete process.env.SET_SUMMARIZER_KEY;
+      else process.env.SET_SUMMARIZER_KEY = prior;
     }
   });
 });

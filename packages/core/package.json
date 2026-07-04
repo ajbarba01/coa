@@ -23,6 +23,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@coa/adapter-deepseek": "workspace:*",
     "@coa/code-intel": "workspace:*",
     "@coa/loop-driver": "workspace:*",
     "@coa/shared": "workspace:*",

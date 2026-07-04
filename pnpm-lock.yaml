@@ -282,6 +282,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@coa/adapter-deepseek':
+        specifier: workspace:*
+        version: link:../adapter-deepseek
       '@coa/code-intel':
         specifier: workspace:*
         version: link:../code-intel

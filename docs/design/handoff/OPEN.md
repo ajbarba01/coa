@@ -418,6 +418,13 @@ None gates soundness; all are set conservatively and moved on measured evidence.
    list** (does structured turn-by-turn / nested-subagent / investigate-dispatch change behavior on coa's own ledger;
    see `IMPL-SPEC-BRIEF.md`).
 
+23. **The WebFetch summarizer's spend is audited but uncapped (a named scoped deferral).** The DeepSeek summarizer
+   composed at the daemon root records its cost to the M7 audit ledger (scoped `web_fetch_summarizer`) so it is
+   never anonymous, but it is **not yet charged against the M7 cost-cap** — charging it needs a live per-session id
+   at the daemon-wide catalogue seam, not yet threaded through. **Residual:** summarizer spend cannot trip the cap
+   in this increment; promote by wiring `governance.charge` alongside `governance.record` once the per-session id is
+   available.
+
 ---
 
 ## 4. Rejected outright (not merely deferred)
