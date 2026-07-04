@@ -16,4 +16,14 @@ describe('console settings', () => {
       'roles/reviewer',
     ]);
   });
+  it('defaults zoomLevel to 0 and preserves a persisted level', () => {
+    expect(parseSettings({}).zoomLevel).toBe(0);
+    expect(parseSettings({ zoomLevel: 3 }).zoomLevel).toBe(3);
+    expect(parseSettings({ zoomLevel: -2 }).zoomLevel).toBe(-2);
+  });
+  it('degrades a garbage zoomLevel to 0 without discarding the rest', () => {
+    const parsed = parseSettings({ theme: 'light', zoomLevel: 'huge' });
+    expect(parsed.zoomLevel).toBe(0);
+    expect(parsed.theme).toBe('light');
+  });
 });

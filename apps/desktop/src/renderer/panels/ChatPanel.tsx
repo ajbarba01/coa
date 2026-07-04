@@ -504,6 +504,7 @@ function PermissionModeSlot(): React.JSX.Element {
   return (
     <Select
       label="Permission"
+      hideLabel
       className="max-w-[9rem]"
       options={PERMISSION_MODE_OPTIONS}
       value={mode}
@@ -529,6 +530,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
   return (
     <Pane
       title={vm.rawMode ? 'Chat · raw' : 'Chat'}
+      className={vm.sessionStatus === 'running' ? 'outline outline-2 outline-info/50' : undefined}
       titleSlot={
         <TooltipProvider>
           <div className="flex min-w-0 items-center gap-1">
@@ -592,7 +594,6 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
         <div
           className={cx(
             'flex min-h-0 min-w-0 flex-1 flex-col',
-            vm.sessionStatus === 'running' && 'ring-1 ring-inset ring-info/50',
           )}
         >
           <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
@@ -622,6 +623,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
               <>
                 <Combobox
                   label="Model"
+                  hideLabel
                   className="max-w-[10rem]"
                   options={
                     vm.models.length > 0
@@ -637,6 +639,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
                 {vm.effortOptions.length > 0 && (
                   <Select
                     label="Effort"
+                    hideLabel
                     className="max-w-[8rem]"
                     options={vm.effortOptions}
                     value={vm.effortValue}

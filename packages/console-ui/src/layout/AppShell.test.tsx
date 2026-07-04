@@ -25,6 +25,22 @@ describe('AppShell', () => {
     expect(header?.style.paddingLeft).toBe('78px');
   });
 
+  it('renders the window-controls slot when provided (no right-edge reserve)', () => {
+    const { container } = render(
+      <AppShell
+        platform="win32"
+        workspaceName="p"
+        windowControls={<div data-testid="win-controls" />}
+      >
+        <div />
+      </AppShell>,
+    );
+    expect(screen.getByTestId('win-controls')).toBeTruthy();
+    // Windows draws its own controls, so the bar no longer reserves right padding.
+    const header = container.querySelector('header');
+    expect(header?.style.paddingRight).toBe('');
+  });
+
   it('shows account context only when provided', () => {
     const { rerender } = render(
       <AppShell platform="win32" workspaceName="p">

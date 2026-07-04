@@ -16,7 +16,7 @@ import { makeDescriptor } from './routing.js';
 import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
 /** The registered surfaces: the nav rail, the nav-driven main windows
- *  (cost/flags/timeline/agents/settings), and the right dock (chat + account). */
+ *  (cost/flags/timeline/agents/account/settings), and the right dock (chat). */
 export function buildPanelRegistry(): PanelRegistry {
   const registry = createPanelRegistry();
   registry.register(navPanel);

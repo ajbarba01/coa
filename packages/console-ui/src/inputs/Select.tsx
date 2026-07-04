@@ -19,6 +19,8 @@ export interface SelectProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** When true the label is visually hidden but kept for screen readers. */
+  hideLabel?: boolean;
 }
 
 export function Select({
@@ -30,11 +32,12 @@ export function Select({
   placeholder,
   disabled,
   className,
+  hideLabel,
 }: SelectProps): React.JSX.Element {
   const labelId = useId();
   return (
     <div className={cx('flex flex-col gap-1', className)}>
-      <span id={labelId} className="text-label font-medium text-fg">
+      <span id={labelId} className={hideLabel ? 'sr-only' : 'text-label font-medium text-fg'}>
         {label}
       </span>
       <RxSelect.Root

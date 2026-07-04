@@ -3,7 +3,7 @@ import { DEFAULT_MAIN_PANEL_ID } from './state.js';
 
 /** Panels that occupy the nav-driven main region (never the rail or dock). Grows
  *  as surfaces land: cost (now) · flags · timeline (P2) · settings (P3) · agents ·
- *  the component showcase (a dev-facing kit reference). */
+ *  account · the component showcase (a dev-facing kit reference). */
 export const ROUTABLE_IDS: ReadonlySet<string> = new Set([
   'cost',
   'flags',
@@ -11,17 +11,18 @@ export const ROUTABLE_IDS: ReadonlySet<string> = new Set([
   'settings',
   'showcase',
   'agents',
+  'account',
 ]);
 
 /** Bump when the default arrangement changes so a persisted older layout is
  *  ignored (a stale layout.json has no matching epoch → the new default is used). */
-export const LAYOUT_EPOCH = 7;
+export const LAYOUT_EPOCH = 8;
 
 /**
  * Inspector-first (spec §21.1): a thin static nav rail beside the workbench body;
- * the single draggable boundary is main↔dock; the right dock stacks chat + agent
- * (account joins it later). `nav`'s small fractional size gives the narrow rail
- * width under the StaticEngine's flex-ratio model.
+ * the single draggable boundary is main↔dock; the right dock is the always-present
+ * chat companion (account is now a nav-routed main surface, not a dock pane).
+ * `nav`'s fixed px gives the narrow rail width under the StaticEngine.
  */
 export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
   return {
@@ -41,19 +42,9 @@ export function makeDescriptor(mainPanelId: string): LayoutDescriptor {
           adjustability: 'resizable',
           children: [
             { type: 'leaf', panelId: mainPanelId, size: 72 },
-            {
-              type: 'split',
-              direction: 'column',
-              adjustability: 'static',
-              children: [
-                // Chat is the always-present companion, so it dominates the dock;
-                // the account context is compact below it (agent config moved to a
-                // nav-routed main surface). Min heights keep each pane usable when
-                // the dock is short (spec §22.3).
-                { type: 'leaf', panelId: 'conversation', size: 5, minPx: 160 },
-                { type: 'leaf', panelId: 'account', size: 1, minPx: 64 },
-              ],
-            },
+            // The dock is the always-present chat companion; its min width keeps it
+            // usable when the boundary is dragged narrow (spec §22.3).
+            { type: 'leaf', panelId: 'conversation', size: 28, minPx: 300 },
           ],
         },
       ],

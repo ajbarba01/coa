@@ -4,12 +4,8 @@ import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from 'electron';
 import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
-import {
-  overlayForTheme,
-  titleBarConfig,
-  windowBackground,
-  type ResolvedTheme,
-} from './titlebar.js';
+import { titleBarConfig, windowBackground, type ResolvedTheme } from './titlebar.js';
+import { keyToZoomAction, nextLevel } from './zoom.js';
 import { type DaemonClient } from './daemon.js';
 import { createDaemonManager, type DaemonProcess } from './daemon-manager.js';
 import { readJson, writeJson } from './persistence.js';
@@ -18,9 +14,12 @@ import {
   DAEMON_STATUS_CHANNEL,
   METHODS,
   PUSH_CHANNEL,
+  WINDOW_CONTROL,
+  WINDOW_STATE_CHANNEL,
   channel,
   type DaemonControlName,
   type MethodName,
+  type WindowControlName,
 } from '../shared/methods.js';
 import { parseSettings, type ConsoleSettings } from '../shared/settings.js';
 
@@ -48,7 +47,7 @@ function createWindow(): void {
     minHeight: 540,
     show: false,
     backgroundColor: windowBackground(theme),
-    ...titleBarConfig(process.platform, theme),
+    ...titleBarConfig(process.platform),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -61,6 +60,27 @@ function createWindow(): void {
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = undefined;
   });
+
+  // Ctrl+/- window zoom (VSCode-style): intercept the accelerator keys before they
+  // reach the page, step the persisted level, and scale the whole DOM. Zoom is per-
+  // `webContents` and resets on reload, so it is (re)applied on every load below.
+  win.webContents.on('before-input-event', (event, input) => {
+    const action = keyToZoomAction(input);
+    if (!action) return;
+    event.preventDefault();
+    const level = nextLevel(win.webContents.getZoomLevel(), action);
+    win.webContents.setZoomLevel(level);
+    const settings = parseSettings(readJson(settingsFile()));
+    writeJson(settingsFile(), { ...settings, zoomLevel: level });
+  });
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setZoomLevel(parseSettings(readJson(settingsFile())).zoomLevel);
+    win.webContents.send(WINDOW_STATE_CHANNEL, win.isMaximized());
+  });
+  // Keep the DOM maximize/restore glyph in sync with the real window state.
+  const pushMaximized = (): void => win.webContents.send(WINDOW_STATE_CHANNEL, win.isMaximized());
+  win.on('maximize', pushMaximized);
+  win.on('unmaximize', pushMaximized);
   win.once('ready-to-show', () => {
     win.show();
     if (process.env['ELECTRON_RENDERER_URL']) win.webContents.openDevTools();
@@ -73,9 +93,10 @@ function createWindow(): void {
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
   const load = (): void => {
-    void (rendererUrl
-      ? win.loadURL(rendererUrl)
-      : win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
+    void (
+      rendererUrl
+        ? win.loadURL(rendererUrl)
+        : win.loadFile(join(import.meta.dirname, '../renderer/index.html'))
     ).catch(() => undefined);
   };
   // In dev, the Vite server may not be accepting connections the instant Electron
@@ -237,23 +258,26 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
     case 'getSettings':
       return parseSettings(readJson(settingsFile()));
     case 'saveSettings': {
-      // Recolor the native chrome *before* the disk write so the OS-drawn caption
-      // controls track the renderer's (instant) CSS as closely as the IPC hop allows.
-      themePref = parseSettings(params).theme;
+      // Recolor the native chrome *before* the disk write so the pre-paint background
+      // tracks the renderer's (instant) CSS as closely as the IPC hop allows.
+      const incoming = parseSettings(params);
+      themePref = incoming.theme;
       applyChromeTheme(resolveChromeTheme(themePref));
-      writeJson(settingsFile(), params);
+      // Main owns `zoomLevel` (driven by the keybindings, not this renderer save), so
+      // preserve the on-disk value — a stale renderer copy must not clobber the zoom.
+      const zoomLevel = parseSettings(readJson(settingsFile())).zoomLevel;
+      writeJson(settingsFile(), { ...incoming, zoomLevel });
       return undefined;
     }
   }
 }
 
-/** Re-theme the native window chrome (background + Windows caption overlay) so the
- *  OS-drawn controls track light/dark. Takes a resolved theme. macOS traffic lights
- *  re-theme via the OS. */
+/** Re-theme the native window chrome (the window background, shown at the frame edge
+ *  and on the pre-paint flash) so it tracks light/dark. The window controls are DOM
+ *  now, so they re-theme via CSS tokens; macOS traffic lights re-theme via the OS. */
 function applyChromeTheme(theme: ResolvedTheme): void {
   if (!mainWindow) return;
   mainWindow.setBackgroundColor(windowBackground(theme));
-  if (process.platform === 'win32') mainWindow.setTitleBarOverlay(overlayForTheme(theme));
 }
 
 for (const name of Object.keys(METHODS) as MethodName[]) {
@@ -273,8 +297,27 @@ const daemonActions: Record<DaemonControlName, () => unknown | Promise<unknown>>
   stop: () => daemon.stop(),
   restart: () => daemon.restart(),
 };
-for (const [name, action] of Object.entries(daemonActions) as [DaemonControlName, () => unknown][]) {
+for (const [name, action] of Object.entries(daemonActions) as [
+  DaemonControlName,
+  () => unknown,
+][]) {
   ipcMain.handle(DAEMON_CONTROL[name], async () => (await action()) ?? undefined);
+}
+
+// The custom (DOM) window controls act on the single window. `toggleMaximize` mirrors
+// the OS behaviour; the resulting state is pushed back on WINDOW_STATE_CHANNEL by the
+// maximize/unmaximize listeners wired in `createWindow`.
+const windowActions: Record<WindowControlName, () => void> = {
+  minimize: () => mainWindow?.minimize(),
+  toggleMaximize: () =>
+    mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize(),
+  close: () => mainWindow?.close(),
+};
+for (const [name, action] of Object.entries(windowActions) as [WindowControlName, () => void][]) {
+  ipcMain.handle(WINDOW_CONTROL[name], () => {
+    action();
+    return undefined;
+  });
 }
 
 // A single instance owns the daemon + the fixed pipe; a second launch (e.g. a stale
@@ -299,24 +342,24 @@ function pushDaemonStatus(): void {
 
 function bootstrap(): void {
   app.whenReady().then(() => {
-  // The custom AppShell title bar is the only chrome — no File/Edit/View menu (§22.2).
-  Menu.setApplicationMenu(null);
-  // Dev is served from `ELECTRON_RENDERER_URL` by Vite (HMR + Fast Refresh);
-  // production loads from file. The CSP relaxes only in dev (see `csp.ts`).
-  const isDev = Boolean(process.env['ELECTRON_RENDERER_URL']);
-  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
-    cb({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [contentSecurityPolicy(isDev)],
-      },
+    // The custom AppShell title bar is the only chrome — no File/Edit/View menu (§22.2).
+    Menu.setApplicationMenu(null);
+    // Dev is served from `ELECTRON_RENDERER_URL` by Vite (HMR + Fast Refresh);
+    // production loads from file. The CSP relaxes only in dev (see `csp.ts`).
+    const isDev = Boolean(process.env['ELECTRON_RENDERER_URL']);
+    session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+      cb({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [contentSecurityPolicy(isDev)],
+        },
+      });
     });
-  });
-  // While following the OS, a system light/dark flip recolors the native chrome to
-  // match the renderer (which tracks the same flip via matchMedia).
-  nativeTheme.on('updated', () => {
-    if (themePref === 'system') applyChromeTheme(resolveChromeTheme('system'));
-  });
+    // While following the OS, a system light/dark flip recolors the native chrome to
+    // match the renderer (which tracks the same flip via matchMedia).
+    nativeTheme.on('updated', () => {
+      if (themePref === 'system') applyChromeTheme(resolveChromeTheme('system'));
+    });
     createWindow();
     // Mirror daemon status to the renderer; re-push on each (re)load so a reload or a
     // status change that happened before the window was ready still lands.

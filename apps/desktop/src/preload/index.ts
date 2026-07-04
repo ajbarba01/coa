@@ -4,6 +4,8 @@ import {
   DAEMON_STATUS_CHANNEL,
   METHODS,
   PUSH_CHANNEL,
+  WINDOW_CONTROL,
+  WINDOW_STATE_CHANNEL,
   channel,
   type DaemonStatus,
   type MethodName,
@@ -40,6 +42,20 @@ api['daemon'] = {
     const handler = (_event: unknown, status: DaemonStatus): void => listener(status);
     ipcRenderer.on(DAEMON_STATUS_CHANNEL, handler);
     return () => ipcRenderer.removeListener(DAEMON_STATUS_CHANNEL, handler);
+  },
+};
+
+// The custom (DOM) window controls: the three frame actions plus a one-way maximized-
+// state subscription (mirrors `onStatus`) so the maximize/restore glyph tracks reality.
+api['window'] = {
+  minimize: (): Promise<void> => ipcRenderer.invoke(WINDOW_CONTROL.minimize) as Promise<void>,
+  toggleMaximize: (): Promise<void> =>
+    ipcRenderer.invoke(WINDOW_CONTROL.toggleMaximize) as Promise<void>,
+  close: (): Promise<void> => ipcRenderer.invoke(WINDOW_CONTROL.close) as Promise<void>,
+  onMaximizeChange: (listener: (maximized: boolean) => void): (() => void) => {
+    const handler = (_event: unknown, maximized: boolean): void => listener(maximized);
+    ipcRenderer.on(WINDOW_STATE_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(WINDOW_STATE_CHANNEL, handler);
   },
 };
 

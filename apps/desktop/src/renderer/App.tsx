@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AppShell, DaemonStatus, type DaemonStatusProps } from '@coa/console-ui';
+import { AppShell, DaemonStatus, WindowControls, type DaemonStatusProps } from '@coa/console-ui';
 import { startConsole, type ConsoleController } from './console.js';
 
 const POLL_MS = 2000;
@@ -9,6 +9,11 @@ export function App(): React.JSX.Element {
   const controllerRef = useRef<ConsoleController | undefined>(undefined);
   const statusRef = useRef<DaemonStatusProps['status']>('stopped');
   const [daemonStatus, setDaemonStatus] = useState<DaemonStatusProps['status']>('stopped');
+  const [maximized, setMaximized] = useState(false);
+
+  // Track the window's maximized state so the custom maximize/restore glyph matches the
+  // real frame (main pushes it on every maximize/unmaximize and on load).
+  useEffect(() => window.coa.window.onMaximizeChange(setMaximized), []);
 
   // Track daemon status for the title-bar control: seed from the current value, then
   // follow the one-way status stream main pushes on every transition. A transition
@@ -62,6 +67,17 @@ export function App(): React.JSX.Element {
           onStop={() => void window.coa.daemon.stop()}
           onRestart={() => void window.coa.daemon.restart()}
         />
+      }
+      // macOS keeps native traffic lights (left); only Windows/Linux draw DOM controls.
+      windowControls={
+        window.coa.platform === 'darwin' ? undefined : (
+          <WindowControls
+            isMaximized={maximized}
+            onMinimize={() => void window.coa.window.minimize()}
+            onToggleMaximize={() => void window.coa.window.toggleMaximize()}
+            onClose={() => void window.coa.window.close()}
+          />
+        )
       }
     >
       <div ref={slotRef} style={{ height: '100%' }} />

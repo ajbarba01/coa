@@ -58,6 +58,13 @@ declare global {
         restart(): Promise<void>;
         onStatus(listener: (status: DaemonStatus) => void): () => void;
       };
+      /** Custom (DOM) window controls + a one-way maximized-state subscription. */
+      window: {
+        minimize(): Promise<void>;
+        toggleMaximize(): Promise<void>;
+        close(): Promise<void>;
+        onMaximizeChange(listener: (maximized: boolean) => void): () => void;
+      };
     };
   }
 }

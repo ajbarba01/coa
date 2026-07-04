@@ -10,19 +10,29 @@ export interface AppShellProps {
   account?: string | undefined;
   /** Right-aligned title-bar chrome (e.g. the daemon status control). */
   statusSlot?: ReactNode;
+  /** The custom window controls (min/max/close), flush to the right edge. On Windows
+   *  the host passes {@link WindowControls}; macOS leaves it unset (native traffic
+   *  lights sit on the left instead). */
+  windowControls?: ReactNode;
   /** The content slot; the layout engine mounts here. */
   children: ReactNode;
   className?: string | undefined;
 }
 
-/** Traffic-light safe area (macOS) / window-controls inset (Windows). `-webkit-app-region`
- *  is not part of the CSSProperties type, so it is wrapped once here. */
+/** Drag region + platform inset. macOS reserves the traffic-light safe area on the left;
+ *  Windows draws its own controls as DOM (see `windowControls`), so the right edge needs
+ *  no reserve — they occupy it. `-webkit-app-region` is not in the CSSProperties type, so
+ *  it is asserted once here. */
 function titleBarStyle(platform: string): React.CSSProperties {
-  const inset =
-    platform === 'darwin'
-      ? { paddingLeft: 78, paddingRight: 8 }
-      : { paddingLeft: 8, paddingRight: 140 };
-  return { WebkitAppRegion: 'drag', ...inset } as React.CSSProperties;
+  const mac = platform === 'darwin';
+  // macOS reserves the traffic-light width on both sides; Windows/Linux only need the
+  // left inset (their controls are DOM on the right).
+  const style = {
+    WebkitAppRegion: 'drag',
+    paddingLeft: mac ? 78 : 8,
+    paddingRight: mac ? 8 : undefined,
+  };
+  return style as React.CSSProperties;
 }
 
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
@@ -32,6 +42,7 @@ export function AppShell({
   workspaceName,
   account,
   statusSlot,
+  windowControls,
   children,
   className,
 }: AppShellProps): React.JSX.Element {
@@ -40,9 +51,9 @@ export function AppShell({
       <header
         aria-label="Application title bar"
         style={titleBarStyle(platform)}
-        // Absolute px (not a rem-based `h-*`) so the bar is pinned to the Windows
-        // overlay's pixel `height` (main-process `TITLE_BAR_HEIGHT`) independent of the
-        // root font-size — a rem height could drift from it and overflow the controls.
+        // Fixed px (matching the main-process `TITLE_BAR_HEIGHT`) rather than a rem `h-*`,
+        // so the bar height is stable across density/font changes; the Ctrl+/- content
+        // zoom scales the whole bar — px and all — uniformly, so no drift there.
         className="flex h-[44px] shrink-0 select-none items-center gap-3 border-b border-hairline bg-subtle text-label"
       >
         <span className="font-bold tracking-[-0.01em] text-accent">co&middot;a</span>
@@ -55,6 +66,7 @@ export function AppShell({
           )}
           {statusSlot}
         </div>
+        {windowControls}
       </header>
       <main className="min-h-0 flex-1">{children}</main>
     </div>

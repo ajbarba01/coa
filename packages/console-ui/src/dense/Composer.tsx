@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Paperclip, Mic, Square } from 'lucide-react';
 import { IconButton } from '../actions/IconButton.js';
+import { Divider } from '../layout/Divider.js';
 import { cx } from '../lib/cx.js';
 
 export interface ComposerProps {
@@ -13,10 +14,10 @@ export interface ComposerProps {
   onAttach?: () => void;
   /** Trailing voice-input control — inert (disabled) until a host wires a handler. */
   onMic?: () => void;
-  /** Host-provided controls anchored to the leading edge of the toolbar row
+  /** Host-provided controls rendered inline before the voice/send buttons
    *  (model/effort/permission selects). */
   slotStart?: React.ReactNode;
-  /** Host-provided controls anchored just before the send/stop toggle. */
+  /** Host-provided controls rendered inline after slotStart, before the voice/send buttons. */
   slotEnd?: React.ReactNode;
 }
 
@@ -62,10 +63,11 @@ export function Composer({
   };
 
   return (
-    <div className="p-2.5">
+    <div className="mx-auto w-full max-w-3xl p-2.5">
       <div
         className={cx(
           'flex flex-col gap-2 rounded-surface border border-border-default bg-raised p-2 shadow-md',
+          'focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus',
           disabled === true && 'opacity-60',
         )}
       >
@@ -87,55 +89,52 @@ export function Composer({
           placeholder={placeholder ?? 'Message the agent…'}
           aria-label="Message the agent"
           className={cx(
-            'max-h-40 min-h-control-md w-full resize-none rounded-control bg-transparent px-1.5 py-1.5 text-body text-fg placeholder:text-faint',
+            'max-h-40 min-h-control-md w-full resize-none rounded-control bg-transparent px-1.5 py-1.5 text-body text-fg placeholder:text-faint outline-none',
             overflowing ? 'overflow-y-auto' : 'overflow-hidden',
           )}
         />
         {disabled === true && (
           <p className="px-1.5 text-label text-faint">Select or start a session to chat.</p>
         )}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
+        <Divider />
+        <div className="flex items-center gap-1.5">
+          <IconButton
+            icon={Paperclip}
+            label="Attach file"
+            variant="tertiary"
+            size="sm"
+            onClick={onAttach}
+            disabled={onAttach === undefined}
+          />
+          {slotStart}
+          {slotEnd}
+          <IconButton
+            icon={Mic}
+            label="Voice input"
+            variant="tertiary"
+            size="sm"
+            onClick={onMic}
+            disabled={onMic === undefined}
+          />
+          {running === true ? (
             <IconButton
-              icon={Paperclip}
-              label="Attach file"
-              variant="tertiary"
+              icon={Square}
+              label="Stop"
+              variant="secondary"
               size="sm"
-              onClick={onAttach}
-              disabled={onAttach === undefined}
+              onClick={() => onInterrupt?.()}
+              disabled={onInterrupt === undefined}
             />
-            {slotStart}
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {slotEnd}
+          ) : (
             <IconButton
-              icon={Mic}
-              label="Voice input"
-              variant="tertiary"
+              icon={ArrowUp}
+              label="Send"
+              variant="primary"
               size="sm"
-              onClick={onMic}
-              disabled={onMic === undefined}
+              onClick={send}
+              disabled={disabled === true || text.trim() === ''}
             />
-            {running === true ? (
-              <IconButton
-                icon={Square}
-                label="Stop"
-                variant="secondary"
-                size="sm"
-                onClick={() => onInterrupt?.()}
-                disabled={onInterrupt === undefined}
-              />
-            ) : (
-              <IconButton
-                icon={ArrowUp}
-                label="Send"
-                variant="primary"
-                size="sm"
-                onClick={send}
-                disabled={disabled === true || text.trim() === ''}
-              />
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>

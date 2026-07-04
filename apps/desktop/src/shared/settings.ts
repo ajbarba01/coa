@@ -8,6 +8,11 @@ export const ConsoleSettingsSchema = z.object({
   /** Agent refs the user pinned — a user-local preference (never written into a
    *  Role; a project agent's pin state is yours, not the repo's). */
   pinnedAgents: z.array(z.string()).default([]),
+  /** The Ctrl+/- window zoom level (Electron zoom levels; each ≈20%). Main owns this
+   *  field — it's driven by the keybindings and applied via `setZoomLevel`, not a
+   *  renderer toggle — so `saveSettings` preserves the on-disk value (a garbage value
+   *  degrades to `0`, i.e. 100%). */
+  zoomLevel: z.number().int().catch(0).default(0),
 });
 export type ConsoleSettings = z.infer<typeof ConsoleSettingsSchema>;
 
@@ -16,6 +21,7 @@ export const DEFAULT_SETTINGS: ConsoleSettings = {
   density: 'compact',
   motion: 'full',
   pinnedAgents: [],
+  zoomLevel: 0,
 };
 
 /** Parse persisted settings, filling any missing field from defaults; any invalid

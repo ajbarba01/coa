@@ -1,6 +1,6 @@
 import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { Icon, Tooltip, TooltipProvider, cx, focusRing } from '@coa/console-ui';
-import { Blocks, Bot, Flag, History, Settings, Wallet } from 'lucide-react';
+import { Blocks, Bot, CircleUser, Flag, History, Settings, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
@@ -86,7 +86,15 @@ function NavRail({ vm }: { vm: NavVm; host: PanelHostApi }): React.JSX.Element {
             onSelect={() => vm.setRoute(s.id)}
           />
         ))}
-        <div className="mt-auto">
+        {/* Account + Settings are utility surfaces, pinned to the rail's foot below the
+            primary sections. */}
+        <div className="mt-auto flex flex-col items-center gap-1.5">
+          <NavButton
+            icon={CircleUser}
+            label="Account"
+            active={vm.activeId === 'account'}
+            onSelect={() => vm.setRoute('account')}
+          />
           <NavButton
             icon={Settings}
             label="Settings"

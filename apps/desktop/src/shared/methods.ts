@@ -58,6 +58,22 @@ export const DAEMON_CONTROL = {
 export type DaemonControlName = keyof typeof DAEMON_CONTROL;
 
 /**
+ * Custom window controls (min/max/close). With the native title bar hidden, the
+ * frame's buttons are drawn in the DOM (so they zoom with the content) and drive the
+ * window over these channels — a transport concern owned by main, like the daemon
+ * control above. The maximize state is pushed one-way so the middle button's glyph
+ * (maximize ⇄ restore) tracks the real window state.
+ */
+export const WINDOW_CONTROL = {
+  minimize: 'coa:window:minimize',
+  toggleMaximize: 'coa:window:toggle-maximize',
+  close: 'coa:window:close',
+} as const;
+export type WindowControlName = keyof typeof WINDOW_CONTROL;
+/** One-way main→renderer channel carrying the window's maximized state (boolean). */
+export const WINDOW_STATE_CHANNEL = 'coa:window-maximized';
+
+/**
  * The single source of truth for the IPC bridge: each verb -> its params/result
  * Zod schemas, consumed by BOTH the preload/main validation and the renderer.
  * `capState` proxies the daemon read verb; `getLayout`/`saveLayout` are main-local

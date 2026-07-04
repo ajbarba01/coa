@@ -47,8 +47,8 @@ body {
    precedence and DISABLE ::-webkit-scrollbar styling — which is exactly why none of the
    thumb width/hover customizations were taking effect. */
 *::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;

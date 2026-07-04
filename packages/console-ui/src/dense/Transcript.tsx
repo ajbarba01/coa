@@ -267,37 +267,44 @@ function SpineGutter({
   tone = 'neutral',
   lineTop = true,
   lineBottom = true,
+  showDot = true,
 }: {
   tone?: 'success' | 'danger' | 'neutral' | undefined;
   lineTop?: boolean | undefined;
   lineBottom?: boolean | undefined;
+  showDot?: boolean | undefined;
 }): React.JSX.Element {
+  // Dot geometry: `top-3` = 0.75rem (12 px), `size-2.5` = 0.625rem (10 px).
+  // Dot spans [12 px, 22 px].  The line above runs from the gutter's top edge
+  // to the dot; the line below runs from the dot to the gutter's bottom edge.
+  // Rows use `pb-1` (no flex gap), so consecutive gutters abut at zero distance
+  // and the line is one continuous vertical — no overflow tricks needed.
   return (
     <div className="relative w-4 shrink-0 self-stretch">
-      {/* The two segments split at 1rem — the dot's vertical mid — so each terminates at
-          the dot rather than overshooting past it. */}
       {lineTop && (
         <span
           data-spine-line
           aria-hidden
-          className="absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-hairline"
+          className="absolute left-1/2 top-0 h-3 w-px -translate-x-1/2 bg-hairline"
         />
       )}
       {lineBottom && (
         <span
           data-spine-line
           aria-hidden
-          className="absolute bottom-0 left-1/2 top-4 w-px -translate-x-1/2 bg-hairline"
+          className="absolute bottom-0 left-1/2 top-[calc(0.75rem+0.625rem)] w-px -translate-x-1/2 bg-hairline"
         />
       )}
-      <span
-        data-dot
-        aria-hidden
-        className={cx(
-          'absolute left-1/2 top-3 inline-block size-2.5 -translate-x-1/2 rounded-full',
-          dotToneClass[tone],
-        )}
-      />
+      {showDot && (
+        <span
+          data-dot
+          aria-hidden
+          className={cx(
+            'absolute left-1/2 top-3 inline-block size-2.5 -translate-x-1/2 rounded-full',
+            dotToneClass[tone],
+          )}
+        />
+      )}
     </div>
   );
 }
@@ -330,8 +337,8 @@ function RowShell({
   // rows' lines abut into one unbroken spine. Putting the padding on the row instead
   // leaves the line covering only the content box, so every gap between rows shows.
   return (
-    <div style={indent} className="flex gap-2 px-2">
-      <SpineGutter tone={tone} lineTop={!isUser && spineTop} lineBottom={!isUser && spineBottom} />
+    <div style={indent} className="flex gap-3 px-2">
+      <SpineGutter tone={tone} lineTop={!isUser && spineTop} lineBottom={!isUser && spineBottom} showDot={!isUser} />
       <div className={cx('min-w-0 flex-1', className)}>{children}</div>
     </div>
   );
@@ -688,6 +695,8 @@ const MemoRow = memo(function MemoRow({
   onRespond,
   index,
   findActive = false,
+  spineTop = true,
+  spineBottom = true,
 }: {
   frame: TranscriptFrame;
   onRespond?: RespondFn | undefined;
@@ -695,6 +704,8 @@ const MemoRow = memo(function MemoRow({
   /** True when this row is the active find-in-conversation match — rings the row so
    *  prev/next navigation has a visible landing target. */
   findActive?: boolean | undefined;
+  spineTop?: boolean | undefined;
+  spineBottom?: boolean | undefined;
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   // Appear-on-mount via the Web Animations API rather than a CSS keyframe (no
@@ -715,12 +726,12 @@ const MemoRow = memo(function MemoRow({
       ref={ref}
       data-row-index={index}
       data-find-active={findActive || undefined}
-      className={cx(findActive && 'rounded-surface ring-1 ring-info bg-info-tint')}
+      className={cx('pb-1', findActive && 'rounded-surface ring-1 ring-info bg-info-tint')}
       style={
         { contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties
       }
     >
-      <TranscriptRow frame={frame} onRespond={onRespond} />
+      <TranscriptRow frame={frame} onRespond={onRespond} spineTop={spineTop} spineBottom={spineBottom} />
     </div>
   );
 });
@@ -746,6 +757,31 @@ export function Transcript({
 
   // Folded once per frames change (was recomputed every render).
   const items = useMemo(() => foldToolFrames(frames), [frames]);
+
+  // Run-boundary index sets: a "run" is a contiguous block of non-user, non-note
+  // frames.  The spine starts at the first dot of a run (lineTop suppressed) and
+  // ends at the last dot (lineBottom suppressed) so it never reaches into user turns.
+  const { spineStarts, spineEnds } = useMemo(() => {
+    const starts = new Set<number>();
+    const ends = new Set<number>();
+    const spineIndices: number[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const f = items[i];
+      const isUser = 'role' in f && f.role === 'you';
+      const isNote = f.kind === 'note';
+      if (!isUser && !isNote) spineIndices.push(i);
+    }
+    // Group contiguous indices into runs.
+    let i = 0;
+    while (i < spineIndices.length) {
+      starts.add(spineIndices[i]);
+      let j = i;
+      while (j + 1 < spineIndices.length && spineIndices[j + 1] === spineIndices[j] + 1) j++;
+      ends.add(spineIndices[j]);
+      i = j + 1;
+    }
+    return { spineStarts: starts, spineEnds: ends };
+  }, [items]);
 
   // Find-in-conversation (Ctrl/Cmd+F): every frame is in the DOM (no windowing), so
   // find can search the full transcript, not just the visible window.
@@ -859,7 +895,7 @@ export function Transcript({
         // Native scroll; content capped to a readable measure and centered (§5.2).
         className="h-full overflow-y-auto"
       >
-        <div className="mx-auto flex max-w-180 flex-col gap-1">
+        <div className="mx-auto flex max-w-180 flex-col">
           {items.map((item, index) => (
             <MemoRow
               key={item.id}
@@ -867,6 +903,8 @@ export function Transcript({
               onRespond={onRespond}
               index={index}
               findActive={findOpen && index === activeMatchFrameIndex}
+              spineTop={!spineStarts.has(index)}
+              spineBottom={!spineEnds.has(index)}
             />
           ))}
           {busy === true && <WorkingFooter busySince={busySince} />}

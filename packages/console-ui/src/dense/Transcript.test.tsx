@@ -645,7 +645,7 @@ describe('Transcript container', () => {
     // (RowShell's isUser check), so the timeline breaks around it (a run reads continuous
     // between user turns without any group math).
     const userRole = container.querySelector('[data-role="you"]');
-    const userRow = userRole?.closest('.gap-2');
+    const userRow = userRole?.closest('.gap-3');
     expect(userRow).not.toBeNull();
     expect(userRow?.querySelector('[data-spine-line]')).toBeNull();
   });
