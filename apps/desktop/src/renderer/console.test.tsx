@@ -293,6 +293,45 @@ describe('startConsole (inspector-first)', () => {
     );
   });
 
+  it('routes pushes by sessionId — background session output does not leak into the active one', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      // two sessions exist; 's-active' is opened/active, 's-bg' is running in the background
+      listSessions: vi.fn().mockResolvedValue([
+        { id: 's-active', agentRef: 'roles/reviewer', title: 'active', updatedAt: '2026-07-02T00:00:00Z' },
+        { id: 's-bg', agentRef: 'roles/reviewer', title: 'background', updatedAt: '2026-07-01T00:00:00Z' },
+      ]),
+      reloadConversation: vi.fn().mockResolvedValue([]),
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    expect(emit).toBeDefined();
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    // The active session's reloaded transcript is empty, so the empty state shows
+    // (react-virtuoso renders no rows under jsdom, so row text is never assertable —
+    // see the existing note on the "subscribes to the push stream" test above — but the
+    // presence of the empty state vs. the transcript log IS observable, and toggles the
+    // instant a frame is appended to the active session).
+    expect(dock().textContent).toContain('No conversation yet');
+
+    // a turn for the NON-active session
+    await act(async () => {
+      emit?.({
+        kind: 'turn',
+        sessionId: 's-bg',
+        worktree: 'wt',
+        seq: 1,
+        frame: { t: 'text', text: 'background output' },
+      });
+    });
+    // Must NOT have leaked into the active ('s-active') transcript.
+    expect(dock().textContent).toContain('No conversation yet');
+    expect(dock().querySelector('[role="log"]')).toBeNull();
+  });
+
   it('ignores a malformed push (validated at the edge, never throws)', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({

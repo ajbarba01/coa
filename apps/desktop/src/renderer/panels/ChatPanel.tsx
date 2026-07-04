@@ -294,6 +294,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const currentModel = models.find((m) => m.id === currentModelId);
   const effortOpts = effortOptions(currentModel);
   const effortVal = reasoningValue(override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning);
+  const active = activeSessionId ? state.ui.runStatus[activeSessionId] : undefined;
   return {
     status: 'ready',
     rawMode,
@@ -340,8 +341,8 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       actions.selectAgent(ref);
       actions.setRoute('agents');
     },
-    sessionStatus: state.ui.sending ? 'running' : 'idle',
-    ...(state.ui.sentAt !== undefined ? { runningSince: state.ui.sentAt } : {}),
+    sessionStatus: active ? 'running' : 'idle',
+    ...(active ? { runningSince: active.since } : {}),
   };
 }
 

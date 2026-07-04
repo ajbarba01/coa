@@ -295,8 +295,9 @@ export async function startConsole(
   /** Open a session: reload its persisted transcript and make it active. */
   async function openSession(id: string): Promise<void> {
     const loaded = await settle(() => bridge.reloadConversation({ id }));
+    if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
     const turns: Remote<TurnFrame[]> =
-      loaded.status === 'ok' ? { status: 'ok', value: reloadToViewFrames(loaded.value) } : loaded;
+      loaded.status === 'ok' ? { status: 'ok', value: turnsBySession.get(id) ?? [] } : loaded;
     state = { ...state, data: { ...state.data, turns }, ui: { ...state.ui, activeSessionId: id } };
     push();
   }
@@ -331,17 +332,23 @@ export async function startConsole(
       }
     })();
 
-  // ---- Live session: append streamed frames to the active transcript ----
+  // ---- Live session: route streamed frames to their owning session's buffer ----
 
-  /** Append view frames to the active session's transcript and republish. */
-  const appendTurns = (frames: TurnFrame[]): void => {
+  // Per-session live buffers so a background session's streamed frames are retained,
+  // not misfiled into whatever transcript is active.
+  const turnsBySession = new Map<string, TurnFrame[]>();
+
+  /** Append frames to a session's buffer; publish to the visible transcript only when
+   *  that session is the active one. */
+  const appendTurns = (sessionId: string, frames: TurnFrame[]): void => {
     if (frames.length === 0) return;
-    const prev = state.data.turns.status === 'ok' ? state.data.turns.value : [];
-    state = {
-      ...state,
-      data: { ...state.data, turns: { status: 'ok', value: [...prev, ...frames] } },
-    };
-    push();
+    const prev = turnsBySession.get(sessionId) ?? [];
+    const next = [...prev, ...frames];
+    turnsBySession.set(sessionId, next);
+    if (sessionId === state.ui.activeSessionId) {
+      state = { ...state, data: { ...state.data, turns: { status: 'ok', value: next } } };
+      push();
+    }
   };
 
   // The drift/cache banners are DERIVED live in the chat vm (predictive: computed from
@@ -390,41 +397,23 @@ export async function startConsole(
     push();
   };
 
-  // `sending`/`sentAt` drive the chat pane's running-status pill (idle vs. "running for
-  // Ns"). Set optimistically on send for instant feedback, then driven by the daemon's
-  // real `status` push: `running` (re)affirms it, `done`/`error`/`idle` clear it. Turn
-  // frames no longer touch it — clearing on every push was the bug that flipped the
-  // pill back to idle on the first streamed frame.
-  const clearSending = (): void => {
-    if (state.ui.sending === undefined && state.ui.sentAt === undefined) return;
-    const ui = { ...state.ui, sending: false };
-    delete ui.sentAt;
-    state = { ...state, ui };
-  };
-
-  const affirmSending = (): void => {
-    state = {
-      ...state,
-      ui: { ...state.ui, sending: true, sentAt: state.ui.sentAt ?? Date.now() },
-    };
-  };
-
-  // Forward every daemon push into the active conversation; a completed session
-  // refreshes the rail so its auto-title + recency update. (Drift/cache banners are
-  // derived client-side, not pushed.)
+  // Forward every daemon push to its owning session (never the active one blindly); a
+  // completed session refreshes the rail so its auto-title + recency update.
+  // (Drift/cache banners are derived client-side, not pushed.)
   const unsubscribePush = bridge.onPush((payload) => {
     const parsed = pushSchema.safeParse(payload);
     if (!parsed.success) return;
-    const frames = pushToViewFrames(parsed.data);
-    if (parsed.data.kind === 'status') {
-      if (parsed.data.state === 'running') affirmSending();
-      else clearSending();
-      if (parsed.data.state === 'done') void refreshSessionList();
-      // A status push carries no turn frames, so appendTurns' own push() won't fire —
-      // publish the sending/sentAt change here.
-      if (frames.length === 0) push();
+    const data = parsed.data;
+    if (data.kind === 'status') {
+      const runStatus = { ...state.ui.runStatus };
+      if (data.state === 'running') runStatus[data.sessionId] ??= { since: Date.now() };
+      else delete runStatus[data.sessionId];
+      state = { ...state, ui: { ...state.ui, runStatus } };
+      if (data.state === 'done') void refreshSessionList();
+      push();
+      return;
     }
-    appendTurns(frames);
+    if ('sessionId' in data) appendTurns(data.sessionId, pushToViewFrames(data));
   });
 
   let youSeq = 0;
@@ -433,8 +422,11 @@ export async function startConsole(
     const id = state.ui.activeSessionId;
     if (body === '' || id === undefined) return;
     youSeq += 1;
-    state = { ...state, ui: { ...state.ui, sending: true, sentAt: Date.now() } };
-    appendTurns([{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
+    state = {
+      ...state,
+      ui: { ...state.ui, runStatus: { ...state.ui.runStatus, [id]: { since: Date.now() } } },
+    };
+    appendTurns(id, [{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     const activeSession = sessions.find((s) => s.id === id);
     const agent = activeSession ? agents.find((a) => a.ref === activeSession.agentRef) : undefined;
     // Resolve the selection as a COHERENT UNIT: the override is a partial patch over
@@ -489,8 +481,11 @@ export async function startConsole(
       .catch((e: unknown) => {
         // A failed dispatch never streams a turn back — clear the pill here so it
         // doesn't run forever.
-        clearSending();
-        appendTurns([
+        const runStatus = { ...state.ui.runStatus };
+        delete runStatus[id];
+        state = { ...state, ui: { ...state.ui, runStatus } };
+        push();
+        appendTurns(id, [
           {
             id: `err:${youSeq}`,
             role: 'agent',

@@ -67,12 +67,12 @@ export interface ConsoleUi {
    *  derived (config-a-send-would-use vs. the running prompt's config), so dismissal is
    *  suppression state — it re-shows once the config changes to a new key. */
   dismissedDrift: Record<string, string>;
-  /** Phase-1 status floor: true while a send is in flight (cleared on the next appended
-   *  turn). The real 6-state `status` Push (Phase 2) replaces this with per-block timing;
-   *  until then this is the only signal the chat status pill has. */
-  sending?: boolean;
-  /** Epoch ms the in-flight send started, for the running-for-Ns pill. */
-  sentAt?: number;
+  /** Run status keyed by session so switching sessions shows the right pill and never
+   *  leaks a running indicator across the switch. Set optimistically on send, then
+   *  driven by the daemon's real `status` push: `running` (re)affirms it, `done`/`error`
+   *  clear it. Turn frames no longer touch it — clearing on every push was the bug that
+   *  flipped the pill back to idle on the first streamed frame. */
+  runStatus: Record<string, { since: number }>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -136,6 +136,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       resolvedApprovals: {},
       modelOverride: {},
       dismissedDrift: {},
+      runStatus: {},
     },
     actions,
   };

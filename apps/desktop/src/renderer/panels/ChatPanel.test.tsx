@@ -159,13 +159,23 @@ describe('selectChatVm', () => {
   });
 
   it('reports running status while a send is in flight', () => {
-    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, { sending: true, sentAt: 1000 }));
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: [] }, { runStatus: { 's-audit-auth': { since: 1000 } } }),
+    );
     expect(vm.status === 'ready' && vm.sessionStatus).toBe('running');
     expect(vm.status === 'ready' && vm.runningSince).toBe(1000);
   });
 
   it('reports idle status with no in-flight send', () => {
     const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
+    expect(vm.status === 'ready' && vm.sessionStatus).toBe('idle');
+    expect(vm.status === 'ready' && vm.runningSince).toBeUndefined();
+  });
+
+  it('does not show running when only a background session has run status', () => {
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: [] }, { runStatus: { 's-other-session': { since: 1000 } } }),
+    );
     expect(vm.status === 'ready' && vm.sessionStatus).toBe('idle');
     expect(vm.status === 'ready' && vm.runningSince).toBeUndefined();
   });
