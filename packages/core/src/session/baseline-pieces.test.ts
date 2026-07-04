@@ -5,6 +5,7 @@ import { baselinePieces, type BaselineContext } from './baseline-pieces.js';
 const CTX: BaselineContext = {
   platform: 'win32',
   date: '2026-07-02',
+  model: { provider: 'claude' },
 };
 
 describe('baselinePieces', () => {
@@ -37,11 +38,28 @@ describe('baselinePieces', () => {
     expect(baselinePieces(CTX).map((p) => p.body).join('\n')).not.toContain('/work/repo');
   });
 
-  it('never names the model in the compiled prompt (cache-stable across model switches)', () => {
-    const names = baselinePieces(CTX).map((p) => p.name);
-    expect(names).not.toContain('baseline-model');
-    // The model id must not leak into any Piece body either.
-    expect(baselinePieces(CTX).map((p) => p.body).join('\n')).not.toContain('claude-opus-4-8');
+  it('names the running model in its own Model slot (so the agent knows what it is)', () => {
+    const model = baselinePieces({
+      ...CTX,
+      model: { provider: 'claude', model: 'claude-opus-4' },
+    }).find((p) => p.name === 'baseline-model');
+    expect(model?.slot).toBe('model');
+    expect(model?.body).toBe('You are running as claude/claude-opus-4');
+  });
+
+  it('appends the reasoning effort when one is set', () => {
+    const model = baselinePieces({
+      ...CTX,
+      model: { provider: 'deepseek', model: 'deepseek-v4-pro', effort: 'max' },
+    }).find((p) => p.name === 'baseline-model');
+    expect(model?.body).toBe('You are running as deepseek/deepseek-v4-pro (max)');
+  });
+
+  it('names just the provider when the model id is unknown', () => {
+    const model = baselinePieces({ ...CTX, model: { provider: 'claude' } }).find(
+      (p) => p.name === 'baseline-model',
+    );
+    expect(model?.body).toBe('You are running as claude');
   });
 
   it('is byte-stable for identical input (no prompt-cache self-bust)', () => {

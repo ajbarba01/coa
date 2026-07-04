@@ -60,15 +60,24 @@ describe('fetchDeepSeekModels', () => {
     ]);
   });
 
-  it('returns an empty list when the endpoint is not ok', async () => {
+  it('throws (rather than silently returning []) when the endpoint is not ok', async () => {
+    await expect(
+      fetchDeepSeekModels({
+        apiKey: 'sk-1',
+        fetchImpl: async () => ({
+          ok: false,
+          status: 401,
+          text: async () => '',
+          json: async () => ({}),
+        }),
+      }),
+    ).rejects.toThrow(/401/);
+  });
+
+  it('returns an empty list for a genuinely-empty but successful response', async () => {
     const models = await fetchDeepSeekModels({
       apiKey: 'sk-1',
-      fetchImpl: async () => ({
-        ok: false,
-        status: 401,
-        text: async () => '',
-        json: async () => ({}),
-      }),
+      fetchImpl: okModels([]),
     });
     expect(models).toEqual([]);
   });

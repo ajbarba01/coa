@@ -31,6 +31,21 @@ export interface BaselineContext {
   platform: string;
   /** The current date (`YYYY-MM-DD`) for temporal grounding. */
   date: string;
+  /** The model this agent is actually running as — authored into its own `## Model`
+   *  section (near identity, not in it) so BOTH backends tell the agent what it is.
+   *  `provider` always resolves (defaults to `claude` upstream); `model`/`effort`
+   *  are appended only when set. This is why the frozen prompt is model-aware: a
+   *  model switch must recompile so the line stays correct (silently — not via the
+   *  drift banner, which stays role/package-keyed). */
+  model: ModelPrompt;
+}
+
+/** The model facts the `baseline-model` piece is authored from (provider always
+ *  present; model id + reasoning effort optional). */
+export interface ModelPrompt {
+  provider: string;
+  model?: string;
+  effort?: string;
 }
 
 /** A standing, pushed-into-prompt, human-authored Piece (no reminder cadence), placed in a DC-6 section slot. */
@@ -71,6 +86,19 @@ const TOOL_USE = authoredPush(
   'tool-use',
 );
 
+/**
+ * Author the model Piece — `You are running as <provider>/<model>` (append
+ * ` (<effort>)` when a reasoning effort is set; just `<provider>` when the model id
+ * is unknown). Placed in its own `## Model` slot right after identity, on BOTH
+ * backends, so the agent always knows what it is running as.
+ */
+function modelPiece(model: ModelPrompt): Piece {
+  const idPart = model.model !== undefined && model.model !== '' ? `/${model.model}` : '';
+  const effortPart = model.effort !== undefined && model.effort !== '' ? ` (${model.effort})` : '';
+  const body = `You are running as ${model.provider}${idPart}${effortPart}`;
+  return authoredPush('baseline-model', 'which model the agent is running as', body, 'model');
+}
+
 /** Author the volatile environment Piece from the session-invariant facts (ordered last, per D-P2). */
 function environmentPiece(ctx: BaselineContext): Piece {
   const lines = [`Platform: ${ctx.platform}`, `Date: ${ctx.date}`];
@@ -94,7 +122,10 @@ export function baselineStablePieces(): Piece[] {
  * prompt (and thus `promptVersion`) invariant across model switches.
  */
 export function baselineVolatilePieces(ctx: BaselineContext): Piece[] {
-  return [environmentPiece(ctx)];
+  // The model piece renders in the `## Model` slot (right after identity) regardless
+  // of its position in this array; it rides the per-session injection because it is
+  // authored from the model selection, and a model switch recompiles the prompt.
+  return [modelPiece(ctx.model), environmentPiece(ctx)];
 }
 
 /**
@@ -125,8 +156,23 @@ export function createBaselineAssemblePieces(deps: {
   now?: () => Date;
 }): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
   const now = deps.now ?? ((): Date => new Date());
-  return () => ({
-    pieces: baselinePieces({ platform: deps.platform, date: isoDate(now()) }),
+  return (ctx) => ({
+    pieces: baselinePieces({ platform: deps.platform, date: isoDate(now()), model: modelPromptOf(ctx) }),
     frame: EMPTY_FRAME,
   });
+}
+
+/** Resolve the model facts for the prompt from an {@link AssemblePiecesContext},
+ *  defaulting the provider to `claude` (mirrors session.ts) and surfacing the
+ *  reasoning effort only when the reasoning mode is `effort`. */
+export function modelPromptOf(ctx: AssemblePiecesContext): ModelPrompt {
+  const provider = ctx.model?.provider ?? 'claude';
+  const model = ctx.model?.model;
+  const effort =
+    ctx.model?.reasoning?.mode === 'effort' ? ctx.model.reasoning.effort : undefined;
+  return {
+    provider,
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+  };
 }

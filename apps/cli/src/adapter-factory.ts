@@ -36,7 +36,8 @@ export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
  * Fetch a provider's available models (+ per-model reasoning capabilities), routed
  * by the account's `provider`, and TAG each with that provider so the console can
  * merge every backend into one list and route a session to the model's backend. A
- * DeepSeek account with no resolvable key yields an empty list (never throws).
+ * DeepSeek account with no resolvable key THROWS (a real failure, not a silent
+ * empty list — see {@link ModelCache}, which never caches a rejected fetch).
  */
 export async function fetchModels(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
   const provider = account.provider ?? 'claude';
@@ -49,7 +50,9 @@ export async function fetchModels(account: ModelCacheAccount): Promise<ModelDesc
 
 async function fetchDeepSeekFor(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
   const apiKey = resolveApiKey(account.locator);
-  if (apiKey === undefined) return [];
+  if (apiKey === undefined) {
+    throw new Error('deepseek: no API key resolved from the account locator');
+  }
   return fetchDeepSeekModels({ apiKey, caps: loadEffortCaps() });
 }
 

@@ -62,6 +62,11 @@ export interface AssemblePiecesContext {
   role: string;
   /** The chosen roles (assembly selection); preferred over `role` when present. */
   roles?: string[];
+  /** The session's model selection — authored into the `## Model` prompt section so
+   *  the agent knows what it is running as (provider defaults to `claude` when unset).
+   *  Deliberately NOT part of the drift key: a model switch recompiles via the freeze
+   *  reuse gate, never the drift banner. */
+  model?: ModelSelection;
   scope: string;
   /** The bound session worktree (the agent's working directory). Available to
    *  context assembly, but deliberately NOT written into the baseline prompt —
@@ -175,6 +180,7 @@ export async function createSession(
     const assembled = deps.assemblePieces({
       role: req.role,
       ...(req.roles !== undefined ? { roles: req.roles } : {}),
+      ...(req.model !== undefined ? { model: req.model } : {}),
       scope: req.scope,
       worktree,
       ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),

@@ -143,13 +143,26 @@ export interface DaemonOptions {
  * Handlers are built per connection so each `createSession` streams its turns over
  * the connection that opened it (the R-12 push seam).
  */
-/** Fetch every provider's models and flatten them into one list; a provider that fails is skipped. */
-async function listMergedModels(
+/**
+ * Fetch every provider's models and flatten them into one list. A provider whose
+ * fetch throws is logged (via `logErr`) and contributes no models to THIS call's
+ * result — but the failure is never cached ({@link ModelCache} only caches a
+ * resolved fetch), so the next `listModels` call retries that provider and
+ * self-heals once it recovers.
+ */
+export async function listMergedModels(
   models: ModelCache,
   accounts: ModelCacheAccount[],
+  logErr: (line: string) => void = (line) => console.error(line),
 ): Promise<ModelDescriptor[]> {
   const lists = await Promise.all(
-    accounts.map((account) => models.list(account).catch((): ModelDescriptor[] => [])),
+    accounts.map((account) =>
+      models.list(account).catch((error: unknown): ModelDescriptor[] => {
+        const message = error instanceof Error ? error.message : String(error);
+        logErr(`listModels: ${account.label} (${account.provider ?? 'claude'}) failed: ${message}`);
+        return [];
+      }),
+    ),
   );
   return lists.flat();
 }
@@ -197,8 +210,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...shutdownHandlers,
     ...buildSessionHandlers(deps, connection, store),
     // Every provider's models + per-model reasoning levels, merged into one list
-    // (cached, fetched lazily; a provider that fails to fetch is skipped, not fatal).
-    listModels: { handle: () => listMergedModels(models, modelAccounts()) },
+    // (cached, fetched lazily; a provider that fails to fetch is logged + skipped
+    // for this call, not fatal — it self-heals on the next call since the failure
+    // is never cached).
+    listModels: { handle: () => listMergedModels(models, modelAccounts(), options.err) },
   }));
   options.out(`coa daemon listening on ${path}`);
   return bound.server;

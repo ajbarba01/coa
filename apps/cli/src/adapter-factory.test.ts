@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionAdapterInit } from '@coa/core';
-import { createClaudeAdapter } from './adapter-factory.js';
+import { createClaudeAdapter, fetchModels } from './adapter-factory.js';
 
 const init = (over: Partial<SessionAdapterInit> = {}): SessionAdapterInit => ({
   sessionId: 's1',
@@ -27,5 +27,17 @@ describe('createClaudeAdapter', () => {
         capabilityFrame: { allow: [], deny: [] },
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe('fetchModels — deepseek', () => {
+  it('throws (rather than silently returning []) when no key resolves from the locator', async () => {
+    await expect(
+      fetchModels({
+        label: 'ds-ambient',
+        provider: 'deepseek',
+        locator: { type: 'env-var', name: 'COA_TEST_UNSET_DEEPSEEK_KEY_XYZ' },
+      }),
+    ).rejects.toThrow(/no api key resolved/i);
   });
 });

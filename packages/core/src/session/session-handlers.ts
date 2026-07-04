@@ -14,6 +14,8 @@ import type { ConversationStore } from './conversation-store.js';
 import { planMemory, type MemoryPlan } from './memory-plan.js';
 import {
   configHashOf,
+  frozenModelMatches,
+  modelPromptKeyOf,
   promptVersionOf,
   type FrozenCompilation,
   type PromptConfig,
@@ -90,6 +92,11 @@ export function buildSessionHandlers(
       // The provider/model this turn actually routes to (mirrors session.ts's default).
       const provider = params.model?.provider ?? 'claude';
       const model = params.model?.model;
+      // The model facts the `## Model` prompt line depends on (provider/model/effort).
+      // A frozen prompt is reused only when this matches the model it was compiled
+      // with — a switch recompiles so the line stays correct. This is SEPARATE from
+      // the drift key (configHash): a model switch never trips the drift banner.
+      const modelKey = modelPromptKeyOf(params.model);
       // The drift-relevant config that SHAPES the prompt (role + package selection,
       // never the model) — hashed into the frozen compilation so a later config change
       // under the frozen prompt is detectable.
@@ -119,7 +126,14 @@ export function buildSessionHandlers(
         }
         const prior = cs.reload(id);
         const transcript = cs.loadBackendMessages(id);
-        frozen = cs.getCompilation(id);
+        const storedFrozen = cs.getCompilation(id);
+        // Reuse the frozen prompt only when the send's model matches the one it was
+        // compiled with; a model switch drops it here (undefined ⇒ recompile below),
+        // so the `## Model` line is re-authored — silently, WITHOUT touching drift.
+        frozen =
+          storedFrozen !== undefined && frozenModelMatches(storedFrozen, modelKey)
+            ? storedFrozen
+            : undefined;
         promptVersion = frozen?.promptVersion;
         // The PRIOR turn's stored facts (read before this turn re-pins the selection),
         // shared by the memory plan. Drift + cache-status banners are now computed
@@ -193,6 +207,7 @@ export function buildSessionHandlers(
                       promptVersion,
                       configHash: configHashOf(currentConfig),
                       config: currentConfig,
+                      model: modelKey,
                     });
                   },
                 }

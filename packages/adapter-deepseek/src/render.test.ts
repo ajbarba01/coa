@@ -55,6 +55,25 @@ describe('renderSystemPrompt (DeepSeek)', () => {
     expect(out).not.toContain('# coa governance layer');
   });
 
+  it('renders the model line under its own Model section', () => {
+    const out = renderSystemPrompt({
+      ...config(),
+      prefixHead: [
+        {
+          order: 1,
+          piece: {
+            name: 'baseline-model',
+            description: 'd',
+            body: 'You are running as deepseek/deepseek-v4-pro (max)',
+            axes: { delivery: 'push', salience: 'never', provenance: 'authored' },
+            slot: 'model',
+          },
+        },
+      ],
+    });
+    expect(out).toBe(['## Model', 'You are running as deepseek/deepseek-v4-pro (max)'].join('\n\n'));
+  });
+
   it('appends standing-authority reminders after the sections', () => {
     const out = renderSystemPrompt({
       ...config(),

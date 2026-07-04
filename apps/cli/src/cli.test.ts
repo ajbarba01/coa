@@ -1,9 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildDaemonConsoleHandlers, createDaemonCore, listen, type RpcServer } from '@coa/core';
-import { runCli, startDaemon } from './cli.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildDaemonConsoleHandlers,
+  createDaemonCore,
+  listen,
+  ModelCache,
+  type RpcServer,
+} from '@coa/core';
+import { runCli, startDaemon, listMergedModels } from './cli.js';
 
 let n = 0;
 function testPath(): string {
@@ -83,5 +89,27 @@ describe('startDaemon — the serve path', () => {
 
     await server.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('listMergedModels — a provider that fails to fetch is logged and skipped, not cached', () => {
+  it('logs the failure, contributes no models for that call, and retries (self-heals) next call', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('deepseek: no API key resolved from the account locator'))
+      .mockResolvedValue([{ id: 'deepseek-chat' }]);
+    const cache = new ModelCache({ fetch });
+    const account = { label: 'ds', provider: 'deepseek' };
+    const logged: string[] = [];
+
+    const first = await listMergedModels(cache, [account], (line) => logged.push(line));
+    expect(first).toEqual([]);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatch(/ds \(deepseek\) failed/);
+    expect(logged[0]).toMatch(/no API key resolved/);
+
+    const second = await listMergedModels(cache, [account], (line) => logged.push(line));
+    expect(second).toEqual([{ id: 'deepseek-chat' }]);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

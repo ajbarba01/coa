@@ -359,6 +359,42 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     expect(compiles).toBe(1);
   });
 
+  it('reuses the frozen prompt for the same model but recompiles on a model switch — without reporting drift', async () => {
+    let compiles = 0;
+    const base = deps([{ t: 'text', text: 'r' }]);
+    const countingDeps: SessionDeps = {
+      ...base,
+      compile: (...args) => {
+        compiles += 1;
+        return base.compile(...args);
+      },
+    };
+    const handlers = buildSessionHandlers(countingDeps, connection(), store);
+
+    // First send on claude → compiles + freezes, stamped with the model.
+    await handlers['createSession']!.handle({
+      input: 'first', role: 'swe', scope: '', conversationId: 'c1', model: { provider: 'claude', model: 'opus' },
+    });
+    expect(compiles).toBe(1);
+    const firstHash = store.getCompilation('c1')?.configHash;
+    expect(store.getCompilation('c1')?.model).toEqual({ provider: 'claude', model: 'opus' });
+
+    // Same model → frozen prompt reused, no recompile.
+    await handlers['createSession']!.handle({
+      input: 'second', role: 'swe', scope: '', conversationId: 'c1', model: { provider: 'claude', model: 'opus' },
+    });
+    expect(compiles).toBe(1);
+
+    // Switched model → recompiles so the `## Model` line is re-authored...
+    await handlers['createSession']!.handle({
+      input: 'third', role: 'swe', scope: '', conversationId: 'c1', model: { provider: 'deepseek', model: 'v4' },
+    });
+    expect(compiles).toBe(2);
+    expect(store.getCompilation('c1')?.model).toEqual({ provider: 'deepseek', model: 'v4' });
+    // ...but the drift key (role + packages) is unchanged: a model switch is NOT drift.
+    expect(store.getCompilation('c1')?.configHash).toBe(firstHash);
+  });
+
   it('stamps the frozen compilation with the drift key of the config that produced it', async () => {
     const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store);
     await handlers['createSession']!.handle({

@@ -75,12 +75,21 @@ const promptConfigSchema = z.object({
   exclude: z.array(z.string()).optional(),
 });
 
+/** The model facts the frozen `## Model` line was compiled with — gates freeze REUSE
+ *  (a model switch recompiles) but is deliberately NOT part of the drift key. */
+const modelPromptKeySchema = z.object({
+  provider: z.string(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+});
+
 const frozenCompilationSchema = z.object({
   neutral: neutralConfigSchema,
   frame: capabilityFrameSchema,
   promptVersion: z.string(),
   configHash: z.string(),
   config: promptConfigSchema,
+  model: modelPromptKeySchema.optional(),
 });
 
 const metaSchema = z.object({

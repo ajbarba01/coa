@@ -1,5 +1,10 @@
 import type { AgentPackage, CapabilityFrame, Piece, Role } from '@coa/shared';
-import { baselinePieces, baselineVolatilePieces, type BaselineContext } from './baseline-pieces.js';
+import {
+  baselinePieces,
+  baselineVolatilePieces,
+  modelPromptOf,
+  type BaselineContext,
+} from './baseline-pieces.js';
 import type { AssemblePiecesContext } from './session.js';
 
 /**
@@ -128,7 +133,11 @@ export function createRegistryAssemblePieces(deps: {
 }): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
   const now = deps.now ?? ((): Date => new Date());
   return (ctx) => {
-    const baselineCtx: BaselineContext = { platform: deps.platform, date: isoDateUtc(now()) };
+    const baselineCtx: BaselineContext = {
+      platform: deps.platform,
+      date: isoDateUtc(now()),
+      model: modelPromptOf(ctx),
+    };
     const ids = ctx.roles ?? (ctx.role !== undefined && ctx.role !== '' ? [ctx.role] : []);
     const roles = ids
       .map((id) => deps.roles.get(id))

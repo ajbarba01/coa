@@ -6,6 +6,7 @@ describe('SLOTS', () => {
   it('is the DC-6 order with markdown headers', () => {
     expect(SLOTS.map((s) => s.id)).toEqual([
       'identity',
+      'model',
       'tone',
       'tool-use',
       'code-discipline',

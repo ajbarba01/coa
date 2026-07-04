@@ -12,6 +12,7 @@ import type { BaselineContext } from './baseline-pieces.js';
 const CTX: BaselineContext = {
   platform: 'linux',
   date: '2026-07-02',
+  model: { provider: 'claude' },
 };
 
 const registry = packageRegistry();
@@ -194,8 +195,22 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
     expect(frame.allow).toEqual(expect.arrayContaining(['edit_symbol', 'Bash', 'get_symbol']));
     expect(pieces.some((p) => p.name === 'pkg-coding')).toBe(true);
     expect(pieces.some((p) => p.name === 'baseline-environment')).toBe(true);
-    // The compiled prompt is model-invariant — no Piece names the model.
-    expect(pieces.some((p) => p.name === 'baseline-model')).toBe(false);
+  });
+
+  it('names the running model, defaulting the provider to claude when unset', () => {
+    const { pieces } = assemble({ role: 'swe', scope: 'src', worktree: '/w' });
+    const model = pieces.find((p) => p.name === 'baseline-model');
+    expect(model?.body).toBe('You are running as claude');
+
+    const picked = assemble({
+      role: 'swe',
+      scope: 'src',
+      worktree: '/w',
+      model: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+    });
+    expect(picked.pieces.find((p) => p.name === 'baseline-model')?.body).toBe(
+      'You are running as deepseek/deepseek-v4-pro',
+    );
   });
 
   it('an unknown/unset role is the permissive floor: baseline scaffold, empty frame (all tools)', () => {

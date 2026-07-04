@@ -57,7 +57,12 @@ export interface FetchModelsConfig {
   fetchImpl?: FetchLike;
 }
 
-/** Fetch the account's DeepSeek models (+ configured effort ladders). No key ⇒ an empty list. */
+/**
+ * Fetch the account's DeepSeek models (+ configured effort ladders). A non-OK
+ * response THROWS (a failed fetch must never be mistaken for a genuinely-empty
+ * model list — see {@link ModelCache}, which only caches a resolved fetch, so a
+ * throw here self-heals on the next call instead of poisoning the cache forever).
+ */
 export async function fetchDeepSeekModels(config: FetchModelsConfig): Promise<ModelDescriptor[]> {
   const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
   const doFetch = config.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
@@ -66,7 +71,12 @@ export async function fetchDeepSeekModels(config: FetchModelsConfig): Promise<Mo
     method: 'GET',
     headers: { authorization: `Bearer ${config.apiKey}` },
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    const snippet = (await res.text()).slice(0, 200);
+    throw new Error(
+      `deepseek /models failed: HTTP ${res.status}${snippet !== '' ? ` — ${snippet}` : ''}`,
+    );
+  }
   const parsed = modelsResponseSchema.parse(await res.json());
   return parsed.data.map((model) => toModelDescriptor(model.id, caps));
 }

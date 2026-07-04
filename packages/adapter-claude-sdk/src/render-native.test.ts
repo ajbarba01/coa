@@ -148,6 +148,20 @@ describe('renderNative — layering on the claude_code preset (dropping preset-c
     expect(out.systemPrompt).toContain('## Changing code\n\nCODING-BODY');
   });
 
+  it('keeps the model line — it is near identity, not in the preset-covered set, so Claude gets it too', () => {
+    const out = renderNative(
+      config({
+        prefixHead: [
+          ordered(piece('baseline-identity', 'ID-BODY', { slot: 'identity' }), 0),
+          ordered(piece('baseline-model', 'You are running as claude/claude-opus-4', { slot: 'model' }), 1),
+        ],
+      }),
+    );
+
+    expect(out.systemPrompt).toContain('## Model\n\nYou are running as claude/claude-opus-4');
+    expect(out.systemPrompt).not.toContain('ID-BODY'); // identity is still dropped
+  });
+
   it('emits an empty systemPrompt (no bare boundary) when everything is dropped and there is no authority', () => {
     const out = renderNative(
       config({

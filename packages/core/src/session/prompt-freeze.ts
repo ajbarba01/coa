@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CapabilityFrame, NeutralConfig } from '@coa/shared';
+import type { CapabilityFrame, ModelSelection, NeutralConfig } from '@coa/shared';
 
 /**
  * M8 — prompt freezing (SPEC: caching is a prefix match; any byte change in the
@@ -28,6 +28,47 @@ export interface FrozenCompilation {
    *  Exposed to the console (via the session summary) so it can detect drift predictively
    *  — comparing the config a send WOULD use against what the running prompt reflects. */
   config: PromptConfig;
+  /** The model the frozen prompt was compiled with (provider/model/effort — the facts
+   *  the `## Model` line encodes). Deliberately SEPARATE from {@link configHash}/the
+   *  drift key: it gates freeze REUSE (a model switch recompiles so the line stays
+   *  correct) WITHOUT tripping the drift banner. Absent on legacy stores ⇒ treated as
+   *  a mismatch (recompile once), which is safe. */
+  model?: ModelPromptKey | undefined;
+}
+
+/** The model facts the frozen `## Model` line depends on. A send whose provider,
+ *  model id, OR reasoning effort differs from the frozen one renders a different
+ *  line, so the frozen prompt must be recompiled (silently — not drift). */
+export interface ModelPromptKey {
+  provider: string;
+  model?: string | undefined;
+  effort?: string | undefined;
+}
+
+/** The model facts the running `## Model` line depends on, resolved from a session's
+ *  {@link ModelSelection} (provider defaults to `claude`, effort only when the
+ *  reasoning mode is `effort`) — the key the freeze reuse gate compares. */
+export function modelPromptKeyOf(model: ModelSelection | undefined): ModelPromptKey {
+  const provider = model?.provider ?? 'claude';
+  const id = model?.model;
+  const effort = model?.reasoning?.mode === 'effort' ? model.reasoning.effort : undefined;
+  return {
+    provider,
+    ...(id !== undefined ? { model: id } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+  };
+}
+
+/** Whether a frozen prompt's model matches the current send's — the freeze REUSE
+ *  gate (not drift). A missing frozen model (legacy store) is a mismatch: recompile
+ *  once so the line is present + correct. */
+export function frozenModelMatches(
+  frozen: { model?: ModelPromptKey | undefined },
+  current: ModelPromptKey,
+): boolean {
+  const f = frozen.model;
+  if (f === undefined) return false;
+  return f.provider === current.provider && f.model === current.model && f.effort === current.effort;
 }
 
 /**

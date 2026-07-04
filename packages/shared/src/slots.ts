@@ -4,6 +4,7 @@ import { z } from 'zod';
  *  here). The assembly emits each non-empty slot's header + its Piece bodies, in this order. */
 export const SLOTS = [
   { id: 'identity', header: '## Identity' },
+  { id: 'model', header: '## Model' },
   { id: 'tone', header: '## Tone' },
   { id: 'tool-use', header: '## Using tools' },
   { id: 'code-discipline', header: '## Changing code' },
