@@ -190,9 +190,9 @@ A rich, self-contained rendering of one agent tool call.
 
 - **Use it when:** Showing a tool call in the transcript — a highlighted diff for edits and symbol edits, a read/symbol-source preview, clickable search-match rows, run_checks status chips, or a command-output tail, with a clickable path/line and an estimated-token readout.
 - **Don't use it when:** Rendering prose or a plan checklist — those are their own transcript kinds. A one-line activity summary is enough — that is a different tool-block direction.
-- **Anatomy:** A header (tool icon, verb, clickable file path with an optional line, summary, estimated tokens, status glyph) over a body that leads with a byte-faithful highlighted diff (edits + symbol edits), a highlighted preview (reads + symbol source), clickable search-match rows, run_checks status chips, or a command-output tail with red-marked error tokens — clamped to a max line count with an Expand affordance that opens the full body in the pane overlay.
-- **Variants & states:** running, ok, failed, diff, preview, matches, checks, command-tail, truncated, expanded
-- **Accessibility:** The path and each search-match row are focusable buttons when actionable; Expand is a button; the status glyph carries an aria-label; payload bytes render verbatim.
+- **Anatomy:** A header (tool icon, verb, clickable file path with an optional line — or a WebFetch source URL that opens in the browser, a summary that carries the symbol/patch detail past the file, estimated tokens, status glyph) over a body that leads with a byte-faithful highlighted diff (edits + symbol edits), a highlighted preview (reads + symbol source), clickable search-match rows, clickable WebSearch result links, run_checks status chips, or a command-output tail with red-marked error tokens. A failure (ok:false) takes priority: its output is always shown as a red error body, never collapsed to header-only. An empty search result renders no body — the 0-count shows in the header. Read/search/fetch tools otherwise collapse to the header + an Expand control by default; other bodies clamp to a max line count. Expand opens the full body in the pane overlay.
+- **Variants & states:** running, ok, failed, diff, preview, matches, web-links, empty, checks, command-tail, truncated, expanded
+- **Accessibility:** The path, each search-match row, and each web link are focusable buttons when actionable; Expand is a labelled button; the status glyph carries an aria-label; payload bytes render verbatim.
 - **Related:** ToolDiffView, PaneOverlay, Code, Transcript
 
 ### Transcript
@@ -464,7 +464,7 @@ A modal-like overlay confined to its own pane, never the whole window.
 - **Don't use it when:** A window-level modal is wanted — use Dialog. A transient message is enough — use Toast.
 - **Anatomy:** A provider wrapping a relative pane container; an absolute-inset overlay layer with a pane-confined scrim and a scrollable titled panel (close button); an open/close API exposed via usePaneOverlay.
 - **Variants & states:** closed, open
-- **Accessibility:** role=dialog with an aria-label; Escape and backdrop/close-button dismiss; the panel is a focusable, scrollable region.
+- **Accessibility:** role=dialog + aria-modal with an aria-label; Escape and backdrop/close-button dismiss; initial focus lands on close, Tab is trapped within the panel, and focus is restored to the opener on close; the panel is a scrollable region.
 - **Related:** Dialog, Sheet, Toast
 
 ### Toolbar

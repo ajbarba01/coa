@@ -18,6 +18,11 @@ import { cx } from '../lib/cx.js';
  *  read-only surfaces, where the path renders as plain text. */
 export type OpenPathFn = (path: string, line?: number) => void;
 
+/** Open a web URL (a WebSearch result link, a WebFetch source) in the default browser.
+ *  Supplied live by `ChatPanel` (backed by the openExternal IPC); omitted where URLs
+ *  render as plain text. Like `onOpenPath`, MUST be referentially stable across renders. */
+export type OpenUrlFn = (url: string) => void;
+
 export type TranscriptRole = 'you' | 'agent' | 'subagent';
 
 /** One rendered turn frame. A discriminated union so each kind renders on its own
@@ -120,6 +125,10 @@ export interface TranscriptProps {
    *  memoization and re-render every row on every streamed frame. Omitted ⇒ paths render
    *  as plain text (no link). */
   onOpenPath?: OpenPathFn | undefined;
+  /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser. Like
+   *  `onOpenPath`, MUST be referentially stable across renders (threaded into `MemoRow`).
+   *  Omitted ⇒ URLs render as plain text. */
+  onOpenUrl?: OpenUrlFn | undefined;
   label?: string | undefined;
   className?: string | undefined;
   /** Test seam: force the jump-to-latest control's visibility instead of deriving it
@@ -314,12 +323,14 @@ export function TranscriptRow({
   frame,
   onRespond,
   onOpenPath,
+  onOpenUrl,
   spineTop = true,
   spineBottom = true,
 }: {
   frame: TranscriptFrame;
   onRespond?: RespondFn | undefined;
   onOpenPath?: OpenPathFn | undefined;
+  onOpenUrl?: OpenUrlFn | undefined;
   spineTop?: boolean | undefined;
   spineBottom?: boolean | undefined;
 }): React.JSX.Element {
@@ -534,10 +545,11 @@ export function TranscriptRow({
             output={frame.output}
             ok={frame.ok}
             onOpenPath={onOpenPath}
+            onOpenUrl={onOpenUrl}
           />
         )}
         {frame.kind === 'tool-use' && (
-          <ToolCard tool={frame.tool} input={frame.input} onOpenPath={onOpenPath} />
+          <ToolCard tool={frame.tool} input={frame.input} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />
         )}
         {/* A standalone tool-result carries no input; the kit card takes `input: string`,
             so pass '' — the header falls back to its summary and the output body renders. */}
@@ -548,6 +560,7 @@ export function TranscriptRow({
             output={frame.output}
             ok={frame.ok}
             onOpenPath={onOpenPath}
+            onOpenUrl={onOpenUrl}
           />
         )}
       </div>
@@ -671,6 +684,7 @@ const MemoRow = memo(function MemoRow({
   frame,
   onRespond,
   onOpenPath,
+  onOpenUrl,
   index,
   findActive = false,
   spineTop = true,
@@ -679,6 +693,7 @@ const MemoRow = memo(function MemoRow({
   frame: TranscriptFrame;
   onRespond?: RespondFn | undefined;
   onOpenPath?: OpenPathFn | undefined;
+  onOpenUrl?: OpenUrlFn | undefined;
   index: number;
   /** True when this row is the active find-in-conversation match — rings the row so
    *  prev/next navigation has a visible landing target. */
@@ -714,6 +729,7 @@ const MemoRow = memo(function MemoRow({
         frame={frame}
         onRespond={onRespond}
         onOpenPath={onOpenPath}
+        onOpenUrl={onOpenUrl}
         spineTop={spineTop}
         spineBottom={spineBottom}
       />
@@ -730,6 +746,7 @@ export function Transcript({
   frames,
   onRespond,
   onOpenPath,
+  onOpenUrl,
   label = 'Conversation',
   className,
   showJumpToLatest,
@@ -930,6 +947,7 @@ export function Transcript({
               frame={item}
               onRespond={onRespond}
               onOpenPath={onOpenPath}
+              onOpenUrl={onOpenUrl}
               index={index}
               findActive={findOpen && index === activeMatchFrameIndex}
               spineTop={!spineStarts.has(index)}

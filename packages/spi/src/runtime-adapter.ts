@@ -114,6 +114,23 @@ export interface RegisteredTool {
   inputSchema: ZodRawShape;
   /** The governed, enriched dispatch: validate args → route to the M6 handler → enrich the return. */
   invoke: (args: unknown) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
+  /**
+   * Render this tool's structured `result` to human-readable display text — the text a
+   * pure-API loop (no SDK-provided result text) shows on the `tool_result` frame and
+   * feeds back to the model. The tool owns its result shape, so it owns the rendering.
+   * Pure and total: it never throws and an unrecognized shape falls back to raw JSON.
+   * Absent ⇒ the loop uses the JSON dump directly (SDK backends render their own text).
+   */
+  render?: (result: unknown) => string;
+  /**
+   * Whether this tool's structured `result` represents a success — the pure-API loop uses
+   * it to set the `tool_result` frame's `ok` (✓ vs ✗ + an always-visible red error body),
+   * since a pure-API backend has no SDK-provided error signal. The tool owns its result
+   * shape, so it owns the predicate. Pure and total: it never throws, and an unrecognized
+   * shape returns `true` (a well-formed result is never falsely flagged failed). Absent ⇒
+   * the loop presumes success (SDK backends carry their own error signal).
+   */
+  ok?: (result: unknown) => boolean;
 }
 
 /** The golden-corpus eval input/result (D138 mechanism; M8/M7 own the policy). */

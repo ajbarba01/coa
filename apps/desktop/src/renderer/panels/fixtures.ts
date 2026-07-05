@@ -21,6 +21,8 @@ export const NOOP_ACTIONS: ConsoleActions = {
   sendMessage: () => {},
   onBannerAction: () => {},
   setSessionModel: () => {},
+  openPath: () => Promise.resolve({ ok: false }),
+  openExternal: () => Promise.resolve({ ok: false }),
 };
 
 export interface StateOverrides {

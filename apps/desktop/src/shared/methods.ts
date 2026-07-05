@@ -36,6 +36,32 @@ export const NewSessionParamsSchema = z.object({
 export const NewSessionResultSchema = z.object({ id: z.string() });
 const OkResultSchema = z.object({ ok: z.boolean() });
 
+/** Reveal-in-editor (a tool card's path/match click). `sessionId` names whose worktree
+ *  root the (worktree-relative) path resolves against; `line` jumps VS Code to the line.
+ *  The result is advisory (SC-1 — surface, never block): `revealed` says how it opened
+ *  (`editor` via `code -g`, or the `folder` fallback when `code` is absent/failed), and
+ *  `reason` carries a message the renderer toasts on failure. */
+export const OpenPathParamsSchema = z.object({
+  path: z.string(),
+  line: z.number().int().positive().optional(),
+  sessionId: z.string().optional(),
+});
+export const OpenPathResultSchema = z.object({
+  ok: z.boolean(),
+  revealed: z.enum(['editor', 'folder']).optional(),
+  reason: z.string().optional(),
+});
+
+/** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser. Validated
+ *  to `http:`/`https:` only — any other scheme is refused. Advisory (SC-1 — surface, never
+ *  block): the result's `ok` says whether it opened, and `reason` carries a message the
+ *  renderer toasts on failure. */
+export const OpenExternalParamsSchema = z.object({ url: z.string() });
+export const OpenExternalResultSchema = z.object({
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
 /** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
 export const PUSH_CHANNEL = 'coa:push';
 
@@ -102,6 +128,8 @@ export type MethodName =
   | 'listModels'
   | 'listRoles'
   | 'listPackages'
+  | 'openPath'
+  | 'openExternal'
   | 'getLayout'
   | 'saveLayout'
   | 'getSettings'
@@ -133,6 +161,8 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   listModels: { result: z.array(modelDescriptorSchema) },
   listRoles: { result: RoleSummaryListSchema },
   listPackages: { result: PackageSummaryListSchema },
+  openPath: { params: OpenPathParamsSchema, result: OpenPathResultSchema },
+  openExternal: { params: OpenExternalParamsSchema, result: OpenExternalResultSchema },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },
   getSettings: { result: ConsoleSettingsSchema },

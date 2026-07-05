@@ -111,6 +111,18 @@ export interface ConsoleActions {
   /** Deliberately switch a session's model/provider for its next turn (the in-chat
    *  control). The next send routes there and the daemon persists it as the new pin. */
   setSessionModel: (sessionId: string, selection: ModelSelection) => void;
+  /** Reveal a touched file (a tool card's path/match link) in the editor/OS at an
+   *  optional line, confined to the given session's worktree. Resolves an advisory
+   *  result the caller toasts on failure — never blocks (SC-1). */
+  openPath: (
+    path: string,
+    line: number | undefined,
+    sessionId: string | undefined,
+  ) => Promise<{ ok: boolean; revealed?: 'editor' | 'folder'; reason?: string }>;
+  /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
+   *  Validated to http(s) by main; resolves an advisory result the caller toasts on
+   *  failure — never blocks (SC-1). */
+  openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,

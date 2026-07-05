@@ -15,8 +15,18 @@ function tool(
     handle: `raw:${name}`,
     pointer: `p:${name}`,
   })),
+  render?: RegisteredTool['render'],
+  ok?: RegisteredTool['ok'],
 ): RegisteredTool {
-  return { name, description: `the ${name} tool`, partition: 'kernel', inputSchema: {}, invoke };
+  return {
+    name,
+    description: `the ${name} tool`,
+    partition: 'kernel',
+    inputSchema: {},
+    invoke,
+    ...(render ? { render } : {}),
+    ...(ok ? { ok } : {}),
+  };
 }
 
 /** A scripted `complete()` that plays canned rounds and snapshots the messages it sees each call. */
@@ -73,7 +83,8 @@ describe('runGovernedLoop', () => {
     expect(frames).toEqual([
       { t: 'text', text: 'let me look' },
       { t: 'tool_use', tool: 'get_symbol', input: { name: 'pay' }, handle: 's1:c1' },
-      { t: 'tool_result', handle: 's1:c1', ok: true, pointer: 'P' },
+      // No per-tool `render` here ⇒ the frame carries the JSON floor (matches the model content).
+      { t: 'tool_result', handle: 's1:c1', ok: true, pointer: JSON.stringify({ rows: 3 }) },
       { t: 'text', text: 'done' },
     ]);
     expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', {
@@ -81,6 +92,79 @@ describe('runGovernedLoop', () => {
       tokensOut: 10,
       costUsd: 1,
     });
+  });
+
+  it("emits the tool's ok-predicate on the successful tool_result frame (a failure ⇒ ok:false)", async () => {
+    // A pure-API backend has no SDK error signal; the tool's `ok` predicate decides the
+    // frame's ✓/✗. Here a not-found `get_symbol` invoked successfully still reports ok:false.
+    const notFound = { found: false, reason: 'no-symbol' };
+    const invoke = vi.fn(async () => ({ result: notFound, handle: 'symbol:miss', pointer: 'pay' }));
+    const okPredicate = vi.fn((r: unknown) => (r as { found: boolean }).found);
+    const catalogue: ToolCatalogue = [tool('get_symbol', invoke, () => 'not found: no-symbol', okPredicate)];
+    const frames: TurnFrame[] = [];
+    const complete = scriptedComplete([
+      { text: '', toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }], usage: USAGE },
+      text('ok'),
+    ]);
+
+    await runGovernedLoop(deps({ catalogue, complete: complete.fn, onTurn: (f) => frames.push(f) }));
+
+    expect(okPredicate).toHaveBeenCalledWith(notFound);
+    const result = frames.find((f) => f.t === 'tool_result');
+    expect(result).toEqual({ t: 'tool_result', handle: 's1:c1', ok: false, pointer: 'not found: no-symbol' });
+  });
+
+  it('defaults ok:true when a tool carries no ok-predicate', async () => {
+    const invoke = vi.fn(async () => ({ result: { rows: 1 }, handle: 'h', pointer: 'p' }));
+    const catalogue: ToolCatalogue = [tool('Read', invoke)];
+    const frames: TurnFrame[] = [];
+    const complete = scriptedComplete([
+      { text: '', toolCalls: [{ id: 'c1', name: 'Read', arguments: {} }], usage: USAGE },
+      text('ok'),
+    ]);
+    await runGovernedLoop(deps({ catalogue, complete: complete.fn, onTurn: (f) => frames.push(f) }));
+    expect(frames.find((f) => f.t === 'tool_result')).toMatchObject({ ok: true });
+  });
+
+  it("renders a tool result to display text for BOTH the frame and the model (not the pointer)", async () => {
+    // The Grep defect: the response `pointer` is the search PATTERN, and the real matches
+    // live in `result`. A per-tool `render` turns the result into file:line lines, and the
+    // driver uses that text for the emitted frame AND the model's tool message.
+    const grepResult = {
+      hits: [
+        { file: 'src/auth.ts', line: 31, text: '  const next = mint(id);' },
+        { file: 'src/session.ts', line: 88, text: 'export const refreshToken = () => {};' },
+      ],
+    };
+    const rendered = 'src/auth.ts:31:  const next = mint(id);\nsrc/session.ts:88:export const refreshToken = () => {};';
+    const invoke = vi.fn(async () => ({
+      result: grepResult,
+      handle: 'grep:useState',
+      pointer: 'useState', // the PATTERN — what the old code leaked to the console
+    }));
+    const render = vi.fn(() => rendered);
+    const frames: TurnFrame[] = [];
+    const onMessages = vi.fn();
+    const complete = scriptedComplete([
+      { text: '', toolCalls: [{ id: 'c1', name: 'Grep', arguments: { pattern: 'useState' } }], usage: USAGE },
+      text('found them'),
+    ]);
+
+    await runGovernedLoop(
+      deps({
+        catalogue: [tool('Grep', invoke, render)],
+        complete: complete.fn,
+        onTurn: (f) => frames.push(f),
+        onMessages,
+      }),
+    );
+
+    expect(render).toHaveBeenCalledExactlyOnceWith(grepResult);
+    // The console frame shows the real matches, not the pattern.
+    expect(frames).toContainEqual({ t: 'tool_result', handle: 's1:c1', ok: true, pointer: rendered });
+    // The model reads the same rendered text — not raw JSON, not the pattern.
+    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find((m) => m.role === 'tool')!;
+    expect(toolMsg.content).toBe(rendered);
   });
 
   it('does not execute a denied tool call — the deny reason goes back to the model', async () => {

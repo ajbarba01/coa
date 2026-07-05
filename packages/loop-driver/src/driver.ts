@@ -155,14 +155,19 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       // coa executes every governed tool itself (producer ①) → total visibility. `invoke`
       // never throws and never denies (SC-1): a bad input comes back as an unapplied result.
       const response = await tool.invoke(call.arguments);
-      // Pair the result to its `tool_use` by the per-call handle (console correlation);
-      // binding that handle to coa's raw store (`response.handle`) for getToolDetail is a follow-up.
-      emit({ t: 'tool_result', handle, ok: true, pointer: response.pointer });
-      messages.push({
-        role: 'tool',
-        toolCallId: call.id,
-        content: capToolResult(JSON.stringify(response.result)),
-      });
+      // A pure-API backend has no SDK-rendered result text, so the tool renders its own
+      // structured `result` to human-readable display text (its `pointer` is only a terse
+      // handle — often the INPUT). That text is used for BOTH the frame the console shows
+      // and the model's tool message; capped for the resent transcript either way.
+      const display = capToolResult(tool.render?.(response.result) ?? JSON.stringify(response.result));
+      // The tool owns its result shape, so it owns the success predicate: a pure-API backend
+      // has no SDK error signal, so `ok` (the frame's ✓/✗ + the console's red error body)
+      // comes from the tool. Absent ⇒ presume success. Pair the result to its `tool_use` by
+      // the per-call handle (console correlation); binding that handle to coa's raw store
+      // (`response.handle`) for getToolDetail is a follow-up.
+      const ok = tool.ok?.(response.result) ?? true;
+      emit({ t: 'tool_result', handle, ok, pointer: display });
+      messages.push({ role: 'tool', toolCallId: call.id, content: display });
     }
   }
 

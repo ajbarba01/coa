@@ -1,7 +1,7 @@
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
 import { titleBarConfig, windowBackground, type ResolvedTheme } from './titlebar.js';
@@ -9,6 +9,8 @@ import { keyToZoomAction, nextLevel } from './zoom.js';
 import { type DaemonClient } from './daemon.js';
 import { createDaemonManager, type DaemonProcess } from './daemon-manager.js';
 import { readJson, writeJson } from './persistence.js';
+import { codeInvocation, confineToWorktree, safeForWindowsShell } from './openPath.js';
+import { validateExternalUrl } from './openExternal.js';
 import {
   DAEMON_CONTROL,
   DAEMON_STATUS_CHANNEL,
@@ -29,6 +31,22 @@ let mainWindow: BrowserWindow | undefined;
 /** The live theme preference, tracked so an OS light/dark flip can recolor the native
  *  chrome while the preference is `'system'` (mirrors the renderer's matchMedia follow). */
 let themePref: ConsoleSettings['theme'] = 'dark';
+
+/**
+ * The project root the reveal IPC resolves a tool card's (worktree-relative) path against —
+ * the same directory the daemon is launched in (its `cwd`, which is the tools' `worktreeRoot`),
+ * so a worktree-relative path from a tool result resolves to the real file. Detected from the
+ * workspace marker (as an editor detects a workspace), memoized, and independent of the daemon
+ * push stream — so it is correct on first launch AND after a restart that reconnects to an
+ * already-running daemon (the stream only re-emits `worktree` on a new turn, and that value is
+ * a logical worktree id, not a filesystem path). The renderer never supplies a root (it can't
+ * be trusted to); main derives it so `openPath` confinement is authoritative.
+ */
+let cachedProjectRoot: string | undefined;
+function projectRoot(): string {
+  cachedProjectRoot ??= findRepoRoot(process.cwd());
+  return cachedProjectRoot;
+}
 
 /** Resolve the preference to a concrete theme; `'system'` follows the OS (`nativeTheme`
  *  defaults its source to `'system'`, so `shouldUseDarkColors` reflects the OS). */
@@ -160,7 +178,7 @@ function findRepoRoot(start: string): string {
  * cwd = the repo root so it reads/writes the project's real `.coa` store.
  */
 function daemonSpawn(): DaemonProcess {
-  const root = findRepoRoot(process.cwd());
+  const root = projectRoot();
   const binPath = join(root, 'apps', 'cli', 'dist', 'bin.js');
   const node = process.env['npm_node_execpath'] ?? 'node';
   const override = process.env['COA_CLI'];
@@ -191,7 +209,9 @@ const daemon = createDaemonManager({
       await connectClient(
         path,
         (note) => {
-          if (note.method === 'push') mainWindow?.webContents.send(PUSH_CHANNEL, note.params);
+          if (note.method === 'push') {
+            mainWindow?.webContents.send(PUSH_CHANNEL, note.params);
+          }
         },
         onClose,
       ),
@@ -214,6 +234,98 @@ async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
   const res = await (await daemon.client()).request(method, params);
   if ('error' in res && res.error) throw new DaemonError(res.error.message, res.error.code);
   return res.result;
+}
+
+/** Result of a reveal-in-editor attempt (mirrors `OpenPathResultSchema`). Advisory: a
+ *  failure surfaces to the renderer (which toasts it) but never blocks (SC-1). */
+type RevealResult = { ok: boolean; revealed?: 'editor' | 'folder'; reason?: string };
+
+/** Spawn `code -g <abs>:<line>`, resolving to whether it launched. `code`/`code.cmd`
+ *  detaches and its exit code isn't awaited (the editor stays open); we treat a clean
+ *  spawn (no immediate `error` event) as success and reveal via the OS fallback if the
+ *  binary is missing or errors. */
+function spawnCode(absPath: string, line: number | undefined): Promise<boolean> {
+  // On Windows the invocation goes through `cmd.exe /c code`; refuse a path carrying a
+  // cmd-interpreted metacharacter (a maliciously-named worktree file) — spaces are fine
+  // (Node quotes each arg), only `%`/`!`/`"`/newlines are refused. The caller falls back to
+  // the shell-free folder reveal. POSIX spawns `code` directly, so it is exempt.
+  if (process.platform === 'win32' && !safeForWindowsShell(absPath)) return Promise.resolve(false);
+  const { command, args } = codeInvocation(process.platform, absPath, line);
+  return new Promise((resolvePromise) => {
+    try {
+      // shell:false ⇒ Node applies Win32 argument quoting, so a path with spaces stays one
+      // argument (the reveal's original split-at-space bug is gone). `code -g` signals the
+      // running instance and exits promptly; a clean exit (code 0) means it launched, a
+      // non-zero exit (e.g. `code` not on PATH ⇒ cmd's "not recognized") means fall back.
+      const child = spawn(command, args, {
+        shell: false,
+        stdio: 'ignore',
+        windowsHide: true,
+        detached: false,
+      });
+      let settled = false;
+      const done = (ok: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolvePromise(ok);
+      };
+      // ENOENT (no `cmd.exe`/`code` binary) surfaces as an async `error` event.
+      child.once('error', () => done(false));
+      child.once('exit', (code) => done(code === 0));
+      // If it stays attached past a short window (rare for `-g`), assume it launched.
+      setTimeout(() => done(true), 2000);
+    } catch {
+      resolvePromise(false);
+    }
+  });
+}
+
+/**
+ * The reveal-in-editor IPC (a tool card's path/match click). Resolves the (worktree-
+ * relative) path against the named session's worktree root, CONFINES it (a path that
+ * escapes the root is refused — never open an arbitrary file), then opens it in VS Code
+ * at the line via `code -g`, falling back to `shell.showItemInFolder` when `code` is
+ * unavailable. Always resolves a structured result (never throws to the renderer) — the
+ * renderer toasts a failure; the reveal is advisory and never blocks (SC-1).
+ */
+async function revealPath(params: {
+  path: string;
+  line?: number;
+  sessionId?: string;
+}): Promise<RevealResult> {
+  // Resolve against the project root main derives (= the daemon's cwd / the tools'
+  // worktreeRoot), not an ephemeral push-supplied worktree id — so it works on first launch
+  // and after a restart, and points at the real filesystem directory.
+  const abs = confineToWorktree(projectRoot(), params.path);
+  if (abs === undefined) {
+    return { ok: false, reason: `Path escapes the worktree: ${params.path}` };
+  }
+  const launched = await spawnCode(abs, params.line);
+  if (launched) return { ok: true, revealed: 'editor' };
+  // `code` absent/failed: reveal the file in the OS file manager (no line jump).
+  try {
+    shell.showItemInFolder(abs);
+    return { ok: true, revealed: 'folder' };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : 'Could not reveal the file.' };
+  }
+}
+
+/**
+ * Open a web URL in the default browser (a tool card's WebSearch/WebFetch link). Validates
+ * the URL to `http:`/`https:` first (any other scheme is refused — never hand the OS a
+ * `file:`/`javascript:`/shell URL), then `shell.openExternal`. Always resolves a structured
+ * result (never throws to the renderer); the renderer toasts a failure. Advisory (SC-1).
+ */
+async function openExternalUrl(params: { url: string }): Promise<{ ok: boolean; reason?: string }> {
+  const check = validateExternalUrl(params.url);
+  if (!check.ok) return { ok: false, reason: check.reason };
+  try {
+    await shell.openExternal(check.url);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : 'Could not open the URL.' };
+  }
 }
 
 async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
@@ -250,6 +362,10 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('listRoles');
     case 'listPackages':
       return proxyDaemon('listPackages');
+    case 'openPath':
+      return revealPath(params as { path: string; line?: number; sessionId?: string });
+    case 'openExternal':
+      return openExternalUrl(params as { url: string });
     case 'getLayout':
       return readJson(layoutFile());
     case 'saveLayout':

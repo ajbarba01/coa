@@ -10,10 +10,13 @@ import {
   EmptyState,
   IconButton,
   InlineMessage,
+  PaneOverlayProvider,
   Pane,
   Select,
   Skeleton,
   SwitcherMenu,
+  Toast,
+  ToastProvider,
   Tooltip,
   TooltipProvider,
   Transcript,
@@ -66,6 +69,18 @@ export type ChatVm =
       onPickEffort: (v: string) => void;
       onRespond: RespondFn;
       onSend: (text: string) => void;
+      /** Reveal a tool card's touched file in the editor/OS at an optional line. Stable
+       *  action identity (from `state.actions`) so it can be threaded into the memoized
+       *  transcript rows; resolves an advisory result the view toasts on failure. */
+      openPath: (
+        path: string,
+        line: number | undefined,
+        sessionId: string | undefined,
+      ) => Promise<{ ok: boolean; revealed?: 'editor' | 'folder'; reason?: string }>;
+      /** Open a tool card's WebSearch/WebFetch link in the default browser. Stable action
+       *  identity (from `state.actions`) so it threads into the memoized transcript rows;
+       *  resolves an advisory result the view toasts on failure. */
+      openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
       toggleRaw: () => void;
       /** The active session id, if any — drives the composer's disabled/hint state
        *  (no session means nothing to send a message into). */
@@ -385,6 +400,8 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     },
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
+    openPath: state.actions.openPath,
+    openExternal: state.actions.openExternal,
     toggleRaw: state.actions.toggleRaw,
     activeSessionId,
     rail: buildRailItems(agents, state.ui.settings.pinnedAgents),
@@ -516,6 +533,39 @@ function PermissionModeSlot(): React.JSX.Element {
 function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {
   const [composerHeight, setComposerHeight] = useState(0);
   const composerRoRef = useRef<ResizeObserver | null>(null);
+  // A failed reveal-in-editor surfaces as a toast (SC-1 — surface, never block).
+  const [revealError, setRevealError] = useState<string | null>(null);
+
+  // Read the reveal action + active session through refs so the `onOpenPath` handed to
+  // the memoized transcript rows keeps a STABLE identity across renders (the vm — hence
+  // `vm.openPath`/`vm.activeSessionId` — is rebuilt every render; threading them directly
+  // would defeat `MemoRow`'s memoization). The action itself is already stable; the ref
+  // just lets one stable closure always see the current session.
+  const openPathRef = useRef(vm.status === 'ready' ? vm.openPath : undefined);
+  const openUrlRef = useRef(vm.status === 'ready' ? vm.openExternal : undefined);
+  const sessionIdRef = useRef<string | undefined>(undefined);
+  openPathRef.current = vm.status === 'ready' ? vm.openPath : undefined;
+  openUrlRef.current = vm.status === 'ready' ? vm.openExternal : undefined;
+  sessionIdRef.current = vm.status === 'ready' ? vm.activeSessionId : undefined;
+
+  const onOpenPath = useCallback((path: string, line?: number): void => {
+    const open = openPathRef.current;
+    if (open === undefined) return;
+    void open(path, line, sessionIdRef.current).then((res) => {
+      if (!res.ok) setRevealError(res.reason ?? 'Could not open the file.');
+    });
+  }, []);
+
+  // A tool card's web link opens in the default browser (via the openExternal IPC, which
+  // validates the scheme). Stable identity (ref pattern) so it threads into the memoized
+  // transcript rows without defeating `MemoRow`'s memoization. A failed open toasts (SC-1).
+  const onOpenUrl = useCallback((url: string): void => {
+    const open = openUrlRef.current;
+    if (open === undefined) return;
+    void open(url).then((res) => {
+      if (!res.ok) setRevealError(res.reason ?? 'Could not open the URL.');
+    });
+  }, []);
 
   // Measure the floating composer's rendered height (it grows as the textarea does)
   // via a CALLBACK ref, not a mount-time effect. The composer only mounts once the
@@ -549,6 +599,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
     );
   }
   return (
+    <ToastProvider>
     <Pane
       title={vm.rawMode ? 'Chat · raw' : 'Chat'}
       {...(vm.sessionStatus === 'running'
@@ -623,8 +674,13 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           {/* The transcript fills the pane; the composer floats over its bottom edge
               (below) so the transcript stays visible around/behind it. The transcript's
               own scroll region reserves `composerHeight` of bottom inset so the last row
-              clears the floating composer when scrolled fully down. */}
-          <div className="min-h-0 flex-1 bg-surface p-3.5">
+              clears the floating composer when scrolled fully down.
+
+              PaneOverlayProvider hosts a tool card's Expand overlay CONFINED to this
+              transcript box (`absolute inset-0` within its own `relative` container) — so
+              expanding a deeply-scrolled row covers the transcript region only, never the
+              window, and the floating composer stays over its bottom edge. */}
+          <PaneOverlayProvider className="flex-1 bg-surface p-3.5">
             {vm.frames.length === 0 ? (
               <EmptyState
                 icon={MessageSquare}
@@ -635,6 +691,8 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
               <Transcript
                 frames={vm.frames}
                 onRespond={vm.onRespond}
+                onOpenPath={onOpenPath}
+                onOpenUrl={onOpenUrl}
                 label="Conversation"
                 busy={vm.sessionStatus === 'running'}
                 busySince={vm.runningSince}
@@ -642,7 +700,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
                 bottomInset={composerHeight}
               />
             )}
-          </div>
+          </PaneOverlayProvider>
           <div ref={composerRef} className="absolute bottom-0 left-0 right-0">
           <Composer
             onSend={vm.onSend}
@@ -683,6 +741,17 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
         </div>
       </div>
     </Pane>
+    <Toast
+      open={revealError !== null}
+      onOpenChange={(open) => {
+        if (!open) setRevealError(null);
+      }}
+      tone="danger"
+      title="Couldn't open"
+    >
+      {revealError}
+    </Toast>
+    </ToastProvider>
   );
 }
 

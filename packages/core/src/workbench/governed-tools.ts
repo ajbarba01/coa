@@ -9,6 +9,7 @@ import {
 } from '@coa/shared';
 import type { RegisteredTool } from '@coa/spi';
 import { BASE_TOOL_CATALOGUE, baseToolSpecs, type BaseToolDeps } from './base-tools.js';
+import { renderToolResult, toolResultOk } from './render-result.js';
 import { WEB_TOOL_CATALOGUE, webToolSpecs, type WebToolDeps } from './web-tools.js';
 import { TOOL_CATALOGUE } from './catalogue.js';
 import { enrich, type EnrichDeps } from './enrich.js';
@@ -165,6 +166,11 @@ export function buildGovernedTools(
       partition: entry.partition,
       inputSchema: toolSpec.shape,
       invoke: (raw: unknown) => invokeSpec(entry.name, toolSpec, raw, deps),
+      // The tool owns its result shape, so it carries the per-tool display renderer the
+      // pure-API loop uses for the tool_result frame + the model's tool-message content,
+      // and the ok-predicate that frame's ✓/✗ (+ red error body) is derived from.
+      render: (result: unknown) => renderToolResult(entry.name, result),
+      ok: (result: unknown) => toolResultOk(entry.name, result),
     };
   });
 }

@@ -72,6 +72,8 @@ describe('ToolCard', () => {
         onOpenPath={onOpenPath}
       />,
     );
+    // Grep is collapsed by default; expand (no provider ⇒ inline) to reveal the match rows.
+    await userEvent.click(screen.getByRole('button', { name: /expand/i }));
     const row = screen.getByRole('button', { name: /src\/auth\.ts:31/ });
     await userEvent.click(row);
     expect(onOpenPath).toHaveBeenCalledWith('src/auth.ts', 31);
@@ -79,8 +81,9 @@ describe('ToolCard', () => {
     expect(screen.getByRole('button', { name: /src\/session\.ts:88/ })).toBeInTheDocument();
   });
 
-  it('renders an unparseable search line as plain text (no button)', () => {
+  it('renders an unparseable search line as plain text (no button)', async () => {
     render(<ToolCard tool="Grep" input='{"pattern":"x"}' output={'weird line no colon'} ok={true} onOpenPath={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /expand/i }));
     expect(screen.queryByRole('button', { name: /weird line/ })).not.toBeInTheDocument();
     expect(screen.getByText('weird line no colon')).toBeInTheDocument();
   });
@@ -111,12 +114,91 @@ describe('ToolCard', () => {
     expect(container.textContent).toContain('Expected 1 arguments, but got 2.');
   });
 
-  it('renders get_symbol source as a byte-faithful preview', () => {
+  it('renders get_symbol source as a byte-faithful preview once expanded', async () => {
     const src = 'export function mint(id: string): Token {\n  return new Token(id);\n}';
     const { container } = render(
       <ToolCard tool="get_symbol" input='{"ref":{"path":"src/auth.ts","symbol":"mint"}}' output={src} ok={true} />,
     );
+    // Collapsed by default: the source is hidden behind Expand until opened.
+    expect(container.textContent).not.toContain('return new Token(id);');
+    await userEvent.click(screen.getByRole('button', { name: /expand/i }));
     expect(container.textContent).toContain('export function mint(id: string): Token {');
     expect(container.textContent).toContain('return new Token(id);');
+  });
+
+  it('collapses a read/search tool to header + Expand only until opened', () => {
+    render(<ToolCard tool="Read" input='{"file_path":"src/auth.ts"}' output={'a\nb\nc'} ok={true} />);
+    // The body (the file lines) is not shown inline; only an Expand control is.
+    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
+    expect(screen.queryByText('a')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the symbol name past the file path in a symbol tool title', () => {
+    render(<ToolCard tool="get_symbol" input='{"ref":{"path":"src/auth.ts","symbol":"mint"}}' output="x" ok={true} />);
+    expect(screen.getByText(/· mint/)).toBeInTheDocument();
+  });
+
+  it('shows a hunk count past the target in an apply_patch title', () => {
+    const input = JSON.stringify({
+      target: 'src/auth.ts',
+      diff: { form: 'search-replace', hunks: [{ find: 'a', replace: 'b' }, { find: 'c', replace: 'd' }] },
+    });
+    render(<ToolCard tool="apply_patch" input={input} output="applied" ok={true} />);
+    expect(screen.getByText(/· 2 hunks/)).toBeInTheDocument();
+  });
+
+  it('shows a failed collapsed tool as a RED error body inline (never collapsed to header-only)', () => {
+    // get_symbol is collapse-by-default, but a failure (ok:false) takes priority: its
+    // not-found text is always visible in the danger tint, never hidden behind Expand.
+    const { container } = render(
+      <ToolCard tool="get_symbol" input='{"ref":{"name":"orphan"}}' output={'not found: no-symbol'} ok={false} />,
+    );
+    expect(screen.getByLabelText('failed')).toBeInTheDocument();
+    expect(container.textContent).toContain('not found: no-symbol');
+    // No Expand affordance — the error body is shown, not collapsed.
+    expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument();
+    // The body wears the danger tint.
+    expect(container.querySelector('.text-danger-text')?.textContent).toContain('not found: no-symbol');
+  });
+
+  it('renders NO body for an empty search result (0 matches shows only in the header)', () => {
+    render(<ToolCard tool="Glob" input='{"pattern":"*.zzz"}' output={''} ok={true} />);
+    // Empty output ⇒ no body, no broken link, no Expand.
+    expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument();
+    // The header still names the tool.
+    expect(screen.getByText('Glob')).toBeInTheDocument();
+  });
+
+  it('renders WebSearch results as clickable links that fire onOpenUrl', async () => {
+    const onOpenUrl = vi.fn();
+    render(
+      <ToolCard
+        tool="WebSearch"
+        input='{"query":"tokens"}'
+        output={'Rotating tokens — https://ex.com/a\nsingle-use\nJWT basics — https://ex.com/b'}
+        ok={true}
+        onOpenUrl={onOpenUrl}
+      />,
+    );
+    const link = screen.getByRole('button', { name: /Rotating tokens/ });
+    await userEvent.click(link);
+    expect(onOpenUrl).toHaveBeenCalledWith('https://ex.com/a');
+    expect(screen.getByRole('button', { name: /JWT basics/ })).toBeInTheDocument();
+  });
+
+  it('renders the WebFetch source url as a clickable link in the header', async () => {
+    const onOpenUrl = vi.fn();
+    render(
+      <ToolCard
+        tool="WebFetch"
+        input='{"url":"https://ex.com/page","prompt":"summarize"}'
+        output={'# Page\n\nbody'}
+        ok={true}
+        onOpenUrl={onOpenUrl}
+      />,
+    );
+    const link = screen.getByRole('button', { name: 'https://ex.com/page' });
+    await userEvent.click(link);
+    expect(onOpenUrl).toHaveBeenCalledWith('https://ex.com/page');
   });
 });

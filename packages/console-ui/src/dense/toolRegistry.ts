@@ -100,6 +100,27 @@ function editTarget(rec: Record<string, unknown> | undefined): string {
   return `${path} +${d.added} −${d.removed}`;
 }
 
+/** A compact shape hint for a `DiffSpec` — `whole file` or `N hunk(s)` — for a patch/edit
+ *  title, so it says more than the bare target path. '' for a malformed/unknown spec. */
+function diffHunkSummary(diff: unknown): string {
+  if (typeof diff !== 'object' || diff === null) return '';
+  const d = diff as Record<string, unknown>;
+  if (d['form'] === 'whole-file') return 'whole file';
+  if (d['form'] === 'search-replace' && Array.isArray(d['hunks'])) {
+    const n = d['hunks'].length;
+    return `${n} ${n === 1 ? 'hunk' : 'hunks'}`;
+  }
+  return '';
+}
+
+/** `apply_patch`'s target: its `target` path plus a `· N hunks` shape hint from the diff. */
+function applyPatchTarget(rec: Record<string, unknown> | undefined): string {
+  const target = str(rec, 'target');
+  if (target === undefined) return '';
+  const hint = diffHunkSummary(rec?.['diff']);
+  return hint.length > 0 ? `${target} · ${hint}` : target;
+}
+
 interface ToolEntry {
   icon: LucideIcon;
   /** Extract the human target/detail from parsed input; '' when absent. */
@@ -141,7 +162,7 @@ const TOOLS: Record<string, ToolEntry> = {
   find_references: { icon: Network, target: (r) => str(r, 'symbol') ?? '' },
   get_piece: { icon: Puzzle, target: (r) => refName(r?.['ref']) },
   edit_symbol: { icon: FileCode, target: (r) => refName(r?.['ref']) },
-  apply_patch: { icon: FileDiff, target: (r) => str(r, 'target') ?? '' },
+  apply_patch: { icon: FileDiff, target: applyPatchTarget },
   run_checks: { icon: ShieldCheck, target: (r) => str(r, 'scope') ?? 'all' },
   context_status: { icon: Gauge, target: () => '' },
   why: { icon: Info, target: (r) => str(r, 'target') ?? '' },

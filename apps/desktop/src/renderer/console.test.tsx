@@ -35,6 +35,8 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
+    openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
+    openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
     getLayout: vi.fn().mockResolvedValue(undefined),
     saveLayout: vi.fn().mockResolvedValue(undefined),

@@ -71,6 +71,16 @@ export interface ConsoleBridge {
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
   /** Drop a session's frozen prompt + resume token so the next send recompiles (the drift banner's recompile). */
   recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
+  /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
+   *  worktree by main). Advisory — resolves a result; never blocks (SC-1). */
+  openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
+    ok: boolean;
+    revealed?: 'editor' | 'folder';
+    reason?: string;
+  }>;
+  /** Open a web URL in the default browser (validated to http(s) by main). Advisory —
+   *  resolves a result; never blocks (SC-1). */
+  openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
   /** Subscribe to the daemon push stream; returns an unsubscribe. */
   onPush(listener: (payload: unknown) => void): () => void;
   getLayout(): Promise<unknown>;
@@ -144,6 +154,8 @@ export async function startConsole(
     sendMessage: () => {},
     onBannerAction: () => {},
     setSessionModel: () => {},
+    openPath: () => Promise.resolve({ ok: false }),
+    openExternal: () => Promise.resolve({ ok: false }),
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -398,6 +410,36 @@ export async function startConsole(
     }
   };
 
+  /** Reveal a file (a tool card's path/match click) in the editor/OS at an optional line.
+   *  Delegates to main, which owns the session→worktree mapping + confinement. Advisory:
+   *  resolves the structured result; never throws (a rejected IPC becomes a failed result
+   *  the caller can toast). */
+  const openPath = (
+    path: string,
+    line: number | undefined,
+    sessionId: string | undefined,
+  ): Promise<{ ok: boolean; revealed?: 'editor' | 'folder'; reason?: string }> =>
+    bridge
+      .openPath({
+        path,
+        ...(line !== undefined ? { line } : {}),
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      })
+      .catch((e: unknown) => ({
+        ok: false,
+        reason: e instanceof Error ? e.message : String(e),
+      }));
+
+  /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
+   *  Delegates to main, which validates the scheme (http(s) only) + opens it. Advisory:
+   *  resolves the structured result; never throws (a rejected IPC becomes a failed result
+   *  the caller can toast). */
+  const openExternal = (url: string): Promise<{ ok: boolean; reason?: string }> =>
+    bridge.openExternal({ url }).catch((e: unknown) => ({
+      ok: false,
+      reason: e instanceof Error ? e.message : String(e),
+    }));
+
   /** Set a session's in-chat model override; the next send routes there (and the
    *  daemon persists it as the new pin). Republishes so the picker + cache banner update. */
   const setSessionModel = (sessionId: string, selection: ModelSelection): void => {
@@ -561,6 +603,8 @@ export async function startConsole(
       sendMessage,
       onBannerAction,
       setSessionModel,
+      openPath,
+      openExternal,
     },
   };
   push();

@@ -44,6 +44,16 @@ declare global {
       listModels(): Promise<ModelDescriptor[]>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;
+      /** Reveal a touched file in the editor/OS at an optional line (a tool card's path
+       *  link). Confined to the named session's worktree; advisory (never blocks — SC-1). */
+      openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
+        ok: boolean;
+        revealed?: 'editor' | 'folder';
+        reason?: string;
+      }>;
+      /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
+       *  Validated to http(s) only; advisory (never blocks — SC-1). */
+      openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
       /** Subscribe to the daemon push stream; returns an unsubscribe. */
       onPush(listener: (payload: unknown) => void): () => void;
       getLayout(): Promise<unknown>;

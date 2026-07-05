@@ -42,6 +42,34 @@ describe('PaneOverlay', () => {
     expect(screen.queryByText('FULL BODY')).not.toBeInTheDocument();
   });
 
+  it('marks the overlay as a modal dialog', async () => {
+    render(
+      <PaneOverlayProvider>
+        <Opener />
+      </PaneOverlayProvider>,
+    );
+    await userEvent.click(screen.getByText('open'));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-label', 'Detail');
+  });
+
+  it('moves initial focus into the overlay and restores it to the opener on close', async () => {
+    render(
+      <PaneOverlayProvider>
+        <Opener />
+      </PaneOverlayProvider>,
+    );
+    const opener = screen.getByText('open');
+    opener.focus();
+    await userEvent.click(opener);
+    // Initial focus lands on the close button (inside the overlay), not the opener behind it.
+    expect(screen.getByRole('button', { name: /^close$/i })).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    // Focus returns to the control that opened the overlay.
+    expect(opener).toHaveFocus();
+  });
+
   it('usePaneOverlay returns null with no provider', () => {
     render(<NullProbe />);
     expect(screen.getByText('no-provider')).toBeInTheDocument();
