@@ -1,7 +1,7 @@
 // packages/console-ui/src/dense/toolRegistry.test.ts
 import { Braces, FileText, Gavel, Pencil, ShieldCheck, Terminal, Wrench } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
-import { describeTool } from './toolRegistry.js';
+import { describeTool, toolPath } from './toolRegistry.js';
 
 describe('describeTool — Claude / base tools', () => {
   it('describes Read with a path and a line range (file_path or path)', () => {
@@ -87,5 +87,23 @@ describe('describeTool — fallback and robustness', () => {
     const d = describeTool('Bash', JSON.stringify({ command: 'x'.repeat(200) }));
     expect(d.summary.length).toBe(73); // 72 chars + the ellipsis glyph
     expect(d.summary.endsWith('…')).toBe(true);
+  });
+});
+
+describe('toolPath', () => {
+  it('extracts the raw path for the file tools (file_path or base-tool path)', () => {
+    expect(toolPath('Read', '{"file_path":"src/auth.ts","offset":1,"limit":40}')).toBe('src/auth.ts');
+    expect(toolPath('Read', '{"path":"a.ts"}')).toBe('a.ts');
+    expect(toolPath('Edit', '{"file_path":"b.ts","old_string":"x","new_string":"y"}')).toBe('b.ts');
+    expect(toolPath('Write', '{"file_path":"c.ts","content":"z"}')).toBe('c.ts');
+    expect(toolPath('NotebookEdit', '{"notebook_path":"n.ipynb"}')).toBe('n.ipynb');
+  });
+
+  it('returns undefined for non-file tools, unknown tools, and malformed input', () => {
+    expect(toolPath('Bash', '{"command":"ls"}')).toBeUndefined();
+    expect(toolPath('get_symbol', '{"ref":{"name":"x"}}')).toBeUndefined();
+    expect(toolPath('DeployRocket', '{"file_path":"x"}')).toBeUndefined();
+    expect(() => toolPath('Read', 'not json')).not.toThrow();
+    expect(toolPath('Read', 'not json')).toBeUndefined();
   });
 });

@@ -197,3 +197,14 @@ export function describeTool(
   }
   return { icon: entry.icon, verb: tool, summary: clip(summary) };
 }
+
+/** The raw file path a file tool touches (the click target), or undefined for non-file
+ *  tools / malformed input. Distinct from describeTool's formatted summary (which carries
+ *  the range/diff stat). Pure; never throws. */
+export function toolPath(tool: string, input: string): string | undefined {
+  if (tool !== 'Read' && tool !== 'Edit' && tool !== 'Write' && tool !== 'NotebookEdit') {
+    return undefined;
+  }
+  const rec = parseInput(input);
+  return str(rec, 'file_path') ?? str(rec, 'path') ?? str(rec, 'notebook_path');
+}

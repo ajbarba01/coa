@@ -28,6 +28,7 @@ import { sheetIntent } from './overlays/Sheet.intent.js';
 import { dividerIntent } from './layout/Divider.intent.js';
 import { toolbarIntent } from './layout/Toolbar.intent.js';
 import { paneIntent } from './layout/Pane.intent.js';
+import { paneOverlayIntent } from './layout/PaneOverlay.intent.js';
 import { navListIntent } from './layout/NavList.intent.js';
 import { appShellIntent } from './layout/AppShell.intent.js';
 import { tableIntent } from './data/Table.intent.js';
@@ -39,6 +40,7 @@ import { statIntent } from './data/Stat.intent.js';
 import { transcriptIntent } from './dense/Transcript.intent.js';
 import { markdownIntent } from './dense/Markdown.intent.js';
 import { composerIntent } from './dense/Composer.intent.js';
+import { toolCardIntent } from './dense/ToolCard.intent.js';
 import { agentChipIntent } from './data/AgentChip.intent.js';
 import { agentRailIntent } from './layout/AgentRail.intent.js';
 import { identityPickerIntent } from './overlays/IdentityPicker.intent.js';
@@ -76,6 +78,7 @@ export const allIntents: ComponentIntent[] = [
   dividerIntent,
   toolbarIntent,
   paneIntent,
+  paneOverlayIntent,
   navListIntent,
   appShellIntent,
   tableIntent,
@@ -87,6 +90,7 @@ export const allIntents: ComponentIntent[] = [
   transcriptIntent,
   markdownIntent,
   composerIntent,
+  toolCardIntent,
   agentChipIntent,
   agentRailIntent,
   identityPickerIntent,

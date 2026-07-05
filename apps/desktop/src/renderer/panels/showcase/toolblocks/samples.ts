@@ -115,4 +115,11 @@ export const TOOL_CALLS: ToolCall[] = [
     output: 'launched 🚀',
     ok: true,
   },
+  {
+    id: 'read-long',
+    tool: 'Read',
+    input: '{\n  "file_path": "src/session/session.ts",\n  "offset": 1,\n  "limit": 30\n}',
+    output: Array.from({ length: 30 }, (_, i) => `  line ${i + 1} of session.ts;`).join('\n'),
+    ok: true,
+  },
 ];

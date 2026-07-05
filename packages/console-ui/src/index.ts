@@ -43,6 +43,12 @@ export { NavList, type NavListProps, type NavItem } from './layout/NavList.js';
 export { AppShell, type AppShellProps } from './layout/AppShell.js';
 export { WindowControls, type WindowControlsProps } from './layout/WindowControls.js';
 export { DaemonStatus, type DaemonStatusProps } from './layout/DaemonStatus.js';
+export {
+  PaneOverlayProvider,
+  usePaneOverlay,
+  type PaneOverlayProviderProps,
+  type PaneOverlayApi,
+} from './layout/PaneOverlay.js';
 export { Table, type TableProps, type Column } from './data/Table.js';
 export { List, type ListProps } from './data/List.js';
 export { KeyValue, type KeyValueProps, type KeyValuePair } from './data/KeyValue.js';
@@ -72,6 +78,11 @@ export {
 export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
 export { Markdown, type MarkdownProps } from './dense/Markdown.js';
 export { Composer, type ComposerProps } from './dense/Composer.js';
-export { describeTool, type ToolDescriptor } from './dense/toolRegistry.js';
+export { describeTool, toolPath, type ToolDescriptor } from './dense/toolRegistry.js';
 export { diffLines, type DiffLine, type LineDiff } from './dense/toolDiff.js';
 export { estimateTokens, formatTokens } from './dense/tokenEstimate.js';
+export { SyntaxText, type SyntaxTextProps } from './dense/syntaxTheme.js';
+export { languageForPath } from './dense/pathLanguage.js';
+export { clampLines, type ClampedLines } from './dense/clampLines.js';
+export { ToolDiffView, type ToolDiffViewProps } from './dense/ToolDiffView.js';
+export { ToolCard, type ToolCardProps } from './dense/ToolCard.js';

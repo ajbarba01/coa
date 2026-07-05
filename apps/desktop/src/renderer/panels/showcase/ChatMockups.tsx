@@ -6,11 +6,16 @@
  * approval buttons. The composer is now the REAL `Composer` kit member too —
  * idle and running specimens, driven by no daemon.
  */
+import { useState } from 'react';
 import {
   Composer,
   IconButton,
   Markdown,
+  PaneOverlayProvider,
   Select,
+  Toast,
+  ToastProvider,
+  ToolCard,
   TranscriptRow,
   cx,
   type TranscriptFrame,
@@ -19,7 +24,6 @@ import { Maximize2 } from 'lucide-react';
 import { Family, Row } from './Specimen.js';
 import { CompactToolLine } from './toolblocks/CompactToolLine.js';
 import { GroupedActivityLog } from './toolblocks/GroupedActivityLog.js';
-import { RichToolCard } from './toolblocks/RichToolCard.js';
 import { TOOL_CALLS } from './toolblocks/samples.js';
 
 const noop = (): void => {};
@@ -288,12 +292,34 @@ function GroupedDirection(): React.JSX.Element {
 }
 
 function RichDirection(): React.JSX.Element {
+  const [toast, setToast] = useState<string | null>(null);
   return (
-    <ToolBlockFrame>
-      {TOOL_CALLS.map((call) => (
-        <RichToolCard key={call.id} call={call} />
-      ))}
-    </ToolBlockFrame>
+    <ToastProvider>
+      {/* Natural height so every specimen card is fully visible for review — no
+          nested scroll box that clips the list. The PaneOverlayProvider still
+          bounds the Expand overlay to this bordered region (never the window). */}
+      <PaneOverlayProvider className="rounded-surface border border-hairline bg-surface">
+        <div className="flex flex-col gap-2 p-2">
+          {TOOL_CALLS.map((call) => (
+            <ToolCard
+              key={call.id}
+              tool={call.tool}
+              input={call.input}
+              output={call.output}
+              ok={call.ok}
+              onOpenPath={(p) => setToast(p)}
+            />
+          ))}
+        </div>
+      </PaneOverlayProvider>
+      <Toast
+        open={toast !== null}
+        onOpenChange={(o) => !o && setToast(null)}
+        title="Would reveal in editor"
+      >
+        {toast}
+      </Toast>
+    </ToastProvider>
   );
 }
 

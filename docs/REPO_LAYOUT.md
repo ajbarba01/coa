@@ -24,7 +24,7 @@ coa/
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
     adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
-    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core). `dense/` holds the chat-surface members (Composer, the non-virtualized Transcript + its internal FindBar, plus pure helpers scrollState.ts/find.ts); `smoothScroll.ts` was removed with the virtualized transcript, and `group.ts`/`groupByUserTurn` is now orphaned (no longer imported by Transcript — a follow-up cleanup).
+    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core). `dense/` holds the chat-surface members (Composer, the non-virtualized Transcript + its internal FindBar, the rich `ToolCard` + its supporting `ToolDiffView.tsx`/`syntaxTheme.tsx`/`pathLanguage.ts`/`clampLines.ts`, plus pure helpers scrollState.ts/find.ts); `smoothScroll.ts` was removed with the virtualized transcript, and `group.ts`/`groupByUserTurn` is now orphaned (no longer imported by Transcript — a follow-up cleanup). `layout/` gained `PaneOverlay.tsx` (the pane-confined expand surface `ToolCard` opens into).
     console-layout/          M10 — @coa/console-layout (panel registry + versioned layout descriptor + engine port + StaticEngine; pure react/react-resizable-panels/zod, no electron/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
@@ -182,4 +182,4 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 
 ---
 
-_Last reviewed: 2026-07-04_
+_Last reviewed: 2026-07-05_

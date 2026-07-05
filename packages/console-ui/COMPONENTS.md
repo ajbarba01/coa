@@ -184,6 +184,17 @@ Renders GitHub-flavored markdown as kit elements, with highlighted, copy-able co
 - **Accessibility:** Semantic headings/lists/links; code blocks expose a labelled copy button; text is byte-faithful.
 - **Related:** Code, CopyButton, Link, Transcript
 
+### ToolCard
+
+A rich, self-contained rendering of one agent tool call.
+
+- **Use it when:** Showing a tool call in the transcript — a highlighted diff for edits, a read/search preview, or a command-output tail, with a clickable path and an estimated-token readout.
+- **Don't use it when:** Rendering prose or a plan checklist — those are their own transcript kinds. A one-line activity summary is enough — that is a different tool-block direction.
+- **Anatomy:** A header (tool icon, verb, clickable file path, summary, estimated tokens, status glyph) over a body that leads with a byte-faithful highlighted diff / preview / output tail, clamped to a max line count with an Expand affordance that opens the full body in the pane overlay.
+- **Variants & states:** running, ok, failed, diff, preview, command-tail, truncated, expanded
+- **Accessibility:** The path is a focusable button when actionable; Expand is a button; the status glyph carries an aria-label; payload bytes render verbatim.
+- **Related:** ToolDiffView, PaneOverlay, Code, Transcript
+
 ### Transcript
 
 A non-virtualized turn stream of role-tagged conversation frames.
@@ -444,6 +455,17 @@ A titled, bordered content region with an optional scrolling body.
 - **Variants & states:** untitled, titled, titleSlot, scroll, flush
 - **Accessibility:** section labelled by its heading id when titled; with a titleSlot the title string becomes the region aria-label.
 - **Related:** Toolbar, Divider
+
+### PaneOverlay
+
+A modal-like overlay confined to its own pane, never the whole window.
+
+- **Use it when:** Expanding a truncated in-pane detail (e.g. a full tool diff/output) over just the chat pane.
+- **Don't use it when:** A window-level modal is wanted — use Dialog. A transient message is enough — use Toast.
+- **Anatomy:** A provider wrapping a relative pane container; an absolute-inset overlay layer with a pane-confined scrim and a scrollable titled panel (close button); an open/close API exposed via usePaneOverlay.
+- **Variants & states:** closed, open
+- **Accessibility:** role=dialog with an aria-label; Escape and backdrop/close-button dismiss; the panel is a focusable, scrollable region.
+- **Related:** Dialog, Sheet, Toast
 
 ### Toolbar
 
