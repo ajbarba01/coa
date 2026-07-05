@@ -1050,7 +1050,7 @@ function ExpandRow({ hidden, onExpand }: { hidden: number; onExpand: () => void 
       onClick={onExpand}
       className="flex w-full items-center gap-1 px-2.5 py-1 text-left text-caption text-info hover:bg-element motion-reduce:transition-none"
     >
-      Expand · {hidden} more {hidden === 1 ? 'line' : 'lines'}
+      View · {hidden} more {hidden === 1 ? 'line' : 'lines'}
     </button>
   );
 }
