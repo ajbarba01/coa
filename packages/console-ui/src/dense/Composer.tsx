@@ -66,7 +66,7 @@ export function Composer({
     <div className="mx-auto w-full max-w-3xl p-2.5">
       <div
         className={cx(
-          'flex flex-col gap-2 rounded-surface border border-border-default bg-raised p-2 shadow-md',
+          'flex flex-col gap-2 rounded-surface border border-hairline-lighter bg-raised p-2 shadow-md',
           'focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus',
           disabled === true && 'opacity-60',
         )}
@@ -96,7 +96,7 @@ export function Composer({
         {disabled === true && (
           <p className="px-1.5 text-label text-faint">Select or start a session to chat.</p>
         )}
-        <Divider />
+        <Divider className="bg-hairline-lighter" />
         <div className="flex items-center gap-1.5">
           <IconButton
             icon={Paperclip}

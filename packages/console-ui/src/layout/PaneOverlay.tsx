@@ -112,7 +112,7 @@ function PaneOverlayHost({ state, onClose }: { state: OverlayState; onClose: () 
   const title = state.title ?? 'Details';
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col"
+      className="absolute inset-0 z-30 flex items-center justify-center"
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -127,7 +127,7 @@ function PaneOverlayHost({ state, onClose }: { state: OverlayState; onClose: () 
       />
       <div
         ref={panelRef}
-        className="relative m-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-overlay border border-border-default bg-raised shadow-xl"
+        className="relative m-3 flex max-h-[calc(100%-1.5rem)] w-full flex-col overflow-hidden rounded-overlay border border-border-default bg-raised shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-hairline px-3 py-2">
           <span className="text-label font-medium text-fg">{title}</span>

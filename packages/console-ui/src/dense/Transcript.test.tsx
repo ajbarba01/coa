@@ -540,11 +540,11 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('ls').tagName).toBe('CODE');
   });
 
-  it('renders a user turn as a tinted block without a full border or bottom rule', () => {
+  it('renders a user turn as a tinted, lightly bordered block without a bottom rule', () => {
     render(<TranscriptRow frame={{ id: 'u', role: 'you', kind: 'text', text: 'hello' }} />);
     const block = screen.getByText('hello').closest('[data-role="you"]');
     expect(block?.className).toContain('bg-raised');
-    expect(block?.className).not.toContain('border-hairline');
+    expect(block?.className).toContain('border-hairline-lighter');
     expect(block?.className).not.toContain('border-b');
   });
 

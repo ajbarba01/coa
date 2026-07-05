@@ -526,7 +526,7 @@ export function TranscriptRow({
         data-role={role}
         data-spine={!isUser}
         data-nested={nested}
-        className={cx('min-w-0', isUser && 'my-1 rounded-surface bg-raised px-3 py-2 shadow-sm')}
+        className={cx('min-w-0', isUser && 'my-1 rounded-surface border border-hairline-lighter bg-raised px-3 py-2 shadow-sm')}
       >
         {frame.kind === 'text' && (
           <div className="group relative">
@@ -986,7 +986,7 @@ export function Transcript({
           label="Previous prompt"
           variant="secondary"
           size="sm"
-          className="pointer-events-auto bg-raised"
+          className="pointer-events-auto border-hairline bg-raised"
           onClick={jumpToPrompt}
         />
       </div>
@@ -1004,7 +1004,7 @@ export function Transcript({
           <Button
             variant="secondary"
             size="sm"
-            className="pointer-events-auto bg-raised"
+            className="pointer-events-auto border-hairline bg-raised"
             onClick={jumpToLatest}
           >
             Jump to latest

@@ -8,6 +8,7 @@
   --color-element-active: var(--color-bg-element-active);
   --color-border-default: var(--color-border);
   --color-hairline: var(--color-hairline);
+  --color-hairline-lighter: var(--color-hairline-lighter);
   --color-fg: var(--color-fg-default);
   --color-muted: var(--color-fg-muted);
   --color-faint: var(--color-fg-faint);
