@@ -19,7 +19,7 @@ import {
   Transcript,
   cx,
 } from '@coa/console-ui';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentRailItem, RespondFn, SwitcherGroup, TranscriptFrame } from '@coa/console-ui';
 import type {
   AgentSummary,
@@ -514,6 +514,27 @@ function PermissionModeSlot(): React.JSX.Element {
 }
 
 function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {
+  const [composerHeight, setComposerHeight] = useState(0);
+  const composerRoRef = useRef<ResizeObserver | null>(null);
+
+  // Measure the floating composer's rendered height (it grows as the textarea does)
+  // via a CALLBACK ref, not a mount-time effect. The composer only mounts once the
+  // session is `ready`, which is a later render than ChatView's first (loading)
+  // render — a `useLayoutEffect([])` would run while the node is still absent and,
+  // with empty deps, never re-attach, leaving the height stuck at 0 (so nothing
+  // reserves space for the composer). A callback ref runs exactly on mount/unmount.
+  const composerRef = useCallback((el: HTMLDivElement | null): void => {
+    composerRoRef.current?.disconnect();
+    composerRoRef.current = null;
+    if (el === null) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry !== undefined) setComposerHeight(entry.contentRect.height);
+    });
+    ro.observe(el);
+    composerRoRef.current = ro;
+  }, []);
+
   if (vm.status !== 'ready') {
     return (
       <Pane title="Chat">
@@ -530,7 +551,9 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
   return (
     <Pane
       title={vm.rawMode ? 'Chat · raw' : 'Chat'}
-      className={vm.sessionStatus === 'running' ? 'outline outline-2 outline-info/50' : undefined}
+      {...(vm.sessionStatus === 'running'
+        ? { className: 'relative z-10 outline outline-2 outline-info/50' }
+        : {})}
       titleSlot={
         <TooltipProvider>
           <div className="flex min-w-0 items-center gap-1">
@@ -593,11 +616,15 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
         />
         <div
           className={cx(
-            'flex min-h-0 min-w-0 flex-1 flex-col',
+            'relative flex min-h-0 min-w-0 flex-1 flex-col',
           )}
         >
           <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
-          <div className="min-h-0 flex-1 p-3.5">
+          {/* The transcript fills the pane; the composer floats over its bottom edge
+              (below) so the transcript stays visible around/behind it. The transcript's
+              own scroll region reserves `composerHeight` of bottom inset so the last row
+              clears the floating composer when scrolled fully down. */}
+          <div className="min-h-0 flex-1 bg-surface p-3.5">
             {vm.frames.length === 0 ? (
               <EmptyState
                 icon={MessageSquare}
@@ -612,9 +639,11 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
                 busy={vm.sessionStatus === 'running'}
                 busySince={vm.runningSince}
                 jumpNonce={vm.sendNonce}
+                bottomInset={composerHeight}
               />
             )}
           </div>
+          <div ref={composerRef} className="absolute bottom-0 left-0 right-0">
           <Composer
             onSend={vm.onSend}
             running={vm.sessionStatus === 'running'}
@@ -650,6 +679,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
               </>
             }
           />
+          </div>
         </div>
       </div>
     </Pane>

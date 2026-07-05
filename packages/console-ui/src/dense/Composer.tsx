@@ -108,6 +108,7 @@ export function Composer({
           />
           {slotStart}
           {slotEnd}
+          <div className="ml-auto" />
           <IconButton
             icon={Mic}
             label="Voice input"

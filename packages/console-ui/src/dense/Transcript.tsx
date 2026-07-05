@@ -122,6 +122,13 @@ export interface TranscriptProps {
   /** Bump (change value) to force a re-pin to bottom even if the user has scrolled
    *  up — e.g. on sending a new message, so the new turn snaps into view. */
   jumpNonce?: number | undefined;
+  /** Pixels of bottom padding reserved inside the scroll region so the last row can
+   *  clear a control (the floating composer) that overlaps the transcript's bottom
+   *  edge. Because the padding lives on the scrolled content, stick-to-bottom scrolls
+   *  the final row fully into view above the overlap instead of behind it; the
+   *  jump-to-latest control is lifted by the same amount so it never hides under the
+   *  overlapping control either. */
+  bottomInset?: number | undefined;
 }
 
 /** Known file-touching tools whose input JSON carries a reviewable path. Tool names
@@ -750,10 +757,28 @@ export function Transcript({
   busy,
   busySince,
   jumpNonce,
+  bottomInset,
 }: TranscriptProps): React.JSX.Element | null {
   const scroller = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
+  // Suppress onScroll + stick-to-bottom during programmatic scrolls:
+  //  • smooth-scroll onScroll events can fire at the start before the view
+  //    has left the nearBottom threshold, re-enabling stick-to-bottom
+  //  • scrollend fires prematurely when a new agent block mutates the DOM
+  //    during the animation (changes scrollHeight), clearing the guard early
+  // A short timeout outlives the smooth-scroll animation (typically ~300ms)
+  // and is not invalidated by DOM mutations. Each navigation resets it.
+  const navigatingRef = useRef(false);
+  const navTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const startNav = (): void => {
+    navigatingRef.current = true;
+    if (navTimerRef.current !== undefined) clearTimeout(navTimerRef.current);
+    navTimerRef.current = setTimeout(() => {
+      navigatingRef.current = false;
+      navTimerRef.current = undefined;
+    }, 400);
+  };
 
   // Folded once per frames change (was recomputed every render).
   const items = useMemo(() => foldToolFrames(frames), [frames]);
@@ -767,6 +792,7 @@ export function Transcript({
     const spineIndices: number[] = [];
     for (let i = 0; i < items.length; i++) {
       const f = items[i];
+      if (f === undefined) continue;
       const isUser = 'role' in f && f.role === 'you';
       const isNote = f.kind === 'note';
       if (!isUser && !isNote) spineIndices.push(i);
@@ -774,10 +800,18 @@ export function Transcript({
     // Group contiguous indices into runs.
     let i = 0;
     while (i < spineIndices.length) {
-      starts.add(spineIndices[i]);
+      const start = spineIndices[i];
+      if (start === undefined) break;
+      starts.add(start);
       let j = i;
-      while (j + 1 < spineIndices.length && spineIndices[j + 1] === spineIndices[j] + 1) j++;
-      ends.add(spineIndices[j]);
+      let jVal = start;
+      while (j + 1 < spineIndices.length) {
+        const nextVal = spineIndices[j + 1];
+        if (nextVal === undefined || nextVal !== jVal + 1) break;
+        j++;
+        jVal = nextVal;
+      }
+      ends.add(jVal);
       i = j + 1;
     }
     return { spineStarts: starts, spineEnds: ends };
@@ -789,6 +823,13 @@ export function Transcript({
   const [findQuery, setFindQuery] = useState('');
   const [activeMatch, setActiveMatch] = useState(0);
   const matches = useMemo(() => findMatches(items, findQuery), [items, findQuery]);
+
+  // Clean up the navigation-guard timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (navTimerRef.current !== undefined) clearTimeout(navTimerRef.current);
+    };
+  }, []);
 
   // Ctrl/Cmd+F opens the in-transcript find bar instead of the browser's own find,
   // since every frame already renders to the DOM. Scoped to this component's
@@ -815,6 +856,7 @@ export function Transcript({
   const scrollToMatch = (matchIndex: number): void => {
     const match = matches[matchIndex];
     if (match === undefined) return;
+    startNav();
     const row = scroller.current?.querySelector(`[data-row-index="${match.index}"]`);
     if (row instanceof HTMLElement) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
@@ -837,8 +879,11 @@ export function Transcript({
 
   // Stick-to-bottom: while pinned and content grows, keep the sentinel in view. A
   // ResizeObserver on the content fires on every appended/streamed row.
+  // Skipped during programmatic navigation (navigatingRef) — otherwise a smooth
+  // scroll animation's early onScroll events can re-enable pinned and abort the
+  // navigation by yanking the sentinel back into view.
   useLayoutEffect(() => {
-    if (!pinned) return;
+    if (!pinned || navigatingRef.current) return;
     sentinel.current?.scrollIntoView({ block: 'end' });
   });
 
@@ -847,17 +892,20 @@ export function Transcript({
   // (jumpNonce === undefined) — only a change fires it.
   useLayoutEffect(() => {
     if (jumpNonce === undefined) return;
+    startNav();
     setPinned(true);
     sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [jumpNonce]);
 
   const onScroll = (): void => {
+    if (navigatingRef.current) return;
     const el = scroller.current;
     if (el === null) return;
     setPinned(nearBottom(el.scrollTop, el.clientHeight, el.scrollHeight));
   };
 
   const jumpToLatest = (): void => {
+    startNav();
     setPinned(true);
     sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   };
@@ -877,6 +925,7 @@ export function Transcript({
     });
     const target = previousPromptIndex(items, top);
     if (target === undefined) return;
+    startNav();
     const el2 = el.querySelector(`[data-row-index="${target}"]`);
     if (el2 instanceof HTMLElement) el2.scrollIntoView({ block: 'start', behavior: 'smooth' });
     setPinned(false);
@@ -895,7 +944,7 @@ export function Transcript({
         // Native scroll; content capped to a readable measure and centered (§5.2).
         className="h-full overflow-y-auto"
       >
-        <div className="mx-auto flex max-w-180 flex-col">
+        <div className="flex flex-col">
           {items.map((item, index) => (
             <MemoRow
               key={item.id}
@@ -908,6 +957,13 @@ export function Transcript({
             />
           ))}
           {busy === true && <WorkingFooter busySince={busySince} />}
+          {/* Reserve space below the last row for a control that overlaps the scroll
+              region's bottom (the floating composer). The spacer sits BEFORE the
+              sentinel, so pinning to the sentinel rests with this gap at the bottom —
+              the final row clears the overlap instead of hiding behind it. */}
+          {bottomInset !== undefined && bottomInset > 0 && (
+            <div aria-hidden style={{ height: bottomInset }} />
+          )}
           <div ref={sentinel} aria-hidden className="h-0" />
         </div>
       </div>
@@ -937,7 +993,16 @@ export function Transcript({
         />
       </div>
       {showJump && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
+        <div
+          className={cx(
+            'pointer-events-none absolute inset-x-0 z-10 flex justify-center',
+            // With no overlap the 8pt-grid `bottom-2` applies; a floating composer lifts
+            // the control above it via an inline offset (a runtime pixel measurement, not
+            // a design value — it must match the composer's measured height).
+            !bottomInset && 'bottom-2',
+          )}
+          {...(bottomInset ? { style: { bottom: bottomInset + 8 } } : {})}
+        >
           <Button
             variant="secondary"
             size="sm"
