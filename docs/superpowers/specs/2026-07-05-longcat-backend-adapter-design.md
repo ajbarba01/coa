@@ -44,7 +44,7 @@ the two SC-1 blocks); LongCat only completes.
 | Fact | Value |
 | --- | --- |
 | Chat endpoint | `POST https://api.longcat.chat/openai/v1/chat/completions` |
-| Models endpoint | `GET https://api.longcat.chat/v1/models` (+ `/v1/models/{model}`) |
+| Models endpoint | `GET https://api.longcat.chat/openai/v1/models` (live-verified; the docs' `/v1/models` 404s) |
 | Auth | `Authorization: Bearer <KEY>` |
 | Model ID | `LongCat-2.0` (exact casing) |
 | Tool calling | Native, OpenAI function-call shape (`tools` / `tool_calls`) |
@@ -56,10 +56,11 @@ the two SC-1 blocks); LongCat only completes.
 Sources: LongCat API docs (`api/chat.html`, `APIDocs.html`, `Pricing/LongCat-2.0.html`), the model card
 (`longcatai.org/models/longcat-2`), Hugging Face `meituan-longcat/LongCat-2.0`.
 
-**Two facts to confirm against the live API during the smoke test:**
-1. The `/models` path prefix (documented `/v1/models`, i.e. NOT under `/openai/v1`).
-2. The exact cache-token usage field. We assume OpenAI-standard `prompt_tokens_details.cached_tokens`; because
-   we Zod-parse-and-drop, a wrong guess degrades to zero-cost, never a crash.
+**Two facts confirmed against the live API during the smoke test (2026-07-05):**
+1. ✅ Models path: `https://api.longcat.chat/openai/v1/models` — the docs' `/v1/models` **404s**; the working
+   endpoint is under the same `/openai/v1` base as chat. Returns `{data:[{id:'LongCat-2.0'}]}`.
+2. ✅ Cache-token usage field: OpenAI-standard `prompt_tokens_details.cached_tokens` is present as assumed. The
+   live tool-calling round-trip returned `finish_reason:'tool_calls'` in the OpenAI function-call shape.
 
 ## 5. Design
 
@@ -81,8 +82,8 @@ except one constant:
   `prompt_tokens_details.cached_tokens` (optional nested object) instead of DeepSeek's `prompt_cache_hit_tokens`.
   `reasoning_content` on the message is ignored (coa consumes `content` only). Tool-call request/response shape is
   the OpenAI function-call shape, unchanged from DeepSeek.
-- **`models.ts`** — the models URL is resolved independently (`https://api.longcat.chat/v1/models`), not
-  `${chatBase}/models`, because LongCat's chat and models paths have different prefixes. `LongCat-2.0`'s
+- **`models.ts`** — the models URL is kept as its own constant (`https://api.longcat.chat/openai/v1/models`,
+  live-verified) rather than derived from the chat base, so a future path divergence is a one-line change. `LongCat-2.0`'s
   descriptor is `{ id }` with no `supportsEffort` (thinking toggle, not a ladder). Keep the config-overridable
   capability map for future models. A non-OK `/models` fetch throws (never a silently-empty list — cache-poison
   guard, DeepSeek parity).

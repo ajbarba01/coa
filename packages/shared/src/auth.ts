@@ -28,8 +28,8 @@ export const locatorSchema = z.discriminatedUnion('type', [
 ]);
 export type Locator = z.infer<typeof locatorSchema>;
 
-/** The backends an account can point at. `claude` = subscription login; `deepseek` = an API-key provider. */
-export const providerSchema = z.enum(['claude', 'deepseek']);
+/** The backends an account can point at. `claude` = subscription login; `deepseek`/`longcat` = API-key providers. */
+export const providerSchema = z.enum(['claude', 'deepseek', 'longcat']);
 export type Provider = z.infer<typeof providerSchema>;
 
 /** A registered account: a user-facing label + the neutral pointer to its login. */

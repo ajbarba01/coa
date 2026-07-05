@@ -5,6 +5,12 @@ import {
   loadEffortCaps,
   resolveApiKey,
 } from '@coa/adapter-deepseek';
+import {
+  LongCatAdapter,
+  fetchLongCatModels,
+  loadEffortCaps as loadLongCatEffortCaps,
+  resolveApiKey as resolveLongCatApiKey,
+} from '@coa/adapter-longcat';
 import type { ModelCacheAccount, SessionAdapterInit } from '@coa/core';
 import type { ModelDescriptor } from '@coa/shared';
 import type { RuntimeAdapter } from '@coa/spi';
@@ -16,9 +22,10 @@ import type { RuntimeAdapter } from '@coa/spi';
  * (backend-isolation: the core never does). M8 holds {@link createAdapter} as the
  * injected closure, keeping backends swappable leaves.
  *
- * `claude` (the Claude Agent SDK) and `deepseek` (a thin pure-API backend over the
- * shared loop driver) are wired. An unknown/unwired provider throws — which
- * `createSession` surfaces as an SC-1 error frame, never a silent wrong-backend run.
+ * `claude` (the Claude Agent SDK), `deepseek`, and `longcat` (both thin pure-API
+ * backends over the shared loop driver) are wired. An unknown/unwired provider
+ * throws — which `createSession` surfaces as an SC-1 error frame, never a silent
+ * wrong-backend run.
  */
 export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
   const provider = init.model?.provider ?? 'claude';
@@ -27,6 +34,8 @@ export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
       return createClaudeAdapter(init);
     case 'deepseek':
       return createDeepSeekAdapter(init);
+    case 'longcat':
+      return createLongCatAdapter(init);
     default:
       throw new Error(`runtime provider '${provider}' is not wired yet`);
   }
@@ -44,7 +53,9 @@ export async function fetchModels(account: ModelCacheAccount): Promise<ModelDesc
   const models =
     provider === 'deepseek'
       ? await fetchDeepSeekFor(account)
-      : await fetchClaudeModels(account.locator);
+      : provider === 'longcat'
+        ? await fetchLongCatFor(account)
+        : await fetchClaudeModels(account.locator);
   return models.map((model) => ({ ...model, provider }));
 }
 
@@ -54,6 +65,14 @@ async function fetchDeepSeekFor(account: ModelCacheAccount): Promise<ModelDescri
     throw new Error('deepseek: no API key resolved from the account locator');
   }
   return fetchDeepSeekModels({ apiKey, caps: loadEffortCaps() });
+}
+
+async function fetchLongCatFor(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
+  const apiKey = resolveLongCatApiKey(account.locator);
+  if (apiKey === undefined) {
+    throw new Error('longcat: no API key resolved from the account locator');
+  }
+  return fetchLongCatModels({ apiKey, caps: loadLongCatEffortCaps() });
 }
 
 /** Construct the thin DeepSeek backend, mapping M8's neutral init onto its init. */
@@ -67,9 +86,22 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
     ...(init.maxBudgetUsd !== undefined ? { maxBudgetUsd: init.maxBudgetUsd } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
-    ...(init.onBackendMessages !== undefined
-      ? { onBackendMessages: init.onBackendMessages }
-      : {}),
+    ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
+  });
+}
+
+/** Construct the thin LongCat backend, mapping M8's neutral init onto its init. */
+export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
+  return new LongCatAdapter({
+    sessionId: init.sessionId,
+    input: init.input,
+    onSettle: init.onSettle,
+    ...(init.model !== undefined ? { model: init.model } : {}),
+    ...(init.onTurn !== undefined ? { onTurn: init.onTurn } : {}),
+    ...(init.maxBudgetUsd !== undefined ? { maxBudgetUsd: init.maxBudgetUsd } : {}),
+    ...(init.locator !== undefined ? { locator: init.locator } : {}),
+    ...(init.history !== undefined ? { history: init.history } : {}),
+    ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
   });
 }
 
@@ -87,9 +119,7 @@ export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.resume !== undefined ? { resume: init.resume } : {}),
     ...(init.onBackendSession !== undefined ? { onBackendSession: init.onBackendSession } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
-    ...(init.onBackendMessages !== undefined
-      ? { onBackendMessages: init.onBackendMessages }
-      : {}),
+    ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
     ...(init.deliverHistoryAsPreamble !== undefined
       ? { deliverHistoryAsPreamble: init.deliverHistoryAsPreamble }
       : {}),

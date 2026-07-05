@@ -8,10 +8,11 @@ import type { CliIo } from './cli.js';
 /**
  * `coa auth …` — local file ops over the credential-blind account registry (no
  * daemon). Selects which login the governed loop runs under; stores POINTERS only.
- * A Claude account points at a subscription config dir; a DeepSeek account points
- * at either an env var (`--env-var NAME`) or a coa-written 0600 key file
- * (`--deepseek-key KEY`, so the secret stays out of `accounts.yaml`). `home` is a
- * test seam (defaults to the user's home).
+ * A Claude account points at a subscription config dir; a DeepSeek or LongCat
+ * account points at either an env var (`--env-var`/`--longcat-env-var NAME`) or a
+ * coa-written 0600 key file (`--deepseek-key`/`--longcat-key KEY`, so the secret
+ * stays out of `accounts.yaml`). `home` is a test seam (defaults to the user's
+ * home).
  */
 export function runAuthCommand(args: string[], io: CliIo, home: string = homedir()): number {
   const [sub, ...rest] = args;
@@ -73,7 +74,7 @@ export function runAuthCommand(args: string[], io: CliIo, home: string = homedir
 }
 
 const ADD_USAGE =
-  'usage: coa auth add <label> --config-dir <dir> | --env-var <NAME> | --deepseek-key <KEY>';
+  'usage: coa auth add <label> --config-dir <dir> | --env-var <NAME> | --deepseek-key <KEY> | --longcat-env-var <NAME> | --longcat-key <KEY>';
 
 /** A valid POSIX/Windows environment-variable name (rejects a pasted API key). */
 const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -99,6 +100,21 @@ function runAdd(reg: AccountsRegistry, rest: string[], io: CliIo, home: string):
   if (flag === '--deepseek-key') {
     const path = writeKeyFile(home, label, value);
     reg.add(label, { type: 'key-file', path }, 'deepseek');
+    return 0;
+  }
+  if (flag === '--longcat-env-var') {
+    if (!ENV_VAR_NAME.test(value)) {
+      return fail(
+        io,
+        `'${value}' looks like a key, not a variable name. To store the key itself: coa auth add ${label} --longcat-key <KEY>. To point at an env var, pass its NAME (e.g. LONGCAT_API_KEY).`,
+      );
+    }
+    reg.add(label, { type: 'env-var', name: value }, 'longcat');
+    return 0;
+  }
+  if (flag === '--longcat-key') {
+    const path = writeKeyFile(home, label, value);
+    reg.add(label, { type: 'key-file', path }, 'longcat');
     return 0;
   }
   return fail(io, ADD_USAGE);

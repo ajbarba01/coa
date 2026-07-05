@@ -92,4 +92,28 @@ describe('runAuthCommand', () => {
     expect(runAuthCommand(['remove', 'ds'], io(), home)).toBe(0);
     expect(existsSync(keyPath)).toBe(false);
   });
+
+  it('current lists longcat as ambient too', () => {
+    expect(runAuthCommand(['current'], io(), home)).toBe(0);
+    expect(out).toContain('longcat\tambient');
+  });
+
+  it('add --longcat-key writes a 0600 key file and stores a longcat key-file pointer', () => {
+    expect(runAuthCommand(['add', 'lc', '--longcat-key', 'sk-secret'], io(), home)).toBe(0);
+    out = [];
+    runAuthCommand(['list'], io(), home);
+    expect(out.join('\n')).toMatch(/lc\tlongcat\tkey-file/);
+    expect(out.join('\n')).not.toContain('sk-secret');
+    expect(readFileSync(join(home, '.coa', 'keys', 'lc'), 'utf8')).toBe('sk-secret');
+  });
+
+  it('add --longcat-env-var rejects a key-looking value and accepts a real var name', () => {
+    expect(runAuthCommand(['add', 'lc', '--longcat-env-var', 'sk-e91530'], io(), home)).toBe(1);
+    expect(err.join('')).toMatch(/looks like a key/);
+    err = [];
+    expect(runAuthCommand(['add', 'lc', '--longcat-env-var', 'LONGCAT_API_KEY'], io(), home)).toBe(0);
+    out = [];
+    runAuthCommand(['list'], io(), home);
+    expect(out.join('\n')).toMatch(/lc\tlongcat\tenv-var LONGCAT_API_KEY/);
+  });
 });

@@ -11,7 +11,8 @@
     { "path": "../../packages/spi" },
     { "path": "../../packages/core" },
     { "path": "../../packages/adapter-claude-sdk" },
-    { "path": "../../packages/adapter-deepseek" }
+    { "path": "../../packages/adapter-deepseek" },
+    { "path": "../../packages/adapter-longcat" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]

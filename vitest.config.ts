@@ -19,6 +19,9 @@ const workspaceAlias = {
   '@coa/adapter-deepseek': fileURLToPath(
     new URL('./packages/adapter-deepseek/src/index.ts', import.meta.url),
   ),
+  '@coa/adapter-longcat': fileURLToPath(
+    new URL('./packages/adapter-longcat/src/index.ts', import.meta.url),
+  ),
   '@coa/console-viewmodel': fileURLToPath(
     new URL('./packages/console-viewmodel/src/index.ts', import.meta.url),
   ),
