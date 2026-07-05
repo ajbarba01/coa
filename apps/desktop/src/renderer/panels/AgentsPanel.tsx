@@ -84,12 +84,15 @@ export function modelPickerLabel(m: ModelDescriptor): string {
 export function modelReasoningCaps(
   models: ModelDescriptor[],
   modelId: string | undefined,
-): { efforts: ClaudeEffort[]; includeBudget: boolean } {
+): { efforts: ClaudeEffort[]; includeBudget: boolean; thinkingToggle: boolean } {
   const selected = models.find((m) => m.id === modelId);
-  if (selected === undefined) return { efforts: ALL_EFFORTS, includeBudget: true };
+  if (selected === undefined)
+    return { efforts: ALL_EFFORTS, includeBudget: true, thinkingToggle: false };
   return {
     efforts: selected.supportedEffortLevels ?? [],
     includeBudget: selected.supportsAdaptiveThinking ?? false,
+    // A pure-API model with a binary thinking on/off toggle and no graded ladder (e.g. LongCat).
+    thinkingToggle: selected.supportsThinking ?? false,
   };
 }
 
@@ -110,11 +113,15 @@ export function pickableModels(models: ModelDescriptor[]): ModelDescriptor[] {
  */
 export function clampReasoning(
   reasoning: ClaudeReasoning | undefined,
-  caps: { efforts: ClaudeEffort[]; includeBudget: boolean },
+  caps: { efforts: ClaudeEffort[]; includeBudget: boolean; thinkingToggle?: boolean },
 ): ClaudeReasoning | undefined {
   if (reasoning === undefined || reasoning.mode === 'off') return reasoning;
   if (reasoning.mode === 'budget') return caps.includeBudget ? reasoning : undefined;
-  return caps.efforts.includes(reasoning.effort) ? reasoning : undefined;
+  // A thinking-toggle model carries its "on" state as an effort sentinel with no ladder,
+  // so any effort is valid when the toggle is present.
+  return caps.efforts.includes(reasoning.effort) || caps.thinkingToggle === true
+    ? reasoning
+    : undefined;
 }
 
 type PackagePatch = Partial<Pick<AgentSummary, 'packageIds' | 'exclude'>>;
@@ -170,6 +177,13 @@ export function togglePackage(
   return { packageIds: [...packageIds, id] };
 }
 
+/**
+ * The effort sentinel a binary thinking toggle stores for its "on" state. The reasoning
+ * union has no `on` mode, and every pure-API backend exposing a thinking toggle reads any
+ * `mode:'effort'` as thinking-enabled — so "on" round-trips as an effort value.
+ */
+const THINKING_ON: ClaudeEffort = 'high';
+
 /** Collapse a ClaudeReasoning to the selector value it displays as. */
 export function reasoningToValue(r: ClaudeReasoning | undefined): string {
   if (r === undefined) return 'default';
@@ -189,19 +203,26 @@ function ReasoningField({
   reasoning,
   efforts,
   includeBudget,
+  thinkingToggle,
   onChange,
 }: {
   reasoning: ClaudeReasoning | undefined;
   efforts: ClaudeEffort[];
   includeBudget: boolean;
+  thinkingToggle: boolean;
   onChange: (r: ClaudeReasoning | undefined) => void;
 }): React.JSX.Element {
-  const value = reasoningToValue(reasoning);
   const budget = reasoning?.mode === 'budget' ? reasoning.budgetTokens : 8000;
-  const values = ['default', 'off', ...efforts, ...(includeBudget ? ['budget'] : [])];
+  // A thinking-toggle model has a binary On/Off (no ladder, no budget); "on" carries the
+  // effort sentinel, so an effort reasoning displays as 'on'.
+  const value = thinkingToggle && reasoning?.mode === 'effort' ? 'on' : reasoningToValue(reasoning);
+  const values = thinkingToggle
+    ? ['default', 'off', 'on']
+    : ['default', 'off', ...efforts, ...(includeBudget ? ['budget'] : [])];
   const select = (v: string): void => {
     if (v === 'default') onChange(undefined);
     else if (v === 'off') onChange({ mode: 'off' });
+    else if (v === 'on') onChange({ mode: 'effort', effort: THINKING_ON });
     else if (v === 'budget') onChange({ mode: 'budget', budgetTokens: budget });
     else if ((efforts as string[]).includes(v))
       onChange({ mode: 'effort', effort: v as ClaudeEffort });
@@ -419,6 +440,7 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
           reasoning={a.reasoning}
           efforts={caps.efforts}
           includeBudget={caps.includeBudget}
+          thinkingToggle={caps.thinkingToggle}
           onChange={(reasoning) => vm.updateAgent(a.ref, { reasoning })}
         />
 
@@ -465,7 +487,8 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
 
         <p className="text-caption text-faint">
           The roles, model, and package selection take effect on the next message. Packages apply
-          once one or more roles are selected (with no roles the agent runs the permissive baseline).
+          once one or more roles are selected (with no roles the agent runs the permissive
+          baseline).
         </p>
       </div>
 

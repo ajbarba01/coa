@@ -47,6 +47,8 @@ const HAIKU: ModelDescriptor = {
   displayName: 'Haiku',
   description: 'Haiku 4.5 · Fastest for quick answers',
 };
+/** A pure-API model with a binary thinking toggle and no graded effort ladder (LongCat). */
+const LONGCAT: ModelDescriptor = { id: 'LongCat-2.0', provider: 'longcat', supportsThinking: true };
 const DEFAULT_MODEL: ModelDescriptor = {
   id: 'default',
   displayName: 'Default (recommended)',
@@ -97,25 +99,44 @@ describe('modelReasoningCaps', () => {
     expect(modelReasoningCaps(MODELS, 'opus')).toEqual({
       efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       includeBudget: true,
+      thinkingToggle: false,
     });
     expect(modelReasoningCaps(MODELS, 'sonnet')).toEqual({
       efforts: ['low', 'medium', 'high', 'max'],
       includeBudget: true,
+      thinkingToggle: false,
     });
   });
 
   it('shows NO effort options for a resolved model that supports none (Haiku)', () => {
-    expect(modelReasoningCaps(MODELS, 'haiku')).toEqual({ efforts: [], includeBudget: false });
+    expect(modelReasoningCaps(MODELS, 'haiku')).toEqual({
+      efforts: [],
+      includeBudget: false,
+      thinkingToggle: false,
+    });
+  });
+
+  it('exposes a binary thinking toggle for a thinking-only model (LongCat)', () => {
+    expect(modelReasoningCaps([LONGCAT], 'LongCat-2.0')).toEqual({
+      efforts: [],
+      includeBudget: false,
+      thinkingToggle: true,
+    });
   });
 
   it('falls back to the full ladder while the model list is still loading', () => {
-    expect(modelReasoningCaps([], 'opus')).toEqual({ efforts: FULL_LADDER, includeBudget: true });
+    expect(modelReasoningCaps([], 'opus')).toEqual({
+      efforts: FULL_LADDER,
+      includeBudget: true,
+      thinkingToggle: false,
+    });
   });
 
   it('falls back to the full ladder for an unknown model id (never cages the choice)', () => {
     expect(modelReasoningCaps(MODELS, 'claude-opus-4-8')).toEqual({
       efforts: FULL_LADDER,
       includeBudget: true,
+      thinkingToggle: false,
     });
   });
 });
@@ -172,6 +193,18 @@ describe('clampReasoning', () => {
       clampReasoning(undefined, { ...opusCaps, efforts: [...opusCaps.efforts] }),
     ).toBeUndefined();
   });
+
+  it('keeps the on-state (an effort) for a thinking-toggle model that offers no ladder', () => {
+    const on = { mode: 'effort', effort: 'high' } as const;
+    // No effort ladder, but the thinking toggle is on ⇒ the effort sentinel must survive.
+    expect(clampReasoning(on, { efforts: [], includeBudget: false, thinkingToggle: true })).toBe(
+      on,
+    );
+    // Without the toggle it would (correctly) reset.
+    expect(
+      clampReasoning(on, { efforts: [], includeBudget: false, thinkingToggle: false }),
+    ).toBeUndefined();
+  });
 });
 
 const ROLES: RoleSummary[] = [
@@ -202,27 +235,21 @@ describe('includedPackageIds', () => {
   });
 
   it('adds the user’s extra opt-ins and drops the user’s exclusions', () => {
-    const set = includedPackageIds(PACKAGES, [swe], { packageIds: ['research'], exclude: ['core'] });
+    const set = includedPackageIds(PACKAGES, [swe], {
+      packageIds: ['research'],
+      exclude: ['core'],
+    });
     expect(set.has('research')).toBe(true);
     expect(set.has('core')).toBe(false);
   });
 
   it('is defaults-only with no roles selected', () => {
-    expect([...includedPackageIds(PACKAGES, [], {})].sort()).toEqual([
-      'coa-orientation',
-      'core',
-    ]);
+    expect([...includedPackageIds(PACKAGES, [], {})].sort()).toEqual(['coa-orientation', 'core']);
   });
 
   it('unions every selected role’s opt-ins', () => {
     const set = includedPackageIds(PACKAGES, [swe, researcher], {});
-    expect([...set].sort()).toEqual([
-      'coa-orientation',
-      'coding',
-      'core',
-      'planning',
-      'research',
-    ]);
+    expect([...set].sort()).toEqual(['coa-orientation', 'coding', 'core', 'planning', 'research']);
   });
 });
 
@@ -443,7 +470,9 @@ describe('AgentsView', () => {
     };
     render(<AgentsView vm={withCatalogue([agent], { updateAgent })} host={host} />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Researcher' }));
-    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', { roles: ['swe', 'researcher'] });
+    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', {
+      roles: ['swe', 'researcher'],
+    });
   });
 
   it('deselecting the only role leaves an empty selection with no placeholder artifact', async () => {

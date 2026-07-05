@@ -34,8 +34,12 @@ describe('loadEffortCaps', () => {
 });
 
 describe('toModelDescriptor', () => {
-  it('has no effort control for LongCat-2.0 (unlisted), and attaches a ladder when configured', () => {
-    expect(toModelDescriptor('LongCat-2.0', {})).toEqual({ id: 'LongCat-2.0' });
+  it('marks a laddered model with effort, and an unladdered LongCat model as a thinking toggle', () => {
+    // No effort ladder ⇒ LongCat exposes a binary thinking on/off toggle (not "no reasoning").
+    expect(toModelDescriptor('LongCat-2.0', {})).toEqual({
+      id: 'LongCat-2.0',
+      supportsThinking: true,
+    });
     expect(toModelDescriptor('LongCat-3.0', { 'LongCat-3.0': ['high'] })).toEqual({
       id: 'LongCat-3.0',
       supportsEffort: true,
@@ -52,7 +56,7 @@ describe('fetchLongCatModels', () => {
       fetchImpl: okModels(['LongCat-2.0'], captured),
     });
     expect(captured.url).toBe(DEFAULT_MODELS_URL);
-    expect(models).toEqual([{ id: 'LongCat-2.0' }]);
+    expect(models).toEqual([{ id: 'LongCat-2.0', supportsThinking: true }]);
   });
 
   it('throws (rather than silently returning []) when the endpoint is not ok', async () => {

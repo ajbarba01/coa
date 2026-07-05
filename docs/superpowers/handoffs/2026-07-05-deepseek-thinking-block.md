@@ -1,5 +1,12 @@
 # Handoff — Surface DeepSeek reasoning as a thinking block
 
+> **STATUS: IMPLEMENTED 2026-07-05.** Done for BOTH DeepSeek and LongCat via a shared `@coa/loop-driver`
+> change (`CompletionResult.reasoning` + a `thinking` frame emitted before the answer, never resent to the API),
+> with each adapter capturing `reasoning_content`. Verified by unit tests + a live LongCat end-to-end run (a
+> 589-char thinking frame emitted before the answer). Commits `14638a0` (driver), `6203d48` (DeepSeek),
+> `117f3c3` (LongCat). The notes below are the original handoff, kept for reference.
+
+
 Paste the block below into a fresh Claude Code session in this repo to continue. It is written for an agent
 with **zero prior context**.
 

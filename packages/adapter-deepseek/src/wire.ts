@@ -19,6 +19,8 @@ export const wireMessageSchema = z.object({
   // `role` is echoed by the API but coa consumes only content/tool_calls, so it is optional.
   role: z.string().optional(),
   content: z.string().nullable().optional(),
+  // The model's separate reasoning ("thinking") output, present only when thinking is enabled.
+  reasoning_content: z.string().nullable().optional(),
   tool_calls: z.array(wireToolCallSchema).optional(),
 });
 

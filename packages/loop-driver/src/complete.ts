@@ -36,6 +36,12 @@ export interface CompletionResult {
   text: string;
   toolCalls: LoopToolCall[];
   usage: RuntimeUsage;
+  /**
+   * The model's reasoning ("thinking") output when the backend exposes it separately
+   * from `text` (e.g. DeepSeek/LongCat `reasoning_content`). Display-only — the driver
+   * emits it as a thinking frame but never resends it to the API. Absent ⇒ no thinking.
+   */
+  reasoning?: string | undefined;
 }
 
 /** The `complete()` primitive: one model round-trip, mapped to neutral shapes. */

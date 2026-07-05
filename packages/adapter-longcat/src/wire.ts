@@ -19,7 +19,8 @@ export const wireMessageSchema = z.object({
   // `role` is echoed by the API but coa consumes only content/tool_calls, so it is optional.
   role: z.string().optional(),
   content: z.string().nullable().optional(),
-  // LongCat surfaces thinking as `reasoning_content`; coa consumes `content` only (dropped).
+  // LongCat's separate thinking output, present only when `thinking:{type:'enabled'}`.
+  reasoning_content: z.string().nullable().optional(),
   tool_calls: z.array(wireToolCallSchema).optional(),
 });
 

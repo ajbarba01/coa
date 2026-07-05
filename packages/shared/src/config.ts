@@ -69,6 +69,8 @@ export const modelDescriptorSchema = z.object({
   supportsEffort: z.boolean().optional(),
   supportedEffortLevels: z.array(claudeEffortSchema).optional(),
   supportsAdaptiveThinking: z.boolean().optional(),
+  /** The model exposes a binary thinking on/off toggle with no graded effort ladder (e.g. LongCat). */
+  supportsThinking: z.boolean().optional(),
 });
 export type ModelDescriptor = z.infer<typeof modelDescriptorSchema>;
 

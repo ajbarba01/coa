@@ -74,6 +74,9 @@ export function makeDeepSeekComplete(config: DeepSeekCompleteConfig): CompleteFn
     const choice = parsed.choices[0]!;
     return {
       text: choice.message.content ?? '',
+      // Reasoning is display-only (the driver emits it as a thinking frame, never resends it);
+      // `?? undefined` maps DeepSeek's null (thinking off) to "no thinking".
+      reasoning: choice.message.reasoning_content ?? undefined,
       toolCalls: (choice.message.tool_calls ?? []).map((call) => ({
         id: call.id,
         name: call.function.name,

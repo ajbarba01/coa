@@ -3,12 +3,27 @@ import { effortOptions, toReasoning, reasoningValue } from './reasoning.js';
 
 describe('reasoning projection', () => {
   it('lists off + the model effort levels when supported', () => {
-    const opts = effortOptions({ id: 'm', supportsEffort: true, supportedEffortLevels: ['low', 'high'] });
+    const opts = effortOptions({
+      id: 'm',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'high'],
+    });
     expect(opts.map((o) => o.value)).toEqual(['off', 'low', 'high']);
   });
-  it('returns no options when the model has no effort control', () => {
+  it('returns no options when the model has no reasoning control at all', () => {
     expect(effortOptions({ id: 'm', supportsEffort: false })).toEqual([]);
     expect(effortOptions(undefined)).toEqual([]);
+  });
+  it('lists an on/off toggle for a thinking-only model (no effort ladder)', () => {
+    expect(effortOptions({ id: 'LongCat-2.0', supportsThinking: true })).toEqual([
+      { value: 'off', label: 'Off' },
+      { value: 'high', label: 'On' },
+    ]);
+  });
+  it('the thinking toggle round-trips: On maps to thinking-enabled reasoning and back', () => {
+    const on = effortOptions({ id: 'LongCat-2.0', supportsThinking: true })[1]!;
+    expect(toReasoning(on.value)).toEqual({ mode: 'effort', effort: 'high' });
+    expect(reasoningValue(toReasoning(on.value))).toBe(on.value);
   });
   it('maps a value to a ClaudeReasoning', () => {
     expect(toReasoning('off')).toEqual({ mode: 'off' });

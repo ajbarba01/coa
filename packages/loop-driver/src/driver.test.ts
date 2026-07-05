@@ -3,7 +3,12 @@ import type { TurnFrame } from '@coa/shared';
 import type { RegisteredTool, ToolCatalogue } from '@coa/spi';
 import type { CompletionResult } from './complete.js';
 import type { DriverMessage } from './complete.js';
-import { runGovernedLoop, toToolDefs, TOOL_RESULT_CHAR_CAP, type GovernedLoopDeps } from './driver.js';
+import {
+  runGovernedLoop,
+  toToolDefs,
+  TOOL_RESULT_CHAR_CAP,
+  type GovernedLoopDeps,
+} from './driver.js';
 
 const USAGE = { tokensIn: 10, tokensOut: 5, costUsd: 0.5 };
 
@@ -94,24 +99,76 @@ describe('runGovernedLoop', () => {
     });
   });
 
+  it('emits a thinking frame (before the answer) when a completion carries reasoning, and never resends it', async () => {
+    const frames: TurnFrame[] = [];
+    let settled: readonly DriverMessage[] = [];
+    const complete = scriptedComplete([
+      {
+        text: 'the answer is 4',
+        toolCalls: [],
+        usage: USAGE,
+        reasoning: 'the user asked 2+2, so add them',
+      },
+    ]);
+
+    await runGovernedLoop(
+      deps({
+        complete: complete.fn,
+        onTurn: (f) => frames.push(f),
+        onMessages: (m) => {
+          settled = m;
+        },
+      }),
+    );
+
+    // Reasoning precedes the answer text.
+    expect(frames).toEqual([
+      { t: 'thinking', text: 'the user asked 2+2, so add them' },
+      { t: 'text', text: 'the answer is 4' },
+    ]);
+    // Display-only: reasoning must never enter the resent transcript (the API rejects it on input).
+    expect(JSON.stringify(settled)).not.toContain('the user asked 2+2');
+  });
+
+  it('emits no thinking frame when a completion has no reasoning', async () => {
+    const frames: TurnFrame[] = [];
+    await runGovernedLoop(
+      deps({ complete: async () => text('just the answer'), onTurn: (f) => frames.push(f) }),
+    );
+    expect(frames.map((f) => f.t)).toEqual(['text']);
+  });
+
   it("emits the tool's ok-predicate on the successful tool_result frame (a failure ⇒ ok:false)", async () => {
     // A pure-API backend has no SDK error signal; the tool's `ok` predicate decides the
     // frame's ✓/✗. Here a not-found `get_symbol` invoked successfully still reports ok:false.
     const notFound = { found: false, reason: 'no-symbol' };
     const invoke = vi.fn(async () => ({ result: notFound, handle: 'symbol:miss', pointer: 'pay' }));
     const okPredicate = vi.fn((r: unknown) => (r as { found: boolean }).found);
-    const catalogue: ToolCatalogue = [tool('get_symbol', invoke, () => 'not found: no-symbol', okPredicate)];
+    const catalogue: ToolCatalogue = [
+      tool('get_symbol', invoke, () => 'not found: no-symbol', okPredicate),
+    ];
     const frames: TurnFrame[] = [];
     const complete = scriptedComplete([
-      { text: '', toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }], usage: USAGE },
+      {
+        text: '',
+        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
+        usage: USAGE,
+      },
       text('ok'),
     ]);
 
-    await runGovernedLoop(deps({ catalogue, complete: complete.fn, onTurn: (f) => frames.push(f) }));
+    await runGovernedLoop(
+      deps({ catalogue, complete: complete.fn, onTurn: (f) => frames.push(f) }),
+    );
 
     expect(okPredicate).toHaveBeenCalledWith(notFound);
     const result = frames.find((f) => f.t === 'tool_result');
-    expect(result).toEqual({ t: 'tool_result', handle: 's1:c1', ok: false, pointer: 'not found: no-symbol' });
+    expect(result).toEqual({
+      t: 'tool_result',
+      handle: 's1:c1',
+      ok: false,
+      pointer: 'not found: no-symbol',
+    });
   });
 
   it('defaults ok:true when a tool carries no ok-predicate', async () => {
@@ -122,11 +179,13 @@ describe('runGovernedLoop', () => {
       { text: '', toolCalls: [{ id: 'c1', name: 'Read', arguments: {} }], usage: USAGE },
       text('ok'),
     ]);
-    await runGovernedLoop(deps({ catalogue, complete: complete.fn, onTurn: (f) => frames.push(f) }));
+    await runGovernedLoop(
+      deps({ catalogue, complete: complete.fn, onTurn: (f) => frames.push(f) }),
+    );
     expect(frames.find((f) => f.t === 'tool_result')).toMatchObject({ ok: true });
   });
 
-  it("renders a tool result to display text for BOTH the frame and the model (not the pointer)", async () => {
+  it('renders a tool result to display text for BOTH the frame and the model (not the pointer)', async () => {
     // The Grep defect: the response `pointer` is the search PATTERN, and the real matches
     // live in `result`. A per-tool `render` turns the result into file:line lines, and the
     // driver uses that text for the emitted frame AND the model's tool message.
@@ -136,7 +195,8 @@ describe('runGovernedLoop', () => {
         { file: 'src/session.ts', line: 88, text: 'export const refreshToken = () => {};' },
       ],
     };
-    const rendered = 'src/auth.ts:31:  const next = mint(id);\nsrc/session.ts:88:export const refreshToken = () => {};';
+    const rendered =
+      'src/auth.ts:31:  const next = mint(id);\nsrc/session.ts:88:export const refreshToken = () => {};';
     const invoke = vi.fn(async () => ({
       result: grepResult,
       handle: 'grep:useState',
@@ -146,7 +206,11 @@ describe('runGovernedLoop', () => {
     const frames: TurnFrame[] = [];
     const onMessages = vi.fn();
     const complete = scriptedComplete([
-      { text: '', toolCalls: [{ id: 'c1', name: 'Grep', arguments: { pattern: 'useState' } }], usage: USAGE },
+      {
+        text: '',
+        toolCalls: [{ id: 'c1', name: 'Grep', arguments: { pattern: 'useState' } }],
+        usage: USAGE,
+      },
       text('found them'),
     ]);
 
@@ -161,9 +225,16 @@ describe('runGovernedLoop', () => {
 
     expect(render).toHaveBeenCalledExactlyOnceWith(grepResult);
     // The console frame shows the real matches, not the pattern.
-    expect(frames).toContainEqual({ t: 'tool_result', handle: 's1:c1', ok: true, pointer: rendered });
+    expect(frames).toContainEqual({
+      t: 'tool_result',
+      handle: 's1:c1',
+      ok: true,
+      pointer: rendered,
+    });
     // The model reads the same rendered text — not raw JSON, not the pattern.
-    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find((m) => m.role === 'tool')!;
+    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find(
+      (m) => m.role === 'tool',
+    )!;
     expect(toolMsg.content).toBe(rendered);
   });
 
@@ -234,7 +305,11 @@ describe('runGovernedLoop', () => {
     // The full prior conversation (system omitted) — tool call + result included.
     const history: DriverMessage[] = [
       { role: 'user', content: 'what is 8 squared?' },
-      { role: 'assistant', content: 'let me compute', toolCalls: [{ id: 'c1', name: 'calc', arguments: { n: 8 } }] },
+      {
+        role: 'assistant',
+        content: 'let me compute',
+        toolCalls: [{ id: 'c1', name: 'calc', arguments: { n: 8 } }],
+      },
       { role: 'tool', toolCallId: 'c1', content: '{"answer":64}' },
       { role: 'assistant', content: '64' },
     ];
@@ -271,8 +346,16 @@ describe('runGovernedLoop', () => {
 
     expect(onMessages).toHaveBeenCalledExactlyOnceWith([
       { role: 'user', content: 'find pay' },
-      { role: 'assistant', content: 'looking', toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }] },
-      { role: 'tool', toolCallId: 'c1', content: JSON.stringify({ ok: true, args: { name: 'pay' } }) },
+      {
+        role: 'assistant',
+        content: 'looking',
+        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'c1',
+        content: JSON.stringify({ ok: true, args: { name: 'pay' } }),
+      },
       { role: 'assistant', content: 'the answer' },
     ]);
   });
@@ -291,11 +374,15 @@ describe('runGovernedLoop', () => {
       deps({ catalogue: [tool('big', invoke)], complete: complete.fn, onMessages }),
     );
 
-    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find((m) => m.role === 'tool')!;
+    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find(
+      (m) => m.role === 'tool',
+    )!;
     // The verbatim raw store still holds the full result; only what enters the resent
     // transcript is bounded, with a marker telling the model how much was truncated.
     expect(toolMsg.content.length).toBeLessThan(TOOL_RESULT_CHAR_CAP + 200);
-    expect(toolMsg.content).toContain(`truncated by coa: showing ${TOOL_RESULT_CHAR_CAP} of ${fullLen} chars`);
+    expect(toolMsg.content).toContain(
+      `truncated by coa: showing ${TOOL_RESULT_CHAR_CAP} of ${fullLen} chars`,
+    );
   });
 
   it('leaves a small tool result untouched', async () => {
@@ -310,7 +397,9 @@ describe('runGovernedLoop', () => {
       deps({ catalogue: [tool('small', invoke)], complete: complete.fn, onMessages }),
     );
 
-    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find((m) => m.role === 'tool')!;
+    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find(
+      (m) => m.role === 'tool',
+    )!;
     expect(toolMsg.content).toBe(JSON.stringify({ ok: true }));
   });
 

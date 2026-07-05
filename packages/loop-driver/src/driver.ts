@@ -110,6 +110,11 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
   for (let i = 0; i < maxIterations; i += 1) {
     const result = await deps.complete(messages, tools);
     addUsage(usage, result.usage);
+    // Reasoning precedes the answer (pre-answer thinking). Display-only: emitted as a
+    // thinking frame but never pushed into `messages` — the API rejects reasoning on input.
+    if (result.reasoning !== undefined && result.reasoning !== '') {
+      emit({ t: 'thinking', text: result.reasoning });
+    }
     if (result.text !== '') emit({ t: 'text', text: result.text });
     messages.push({
       role: 'assistant',
@@ -159,7 +164,9 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       // structured `result` to human-readable display text (its `pointer` is only a terse
       // handle — often the INPUT). That text is used for BOTH the frame the console shows
       // and the model's tool message; capped for the resent transcript either way.
-      const display = capToolResult(tool.render?.(response.result) ?? JSON.stringify(response.result));
+      const display = capToolResult(
+        tool.render?.(response.result) ?? JSON.stringify(response.result),
+      );
       // The tool owns its result shape, so it owns the success predicate: a pure-API backend
       // has no SDK error signal, so `ok` (the frame's ✓/✗ + the console's red error body)
       // comes from the tool. Absent ⇒ presume success. Pair the result to its `tool_use` by

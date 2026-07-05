@@ -37,10 +37,15 @@ export function loadEffortCaps(env: Record<string, string | undefined> = process
   }
 }
 
-/** Map a LongCat model id + its configured effort ladder to the neutral descriptor. */
+/**
+ * Map a LongCat model id + its configured effort ladder to the neutral descriptor.
+ * With a configured ladder the model exposes graded effort; without one it still
+ * exposes LongCat's binary thinking on/off toggle (`supportsThinking`), which the
+ * console surfaces as an On/Off control — not "no reasoning".
+ */
 export function toModelDescriptor(id: string, caps: EffortCaps): ModelDescriptor {
   const levels = caps[id];
-  if (levels === undefined || levels.length === 0) return { id };
+  if (levels === undefined || levels.length === 0) return { id, supportsThinking: true };
   return { id, supportsEffort: true, supportedEffortLevels: levels as ClaudeEffort[] };
 }
 

@@ -134,6 +134,32 @@ describe('makeDeepSeekComplete', () => {
     expect(captured.body?.['reasoning_effort']).toBeUndefined();
   });
 
+  it('captures reasoning_content as the completion reasoning, undefined when absent', async () => {
+    const withReasoning = makeDeepSeekComplete({
+      apiKey: 'sk-1',
+      model: 'm',
+      fetchImpl: fakeFetch(
+        {
+          choices: [
+            { message: { content: 'the answer is 4', reasoning_content: 'because 2+2=4' } },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        },
+        {},
+      ),
+    });
+    const r1 = await withReasoning([{ role: 'user', content: 'go' }], []);
+    expect(r1.reasoning).toBe('because 2+2=4');
+    expect(r1.text).toBe('the answer is 4');
+
+    const noReasoning = makeDeepSeekComplete({
+      apiKey: 'sk-1',
+      model: 'm',
+      fetchImpl: fakeFetch(textResponse, {}),
+    });
+    expect((await noReasoning([{ role: 'user', content: 'go' }], [])).reasoning).toBeUndefined();
+  });
+
   it('throws with the status on a non-ok response', async () => {
     const complete = makeDeepSeekComplete({
       apiKey: 'sk-1',
