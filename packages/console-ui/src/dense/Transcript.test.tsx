@@ -260,23 +260,20 @@ describe('TranscriptRow', () => {
     expect(roleEl?.className).not.toMatch(/border-l|border-dotted|ml-2|ml-4/);
   });
 
-  it('renders a tool-use frame collapsed, revealing input byte-faithfully on expand', async () => {
+  // The tool branches now render the shared kit ToolCard (its own suite owns the rich-body
+  // detail); these assert the wiring — verb, path/target, output body, pending, ok tone.
+  it('renders a tool-use frame with its verb', () => {
     const input = '{\n  "path": "src/auth.ts"\n}';
-    const { container } = render(
+    render(
       <TranscriptRow
         frame={{ id: 't2', role: 'agent', kind: 'tool-use', tool: 'read_file', input }}
       />,
     );
-    expect(screen.getByText('read_file')).toBeTruthy();
-    expect(container.querySelector('pre')).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: /read_file/ }));
-    const pre = container.querySelector('pre');
-    expect(pre).not.toBeNull();
-    expect(pre?.textContent).toBe(input); // exact bytes, no normalization
+    expect(screen.getByText('read_file')).toBeInTheDocument();
   });
 
-  it('renders a tool-result frame collapsed, with output revealed on expand', async () => {
-    const { container } = render(
+  it('renders a standalone tool-result frame with its output body', () => {
+    render(
       <TranscriptRow
         frame={{
           id: 't3',
@@ -288,34 +285,11 @@ describe('TranscriptRow', () => {
         }}
       />,
     );
-    expect(screen.queryByText(/42 lines/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /read_file/ }));
-    expect(screen.getByText(/42 lines/)).toBeTruthy();
-    // no input for a standalone tool-result — must not render an empty input code block
-    expect(container.querySelectorAll('pre')).toHaveLength(1);
+    expect(screen.getByText(/42 lines/)).toBeInTheDocument();
   });
 
-  it('does not show a running hint for a standalone tool-use frame', () => {
-    render(
-      <TranscriptRow
-        frame={{ id: 'tu1', role: 'agent', kind: 'tool-use', tool: 'Bash', input: '{}' }}
-      />,
-    );
-    expect(screen.queryByText(/running/i)).not.toBeInTheDocument();
-  });
-
-  it('renders a tool-use collapsed, revealing input on expand', async () => {
-    render(
-      <TranscriptRow
-        frame={{ id: '1', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{"path":"a.ts"}' }}
-      />,
-    );
-    expect(screen.queryByText(/"path":"a.ts"/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Read/ }));
-    expect(screen.getByText(/"path":"a.ts"/)).toBeInTheDocument();
-  });
-
-  it('renders a merged tool frame with a bigger/bolder title and quick-info', () => {
+  it('renders a merged tool frame with its verb and clickable path target', () => {
+    const onOpenPath = vi.fn();
     render(
       <TranscriptRow
         frame={{
@@ -324,65 +298,62 @@ describe('TranscriptRow', () => {
           kind: 'tool',
           tool: 'Read',
           input: '{"file_path":"src/auth.ts"}',
+          output: '42 lines',
+          ok: true,
         }}
+        onOpenPath={onOpenPath}
       />,
     );
-    const title = screen.getByText('Read');
-    expect(title.className).toMatch(/text-label/);
-    expect(title.className).toMatch(/font-medium/);
-    expect(title.className).toMatch(/text-fg/);
-    expect(screen.getByText('src/auth.ts')).toBeInTheDocument();
+    expect(screen.getByText('Read')).toBeInTheDocument();
+    const link = screen.getByRole('button', { name: 'src/auth.ts' });
+    fireEvent.click(link);
+    expect(onOpenPath).toHaveBeenCalledWith('src/auth.ts', undefined);
   });
 
-  it('gives the merged tool card a taller toggle button', () => {
+  it('threads a Read offset into the reveal line', () => {
+    const onOpenPath = vi.fn();
     render(
       <TranscriptRow
-        frame={{ id: 'm2', role: 'agent', kind: 'tool', tool: 'Bash', input: '{"command":"ls"}' }}
+        frame={{
+          id: 'm1b',
+          role: 'agent',
+          kind: 'tool',
+          tool: 'Read',
+          input: '{"file_path":"src/auth.ts","offset":42}',
+          output: 'x',
+          ok: true,
+        }}
+        onOpenPath={onOpenPath}
       />,
     );
-    const btn = screen.getByRole('button', { name: /Bash/ });
-    expect(btn.className).toMatch(/py-1\.5/);
+    fireEvent.click(screen.getByRole('button', { name: 'src/auth.ts:42' }));
+    expect(onOpenPath).toHaveBeenCalledWith('src/auth.ts', 42);
   });
 
-  it('expands a merged tool frame to reveal both input and labelled output', async () => {
+  it('renders a merged tool frame with output as an output body', () => {
     render(
       <TranscriptRow
         frame={{
           id: 'm3',
           role: 'agent',
           kind: 'tool',
-          tool: 'Read',
-          input: '{"file_path":"a.ts"}',
+          tool: 'Bash',
+          input: '{"command":"ls"}',
           output: '42 lines',
           ok: true,
         }}
       />,
     );
-    expect(screen.queryByText('42 lines')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Read/ }));
-    expect(screen.getByText('{"file_path":"a.ts"}')).toBeInTheDocument();
     expect(screen.getByText('42 lines')).toBeInTheDocument();
-    expect(screen.getByText(/output/i)).toBeInTheDocument();
   });
 
-  it('renders a merged tool frame with no output as a pending call, no status text', () => {
+  it('renders a merged tool frame with no output as a pending call', () => {
     render(
       <TranscriptRow
         frame={{ id: 'm4', role: 'agent', kind: 'tool', tool: 'Bash', input: '{"command":"ls"}' }}
       />,
     );
-    expect(screen.queryByText(/· ok/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/· error/i)).not.toBeInTheDocument();
     expect(screen.getByText(/running/i)).toBeInTheDocument();
-  });
-
-  it('does not show quick-info for an unknown tool', () => {
-    render(
-      <TranscriptRow
-        frame={{ id: 'm5', role: 'agent', kind: 'tool', tool: 'Bash', input: '{"command":"ls"}' }}
-      />,
-    );
-    expect(screen.queryByText('ls')).not.toBeInTheDocument();
   });
 
   it('tones the gutter dot danger for a failed tool-result', () => {

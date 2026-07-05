@@ -64,20 +64,54 @@ export const TOOL_CALLS: ToolCall[] = [
   {
     id: 'get_symbol',
     tool: 'get_symbol',
-    input: '{\n  "ref": { "name": "refreshToken" }\n}',
+    input: JSON.stringify({ ref: { path: 'src/auth.ts', symbol: 'refreshToken' } }, null, 2),
+    // Output is the symbol's source — rendered as a highlighted preview (like Read).
     output:
-      'src/auth.ts · refreshToken(session: Session): Promise<Token>\n  mints a fresh token; the old one is single-use',
+      'export function refreshToken(session: Session): Promise<Token> {\n  // rotate the refresh token; the old one is single-use\n  const next = mint(session.userId, { scope: session.scope });\n  return next.token;\n}',
     ok: true,
   },
   {
     id: 'edit_symbol',
     tool: 'edit_symbol',
     input: JSON.stringify(
-      { ref: { path: 'src/auth.ts', symbol: 'refreshToken' }, diff: { hunks: 1 } },
+      {
+        ref: { path: 'src/auth.ts', symbol: 'refreshToken' },
+        diff: {
+          form: 'search-replace',
+          hunks: [
+            {
+              find: 'const next = mint(session.userId, { scope: session.scope });\n  return next.token;',
+              replace:
+                'const next = await mint(session.userId, { scope: session.scope });\n  if (!next.ok) throw new AuthError("mint failed");\n  return next.token;',
+            },
+          ],
+        },
+      },
       null,
       2,
     ),
     output: 'applied · seq 412',
+    ok: true,
+  },
+  {
+    id: 'apply_patch',
+    tool: 'apply_patch',
+    input: JSON.stringify(
+      {
+        target: 'src/auth-error.ts',
+        diff: { form: 'whole-file', body: 'export class AuthError extends Error {}\n' },
+      },
+      null,
+      2,
+    ),
+    output: 'patched src/auth-error.ts',
+    ok: true,
+  },
+  {
+    id: 'get_piece',
+    tool: 'get_piece',
+    input: JSON.stringify({ ref: { path: 'docs/auth.md', symbol: 'token-rotation' } }, null, 2),
+    output: '# Token rotation\n\nThe refresh token is single-use; minting a fresh token invalidates it.',
     ok: true,
   },
   {

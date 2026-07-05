@@ -1,7 +1,7 @@
 // packages/console-ui/src/dense/toolRegistry.test.ts
 import { Braces, FileText, Gavel, Pencil, ShieldCheck, Terminal, Wrench } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
-import { describeTool, toolPath } from './toolRegistry.js';
+import { describeTool, toolPath, toolTarget } from './toolRegistry.js';
 
 describe('describeTool — Claude / base tools', () => {
   it('describes Read with a path and a line range (file_path or path)', () => {
@@ -105,5 +105,49 @@ describe('toolPath', () => {
     expect(toolPath('DeployRocket', '{"file_path":"x"}')).toBeUndefined();
     expect(() => toolPath('Read', 'not json')).not.toThrow();
     expect(toolPath('Read', 'not json')).toBeUndefined();
+  });
+});
+
+describe('toolTarget', () => {
+  it('resolves Read to a path plus the line from offset (the range start)', () => {
+    expect(toolTarget('Read', '{"file_path":"src/auth.ts","offset":12,"limit":40}')).toEqual({
+      path: 'src/auth.ts',
+      line: 12,
+    });
+    // base-tool path, no offset → path only.
+    expect(toolTarget('Read', '{"path":"a.ts"}')).toEqual({ path: 'a.ts' });
+  });
+
+  it('resolves Edit/Write/NotebookEdit to a path with no line', () => {
+    expect(toolTarget('Edit', '{"file_path":"b.ts","old_string":"x","new_string":"y"}')).toEqual({
+      path: 'b.ts',
+    });
+    expect(toolTarget('Write', '{"file_path":"c.ts","content":"z"}')).toEqual({ path: 'c.ts' });
+    expect(toolTarget('NotebookEdit', '{"notebook_path":"n.ipynb"}')).toEqual({ path: 'n.ipynb' });
+  });
+
+  it('resolves symbol tools from a path-bearing ref', () => {
+    expect(toolTarget('get_symbol', '{"ref":{"path":"src/auth.ts","symbol":"mint"}}')).toEqual({
+      path: 'src/auth.ts',
+    });
+    expect(
+      toolTarget('edit_symbol', '{"ref":{"path":"src/auth.ts","symbol":"refreshToken"},"diff":{}}'),
+    ).toEqual({ path: 'src/auth.ts' });
+    expect(toolTarget('apply_patch', '{"target":"src/session.ts","diff":{}}')).toEqual({
+      path: 'src/session.ts',
+    });
+  });
+
+  it('returns undefined for a name-only symbol ref (unresolvable to a path)', () => {
+    expect(toolTarget('get_symbol', '{"ref":{"name":"refreshToken"}}')).toBeUndefined();
+    expect(toolTarget('get_piece', '{"ref":{"name":"p"}}')).toBeUndefined();
+  });
+
+  it('returns undefined for non-target tools and malformed input, and never throws', () => {
+    expect(toolTarget('Bash', '{"command":"ls"}')).toBeUndefined();
+    expect(toolTarget('DeployRocket', '{"file_path":"x"}')).toBeUndefined();
+    expect(() => toolTarget('Read', 'not json')).not.toThrow();
+    expect(toolTarget('Read', 'not json')).toBeUndefined();
+    expect(toolTarget('get_symbol', '{"ref":42}')).toBeUndefined();
   });
 });

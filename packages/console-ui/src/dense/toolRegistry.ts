@@ -208,3 +208,51 @@ export function toolPath(tool: string, input: string): string | undefined {
   const rec = parseInput(input);
   return str(rec, 'file_path') ?? str(rec, 'path') ?? str(rec, 'notebook_path');
 }
+
+/** The path from a SymbolRef (`{path, symbol?}`), or undefined when name-only (a bare
+ *  string / `{name}` — unresolvable to a path without a lookup). Never throws. */
+function refPath(v: unknown): string | undefined {
+  if (typeof v === 'object' && v !== null) {
+    const p = (v as Record<string, unknown>)['path'];
+    if (typeof p === 'string') return p;
+  }
+  return undefined;
+}
+
+/** Where a card's header link reveals: a path plus an optional line. Covers the file
+ *  tools (`Read`'s line comes from `offset`) and the symbol/patch tools (path from the
+ *  ref, or `apply_patch`'s `target`). Returns undefined when there is no resolvable path
+ *  (non-target tools, a name-only ref, malformed input). Pure; never throws. */
+export function toolTarget(tool: string, input: string): { path: string; line?: number } | undefined {
+  const rec = parseInput(input);
+  switch (tool) {
+    case 'Read': {
+      const path = str(rec, 'file_path') ?? str(rec, 'path');
+      if (path === undefined) return undefined;
+      const line = int(rec, 'offset');
+      return line === undefined ? { path } : { path, line };
+    }
+    case 'Edit':
+    case 'Write': {
+      const path = str(rec, 'file_path') ?? str(rec, 'path');
+      return path === undefined ? undefined : { path };
+    }
+    case 'NotebookEdit': {
+      const path = str(rec, 'notebook_path') ?? str(rec, 'file_path');
+      return path === undefined ? undefined : { path };
+    }
+    case 'get_symbol':
+    case 'edit_symbol':
+    case 'get_piece':
+    case 'get_spec': {
+      const path = refPath(rec?.['ref']);
+      return path === undefined ? undefined : { path };
+    }
+    case 'apply_patch': {
+      const path = str(rec, 'target');
+      return path === undefined ? undefined : { path };
+    }
+    default:
+      return undefined;
+  }
+}

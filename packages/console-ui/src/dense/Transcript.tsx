@@ -9,8 +9,14 @@ import { Spinner } from '../feedback/Spinner.js';
 import { findMatches } from './find.js';
 import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
+import { ToolCard } from './ToolCard.js';
 import { nearBottom, previousPromptIndex } from './scrollState.js';
 import { cx } from '../lib/cx.js';
+
+/** Reveal a touched file (from a tool card's path/match link) in the editor/OS at an
+ *  optional line. Supplied live by `ChatPanel` (backed by the reveal IPC); omitted in
+ *  read-only surfaces, where the path renders as plain text. */
+export type OpenPathFn = (path: string, line?: number) => void;
 
 export type TranscriptRole = 'you' | 'agent' | 'subagent';
 
@@ -108,6 +114,12 @@ export interface TranscriptProps {
    *  is a `React.memo` keyed on prop identity, so an unstable `onRespond` would
    *  re-render every row on every streamed frame, defeating that memoization. */
   onRespond?: RespondFn | undefined;
+  /** Reveal a touched file (from a tool card's path/match link) in the editor/OS at an
+   *  optional line. Like `onRespond`, MUST be referentially stable across renders — it is
+   *  threaded into `MemoRow` (a `React.memo`), so an unstable ref would defeat that
+   *  memoization and re-render every row on every streamed frame. Omitted ⇒ paths render
+   *  as plain text (no link). */
+  onOpenPath?: OpenPathFn | undefined;
   label?: string | undefined;
   className?: string | undefined;
   /** Test seam: force the jump-to-latest control's visibility instead of deriving it
@@ -153,63 +165,6 @@ export function toolQuickInfo(tool: string, input: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-/** A collapse-by-default tool call/result summary that expands on click to reveal
- *  its payload. Collapsed by default keeps the transcript scannable; boxed on a
- *  `bg-subtle` surface (mirrors the reasoning card below it) so a tool call reads
- *  as a distinct, self-contained unit rather than inline prose. */
-function ToolCard({
-  tool,
-  input,
-  output,
-  pending = false,
-}: {
-  tool: string;
-  input?: string | undefined;
-  output?: string | undefined;
-  /** Drives the "running…" affordance. Only the merged `tool` kind (a real
-   *  in-flight call) passes this — a standalone `tool-use`/`tool-result`
-   *  frame in isolation carries no running signal of its own. The outcome (`ok`)
-   *  is shown by the gutter dot (see {@link dotTone}), not the card. */
-  pending?: boolean | undefined;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const quickInfo = toolQuickInfo(tool, input ?? '');
-  return (
-    <div className="overflow-hidden rounded-surface border border-hairline bg-subtle">
-      {/* Full-width toggle so clicking anywhere on the (collapsed) box expands it; the
-          hover fill marks the whole surface as interactive. */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left hover:bg-element motion-reduce:transition-none"
-        aria-expanded={open}
-      >
-        <ChevronRight
-          aria-hidden
-          size={12}
-          className={cx('transition-transform motion-reduce:transition-none', open && 'rotate-90')}
-        />
-        <span className="shrink-0 text-label font-medium text-fg">{tool || 'tool'}</span>
-        {quickInfo !== undefined && (
-          <span className="min-w-0 truncate text-caption text-muted">{quickInfo}</span>
-        )}
-        {pending && <span className="shrink-0 text-caption text-faint">running…</span>}
-      </button>
-      {open && (
-        <div className="flex flex-col gap-1 px-2 pb-2">
-          {input !== undefined && input.length > 0 && <Code block>{input}</Code>}
-          {output !== undefined && (
-            <div className="flex flex-col gap-1">
-              <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">output</span>
-              <Code block>{output}</Code>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** A collapse-by-default reasoning block: never boxed (no bg, no click surface) —
@@ -358,11 +313,13 @@ function RowShell({
 export function TranscriptRow({
   frame,
   onRespond,
+  onOpenPath,
   spineTop = true,
   spineBottom = true,
 }: {
   frame: TranscriptFrame;
   onRespond?: RespondFn | undefined;
+  onOpenPath?: OpenPathFn | undefined;
   spineTop?: boolean | undefined;
   spineBottom?: boolean | undefined;
 }): React.JSX.Element {
@@ -575,11 +532,24 @@ export function TranscriptRow({
             tool={frame.tool}
             input={frame.input}
             output={frame.output}
-            pending={frame.output === undefined && frame.ok === undefined}
+            ok={frame.ok}
+            onOpenPath={onOpenPath}
           />
         )}
-        {frame.kind === 'tool-use' && <ToolCard tool={frame.tool} input={frame.input} />}
-        {frame.kind === 'tool-result' && <ToolCard tool={frame.tool} output={frame.output} />}
+        {frame.kind === 'tool-use' && (
+          <ToolCard tool={frame.tool} input={frame.input} onOpenPath={onOpenPath} />
+        )}
+        {/* A standalone tool-result carries no input; the kit card takes `input: string`,
+            so pass '' — the header falls back to its summary and the output body renders. */}
+        {frame.kind === 'tool-result' && (
+          <ToolCard
+            tool={frame.tool}
+            input=""
+            output={frame.output}
+            ok={frame.ok}
+            onOpenPath={onOpenPath}
+          />
+        )}
       </div>
     </RowShell>
   );
@@ -700,6 +670,7 @@ export function WorkingFooter({
 const MemoRow = memo(function MemoRow({
   frame,
   onRespond,
+  onOpenPath,
   index,
   findActive = false,
   spineTop = true,
@@ -707,6 +678,7 @@ const MemoRow = memo(function MemoRow({
 }: {
   frame: TranscriptFrame;
   onRespond?: RespondFn | undefined;
+  onOpenPath?: OpenPathFn | undefined;
   index: number;
   /** True when this row is the active find-in-conversation match — rings the row so
    *  prev/next navigation has a visible landing target. */
@@ -738,7 +710,13 @@ const MemoRow = memo(function MemoRow({
         { contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties
       }
     >
-      <TranscriptRow frame={frame} onRespond={onRespond} spineTop={spineTop} spineBottom={spineBottom} />
+      <TranscriptRow
+        frame={frame}
+        onRespond={onRespond}
+        onOpenPath={onOpenPath}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+      />
     </div>
   );
 });
@@ -751,6 +729,7 @@ const MemoRow = memo(function MemoRow({
 export function Transcript({
   frames,
   onRespond,
+  onOpenPath,
   label = 'Conversation',
   className,
   showJumpToLatest,
@@ -950,6 +929,7 @@ export function Transcript({
               key={item.id}
               frame={item}
               onRespond={onRespond}
+              onOpenPath={onOpenPath}
               index={index}
               findActive={findOpen && index === activeMatchFrameIndex}
               spineTop={!spineStarts.has(index)}

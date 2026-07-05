@@ -307,7 +307,7 @@ function RichDirection(): React.JSX.Element {
               input={call.input}
               output={call.output}
               ok={call.ok}
-              onOpenPath={(p) => setToast(p)}
+              onOpenPath={(p, line) => setToast(line !== undefined ? `${p}:${line}` : p)}
             />
           ))}
         </div>

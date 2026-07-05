@@ -78,11 +78,20 @@ export {
 export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
 export { Markdown, type MarkdownProps } from './dense/Markdown.js';
 export { Composer, type ComposerProps } from './dense/Composer.js';
-export { describeTool, toolPath, type ToolDescriptor } from './dense/toolRegistry.js';
+export { describeTool, toolPath, toolTarget, type ToolDescriptor } from './dense/toolRegistry.js';
 export { diffLines, type DiffLine, type LineDiff } from './dense/toolDiff.js';
 export { estimateTokens, formatTokens } from './dense/tokenEstimate.js';
 export { SyntaxText, type SyntaxTextProps } from './dense/syntaxTheme.js';
 export { languageForPath } from './dense/pathLanguage.js';
 export { clampLines, type ClampedLines } from './dense/clampLines.js';
+export { parseMatchLine, type MatchLine } from './dense/matchLines.js';
+export { markErrors } from './dense/errorMarks.js';
+export {
+  RunChecks,
+  parseChecks,
+  type RunChecksProps,
+  type ChecksSummary,
+  type CheckResult,
+} from './dense/runChecks.js';
 export { ToolDiffView, type ToolDiffViewProps } from './dense/ToolDiffView.js';
 export { ToolCard, type ToolCardProps } from './dense/ToolCard.js';
