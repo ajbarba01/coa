@@ -74,6 +74,32 @@ export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 
 export const AgentListSchema = z.array(AgentSummarySchema);
 
+/** The floor: what an agents file parses to when missing/corrupt/invalid.
+ *  (matches `parseSettings`'s full-defaults-on-any-issue posture). */
+export const DEFAULT_AGENT_LIST: AgentSummary[] = [];
+
+/** Collapse agents sharing a `ref` (the identity/React key) to the first occurrence.
+ *  The ref must be unique; a past creation bug could persist two agents under one ref,
+ *  which renders as duplicate keys and cannot be individually deleted — reading dedupes
+ *  so a corrupted store self-heals on the next load. */
+function dedupeByRef(agents: AgentSummary[]): AgentSummary[] {
+  const seen = new Set<string>();
+  return agents.filter((a) => {
+    if (seen.has(a.ref)) return false;
+    seen.add(a.ref);
+    return true;
+  });
+}
+
+/** Parse a persisted agents blob; any invalid blob (or `undefined`) yields an
+ *  empty list so the console boots to the clean "No agents yet" empty state —
+ *  never to `MOCK_AGENTS`, never throwing. Degrades icon/color/scope via their
+ *  own `.catch` defaults. */
+export function parseAgents(raw: unknown): AgentSummary[] {
+  const parsed = AgentListSchema.safeParse(raw ?? []);
+  return parsed.success ? dedupeByRef(parsed.data) : DEFAULT_AGENT_LIST;
+}
+
 /** A conversation session pointer. Every session is bound to exactly one agent
  *  (createSession takes a role), which is what lets the chat rail and the session
  *  switcher stay one linked selection instead of two axes. Mock today (no
@@ -106,6 +132,29 @@ export const SessionSummarySchema = z.object({
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
 export const SessionListSchema = z.array(SessionSummarySchema);
+
+/** The persisted-user-agents file shape: a self-describing version + the list.
+ *  The list is the authoritative agent catalogue; a missing/corrupt/unknown-version
+ *  blob is rejected (the caller degrades to the empty floor, like `parseSettings`). */
+export const PersistedAgentsSchema = z.object({
+  schema_version: z.number().int().min(1).max(1).default(1),
+  agents: AgentListSchema.default([]),
+});
+export type PersistedAgents = z.infer<typeof PersistedAgentsSchema>;
+
+/** Parse a persisted-agents file blob; `undefined`/corrupt data **or** a version
+ *  other than 1 yields `undefined` (caller degrades to `DEFAULT_AGENT_LIST`) —
+ *  this is the quarantine posture, matching the WAL reader's "refuse to start
+ *  on an unknown version, never silently downgrade" rule. */
+export function parsePersistedAgents(raw: unknown): AgentSummary[] | undefined {
+  // Quarantine requires an explicit, recognized envelope: a missing file (`undefined`),
+  // a non-object, or an object with no `schema_version` at all is rejected rather than
+  // silently defaulted to an empty list. Only a present-but-unknown version (or otherwise
+  // invalid blob) is what the schema's `min(1).max(1)` then rejects.
+  if (raw === null || typeof raw !== 'object' || !('schema_version' in raw)) return undefined;
+  const parsed = PersistedAgentsSchema.safeParse(raw);
+  return parsed.success ? dedupeByRef(parsed.data.agents) : undefined;
+}
 
 /** The agent-assembly catalogue the console picker reads — the real `listRoles`/
  *  `listPackages` wire shapes, re-exported from M0 so the edge validates the

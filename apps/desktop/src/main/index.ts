@@ -24,6 +24,7 @@ import {
   type WindowControlName,
 } from '../shared/methods.js';
 import { parseSettings, type ConsoleSettings } from '../shared/settings.js';
+import { deserializeAgents, serializeAgents } from './agentsStore.js';
 
 /** The single console window, tracked so a theme change can recolor its native chrome. */
 let mainWindow: BrowserWindow | undefined;
@@ -229,6 +230,13 @@ function settingsFile(): string {
   return join(app.getPath('userData'), 'coa', 'settings.json');
 }
 
+/** The per-user agents file. Project agents live committed in `.coa/roles.yaml`
+ *  (persisted via the future `writeRole` funnel — this file is console-local
+ *  identity + launch selection). */
+function agentsFile(): string {
+  return join(app.getPath('userData'), 'coa', 'agents.json');
+}
+
 /** Forward a read to the daemon, surfacing a JSON-RPC error as a coded IPC error. */
 async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
   const res = await (await daemon.client()).request(method, params);
@@ -373,6 +381,13 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return undefined;
     case 'getSettings':
       return parseSettings(readJson(settingsFile()));
+    case 'listAgents':
+      // Read back the SAME envelope writeAgents persists — parsing it as a bare array
+      // silently failed to an empty list, wiping every agent on reload.
+      return deserializeAgents(readJson(agentsFile()));
+    case 'writeAgents':
+      writeJson(agentsFile(), serializeAgents(params));
+      return undefined;
     case 'saveSettings': {
       // Recolor the native chrome *before* the disk write so the pre-paint background
       // tracks the renderer's (instant) CSS as closely as the IPC hop allows.

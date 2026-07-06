@@ -1,5 +1,6 @@
 import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import {
+  parseAgents,
   pushSchema,
   pushToViewFrames,
   reasoningValue,
@@ -18,9 +19,9 @@ import {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
-import { MOCK_AGENTS } from './panels/mockAgents.js';
 import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { resolveSelection } from './panels/selection.js';
+import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { configKey } from './panels/banners.js';
 import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
@@ -64,6 +65,10 @@ export interface ConsoleBridge {
   // The agent-assembly catalogue for the role/package picker.
   listRoles(): Promise<RoleSummary[]>;
   listPackages(): Promise<PackageSummary[]>;
+  // Agents — console-local identity + launch selection, persisted to the
+  // per-user `agents.json`. Degrades to empty list when missing/corrupt.
+  listAgents(): Promise<unknown>;
+  writeAgents(agents: unknown): Promise<void>;
   // Persistent sessions (R-7): the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
@@ -163,16 +168,14 @@ export async function startConsole(
     ...state,
     ui: { ...state.ui, settings, activeMainPanelId: getMainPanelId(descriptor) },
   };
-  // Agents remain shell-owned mocks (their Role verbs are unbuilt); seed them ready
-  // so the rail renders on first paint. Sessions + their turns are REAL: loaded from
-  // the daemon's R-7 store below (`initSessions`). The mutable copy backs the
-  // mock-inert agent writes (rename, recolor, pin).
-  let agents: AgentSummary[] = [...MOCK_AGENTS];
+  // Agents are persisted. On bootstrap the in-memory copy is hydrated
+  // from the per-user `agents.json` via listAgents; an empty/missing file degrades
+  // to the "No agents yet" empty state — never to a mock. Sessions + their turns are
+  // REAL: loaded from the daemon's R-7 store below (`initSessions`). The mutable
+  // copy backs the now-durable agent edits (rename, recolor, pin) that persist
+  // via writeAgents.
+  let agents: AgentSummary[] = [];
   let sessions: SessionSummary[] = [];
-  state = {
-    ...state,
-    data: { ...state.data, agents: { status: 'ok', value: [...agents] } },
-  };
   const handle = engine.mount({
     container,
     descriptor,
@@ -265,12 +268,15 @@ export async function startConsole(
     push();
   };
 
-  // ---- Agents (mock-inert writes over the in-memory mock state; the real writes
-  // ride the future writeRole funnel) ----
+  // ---- Agents — console-local identity + launch selection, persisted
+  // to the per-user `agents.json` via listAgents on startup / writeAgents after every
+  // mutation. Empty/missing file degrades to the "No agents yet" empty state. ----
 
-  const pushAgents = (): void => {
+  /** Publish the in-memory agent list + persist it (optimistic UI + durable write). */
+  const pushAgents = (persist = true): void => {
     state = { ...state, data: { ...state.data, agents: { status: 'ok', value: [...agents] } } };
     push();
+    if (persist) void bridge.writeAgents(agents);
   };
 
   const selectAgent = (ref: string): void => {
@@ -279,10 +285,7 @@ export async function startConsole(
   };
 
   const createAgent = (scope: 'project' | 'personal'): void => {
-    const taken = new Set(agents.map((a) => a.name));
-    let name = 'untitled-agent';
-    for (let n = 2; taken.has(name); n += 1) name = `untitled-agent-${n}`;
-    const ref = `${scope === 'project' ? 'roles' : 'personal'}/${name}`;
+    const { ref, name } = nextAgentIdentity(agents, scope);
     agents = [...agents, { ref, name, icon: 'bot', color: 'slate', scope }];
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     pushAgents();
@@ -441,13 +444,21 @@ export async function startConsole(
     }));
 
   /** Set a session's in-chat model override; the next send routes there (and the
-   *  daemon persists it as the new pin). Republishes so the picker + cache banner update. */
+   *  daemon persists it as the new pin). Republishes so the picker + cache banner update.
+   *
+   *  MERGES the incoming partial into any existing override rather than replacing it: the
+   *  two composer controls each emit a partial (`onPickModel` → `{model, provider}`,
+   *  `onPickEffort` → `{reasoning}`). Replacing meant a later effort pick wiped the model
+   *  out of the override, so the send fell back to the agent's default model — the reported
+   *  "set a reasoning level and it silently drops to Claude" bug. Accumulating keeps the
+   *  selection a coherent `{provider, model, reasoning}` unit. */
   const setSessionModel = (sessionId: string, selection: ModelSelection): void => {
+    const prev = state.ui.modelOverride[sessionId];
     state = {
       ...state,
       ui: {
         ...state.ui,
-        modelOverride: { ...state.ui.modelOverride, [sessionId]: selection },
+        modelOverride: { ...state.ui.modelOverride, [sessionId]: { ...prev, ...selection } },
       },
     };
     push();
@@ -575,6 +586,15 @@ export async function startConsole(
       });
   };
 
+  /** On launch, hydrate the in-memory agent list from the persisted `agents.json`
+   *  via the `listAgents` IPC verb; an empty/missing/corrupt file degrades to the
+   *  "No agents yet" empty state (never to a mock). */
+  async function initAgents(): Promise<void> {
+    const loaded = await settle(async () => parseAgents(await bridge.listAgents()));
+    if (loaded.status === 'ok') agents = loaded.value;
+    pushAgents(false);
+  }
+
   /** On launch, load the project's sessions and open the most recent one. */
   async function initSessions(): Promise<void> {
     await refreshSessionList();
@@ -611,6 +631,7 @@ export async function startConsole(
   void loadAccounts();
   void loadModels();
   void loadCatalogue();
+  void initAgents();
   void initSessions();
 
   return {

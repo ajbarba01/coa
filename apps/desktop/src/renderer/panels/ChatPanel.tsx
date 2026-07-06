@@ -603,7 +603,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
     <Pane
       title={vm.rawMode ? 'Chat · raw' : 'Chat'}
       {...(vm.sessionStatus === 'running'
-        ? { className: 'relative z-10 outline outline-2 outline-info/50' }
+        ? { className: 'relative z-10 ring-2 ring-info ring-offset-0' }
         : {})}
       titleSlot={
         <TooltipProvider>

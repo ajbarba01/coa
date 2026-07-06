@@ -143,12 +143,14 @@ export interface TranscriptProps {
   /** Bump (change value) to force a re-pin to bottom even if the user has scrolled
    *  up — e.g. on sending a new message, so the new turn snaps into view. */
   jumpNonce?: number | undefined;
-  /** Pixels of bottom padding reserved inside the scroll region so the last row can
-   *  clear a control (the floating composer) that overlaps the transcript's bottom
-   *  edge. Because the padding lives on the scrolled content, stick-to-bottom scrolls
-   *  the final row fully into view above the overlap instead of behind it; the
-   *  jump-to-latest control is lifted by the same amount so it never hides under the
-   *  overlapping control either. */
+  /** Pixels of reserved space at the bottom of the scroll content for a control
+   *  (the floating composer) that overlaps the transcript's bottom edge. The
+   *  scroller stays bound to the visible region (height 100%), so the scrollbar
+   *  track never descends into the composer's vertical space — the thumb stops at
+   *  the composer's top edge at max scroll. A same-height spacer inside the
+   *  scrolled content reserves the overlap region so the last row clears the
+   *  composer on stick-to-bottom; the jump-to-latest control is lifted by the same
+   *  amount so it never hides behind the composer. */
   bottomInset?: number | undefined;
 }
 
@@ -309,8 +311,15 @@ function RowShell({
   // leaves the line covering only the content box, so every gap between rows shows.
   return (
     <div style={indent} className="flex gap-3 px-2">
-      <SpineGutter tone={tone} lineTop={!isUser && spineTop} lineBottom={!isUser && spineBottom} showDot={!isUser} />
-      <div className={cx('min-w-0 flex-1', className)}>{children}</div>
+      <SpineGutter
+        tone={tone}
+        lineTop={!isUser && spineTop}
+        lineBottom={!isUser && spineBottom}
+        showDot={!isUser}
+      />
+      <div className={cx('min-w-0 flex-1', className)}>
+        <div className="pb-1">{children}</div>
+      </div>
     </div>
   );
 }
@@ -526,7 +535,11 @@ export function TranscriptRow({
         data-role={role}
         data-spine={!isUser}
         data-nested={nested}
-        className={cx('min-w-0', isUser && 'my-1 rounded-surface border border-hairline-lighter bg-raised px-3 py-2 shadow-sm')}
+        className={cx(
+          'min-w-0',
+          isUser &&
+            'my-1 rounded-surface border border-hairline-lighter bg-raised px-3 py-2 shadow-sm',
+        )}
       >
         {frame.kind === 'text' && (
           <div className="group relative">
@@ -549,7 +562,12 @@ export function TranscriptRow({
           />
         )}
         {frame.kind === 'tool-use' && (
-          <ToolCard tool={frame.tool} input={frame.input} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />
+          <ToolCard
+            tool={frame.tool}
+            input={frame.input}
+            onOpenPath={onOpenPath}
+            onOpenUrl={onOpenUrl}
+          />
         )}
         {/* A standalone tool-result carries no input; the kit card takes `input: string`,
             so pass '' — the header falls back to its summary and the output body renders. */}
@@ -622,7 +640,12 @@ export function foldToolFrames(frames: TranscriptFrame[]): TranscriptFrame[] {
       const index = frame.handle !== undefined ? indexByHandle.get(frame.handle) : undefined;
       const target = index !== undefined ? folded[index] : undefined;
       const useFrame = index !== undefined ? useFrameByIndex.get(index) : undefined;
-      if (index !== undefined && target !== undefined && target.kind === 'tool' && useFrame !== undefined) {
+      if (
+        index !== undefined &&
+        target !== undefined &&
+        target.kind === 'tool' &&
+        useFrame !== undefined
+      ) {
         const cached = foldedToolCache.get(useFrame);
         if (cached !== undefined && cached.result === frame) {
           // Same tool-use, same tool-result reference as last time — reuse the merge.
@@ -720,7 +743,7 @@ const MemoRow = memo(function MemoRow({
       ref={ref}
       data-row-index={index}
       data-find-active={findActive || undefined}
-      className={cx('pb-1', findActive && 'rounded-surface ring-1 ring-info bg-info-tint')}
+      className={cx(findActive && 'rounded-surface ring-1 ring-info bg-info-tint')}
       style={
         { contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties
       }
@@ -937,8 +960,27 @@ export function Transcript({
         onScroll={onScroll}
         role="log"
         aria-label={label}
-        // Native scroll; content capped to a readable measure and centered (§5.2).
-        className="h-full overflow-y-auto"
+        // Native scroll; content capped to a readable measure (§5.2).
+        //
+        // The scroller's HEIGHT is the visible region minus `bottomInset` (the
+        // measured height of the floating composer). This is what bounds the
+        // scrollbar track: the track ends exactly where the composer begins, so
+        // the thumb NEVER enters the composer's vertical space — at max scroll it
+        // rests at the composer's top edge. This is the industry-standard pattern:
+        // ChatGPT, Claude Web, Cursor, Windsurf, and Aider all size their scroll
+        // region to end at the floating input, not under it.
+        //
+        // The composer (docked by ChatPanel at absolute bottom-0 on the scroller's
+        // sibling box) occupies the space we carve out below, and the inner spacer
+        // reserves overlap space INSIDE the content so the last row clears the
+        // composer on stick-to-bottom.
+        className="overflow-y-auto"
+        style={{
+          height:
+            bottomInset !== undefined && bottomInset > 0
+              ? `calc(100% - ${bottomInset}px)`
+              : '100%',
+        }}
       >
         <div className="flex flex-col">
           {items.map((item, index) => (
@@ -955,10 +997,6 @@ export function Transcript({
             />
           ))}
           {busy === true && <WorkingFooter busySince={busySince} />}
-          {/* Reserve space below the last row for a control that overlaps the scroll
-              region's bottom (the floating composer). The spacer sits BEFORE the
-              sentinel, so pinning to the sentinel rests with this gap at the bottom —
-              the final row clears the overlap instead of hiding behind it. */}
           {bottomInset !== undefined && bottomInset > 0 && (
             <div aria-hidden style={{ height: bottomInset }} />
           )}
@@ -986,7 +1024,7 @@ export function Transcript({
           label="Previous prompt"
           variant="secondary"
           size="sm"
-          className="pointer-events-auto border-hairline bg-raised"
+          className="pointer-events-auto border-hairline-lighter bg-raised"
           onClick={jumpToPrompt}
         />
       </div>
@@ -1004,7 +1042,7 @@ export function Transcript({
           <Button
             variant="secondary"
             size="sm"
-            className="pointer-events-auto border-hairline bg-raised"
+            className="pointer-events-auto border-hairline-lighter bg-raised"
             onClick={jumpToLatest}
           >
             Jump to latest

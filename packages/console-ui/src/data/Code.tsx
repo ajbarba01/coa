@@ -8,13 +8,15 @@ export interface CodeProps {
   className?: string;
 }
 
-const mono = 'font-mono text-label text-fg';
+const mono = 'font-mono text-label';
+const inlineMono = `${mono} text-warning-text`;
+const blockMono = `${mono} text-fg`;
 
 export function Code({ block = false, children, className }: CodeProps): React.JSX.Element {
   return block ? (
     <pre
       className={cx(
-        mono,
+        blockMono,
         'overflow-auto whitespace-pre rounded-surface border border-hairline bg-subtle p-2 leading-[1.55]',
         className,
       )}
@@ -22,6 +24,6 @@ export function Code({ block = false, children, className }: CodeProps): React.J
       {children}
     </pre>
   ) : (
-    <code className={cx(mono, 'rounded-[3px] bg-subtle px-1 py-0.5', className)}>{children}</code>
+    <code className={cx(inlineMono, 'rounded-[3px] bg-subtle px-1 py-0.5', className)}>{children}</code>
   );
 }

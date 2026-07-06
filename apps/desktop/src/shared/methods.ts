@@ -1,6 +1,7 @@
 import {
   AccountsSchema,
   ActiveAccountSchema,
+  AgentListSchema,
   CapStateSchema,
   FeedViewSchema,
   PackageSummaryListSchema,
@@ -133,7 +134,9 @@ export type MethodName =
   | 'getLayout'
   | 'saveLayout'
   | 'getSettings'
-  | 'saveSettings';
+  | 'saveSettings'
+  | 'listAgents'
+  | 'writeAgents';
 
 export const METHODS: Record<MethodName, MethodSpec> = {
   capState: { result: CapStateSchema },
@@ -167,6 +170,8 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   saveLayout: { params: z.unknown(), result: z.void() },
   getSettings: { result: ConsoleSettingsSchema },
   saveSettings: { params: ConsoleSettingsSchema, result: z.void() },
+  listAgents: { result: AgentListSchema },
+  writeAgents: { params: AgentListSchema, result: z.void() },
 };
 
 /** The ipcRenderer/ipcMain channel name for a verb. */

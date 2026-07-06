@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { modelSwitchNoteText, startConsole, type ConsoleBridge } from './console.js';
+import type { AgentSummary } from '@coa/console-viewmodel';
 import { LAYOUT_EPOCH, makeDescriptor } from './panels/routing.js';
+import { MOCK_AGENTS } from './panels/mockAgents.js';
+import { deserializeAgents, serializeAgents } from '../main/agentsStore.js';
 
 /** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
 const FAKE_SESSIONS = [
@@ -30,6 +33,8 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     listModels: vi.fn().mockResolvedValue([]),
     listRoles: vi.fn().mockResolvedValue([]),
     listPackages: vi.fn().mockResolvedValue([]),
+    listAgents: vi.fn().mockResolvedValue(MOCK_AGENTS),
+    writeAgents: vi.fn().mockResolvedValue(undefined),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
     reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
@@ -47,6 +52,21 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     ...over,
   };
 }
+
+// Mark this as a React act environment so userEvent's internal act() calls (used to
+// drive the Radix effort Select) don't warn about an unconfigured environment.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Radix Select (the effort control) drives a portal-rendered listbox via pointer
+// capture + scrollIntoView — neither implemented in jsdom. Stub them so the effort
+// dropdown can be opened and picked in tests.
+beforeAll(() => {
+  const proto = window.HTMLElement.prototype;
+  proto.hasPointerCapture ??= () => false;
+  proto.setPointerCapture ??= () => {};
+  proto.releasePointerCapture ??= () => {};
+  proto.scrollIntoView ??= () => {};
+});
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -137,8 +157,9 @@ describe('startConsole (inspector-first)', () => {
     expect(emit).toBeDefined();
 
     // A valid turn push flows through pushToViewFrames into the active conversation
-    // (row text is not assertable here — the Transcript is react-virtuoso, which
-    // renders no rows under jsdom; the mapping is covered by pushToViewFrames' units).
+    // (row text is not asserted here — this push's sessionId ('s') never matches the
+    // mounted session ('c1'), so it is recorded but not merged into visible state; the
+    // mapping itself is covered by pushToViewFrames' units).
     await act(async () => {
       emit?.({
         kind: 'turn',
@@ -272,7 +293,8 @@ describe('startConsole (inspector-first)', () => {
     await act(async () => {
       fireEvent.focus(combo);
     });
-    const option = [...dock().querySelectorAll('[role="option"]')].find((o) =>
+    // The dropdown renders through a portal to document.body, so query the document.
+    const option = [...document.querySelectorAll('[role="option"]')].find((o) =>
       o.textContent?.includes('deepseek-v4-pro'),
     ) as HTMLElement;
     await act(async () => {
@@ -306,7 +328,8 @@ describe('startConsole (inspector-first)', () => {
     await act(async () => {
       fireEvent.focus(combo);
     });
-    const option = [...dock.querySelectorAll('[role="option"]')].find((o) =>
+    // The dropdown renders through a portal to document.body, so query the document.
+    const option = [...document.querySelectorAll('[role="option"]')].find((o) =>
       o.textContent?.includes('deepseek-v4-pro'),
     ) as HTMLElement;
     expect(option).toBeDefined();
@@ -322,6 +345,67 @@ describe('startConsole (inspector-first)', () => {
     });
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ model: { model: 'deepseek-v4-pro', provider: 'deepseek' } }),
+    );
+  });
+
+  it('merges a staged effort onto the staged model — a later effort pick never drops the model back to the agent default', async () => {
+    // The exact reported bug: pick a backend in the composer, then pick a reasoning
+    // effort, and the effort pick silently wiped the model out of the override so the
+    // send fell back to the agent's default model. The two picks must accumulate.
+    const { fireEvent, screen } = await import('@testing-library/react');
+    const bridge = fakeBridge({
+      listModels: vi.fn().mockResolvedValue([
+        {
+          id: 'deepseek-v4-pro',
+          provider: 'deepseek',
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'medium', 'high'],
+        },
+        { id: 'opus', provider: 'claude' },
+      ]),
+    });
+    const { container } = await mount(bridge);
+    const dock = container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    // 1) Stage the DeepSeek model via the model combobox (portal-rendered options).
+    const modelCombo = dock.querySelector('[role="combobox"]') as HTMLElement;
+    await act(async () => {
+      fireEvent.focus(modelCombo);
+    });
+    const modelOption = [...document.querySelectorAll('[role="option"]')].find((o) =>
+      o.textContent?.includes('deepseek-v4-pro'),
+    ) as HTMLElement;
+    await act(async () => {
+      fireEvent.mouseDown(modelOption);
+    });
+
+    // 2) Now the effort control is available (DeepSeek supports effort) — stage "high"
+    // through the Radix Select. Open it with the keyboard and click the option: a
+    // pointer *move* (userEvent's default) trips react-resizable-panels' global
+    // pointermove handler in jsdom, so keep to keydown + click (no move).
+    const effortTrigger = screen.getByRole('combobox', { name: 'Effort' });
+    await act(async () => {
+      effortTrigger.focus();
+      fireEvent.keyDown(effortTrigger, { key: 'Enter' });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: 'high' }));
+    });
+
+    // 3) Send — the request must carry the merged selection, not just the effort.
+    const input = container.querySelector('[aria-label="Message the agent"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'hi' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    expect(bridge.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: {
+          model: 'deepseek-v4-pro',
+          provider: 'deepseek',
+          reasoning: { mode: 'effort', effort: 'high' },
+        },
+      }),
     );
   });
 
@@ -342,11 +426,10 @@ describe('startConsole (inspector-first)', () => {
     const { container } = await mount(bridge);
     expect(emit).toBeDefined();
     const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
-    // The active session's reloaded transcript is empty, so the empty state shows
-    // (react-virtuoso renders no rows under jsdom, so row text is never assertable —
-    // see the existing note on the "subscribes to the push stream" test above — but the
-    // presence of the empty state vs. the transcript log IS observable, and toggles the
-    // instant a frame is appended to the active session).
+    // The active session's reloaded transcript is genuinely empty (reloadConversation
+    // resolves to []) — the empty state is real, not a rendering artifact. What this
+    // test actually checks is that a push for a different session ('s-bg') does not
+    // leak into it: the empty state must persist and no [role="log"] must appear.
     expect(dock().textContent).toContain('No conversation yet');
 
     // a turn for the NON-active session
@@ -472,6 +555,76 @@ describe('startConsole (inspector-first)', () => {
     // …and the nav rail marks Flags active, not the DEFAULT_MAIN_PANEL_ID (Cost).
     const active = container.querySelector('nav [aria-current="page"]');
     expect(active?.getAttribute('aria-label')).toBe('Flags');
+  });
+
+  it('creates an agent, persists it through the bridge, and rehydrates it on a simulated reload', async () => {
+    // Shared on-disk `agents.json` blob standing in for ~/coa/agents.json across two
+    // mounts (the second simulates a reload). Modeled through the REAL main-process store
+    // serialization + a JSON hop, so the write and read shapes must actually agree — the
+    // wipe-on-reload bug was a write-envelope / read-bare-array mismatch that a plain
+    // in-memory array fake could never catch.
+    const disk: { raw: unknown } = { raw: undefined };
+    const readDisk = async (): Promise<AgentSummary[]> =>
+      deserializeAgents(disk.raw === undefined ? undefined : JSON.parse(JSON.stringify(disk.raw)));
+    const writeDisk = async (agents: AgentSummary[]): Promise<void> => {
+      disk.raw = JSON.parse(JSON.stringify(serializeAgents(agents)));
+    };
+
+    // --- Bridge 1 (first launch): empty file, every mutation writes the new list ---
+    const bridge1 = fakeBridge({
+      listAgents: vi.fn().mockImplementation(readDisk),
+      writeAgents: vi.fn().mockImplementation(writeDisk),
+    });
+    const c1 = document.createElement('div');
+    document.body.appendChild(c1);
+    await act(async () => {
+      await startConsole(c1, bridge1);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    // The nav rail's "Agents" route opens the full panel; click it to reveal the editor.
+    const navToAgents = [...c1.querySelectorAll('nav a, nav button')].find((el) =>
+      (el.getAttribute('aria-label') ?? el.textContent)?.trim().startsWith('Agents'),
+    ) as HTMLElement | undefined;
+    expect(navToAgents).toBeDefined();
+    await act(async () => {
+      navToAgents!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    // Empty file => the "No agents yet" empty state, with a creator button.
+    expect(c1.textContent).toContain('No agents yet');
+    const newButton = [...c1.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'New agent',
+    ) as HTMLElement | undefined;
+    expect(newButton).toBeDefined();
+    await act(async () => {
+      newButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    // The create mutates state now AND writes the new list through the bridge.
+    expect(bridge1.writeAgents).toHaveBeenCalled();
+
+    // --- Bridge 2 (reload): seed from what bridge1 wrote; the agent must rehydrate ---
+    const bridge2 = fakeBridge({
+      listAgents: vi.fn().mockImplementation(readDisk),
+    });
+    const c2 = document.createElement('div');
+    document.body.appendChild(c2);
+    await act(async () => {
+      await startConsole(c2, bridge2);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const navToAgents2 = [...c2.querySelectorAll('nav a, nav button')].find((el) =>
+      (el.getAttribute('aria-label') ?? el.textContent)?.trim().startsWith('Agents'),
+    ) as HTMLElement | undefined;
+    expect(navToAgents2).toBeDefined();
+    await act(async () => {
+      navToAgents2!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    // No longer the empty state: the persisted agent's picker ("Switch agent") shows.
+    expect(c2.querySelector('[aria-label="Switch agent"]')).not.toBeNull();
+    expect(c2.textContent).not.toContain('No agents yet');
   });
 
   it('ignores a persisted layout from a different arrangement epoch', async () => {

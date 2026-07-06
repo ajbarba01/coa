@@ -54,6 +54,12 @@ declare global {
       /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
        *  Validated to http(s) only; advisory (never blocks — SC-1). */
       openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
+      /** The user's persisted agents (console-local identity + launch selection — the
+       *  `roles/<id>` / `personal/<id>` ref is authoritative, icon/color/model/reasoning
+       *  round-trip). Missing/corrupt file degrades to an empty list ("No agents yet"). */
+      listAgents(): Promise<unknown>;
+      /** Persist the full, mutated agent list (console-validated `Agent[]`). */
+      writeAgents(params: unknown): Promise<void>;
       /** Subscribe to the daemon push stream; returns an unsubscribe. */
       onPush(listener: (payload: unknown) => void): () => void;
       getLayout(): Promise<unknown>;
