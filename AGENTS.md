@@ -3,7 +3,8 @@
 A **local-first, single-user governance/audit layer over a rented Claude Agent SDK loop.** coa does not
 replace the coding agent — it **governs** it: deterministic checks, keeping the agent working against the
 project's real symbols/specs/tests, a hard cost cap, and an honest record. v1 is **attended** (a human is
-present) and **Claude-locked** (one backend, behind a swappable port).
+present) and **Claude-primary** — Claude is the default backend, with the rented loop swappable
+behind the one M9 port (DeepSeek and LongCat adapters ship today).
 
 **All product specifics — what each module is, its public interface, its owned decisions — live in the three
 handoff docs under [docs/design/handoff/](docs/design/handoff/).** Those are the authoritative source of

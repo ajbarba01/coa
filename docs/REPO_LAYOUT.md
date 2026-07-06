@@ -31,7 +31,7 @@ coa/
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
     desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer composes the AppShell chrome + the StaticEngine (console-layout) + concrete panels (nav rail, conversation placeholder, live cost) in `src/renderer/panels/`; the IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); layout is persisted per-user by the main process (`src/main/persistence.ts`). The nav rail drives the main region (Cost/Flags/Timeline/Settings) while a persistent right dock holds chat/agent placeholders + the live account selector; console settings (theme/density/motion) persist per-user in `settings.json` beside `layout.json`. Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated).
   docs/
-    design/handoff/          SPEC.md · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
+    design/handoff/          SPEC.md (now a per-module index over spec/M0..M10.md) · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
     superpowers/specs/       per-topic design specs (decision records)
     superpowers/plans/       implementation plans (+ archive/)
     *.md                     the engineering framework (this doc, ENGINEERING, CODE_STYLE, WORKFLOW, DESIGN, UI)
@@ -180,4 +180,4 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 
 ---
 
-_Last reviewed: 2026-07-05_
+_Last reviewed: 2026-07-06_

@@ -1,8 +1,8 @@
 # coa roadmap
 
-Single source for **where the project is and what's left.** Replaces status previously kept in
-private agent memory — this file is agent- and human-readable standalone. Update in the **same
-commit** as the work that changes state (see `docs/WORKFLOW.md`'s same-commit rule).
+A shared reference for **where the project is and the directions open from here.** Replaces status
+previously kept in private agent memory — this file is agent- and human-readable standalone. Update
+in the **same commit** as the work that changes state (see `docs/WORKFLOW.md`'s same-commit rule).
 
 For **what each module is** (public interface, owned decisions), see the handoff docs under
 [`docs/design/handoff/`](docs/design/handoff/) — this file does not restate the spec, only status.
@@ -44,7 +44,8 @@ For **what each module is** (public interface, owned decisions), see the handoff
 
 ## Remaining work (keystones first)
 
-Two items gate the most other work and should be picked up first:
+These are candidate directions, not a committed backlog. Two items, if picked up, unblock the
+most other work:
 
 1. **R-12 — the WAL→Push bridge [L].** Unblocks live deny/cost/approval surfacing in the console
    (M10) and closes M8's biggest deferred item. Nothing in "live governance surfacing" (A) below
@@ -146,4 +147,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-07-05_
+_Last reviewed: 2026-07-06_

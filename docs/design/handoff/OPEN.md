@@ -43,7 +43,7 @@ still renders the raw `tokens` stream + on-demand pulls — never worse than the
 
 ## 1. Deferred to v2/v3 (cut from v1 with eyes open)
 
-Each was deferred because its cost is not yet justified for an attended, single-user, local, Claude-locked v1. The
+Each was deferred because its cost is not yet justified for an attended, single-user, local, Claude-primary v1. The
 "what would promote it" is the concrete force that re-opens it.
 
 | Deferred | Why deferred | What promotes it |

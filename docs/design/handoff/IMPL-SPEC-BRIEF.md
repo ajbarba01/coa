@@ -9,7 +9,8 @@ to measure first.** It assumes only these three docs; it does not reference the 
 > checks, keeping the agent working against the project's real symbols/specs/tests, capping cost, and keeping an
 > honest record. Its value is **WITH-MODEL** (it appreciates as the model improves: the better the agent's judgment,
 > the more you want a record, guardrails, and sound context rather than raw capability). v1 is **attended**
-> (a human is present) and **Claude-locked** (one backend, behind a swappable port). See `SPEC.md` for the module
+> (a human is present) and **Claude-primary** — Claude is the default backend, with the rented loop swappable
+> behind the one M9 port (DeepSeek and LongCat adapters ship today). See `SPEC.md` for the module
 > definitions; this doc is the build plan over them.
 
 ---

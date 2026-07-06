@@ -24,7 +24,8 @@ inspector).
 
 Its value is **WITH-MODEL**: it appreciates as the model improves — the better the agent's judgment, the more you
 want a record, guardrails, and sound context rather than raw capability. v1 is **attended** (a human is present)
-and **Claude-locked** (one backend, behind a swappable port).
+and **Claude-primary** — Claude is the default backend, with the rented loop swappable behind the
+one M9 port (DeepSeek and LongCat adapters ship today).
 
 ## Stack & rationale
 
