@@ -25,7 +25,7 @@ coa/
     adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     adapter-longcat/         M9 impl  — @coa/adapter-longcat (thin pure-API backend: LongCat `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
-    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core). `dense/` holds the chat-surface members (Composer, the non-virtualized Transcript + its internal FindBar, the rich `ToolCard` + its supporting `ToolDiffView.tsx`/`syntaxTheme.tsx`/`pathLanguage.ts`/`clampLines.ts`/`matchLines.ts` (clickable search-match parser)/`runChecks.tsx` (run_checks status chips)/`errorMarks.tsx` (red error-token marker), plus pure helpers scrollState.ts/find.ts); `smoothScroll.ts` was removed with the virtualized transcript, and `group.ts`/`groupByUserTurn` is now orphaned (no longer imported by Transcript — a follow-up cleanup). `layout/` gained `PaneOverlay.tsx` (the pane-confined expand surface `ToolCard` opens into).
+    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core). `dense/` holds the chat-surface members (Composer, the non-virtualized Transcript + its internal FindBar, the rich `ToolCard` + its supporting `ToolDiffView.tsx`/`syntaxTheme.tsx`/`pathLanguage.ts`/`clampLines.ts`/`matchLines.ts` (clickable search-match parser)/`runChecks.tsx` (run_checks status chips)/`errorMarks.tsx` (red error-token marker), plus pure helpers scrollState.ts/find.ts); `smoothScroll.ts` was removed with the virtualized transcript. `layout/` gained `PaneOverlay.tsx` (the pane-confined expand surface `ToolCard` opens into).
     console-layout/          M10 — @coa/console-layout (panel registry + versioned layout descriptor + engine port + StaticEngine; pure react/react-resizable-panels/zod, no electron/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
@@ -104,10 +104,7 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
 - **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
   `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
 - **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react` (+ its own tokens), never
-  `electron`/`core` (enforced: `console-ui-no-electron-core`). `react-virtuoso` is a listed dependency but is now
-  **unused in source** — the chat rebuild (2026-07-04) dropped virtualization for a non-virtualized `Transcript`
-  (full-transcript selection + Ctrl-F need every row in the DOM); dropping the dependency is a follow-up, held back
-  only because `package.json`/the lockfile carry an unrelated in-flight change.
+  `electron`/`core` (enforced: `console-ui-no-electron-core`).
 - **`console-layout` is the pure layout core** — it imports only `react`/`react-resizable-panels`/`zod`, never
   `electron`/`core` (enforced: `console-layout-no-electron-core`). It stays generic over the panel view-model (no
   `console-ui`/`console-viewmodel` import); concrete panels live in the shell.

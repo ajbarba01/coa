@@ -28,3 +28,9 @@ Thumbs.db
 
 # visual-companion brainstorm scratch
 .superpowers/
+
+# Scratch / redirect dumps (never committed — see AGENTS.md: scratch → scratchpad)
+*-out.txt
+test-out.txt
+/TEMP.md
+/LOCAL.md

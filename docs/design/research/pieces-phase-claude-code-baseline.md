@@ -4,7 +4,7 @@
 **Precedes:** the "pieces phase" spec — filling in `assemblePieces` so a governed agent gets a real
 system prompt + context + tools instead of today's minimal/vanilla loop.
 **Verified against:** installed `@anthropic-ai/claude-agent-sdk@0.3.196` (`sdk.d.ts`, `sdk-tools.d.ts`)
-+ Anthropic docs + the captured live prompt in [harness-system-prompt.md](../../../harness-system-prompt.md).
++ Anthropic docs + the captured live prompt in [harness-system-prompt-claude-code.md](harness-system-prompt-claude-code.md).
 _Last reviewed: 2026-07-02._
 
 ---
@@ -57,7 +57,7 @@ It is NOT a copy of the preset; it is a *minimal faithful re-declaration* of the
 
 ### 1.2 Section-by-section anatomy (from the captured live prompt + the published corpus)
 
-Sourced from [harness-system-prompt.md](../../../harness-system-prompt.md) (a live capture of this very
+Sourced from [harness-system-prompt-claude-code.md](harness-system-prompt-claude-code.md) (a live capture of this very
 harness) and the [Piebald-AI/claude-code-system-prompts](https://github.com/Piebald-AI/claude-code-system-prompts)
 corpus (all prompt parts + 27 builtin tool descriptions + subagent/utility prompts, versioned per release).
 Each section is tagged **ESSENTIAL** (a governed coding agent misbehaves without it) / **REMOVABLE** (coa
@@ -331,7 +331,7 @@ should treat loop ownership as a **precondition** for the DeepSeek path, not par
 - [Piebald-AI/claude-code-system-prompts](https://github.com/Piebald-AI/claude-code-system-prompts) —
   published corpus: all prompt parts, 27 builtin tool descriptions, subagent (Plan/Explore/Task) + utility
   prompts, versioned per release.
-- [harness-system-prompt.md](../../../harness-system-prompt.md) — live capture of the current Claude Code
+- [harness-system-prompt-claude-code.md](harness-system-prompt-claude-code.md) — live capture of the current Claude Code
   harness prompt (primary source for §1.2).
 - coa source: [render-native.ts](../../../packages/adapter-claude-sdk/src/render-native.ts),
   [sdk-options.ts](../../../packages/adapter-claude-sdk/src/sdk-options.ts),
