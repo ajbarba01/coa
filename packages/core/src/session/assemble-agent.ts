@@ -129,12 +129,14 @@ export function createRegistryAssemblePieces(deps: {
   roles: ReadonlyMap<string, Role>;
   packages: ReadonlyMap<string, AgentPackage>;
   platform: string;
+  shell: string;
   now?: () => Date;
 }): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
   const now = deps.now ?? ((): Date => new Date());
   return (ctx) => {
     const baselineCtx: BaselineContext = {
       platform: deps.platform,
+      shell: deps.shell,
       date: isoDateUtc(now()),
       model: modelPromptOf(ctx),
     };

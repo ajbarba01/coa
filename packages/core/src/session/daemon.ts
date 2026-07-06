@@ -18,6 +18,7 @@ import type { Summarizer } from '../workbench/web-tools.js';
 import type { Locator } from '@coa/shared';
 import { homedir } from 'node:os';
 import { buildConsoleHandlers } from '../rpc/console-handlers.js';
+import { resolveShell } from './shell.js';
 import { buildAuthHandlers } from '../rpc/auth-handlers.js';
 import { AccountsRegistry } from '../auth/registry.js';
 import type { RpcHandlers } from '../rpc/router.js';
@@ -353,6 +354,9 @@ function resolveEnvVar(locator: Locator): string | undefined {
 
 function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
   const worktreeRoot = root.replace(/\\/g, '/');
+  // Resolve the Bash shell once per session: Git Bash on Windows when present, so the
+  // model's POSIX one-liners run against a POSIX shell instead of cmd.exe (Claude Code parity).
+  const { shell } = resolveShell({ platform: process.platform, env: process.env, fileExists: existsSync });
   return {
     worktreeRoot,
     worktree: 'main',
@@ -381,7 +385,7 @@ function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
     exec: (command, opts) => {
       const out = spawnSync(command, {
         cwd: opts.cwd,
-        shell: true,
+        shell,
         encoding: 'utf8',
         maxBuffer: 32 * 1024 * 1024,
         ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),

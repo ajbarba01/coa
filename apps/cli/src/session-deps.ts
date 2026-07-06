@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import {
   AccountsRegistry,
@@ -6,7 +7,9 @@ import {
   createDaemonCore,
   createRegistryAssemblePieces,
   packageRegistry,
+  resolveShell,
   roleRegistry,
+  shellLabel,
   WebConfigStore,
   type ActiveAccountResolution,
   type DaemonCoreHandle,
@@ -74,6 +77,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
       roles: roleRegistry(),
       packages: packageRegistry(),
       platform: process.platform,
+      shell: shellLabel(resolveShell({ platform: process.platform, env: process.env, fileExists: existsSync })),
     }),
     activeAccount,
   });

@@ -187,6 +187,7 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
     roles: roleRegistry(),
     packages: packageRegistry(),
     platform: 'linux',
+    shell: '/bin/sh (POSIX)',
     now: () => new Date('2026-07-02T00:00:00Z'),
   });
 

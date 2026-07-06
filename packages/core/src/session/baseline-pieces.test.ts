@@ -4,6 +4,7 @@ import { baselinePieces, type BaselineContext } from './baseline-pieces.js';
 
 const CTX: BaselineContext = {
   platform: 'win32',
+  shell: 'Git Bash (POSIX sh)',
   date: '2026-07-02',
   model: { provider: 'claude' },
 };
@@ -26,9 +27,10 @@ describe('baselinePieces', () => {
     expect(pieces.slice(0, -1).some((p) => p.name === 'baseline-environment')).toBe(false);
   });
 
-  it('authors the environment block from the session-invariant facts (platform + date only)', () => {
+  it('authors the environment block from the session-invariant facts (platform + shell + date)', () => {
     const env = baselinePieces(CTX).find((p) => p.name === 'baseline-environment');
     expect(env?.body).toContain('win32');
+    expect(env?.body).toContain('Git Bash (POSIX sh)');
     expect(env?.body).toContain('2026-07-02');
   });
 

@@ -29,6 +29,10 @@ import type { AssemblePiecesContext } from './session.js';
 export interface BaselineContext {
   /** The OS platform (e.g. `win32`, `linux`, `darwin`). */
   platform: string;
+  /** What shell the `Bash` tool runs commands through (e.g. `Git Bash (POSIX sh)`,
+   *  `cmd.exe`), so the agent writes command lines for the right shell instead of
+   *  guessing cmd.exe on Windows. Host-invariant, so it stays in the cache-warm set. */
+  shell: string;
   /** The current date (`YYYY-MM-DD`) for temporal grounding. */
   date: string;
   /** The model this agent is actually running as — authored into its own `## Model`
@@ -101,7 +105,7 @@ function modelPiece(model: ModelPrompt): Piece {
 
 /** Author the volatile environment Piece from the session-invariant facts (ordered last, per D-P2). */
 function environmentPiece(ctx: BaselineContext): Piece {
-  const lines = [`Platform: ${ctx.platform}`, `Date: ${ctx.date}`];
+  const lines = [`Platform: ${ctx.platform}`, `Shell: ${ctx.shell}`, `Date: ${ctx.date}`];
   return authoredPush('baseline-environment', 'the session runtime facts', lines.join('\n'), 'volatile');
 }
 
@@ -153,11 +157,17 @@ function isoDate(when: Date): string {
  */
 export function createBaselineAssemblePieces(deps: {
   platform: string;
+  shell: string;
   now?: () => Date;
 }): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
   const now = deps.now ?? ((): Date => new Date());
   return (ctx) => ({
-    pieces: baselinePieces({ platform: deps.platform, date: isoDate(now()), model: modelPromptOf(ctx) }),
+    pieces: baselinePieces({
+      platform: deps.platform,
+      shell: deps.shell,
+      date: isoDate(now()),
+      model: modelPromptOf(ctx),
+    }),
     frame: EMPTY_FRAME,
   });
 }

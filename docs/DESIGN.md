@@ -40,6 +40,15 @@ and **Claude-locked** (one backend, behind a swappable port).
 | Agent backend    | Claude Agent SDK, behind the M9 port    | The one backend seam. Secondary path (`ai`/`@ai-sdk/anthropic`) stays behind the same port (IMPL §3) |
 | GUI              | Electron (M10)                          | Local pull/inspector app; concrete UI stack decided at M10 (see [UI.md](UI.md))              |
 
+## Runtime prerequisites
+
+- **Node** (daemon + CLI + Electron main) and **pnpm** for the workspace.
+- **Git for Windows** — required on Windows for the governed `Bash` tool. The pure-API shell runs the
+  agent's commands through **Git Bash** (detected at `…\Git\bin\bash.exe`, or `$COA_BASH_SHELL`), matching
+  Claude Code, so POSIX one-liners work instead of hitting cmd.exe. coa detects it rather than bundling it; if
+  it is absent the tool degrades to the platform default shell (SC-1 — never a hard failure). POSIX hosts use
+  `/bin/sh` and need nothing extra.
+
 ## The module map at a glance
 
 Eleven modules, M0–M10. Full definitions in [the SPEC](design/handoff/SPEC.md) §A; physical package homes in
