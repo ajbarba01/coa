@@ -438,3 +438,7 @@ None gates soundness; all are set conservatively and moved on measured evidence.
 
 *These three docs (`SPEC.md` · `IMPL-SPEC-BRIEF.md` · `OPEN.md`) are the complete, self-contained handoff. A
 downstream agent should be able to build v1 coa, in the build order above, gated by the v0 spike, from these alone.*
+
+---
+
+_Last reviewed: 2026-07-05_

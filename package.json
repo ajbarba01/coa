@@ -18,6 +18,7 @@
     "format:write": "prettier --write .",
     "test": "vitest run",
     "depcruise": "depcruise packages apps/desktop --config .dependency-cruiser.cjs",
+    "docs:check": "node scripts/docs-check.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm format && pnpm test && pnpm depcruise"
   },
   "devDependencies": {

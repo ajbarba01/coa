@@ -8,10 +8,11 @@ swappable port).
 
 ## Status
 
-Pre-build. The authoritative handoff is the three self-contained docs under
+Under active development — see [`ROADMAP.md`](ROADMAP.md) for current module state and what's left.
+The authoritative module specs are the three self-contained handoff docs under
 [`docs/design/handoff/`](docs/design/handoff/):
 
-- [`SPEC.md`](docs/design/handoff/SPEC.md) — the single source of truth, organized by module M0–M10 (WHAT to build).
+- [`SPEC.md`](docs/design/handoff/SPEC.md) — the module specs, organized by module M0–M10 (WHAT to build).
 - [`IMPL-SPEC-BRIEF.md`](docs/design/handoff/IMPL-SPEC-BRIEF.md) — the build order and the one pre-build gate (HOW).
 - [`OPEN.md`](docs/design/handoff/OPEN.md) — deferred scope, tuning knobs, open risks (what NOT to build for v1).
 

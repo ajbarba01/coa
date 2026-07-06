@@ -27,6 +27,8 @@ truth. The docs below are a portable engineering framework; keep them project-ag
 | [docs/CODE_STYLE.md](docs/CODE_STYLE.md)                            | Formatting, naming, documentation                                             | writing any code                      |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md)                                | Dev loop, version control, handoff & escalation                              | starting work / committing            |
 | [docs/UI.md](docs/UI.md)                                            | GUI design system + **authoring rules** (kit · tokens · feedback contract)   | touching the GUI (M10)                |
+| [ROADMAP.md](ROADMAP.md)                                            | **Path forward** — module state + remaining work (single source; replaces private notes) | orienting on what's left / next |
+| [docs/adr/](docs/adr/)                                              | **Architecture decisions** — immutable WHYs                                    | making/needing a durable decision     |
 
 ## Operating rules (always on)
 
@@ -43,6 +45,10 @@ truth. The docs below are a portable engineering framework; keep them project-ag
   - _Same-commit rule_ — a code change that adds/moves/deletes files updates the relevant doc in the _same_ commit.
   - _No code-as-doc_ — no function signatures or long path lists in docs (they rot); grep is faster.
   - _Last-reviewed footer_ — every doc carries one. If > 60 days old at session start, flag for re-audit.
+  - _Comment hygiene_ — code comments state **why**, not what; never reference plan phases or ticket IDs; link
+    durable rationale to an ADR (`// see docs/adr/NNNN`).
+  - _Router is the index_ — every `docs/**/*.md` (outside transient corpora) is reachable from this file's
+    navigation table; run `pnpm docs:check` to verify.
 
 ## Constitution (non-negotiables)
 
@@ -93,4 +99,4 @@ Apache-2.0 (see [LICENSE](LICENSE)).
 
 ---
 
-_Last reviewed: 2026-06-24_
+_Last reviewed: 2026-07-05_

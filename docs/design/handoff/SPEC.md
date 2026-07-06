@@ -3151,3 +3151,7 @@ call over M8's JSON-RPC catalogue.
 *End of SPEC.md. The eleven module specifications above are the complete WHAT, by module. For the build order and
 the v0 calibration spike that gates it, see `IMPL-SPEC-BRIEF.md`; for deferred scope, tuning knobs, and open risks,
 see `OPEN.md`. These three docs are the complete, self-contained handoff.*
+
+---
+
+_Last reviewed: 2026-07-05_

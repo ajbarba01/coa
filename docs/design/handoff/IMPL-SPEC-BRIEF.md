@@ -190,3 +190,7 @@ other module is a *consumer* that reads projections (graph, flags, staleness, co
 and consumers point **only at M1** — never sideways at each other. If you preserve that one discipline, the
 decoupling that makes the rest independently buildable holds; if you let two non-kernel modules call each other
 directly, you reintroduce the coupling the architecture was designed to prevent.
+
+---
+
+_Last reviewed: 2026-07-05_

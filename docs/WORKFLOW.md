@@ -108,12 +108,16 @@ File-based handoff has no live channel: escalation is **written**.
 
 ## Doc lifecycle
 
-- **Plans:** a plan whose Definition of Done shipped moves to `docs/superpowers/plans/archive/` (git mv, same
-  commit as the verification). Active plans only in the `plans/` root.
-- **Specs:** design specs are decision records — they stay. A superseded spec moves to
-  `docs/superpowers/specs/archive/` with a one-line pointer to its successor.
+- **Plans and specs under `docs/superpowers/` are transient.** They exist to get a change built, not to be a
+  durable record — there is no `plans/archive/` or `specs/archive/` (neither ever existed as a real convention).
+- **Durable decisions graduate, they don't accumulate in place.** When a plan/spec ships:
+  - A decision that outlives the artifact that produced it becomes an **ADR** in `docs/adr/` (immutable once
+    accepted; see [docs/adr/README.md](adr/README.md) for the format and lifecycle).
+  - Its resulting **status** (what shipped, what's left) moves to `ROADMAP.md`.
+  - The point-in-time plan/spec file is then **deleted** — git history is the archive; there is nothing to keep
+    a stale copy of on disk.
 - The handoff docs (`SPEC.md` / `IMPL-SPEC-BRIEF.md` / `OPEN.md`) are the product source of truth and are amended
-  in place when a decision genuinely changes; they are not archived.
+  in place when a decision genuinely changes; they are not archived, and they are not where ADRs live.
 
 ## Version control & quality gates
 
@@ -146,4 +150,4 @@ running daemon/CLI → conventional commit on `main`.
 
 ---
 
-_Last reviewed: 2026-06-24_
+_Last reviewed: 2026-07-05_
