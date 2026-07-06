@@ -1,11 +1,14 @@
 # UI — Control & Inspection Intent
 
-> **Status: M10 design system specified.** coa's only GUI is the **M10 Console**. The concrete design system —
-> principles, the three-tier token system, component families, layout architecture, and visual direction — is
-> specified in
-> [superpowers/specs/2026-06-30-console-frontend-foundation-design.md](superpowers/specs/2026-06-30-console-frontend-foundation-design.md).
-> That spec is the authority for the GUI's look and structure; this doc keeps only the standing invariants that
-> bind the build regardless of implementation detail.
+> **Status: M10 design system built.** coa's only GUI is the **M10 Console**. This doc is the standing authority
+> for the GUI's principles and authoring rules; the design system's *structure* — a three-tier token system
+> (`palette.ts` raw values → `semantic.ts` the only tier components consume → per-theme/density CSS), component
+> families catalogued by intent, a panel/descriptor/engine layout split, and the locked warm-dark "forge" visual
+> direction — is summarized here. **Exact token values and component definitions live in code**:
+> [`packages/console-ui`](../packages/console-ui) (`src/theme.css`, `src/tokens/`, the generated
+> [`COMPONENTS.md`](../packages/console-ui/COMPONENTS.md)). The durable *why* — the governance rationale behind
+> the token tiers, the intent-block contract, the layout engine seam, and the virtualization reversal — is
+> [ADR-0007](adr/0007-console-design-system.md).
 >
 > Authority for the product behavior behind the GUI is [design/handoff/SPEC.md](design/handoff/SPEC.md) (M10 +
 > the M8 JSON-RPC surface). UI engineering principles inherit from [ENGINEERING.md](ENGINEERING.md) and
@@ -13,7 +16,7 @@
 
 ---
 
-## Standing UI principles (summary — see the spec above for the full design system)
+## Standing UI principles
 
 - **Control through the catalogue.** Every interactive action the GUI offers is an M8 JSON-RPC verb; a write that
   mutates project state lands as a change-event through the kernel (P7 mutation chokepoint). The GUI never edits
@@ -40,12 +43,12 @@
 ## Authoring rules (framework-first — read before writing any console UI)
 
 The M10 foundation exists so surfaces **reuse one system** instead of each reinventing it. These rules are
-binding; full detail + exact token values live in the design spec
-([§6 tokens](superpowers/specs/2026-06-30-console-frontend-foundation-design.md),
-[§7 component families](superpowers/specs/2026-06-30-console-frontend-foundation-design.md),
-[§23 as-built conventions](superpowers/specs/2026-06-30-console-frontend-foundation-design.md)) and
-`console-ui/src/theme.css` / `tokens/semantic.ts`; per-component usage intent is in
-[`COMPONENTS.md`](../packages/console-ui/COMPONENTS.md).
+binding. Token *tiers* are named and defined in `console-ui/src/theme.css` / `tokens/semantic.ts` (tier 1
+`palette.ts` raw values, tier 2 `semantic.ts` the only tier components consume); component *families* (Actions,
+Feedback, Dense/Viz, …) and per-component usage intent are catalogued in
+[`COMPONENTS.md`](../packages/console-ui/COMPONENTS.md), generated from each component's lint-enforced intent
+declaration so the catalogue can't drift from the code. The rationale for this shape is
+[ADR-0007](adr/0007-console-design-system.md).
 
 - **Build from the kit, never hand-roll.** Every control, surface, and piece of feedback is a
   `@coa/console-ui` component — pick one via `COMPONENTS.md`. If nothing fits, add a member **to the kit**
@@ -77,4 +80,4 @@ binding; full detail + exact token values live in the design spec
 
 ---
 
-_Last reviewed: 2026-07-04_
+_Last reviewed: 2026-07-06_

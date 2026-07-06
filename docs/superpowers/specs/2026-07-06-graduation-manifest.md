@@ -67,7 +67,7 @@ source file only when every durable row from it maps to a live home here (the gr
 | DC-4 — package/bundle demoted to a distribution/preset wrapper, not a runtime assembly layer | ADR 0003 | authored-now | |
 | DC-5 / DC-5a — layer-on-native, two-mode render, composition never branches on backend (**reverses D-P1**) | ADR 0004 | authored-now | Its own ADR per G5 (small, standalone, states the supersession explicitly). |
 | DC-6 — the ordered DC-6 prompt-layer slot skeleton | ADR 0003 | authored-now | Content-level skeleton (slot ids/order) also lives in shipped code — see `context-format-rewrite-design.md` row below. |
-| DC-7 — project context split by volatility; AGADENTS.md include toggle + fidelity ladder | ADR 0003 | authored-now | |
+| DC-7 — project context split by volatility; AGENTS.md include toggle + fidelity ladder | ADR 0003 | authored-now | |
 | DC-8 — skills model on-demand-capable, ship always-on first | ADR 0003 | authored-now | |
 | DC-9 — the objective A/B verification approach (frozen task set, no LLM judge) | ADR 0003 | authored-now | |
 | DC-10 — slot-ordering contract + snapshot tests; sanitize injected project context | ADR 0003 | authored-now | |
