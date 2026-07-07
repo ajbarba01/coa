@@ -56,9 +56,11 @@ export interface GovernedLoopDeps {
    */
   history?: readonly DriverMessage[];
   /**
-   * Called once the turn settles with the full conversation (system prompt omitted)
-   * so the caller can persist it as the next turn's {@link history}. Not called if
-   * the loop throws before settling.
+   * Called once the turn settles — cleanly, OR on a model/fetch error (or, later, an
+   * interrupt) — with the full conversation (system prompt omitted) so the caller can
+   * persist it as the next turn's {@link history}. Every *completed* block is included;
+   * the block in flight when a throw happened is excluded by construction, so the
+   * persisted transcript is always block-consistent.
    */
   onMessages?: (messages: readonly DriverMessage[]) => void;
   /** The per-tool block: cost-cap + M3 deny, assembled by M8 (first-deny-wins, fail-closed). */
@@ -104,82 +106,100 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
     ...(deps.history ?? []),
     { role: 'user', content: deps.input },
   ];
+  // The `[system, ...history, user]` state above is round-trip-consistent (no dangling
+  // tool_use). Advanced only when `messages` returns to a consistent boundary, so a throw
+  // mid round-trip flushes the last consistent prefix instead of a dangling tool call.
+  let lastConsistent = messages.length;
   const usage: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
   const maxIterations = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-  for (let i = 0; i < maxIterations; i += 1) {
-    const result = await deps.complete(messages, tools);
-    addUsage(usage, result.usage);
-    // Reasoning precedes the answer (pre-answer thinking). Display-only: emitted as a
-    // thinking frame but never pushed into `messages` — the API rejects reasoning on input.
-    if (result.reasoning !== undefined && result.reasoning !== '') {
-      emit({ t: 'thinking', text: result.reasoning });
-    }
-    if (result.text !== '') emit({ t: 'text', text: result.text });
-    messages.push({
-      role: 'assistant',
-      content: result.text,
-      ...(result.toolCalls.length > 0 ? { toolCalls: result.toolCalls } : {}),
-    });
-
-    if (result.toolCalls.length === 0) {
-      // The model wants to stop — the close-gate decides (SC-1). Allowed ⇒ settle & end;
-      // blocked ⇒ inject the reason (as the SDK's Stop hook does) and let it continue.
-      const decision = await deps.gate();
-      if (decision.allow) break;
-      messages.push({ role: 'user', content: decision.message });
-      continue;
-    }
-
-    for (const call of result.toolCalls) {
-      const handle = `${deps.sessionId}:${call.id}`;
-      emit({ t: 'tool_use', tool: call.name, input: call.arguments, handle });
-      // Per-tool block (Part E): the predicate is checked before any execution, so a
-      // denied call never runs — the deny reason goes back to the model as the result.
-      const decision = await deps.canUseTool({
-        tool: call.name,
-        args: call.arguments,
-        sessionId: deps.sessionId,
+  try {
+    for (let i = 0; i < maxIterations; i += 1) {
+      const result = await deps.complete(messages, tools);
+      addUsage(usage, result.usage);
+      // Reasoning precedes the answer (pre-answer thinking). Display-only: emitted as a
+      // thinking frame but never pushed into `messages` — the API rejects reasoning on input.
+      if (result.reasoning !== undefined && result.reasoning !== '') {
+        emit({ t: 'thinking', text: result.reasoning });
+      }
+      if (result.text !== '') emit({ t: 'text', text: result.text });
+      messages.push({
+        role: 'assistant',
+        content: result.text,
+        ...(result.toolCalls.length > 0 ? { toolCalls: result.toolCalls } : {}),
       });
-      if (decision.behavior === 'deny') {
-        emit({ t: 'tool_result', handle, ok: false, pointer: decision.message });
-        messages.push({
-          role: 'tool',
-          toolCallId: call.id,
-          content: `denied by coa governance: ${decision.message}`,
-        });
-        continue;
-      }
-      const tool = byName.get(call.name);
-      if (tool === undefined) {
-        const message = `unknown tool: ${call.name}`;
-        emit({ t: 'tool_result', handle, ok: false, pointer: message });
-        messages.push({ role: 'tool', toolCallId: call.id, content: message });
-        continue;
-      }
-      // coa executes every governed tool itself (producer ①) → total visibility. `invoke`
-      // never throws and never denies (SC-1): a bad input comes back as an unapplied result.
-      const response = await tool.invoke(call.arguments);
-      // A pure-API backend has no SDK-rendered result text, so the tool renders its own
-      // structured `result` to human-readable display text (its `pointer` is only a terse
-      // handle — often the INPUT). That text is used for BOTH the frame the console shows
-      // and the model's tool message; capped for the resent transcript either way.
-      const display = capToolResult(
-        tool.render?.(response.result) ?? JSON.stringify(response.result),
-      );
-      // The tool owns its result shape, so it owns the success predicate: a pure-API backend
-      // has no SDK error signal, so `ok` (the frame's ✓/✗ + the console's red error body)
-      // comes from the tool. Absent ⇒ presume success. Pair the result to its `tool_use` by
-      // the per-call handle (console correlation); binding that handle to coa's raw store
-      // (`response.handle`) for getToolDetail is a follow-up.
-      const ok = tool.ok?.(response.result) ?? true;
-      emit({ t: 'tool_result', handle, ok, pointer: display });
-      messages.push({ role: 'tool', toolCallId: call.id, content: display });
-    }
-  }
 
-  deps.onSettle?.(deps.sessionId, usage);
-  // Hand back the whole conversation (system omitted — it's re-rendered each turn)
-  // so the caller can persist it as the next turn's `history`.
-  deps.onMessages?.(messages.slice(1));
+      if (result.toolCalls.length === 0) {
+        // A plain answer carries no pending tool_use — consistent as soon as it's pushed,
+        // so a clean `break` right below still flushes it.
+        lastConsistent = messages.length;
+        // The model wants to stop — the close-gate decides (SC-1). Allowed ⇒ settle & end;
+        // blocked ⇒ inject the reason (as the SDK's Stop hook does) and let it continue.
+        const decision = await deps.gate();
+        if (decision.allow) break;
+        messages.push({ role: 'user', content: decision.message });
+        lastConsistent = messages.length;
+        continue;
+      }
+
+      for (const call of result.toolCalls) {
+        const handle = `${deps.sessionId}:${call.id}`;
+        emit({ t: 'tool_use', tool: call.name, input: call.arguments, handle });
+        // Per-tool block (Part E): the predicate is checked before any execution, so a
+        // denied call never runs — the deny reason goes back to the model as the result.
+        const decision = await deps.canUseTool({
+          tool: call.name,
+          args: call.arguments,
+          sessionId: deps.sessionId,
+        });
+        if (decision.behavior === 'deny') {
+          emit({ t: 'tool_result', handle, ok: false, pointer: decision.message });
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            content: `denied by coa governance: ${decision.message}`,
+          });
+          continue;
+        }
+        const tool = byName.get(call.name);
+        if (tool === undefined) {
+          const message = `unknown tool: ${call.name}`;
+          emit({ t: 'tool_result', handle, ok: false, pointer: message });
+          messages.push({ role: 'tool', toolCallId: call.id, content: message });
+          continue;
+        }
+        // coa executes every governed tool itself (producer ①) → total visibility. `invoke`
+        // never throws and never denies (SC-1): a bad input comes back as an unapplied result.
+        const response = await tool.invoke(call.arguments);
+        // A pure-API backend has no SDK-rendered result text, so the tool renders its own
+        // structured `result` to human-readable display text (its `pointer` is only a terse
+        // handle — often the INPUT). That text is used for BOTH the frame the console shows
+        // and the model's tool message; capped for the resent transcript either way.
+        const display = capToolResult(
+          tool.render?.(response.result) ?? JSON.stringify(response.result),
+        );
+        // The tool owns its result shape, so it owns the success predicate: a pure-API backend
+        // has no SDK error signal, so `ok` (the frame's ✓/✗ + the console's red error body)
+        // comes from the tool. Absent ⇒ presume success. Pair the result to its `tool_use` by
+        // the per-call handle (console correlation); binding that handle to coa's raw store
+        // (`response.handle`) for getToolDetail is a follow-up.
+        const ok = tool.ok?.(response.result) ?? true;
+        emit({ t: 'tool_result', handle, ok, pointer: display });
+        messages.push({ role: 'tool', toolCallId: call.id, content: display });
+      }
+      // Every call's result is in — the round-trip is answered, so this is a consistent
+      // boundary again.
+      lastConsistent = messages.length;
+    }
+  } finally {
+    // Flush on EVERY exit — clean settle, model/fetch error, or (later) interrupt — so the
+    // canonical transcript records every completed block and a partial turn is still charged.
+    // Trimmed to `lastConsistent`: a throw between pushing an assistant message that carries
+    // `toolCalls` and pushing its tool results would otherwise leave the flushed transcript
+    // ending in an unanswered tool_use — a permanent 400 on replay to an OpenAI-compatible
+    // endpoint next turn. On every clean exit `lastConsistent === messages.length`, so this
+    // is a no-op slice and existing behavior is unchanged.
+    deps.onSettle?.(deps.sessionId, usage);
+    deps.onMessages?.(messages.slice(1, lastConsistent));
+  }
 }

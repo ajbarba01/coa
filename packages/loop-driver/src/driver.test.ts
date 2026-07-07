@@ -418,6 +418,77 @@ describe('runGovernedLoop', () => {
     expect(complete).toHaveBeenCalledTimes(3);
     expect(onSettle).toHaveBeenCalledOnce();
   });
+
+  it('flushes completed blocks and usage when a later round-trip throws (block-preserving)', async () => {
+    const onMessages = vi.fn();
+    const onSettle = vi.fn();
+    let n = 0;
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
+      n += 1;
+      if (n === 1) {
+        return {
+          text: 'working',
+          toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: {} }],
+          usage: USAGE,
+        };
+      }
+      throw new Error('connection dropped');
+    });
+
+    await expect(
+      runGovernedLoop(
+        deps({ catalogue: [tool('get_symbol')], complete, input: 'do it', onMessages, onSettle }),
+      ),
+    ).rejects.toThrow('connection dropped');
+
+    // The completed first round-trip survived in the canonical transcript (system omitted).
+    expect(onMessages).toHaveBeenCalledTimes(1);
+    expect(onMessages.mock.calls[0]![0]).toEqual([
+      { role: 'user', content: 'do it' },
+      {
+        role: 'assistant',
+        content: 'working',
+        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: {} }],
+      },
+      { role: 'tool', toolCallId: 'c1', content: '{"ok":true,"args":{}}' },
+    ]);
+    // Usage accrued for the completed round-trip is still charged.
+    expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', USAGE);
+  });
+
+  it('trims the flush to the last complete round-trip when a throw lands mid tool-loop (unrenderable result)', async () => {
+    const onMessages = vi.fn();
+    const onSettle = vi.fn();
+    // No `render`, and a result that JSON.stringify cannot serialize (a BigInt) — the
+    // driver's `capToolResult(JSON.stringify(...))` fallback throws AFTER the assistant
+    // message carrying `toolCalls` was pushed but BEFORE its tool result is pushed.
+    const invoke = vi.fn(async () => ({ result: { bad: 10n }, handle: 'h', pointer: 'p' }));
+    const complete = scriptedComplete([
+      {
+        text: 'working',
+        toolCalls: [{ id: 'c1', name: 'bad_tool', arguments: {} }],
+        usage: USAGE,
+      },
+    ]);
+
+    await expect(
+      runGovernedLoop(
+        deps({
+          catalogue: [tool('bad_tool', invoke)],
+          complete: complete.fn,
+          input: 'do it',
+          onMessages,
+          onSettle,
+        }),
+      ),
+    ).rejects.toThrow();
+
+    // Only the last round-trip-consistent prefix survives — the dangling assistant(toolCalls)
+    // with no answered tool result must NOT be in the flushed transcript.
+    expect(onMessages).toHaveBeenCalledExactlyOnceWith([{ role: 'user', content: 'do it' }]);
+    // Usage from the completed `complete()` call is still charged.
+    expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', USAGE);
+  });
 });
 
 describe('toToolDefs', () => {

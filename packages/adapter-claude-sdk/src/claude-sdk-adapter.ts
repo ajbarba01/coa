@@ -86,6 +86,11 @@ export interface ClaudeSdkAdapterInit {
    * what the user sees. Ignored when there is no history or `resume` is set.
    */
   deliverHistoryAsPreamble?: boolean;
+  /**
+   * The SDK `query` primitive. Injectable so the loop can be unit-tested with a
+   * scripted stream; defaults to the real `@anthropic-ai/claude-agent-sdk` import.
+   */
+  query?: typeof query;
 }
 
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -248,34 +253,43 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
         : this.#init.input;
 
     let backendSessionReported = false;
-    for await (const message of query({
-      prompt: toSdkPrompt(modelPrompt),
-      options: { ...options, cwd: sessionConfig.worktree },
-    })) {
-      transcript.push(...messageToBackendMessages(message));
-      // Capture the backend's own session id once — M8 stores it to `resume` the
-      // conversation's memory on the next send (R-7 continuity).
-      if (
-        !backendSessionReported &&
-        'session_id' in message &&
-        typeof message.session_id === 'string'
-      ) {
-        backendSessionReported = true;
-        this.#init.onBackendSession?.(message.session_id);
+    const runQuery = this.#init.query ?? query;
+    try {
+      for await (const message of runQuery({
+        prompt: toSdkPrompt(modelPrompt),
+        options: { ...options, cwd: sessionConfig.worktree },
+      })) {
+        transcript.push(...messageToBackendMessages(message));
+        // Capture the backend's own session id once — M8 stores it to `resume` the
+        // conversation's memory on the next send (R-7 continuity).
+        if (
+          !backendSessionReported &&
+          'session_id' in message &&
+          typeof message.session_id === 'string'
+        ) {
+          backendSessionReported = true;
+          this.#init.onBackendSession?.(message.session_id);
+        }
+        if (this.#init.onTurn !== undefined) {
+          for (const frame of messageToFrames(message)) this.#init.onTurn(frame);
+        }
+        if (message.type === 'result') {
+          this.#lastUsage = {
+            tokensIn: message.usage.input_tokens,
+            tokensOut: message.usage.output_tokens,
+            costUsd: message.total_cost_usd,
+            cacheReadTokens: message.usage.cache_read_input_tokens,
+          };
+          this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
+        }
       }
-      if (this.#init.onTurn !== undefined) {
-        for (const frame of messageToFrames(message)) this.#init.onTurn(frame);
-      }
-      if (message.type === 'result') {
-        this.#lastUsage = {
-          tokensIn: message.usage.input_tokens,
-          tokensOut: message.usage.output_tokens,
-          costUsd: message.total_cost_usd,
-          cacheReadTokens: message.usage.cache_read_input_tokens,
-        };
-        this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
-      }
+    } finally {
+      // Flush on every exit path (clean, error, interrupt) — the model may have produced
+      // real blocks before the stream dropped; they must reach canonical memory.
+      // Usage is intentionally NOT settled here: the SDK exposes it only on the terminal
+      // `result` message (above), so a pre-`result` throw settles nothing — bounded by the
+      // SDK's own `maxBudgetUsd`, not coa's ledger.
+      this.#init.onBackendMessages?.(transcript);
     }
-    this.#init.onBackendMessages?.(transcript);
   }
 }

@@ -33,6 +33,8 @@ class FrameAdapter implements RuntimeAdapter {
     readonly fail = false,
     /** Simulate a pure-API backend: hand back the settled transcript instead of a server session id. */
     readonly pureApi = false,
+    /** Model the fixed adapter: flush the canonical transcript, then throw (a mid-turn drop). */
+    readonly flushThenFail = false,
   ) {}
   renderNative(): BackendConfig {
     return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
@@ -42,6 +44,15 @@ class FrameAdapter implements RuntimeAdapter {
   interceptTool(_c: CanUseTool): void {}
   interceptStop(_s: StopPredicate): void {}
   async runLoop(): Promise<void> {
+    if (this.flushThenFail) {
+      const input = typeof this.init.input === 'string' ? this.init.input : '';
+      this.init.onBackendMessages?.([
+        ...(this.init.history ?? []),
+        { role: 'user', content: input },
+        { role: 'assistant', content: 'reply' },
+      ]);
+      throw new Error('stream dropped after partial work');
+    }
     if (this.fail) throw new Error('loop blew up');
     const input = typeof this.init.input === 'string' ? this.init.input : '';
     for (const frame of this.frames) this.init.onTurn?.(frame);
@@ -168,6 +179,10 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     expect(handlers['createSession']!.params?.safeParse({}).success).toBe(false);
   });
 });
+
+function depsFlushThenFail(): SessionDeps {
+  return { ...deps([]), createAdapter: (init) => new FrameAdapter(init, [], false, false, true) };
+}
 
 /** Deps whose adapter factory also records each init, so a test can assert `resume`/`history`. */
 function depsCapturing(frames: TurnFrame[], inits: SessionAdapterInit[], pureApi = false): SessionDeps {
@@ -503,5 +518,25 @@ describe('buildSessionHandlers — closeSession', () => {
     const conn = connection();
     const handlers = buildSessionHandlers(deps([]), conn);
     expect(await handlers['closeSession']!.handle({ id: 'nope' })).toEqual({ closed: false });
+  });
+});
+
+describe('buildSessionHandlers — block-preserving persistence on error', () => {
+  it('persists the flushed transcript and still surfaces an error status', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-conv-'));
+    try {
+      const store = createConversationStore(dir);
+      const conn = connection();
+      const handlers = buildSessionHandlers(depsFlushThenFail(), conn, store);
+      await handlers['createSession']!.handle({ input: 'edit the file', conversationId: 'c1' });
+      await conn.settled;
+
+      // The completed work reached canonical memory despite the mid-turn throw.
+      expect(store.loadBackendMessages('c1')).toContainEqual({ role: 'assistant', content: 'reply' });
+      // The failure is still surfaced (SC-1: surface, don't cage).
+      expect(pushesOf(conn.pushes).at(-1)).toMatchObject({ kind: 'status', state: 'error' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

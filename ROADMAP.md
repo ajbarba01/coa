@@ -34,8 +34,10 @@ For **what each module is** (public interface, owned decisions), see the handoff
 - **Session hardening** — Partial. Done: provider-independent persistent memory (a session pins to one
   provider/model with a resume-vs-replay-vs-preamble plan across restarts and provider switches),
   frozen/byte-stable compiled prompts for cache warmth with drift detection, live drift and
-  cache-staleness banners in the console, and per-provider model reasoning surfaced as thinking blocks
-  (DeepSeek/LongCat/pure-API). Remaining: block-preserving interrupt (H1) and error-resilience (H2),
+  cache-staleness banners in the console, per-provider model reasoning surfaced as thinking blocks
+  (DeepSeek/LongCat/pure-API), and block-preserving persistence on a mid-turn error (both governed
+  loops flush the completed transcript before the resume token is cleared; proven by a session-level
+  reconciliation test). Remaining: block-preserving interrupt (H1) and steering, streaming output,
   role/capability enforcement, the system-prompt viewer, and the apply-as-update injection spike — see
   "Coa-agent hardening" below and item G.
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
@@ -92,11 +94,11 @@ unsupervised" (Phase 2 of the de-drift refactor arc, see "In flight" below). It 
 first genuine increment of coa's Pieces/packages/skills system, not throwaway plumbing:
 
 - **H1 Interrupt** — block-preserving stop: discard only the in-progress block on interrupt, never
-  the whole user turn.
-- **H2 Error resilience** — the same block-preserving guarantee for fetch-failed/model errors. (H1
-  and H2 are one capability — *only the incomplete block is ever discarded* — today an error
-  replays from the last user turn and strands in-turn edits on disk while dropping them from the
-  conversation. Start with `systematic-debugging` to pin the exact mechanism before changing it.)
+  the whole user turn. Steering (mid-turn redirection) remains too.
+- **H2 Error resilience** — done. Both governed loops now flush the completed transcript on every
+  exit path before the resume token is cleared, so completed blocks survive a mid-turn error instead
+  of stranding in-turn edits on disk while dropping them from the conversation (proven by a
+  session-level reconciliation test). Interrupt (H1) + steering remain.
 - **Role/capability enforcement** — wire the already-computed capability frame into the governed
   loop so, e.g., a "docs-writer" role physically cannot touch code files (`permission.ts` +
   `driver.ts`/`session.ts`).
