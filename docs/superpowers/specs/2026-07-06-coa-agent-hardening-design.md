@@ -127,8 +127,8 @@ fail-closed** (the existing predicate contract).
 
 Today a `Role` carries both `pieces` (prose identity) and `packageIds` (which resolve to tool refs → the frame),
 coupling identity to enforcement. Decouple: a role is prose identity; capabilities are their own axis (G2) that a
-role *may default* but does not *own*. This is a durable architectural decision → **new ADR (0010) role/
-capability decoupling**, authored in the same commit as the change. Reconcile with `docs/adr/0003`
+role *may default* but does not *own*. This is a durable architectural decision → **new ADR (0011) role/
+capability decoupling** (0010 is the append-only-log convergence), authored in the same commit as the change. Reconcile with `docs/adr/0003`
 (core-context/roles), which currently blesses the coupled shape.
 
 ### G4 — Session independence from the console
@@ -199,7 +199,7 @@ flush-on-exit/safe-boundary structure rather than colliding with it.
   non-streaming adapter degrades to one final delta; the driver emits text-delta frames; the canonical
   `messages.json` still stores the whole assistant text; an interrupt mid-stream keeps + marks the partial text.
 - **Same-commit doc rule** — each unit updates ROADMAP status + the owning SPEC module + REPO_LAYOUT; new durable
-  decisions get ADRs (0010 role/capability decoupling; the session-independence contract; plan-mode-as-capability
+  decisions get ADRs (0011 role/capability decoupling; the session-independence contract; plan-mode-as-capability
   -preset; the streaming `complete()` contract). Keep `pnpm docs:check` green.
 
 ## 6. Sequencing (plan decomposition)
@@ -209,8 +209,11 @@ one at a time as each is reached (matching the arc's cadence).
 
 - **Plan A1 — G1 block-preserving turn persistence** (flush-on-exit, both backends). The correctness keystone;
   mechanism de-risked above. **Written first** (`docs/superpowers/plans/2026-07-06-block-preserving-turn-persistence.md`).
-- **Plan A2 — G1 interrupt + steering** (the `AbortSignal`/interrupt verb + steer queue, built on A1's
-  flush-on-exit/safe-boundary seam). Needs session/SPI grounding at plan time.
+- **Plan A2 — G1 interrupt + steering** — written
+  (`docs/superpowers/plans/2026-07-06-interrupt-and-steering.md`). Locked decisions: an `AbortSignal` seam
+  (industry-standard; the SDK's `abortController`), abort in-flight + persist at the safe boundary, and
+  interrupt + steering together via streaming-input mode. Built on A1's flush-on-exit; no partial-text retention
+  (that arrives with Plan E). **Not yet executed.**
 - **Plan B — G2 + G3** capabilities + role decoupling (tightly coupled — the capability axis and the role
   decoupling land together).
 - **Plan C — G4** session independence (independent, small-ish).

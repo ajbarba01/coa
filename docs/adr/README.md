@@ -35,6 +35,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0007](0007-console-design-system.md) — Console design system + reversals
 - [0008](0008-strict-superset.md) — Strict-superset: feature-off ≤ the raw loop
 - [0009](0009-single-deny-channel.md) — Exactly two blocks through one deny channel (SC-1)
+- [0010](0010-append-only-conversation-log.md) — Converge conversation persistence onto a single append-only log (deferred)
 
 ---
 
