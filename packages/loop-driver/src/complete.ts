@@ -48,4 +48,5 @@ export interface CompletionResult {
 export type CompleteFn = (
   messages: readonly DriverMessage[],
   tools: readonly ToolDef[],
+  signal?: AbortSignal,
 ) => Promise<CompletionResult>;

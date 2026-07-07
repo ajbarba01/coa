@@ -40,6 +40,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
+    interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
@@ -504,6 +505,28 @@ describe('startConsole (inspector-first)', () => {
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ input: 'add tests', conversationId: 'c1' }),
     );
+  });
+
+  it('clicking Stop while a turn is running proxies interruptSession for the active session', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: '/wt', state: 'running' });
+    });
+    const stop = [...container.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Stop',
+    );
+    expect(stop).toBeDefined();
+    await act(async () => {
+      stop!.click();
+    });
+    expect(bridge.interruptSession).toHaveBeenCalledExactlyOnceWith({ id: 'c1' });
   });
 
   it('sends the agent selected role list to the daemon', async () => {

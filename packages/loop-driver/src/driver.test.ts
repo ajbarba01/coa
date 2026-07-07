@@ -456,6 +456,49 @@ describe('runGovernedLoop', () => {
     expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', USAGE);
   });
 
+  it('stops at the next safe boundary when the signal aborts, flushing completed blocks', async () => {
+    const onMessages = vi.fn();
+    const controller = new AbortController();
+    let n = 0;
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return { text: 'first answer', toolCalls: [], usage: USAGE };
+      throw new Error('should not reach a second round-trip after abort');
+    });
+    // A gate that never allows the turn to end, so only the abort stops the loop.
+    const gate = vi.fn(async () => {
+      controller.abort(); // abort after the first round-trip settles
+      return { allow: false, message: 'keep going' } as const;
+    });
+    await runGovernedLoop(
+      deps({ complete, gate, signal: controller.signal, onMessages, input: 'do it' }),
+    );
+    expect(n).toBe(1); // never called complete() again after abort
+    expect(onMessages).toHaveBeenCalledExactlyOnceWith([
+      { role: 'user', content: 'do it' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'keep going' },
+    ]);
+  });
+
+  it('injects a queued steer turn at the next safe boundary before the next round-trip', async () => {
+    const seen: DriverMessage[][] = [];
+    let n = 0;
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async (messages) => {
+      seen.push(structuredClone(messages) as DriverMessage[]);
+      n += 1;
+      if (n === 1) return { text: 'ok', toolCalls: [], usage: USAGE };
+      return { text: 'done', toolCalls: [], usage: USAGE };
+    });
+    // Allow the turn to end only on the SECOND round-trip, so the steer lands between them.
+    const gate = vi.fn(async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const);
+    const steer = ['actually, also do X'];
+    const drainSteer = vi.fn(() => steer.splice(0, steer.length));
+    await runGovernedLoop(deps({ complete, gate, drainSteer, input: 'do it' }));
+    // The second round-trip's messages include the injected user turn.
+    expect(seen[1]).toContainEqual({ role: 'user', content: 'actually, also do X' });
+  });
+
   it('trims the flush to the last complete round-trip when a throw lands mid tool-loop (unrenderable result)', async () => {
     const onMessages = vi.fn();
     const onSettle = vi.fn();

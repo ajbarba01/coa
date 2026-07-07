@@ -104,7 +104,16 @@ export const pushSchema = z.discriminatedUnion('kind', [
     kind: z.literal('status'),
     sessionId: z.string(),
     worktree: z.string(),
-    state: z.enum(['running', 'idle', 'blocked-approval', 'blocked-tool', 'done', 'error']),
+    state: z.enum([
+      'running',
+      'idle',
+      'blocked-approval',
+      'blocked-tool',
+      'done',
+      'error',
+      // A user-initiated stop (M8's interruptSession), never a governance block — SC-1.
+      'interrupted',
+    ]),
   }),
   z.object({
     kind: z.literal('compaction'),

@@ -1,6 +1,7 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { BackendMessage } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
-import { messageToBackendMessages } from './transcript.js';
+import { dropTrailingDanglingToolCall, messageToBackendMessages } from './transcript.js';
 
 /** Build a minimal SDK message; the mapper reads only a few fields (cast through unknown). */
 function sdk(message: unknown): SDKMessage {
@@ -99,5 +100,48 @@ describe('messageToBackendMessages — SDK message → neutral transcript', () =
     ).toEqual([]);
     expect(messageToBackendMessages(sdk({ type: 'result', subtype: 'success' }))).toEqual([]);
     expect(messageToBackendMessages(sdk({ type: 'system', subtype: 'init' }))).toEqual([]);
+  });
+});
+
+describe('dropTrailingDanglingToolCall — trims an unanswered tool_use before it is flushed', () => {
+  it('drops a trailing assistant message whose toolCalls never got a matching tool result', () => {
+    const messages: BackendMessage[] = [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'tu_1', name: 'Read', arguments: {} }],
+      },
+    ];
+    expect(dropTrailingDanglingToolCall(messages)).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+
+  it('drops multiple trailing dangling assistant turns in a row', () => {
+    const messages: BackendMessage[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tu_1', name: 'Read', arguments: {} }] },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tu_2', name: 'Read', arguments: {} }] },
+    ];
+    expect(dropTrailingDanglingToolCall(messages)).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+
+  it('leaves a transcript ending in a tool result unchanged (D85 no-op)', () => {
+    const messages: BackendMessage[] = [
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tu_1', name: 'Read', arguments: {} }] },
+      { role: 'tool', toolCallId: 'tu_1', content: 'result' },
+    ];
+    expect(dropTrailingDanglingToolCall(messages)).toEqual(messages);
+  });
+
+  it('leaves a transcript ending in a plain assistant answer unchanged (D85 no-op)', () => {
+    const messages: BackendMessage[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'done' },
+    ];
+    expect(dropTrailingDanglingToolCall(messages)).toEqual(messages);
+  });
+
+  it('leaves an empty transcript unchanged', () => {
+    expect(dropTrailingDanglingToolCall([])).toEqual([]);
   });
 });

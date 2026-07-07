@@ -182,6 +182,36 @@ describe('selectChatVm', () => {
     expect(vm.status === 'ready' && vm.runningSince).toBeUndefined();
   });
 
+  it('routes onInterrupt to interruptSession for the active session (the Stop/Esc affordance)', () => {
+    const interruptSession = vi.fn();
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: [] }, {}, { interruptSession }),
+    );
+    if (vm.status === 'ready') {
+      vm.onInterrupt();
+      expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
+    }
+  });
+
+  it('onInterrupt is a no-op with no active session', () => {
+    const interruptSession = vi.fn();
+    const vm = selectChatVm(
+      makeState({
+        data: {
+          turns: { status: 'ok', value: [] },
+          agents: { status: 'ok', value: MOCK_AGENTS },
+          sessions: { status: 'ok', value: [] },
+        },
+        ui: {},
+        actions: { interruptSession },
+      }),
+    );
+    if (vm.status === 'ready') {
+      vm.onInterrupt();
+      expect(interruptSession).not.toHaveBeenCalled();
+    }
+  });
+
   it('interleaves a "switched model" note into the governed frames at its recorded position', () => {
     const vm = selectChatVm(
       stateWith(
@@ -602,6 +632,44 @@ describe('ChatView states-first', () => {
     // The cache notice is informational — it has no close control (auto-clears on send/revert).
     const cacheCard = screen.getByText(/cold prompt cache/i).closest('[data-tone]');
     expect(cacheCard?.querySelector('[aria-label="Dismiss"]')).toBeNull();
+  });
+
+  it('shows a Stop control while running and wires it to interruptSession (not an error affordance)', async () => {
+    const interruptSession = vi.fn();
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        { runStatus: { 's-audit-auth': { since: 1000 } } },
+        { interruptSession },
+      ),
+    );
+    render(<ChatView vm={vm} host={host} />);
+    const stop = screen.getByRole('button', { name: /stop/i });
+    // The Stop control is the running/secondary-toned affordance, not the danger tone
+    // an error surface would use (SC-1: a user stop, never a governance block).
+    expect(stop.className).not.toMatch(/danger/);
+    await userEvent.click(stop);
+    expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
+  });
+
+  it('does not show the Stop control while idle', () => {
+    render(<ChatView vm={readyVm([])} host={host} />);
+    expect(screen.queryByRole('button', { name: /stop/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
+  });
+
+  it('Esc interrupts the active session while a turn is running', async () => {
+    const interruptSession = vi.fn();
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        { runStatus: { 's-audit-auth': { since: 1000 } } },
+        { interruptSession },
+      ),
+    );
+    render(<ChatView vm={vm} host={host} />);
+    await userEvent.type(screen.getByLabelText('Message the agent'), '{Escape}');
+    expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
   it('opens the session switcher on hover and selects a session', async () => {

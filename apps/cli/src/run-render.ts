@@ -64,8 +64,11 @@ export function parseRunArgs(args: string[]): RunArgs {
 export interface Rendered {
   /** Lines to print for this record (may be empty). */
   lines: string[];
-  /** Set when this record ends the session — `'error'` if the loop failed. */
-  terminal?: 'done' | 'error';
+  /**
+   * Set when this record ends the session — `'error'` if the loop failed,
+   * `'interrupted'` for a clean user-initiated stop (SC-1: never treated as a failure).
+   */
+  terminal?: 'done' | 'error' | 'interrupted';
 }
 
 /** Render one CON-PUSH record. Turn frames become transcript lines; a status may be terminal. */
@@ -74,9 +77,16 @@ export function renderPush(push: Push): Rendered {
     case 'turn':
       return { lines: renderFrame(push.frame) };
     case 'status':
-      return push.state === 'done' || push.state === 'error'
-        ? { lines: push.state === 'error' ? ['✗ session ended with an error'] : [], terminal: push.state }
-        : { lines: [] };
+      switch (push.state) {
+        case 'done':
+          return { lines: [], terminal: 'done' };
+        case 'error':
+          return { lines: ['✗ session ended with an error'], terminal: 'error' };
+        case 'interrupted':
+          return { lines: ['⏹ interrupted'], terminal: 'interrupted' };
+        default:
+          return { lines: [] };
+      }
     case 'cost':
       return { lines: [`  cost $${push.spent.toFixed(2)}`] };
     default:

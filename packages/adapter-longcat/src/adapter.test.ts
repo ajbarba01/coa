@@ -163,6 +163,28 @@ describe('LongCatAdapter', () => {
     expect(tools?.map((t) => t.function.name)).toContain('Read');
   });
 
+  it('forwards drainSteer into the governed loop so a queued steer turn is injected before the round-trip', async () => {
+    const captured: Captured = {};
+    const steer = ['also check the tests'];
+    const drainSteer = vi.fn(() => steer.splice(0, steer.length));
+    const adapter = new LongCatAdapter({
+      sessionId: 's1',
+      input: 'go',
+      env: { LONGCAT_API_KEY: 'sk-1' },
+      fetchImpl: textFetch(captured),
+      drainSteer,
+    });
+    wire(adapter);
+
+    await adapter.runLoop(SESSION);
+
+    expect(drainSteer).toHaveBeenCalled();
+    expect(captured.body?.['messages']).toContainEqual({
+      role: 'user',
+      content: 'also check the tests',
+    });
+  });
+
   it('reports the barebones capability profile and the refs null-fallback', () => {
     const adapter = new LongCatAdapter({ sessionId: 's1', input: 'go' });
     expect(adapter.capabilityProfile().ports.refs.present).toBe(false);

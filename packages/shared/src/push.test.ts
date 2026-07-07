@@ -57,6 +57,11 @@ describe('pushSchema', () => {
   it('rejects an unknown push kind', () => {
     expect(pushSchema.safeParse({ kind: 'telepathy', sessionId: 's1' }).success).toBe(false);
   });
+
+  it('accepts the interrupted status (a user stop, not a governance block)', () => {
+    const push = { kind: 'status' as const, sessionId: 's1', worktree: 'wt-1', state: 'interrupted' as const };
+    expect(pushSchema.parse(push)).toMatchObject({ kind: 'status', state: 'interrupted' });
+  });
 });
 
 describe('turnFrameSchema', () => {

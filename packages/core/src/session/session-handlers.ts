@@ -43,6 +43,13 @@ import {
  * worktree }` as soon as the session is bound (the `onStart` seam), and streams
  * everything else asynchronously. A loop failure is surfaced as an error frame +
  * an `error` status, never a thrown RPC (SC-1: surface, don't cage).
+ *
+ * `interruptSession`/`steerSession` (CHAT-10) act on a per-session
+ * {@link SessionControl} entry: interrupt aborts a neutral `AbortSignal` the
+ * adapter honors on BOTH backends; steer queues a turn the pure-API driver
+ * drains at its next safe boundary (SDK-path steering is a separate follow-up).
+ * SC-1: a user-initiated interrupt is never rendered as an error — see the
+ * `interrupted` guard in the `createSession` settlement handlers below.
  */
 
 const createParams = z.object({
@@ -60,6 +67,24 @@ const createParams = z.object({
 });
 
 const closeParams = z.object({ id: z.string() });
+const interruptParams = z.object({ id: z.string() });
+const steerParams = z.object({ id: z.string(), text: z.string() });
+
+/**
+ * The per-session control state `interruptSession`/`steerSession` act on (CHAT-10):
+ * one {@link AbortController} whose signal M8 forwards to the adapter as the
+ * neutral user-stop, a queue of steer turns the pure-API driver drains at its next
+ * safe boundary, and the worktree (for the status Push the interrupt verb emits
+ * immediately). `interrupted` distinguishes a user-initiated stop from a genuine
+ * loop failure in the `createSession` settlement handlers below — SC-1: an
+ * interrupt must never surface as an error.
+ */
+interface SessionControl {
+  controller: AbortController;
+  steer: string[];
+  interrupted: boolean;
+  worktree: string;
+}
 
 /** A session's rail label from its opening prompt (single line, bounded) — the VSCode-style auto-title. */
 export function deriveTitle(input: string): string {
@@ -74,12 +99,16 @@ export function buildSessionHandlers(
   store?: ConversationStore,
 ): RpcHandlers {
   const live = new Map<string, Session>();
+  const control = new Map<string, SessionControl>();
 
   const emit = (push: Push): void => {
     connection.push({ jsonrpc: '2.0', method: 'push', params: push } satisfies RpcNotification);
   };
-  const status = (sessionId: string, worktree: string, state: 'running' | 'done' | 'error'): void =>
-    emit({ kind: 'status', sessionId, worktree, state });
+  const status = (
+    sessionId: string,
+    worktree: string,
+    state: 'running' | 'done' | 'error' | 'interrupted',
+  ): void => emit({ kind: 'status', sessionId, worktree, state });
 
   return {
     createSession: rpcMethod(createParams, async (params) => {
@@ -182,6 +211,15 @@ export function buildSessionHandlers(
         if (persistIn !== undefined) persistIn.store.append(persistIn.convId, [{ seq: s, frame }]);
       };
 
+      // The neutral user-stop + steer queue for this session (CHAT-10). Created
+      // unconditionally — a session never interrupted/steered behaves byte-identically
+      // to today (D85); the controller's signal just never aborts and the queue stays
+      // empty. Registered against `control` in `onStart`, keyed by the SAME id the
+      // client receives from this call (persistIn.convId when persistent, else the
+      // freshly generated id) — so `interruptSession`/`steerSession` can find it later.
+      const controller = new AbortController();
+      const steer: string[] = [];
+
       const ready = new Promise<{ id: string; worktree: string }>((resolve) => {
         void createSession(
           {
@@ -228,8 +266,11 @@ export function buildSessionHandlers(
                     persistIn.store.saveBackendMessages(persistIn.convId, messages),
                 }
               : {}),
+            signal: controller.signal,
+            drainSteer: () => steer.splice(0, steer.length),
             onStart: (s) => {
               started = s;
+              control.set(s.id, { controller, steer, interrupted: false, worktree: s.worktree });
               status(s.id, s.worktree, 'running');
               resolve(s);
             },
@@ -239,6 +280,14 @@ export function buildSessionHandlers(
         )
           .then((session) => {
             live.set(session.id, session);
+            // A pure-API backend aborted at the loop's top-of-iteration boundary settles
+            // cleanly (no throw) — so a completed interrupt is seen here, not in `.catch`.
+            const interrupted = control.get(session.id)?.interrupted === true;
+            control.delete(session.id);
+            // SC-1: `interruptSession` already emitted the `'interrupted'` status
+            // synchronously when it aborted — this clean-break settle must not emit it a
+            // second time. Only a genuine, non-interrupted completion emits `'done'`.
+            if (interrupted) return;
             status(session.id, session.worktree, 'done');
           })
           .catch((err: unknown) => {
@@ -248,6 +297,13 @@ export function buildSessionHandlers(
             // server session the model never advanced. Drop the token so the next
             // send replays the last-good transcript instead (fail-safe, not resume).
             if (persistIn !== undefined) persistIn.store.clearBackendSession(persistIn.convId);
+            const interrupted = started !== undefined && control.get(started.id)?.interrupted === true;
+            if (started !== undefined) control.delete(started.id);
+            // SC-1: an interrupt is a user stop, not a governance block — an aborted
+            // in-flight request (the Claude SDK path, or a pure-API fetch abort) throws
+            // here, but it must never render as an error. `interruptSession` already
+            // emitted the `'interrupted'` status; nothing further to surface.
+            if (interrupted) return;
             const message = describeLoopFailure(err);
             if (started !== undefined) {
               record({ t: 'error', message, origin: 'loop' });
@@ -264,7 +320,29 @@ export function buildSessionHandlers(
       if (session === undefined) return { closed: false };
       closeSessionCore(session, deps);
       live.delete(params.id);
+      control.delete(params.id);
       return { closed: true };
+    }),
+
+    // A user-initiated stop (CHAT-10) — SC-1: never a governance block. Aborts the
+    // session's neutral signal (both backends honor it); the settlement handlers
+    // above suppress the resulting throw/settle from ever rendering as an error.
+    interruptSession: rpcMethod(interruptParams, (params) => {
+      const entry = control.get(params.id);
+      if (entry === undefined) return { interrupted: false };
+      entry.interrupted = true;
+      entry.controller.abort();
+      status(params.id, entry.worktree, 'interrupted');
+      return { interrupted: true };
+    }),
+
+    // Queue a mid-turn steer (CHAT-10); the pure-API driver drains it at its next
+    // safe boundary (SDK-path steering is a separate follow-up — see the M9 seam).
+    steerSession: rpcMethod(steerParams, (params) => {
+      const entry = control.get(params.id);
+      if (entry === undefined) return { steered: false };
+      entry.steer.push(params.text);
+      return { steered: true };
     }),
 
     // The drift banner's `recompile` action: drop the session's frozen prompt AND its

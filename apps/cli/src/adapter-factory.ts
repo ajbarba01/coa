@@ -87,6 +87,8 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
     ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
+    ...(init.signal !== undefined ? { signal: init.signal } : {}),
+    ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
   });
 }
 
@@ -102,6 +104,8 @@ export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
     ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
+    ...(init.signal !== undefined ? { signal: init.signal } : {}),
+    ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
   });
 }
 
@@ -123,5 +127,6 @@ export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.deliverHistoryAsPreamble !== undefined
       ? { deliverHistoryAsPreamble: init.deliverHistoryAsPreamble }
       : {}),
+    ...(init.signal !== undefined ? { signal: init.signal } : {}),
   });
 }

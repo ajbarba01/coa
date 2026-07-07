@@ -33,7 +33,7 @@ import { toCoaMcpServer } from './mcp-tools.js';
 import { resolveToolTransport } from './tool-frame.js';
 import { sessionAuthEnv } from './auth-env.js';
 import { messageToFrames } from './turn-frames.js';
-import { messageToBackendMessages } from './transcript.js';
+import { dropTrailingDanglingToolCall, messageToBackendMessages } from './transcript.js';
 import { withHistoryPreamble } from './history-preamble.js';
 import { toSdkPrompt } from './session-input.js';
 
@@ -91,6 +91,13 @@ export interface ClaudeSdkAdapterInit {
    * scripted stream; defaults to the real `@anthropic-ai/claude-agent-sdk` import.
    */
   query?: typeof query;
+  /**
+   * The neutral user-stop M8 hands every backend (SC-1 — a user interrupt, not a
+   * governance block). Forwarded into a fresh `AbortController` the SDK owns
+   * (`Options.abortController`); absent ⇒ no controller is built, byte-identical
+   * to today (D85).
+   */
+  signal?: AbortSignal;
 }
 
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -215,6 +222,17 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     // locator ⇒ no overlay ⇒ the subprocess inherits process.env (today's auth).
     const env = sessionAuthEnv(this.#init.locator);
     const model = this.#init.model;
+    // The SDK wants an AbortController it owns; M8 hands a neutral AbortSignal
+    // (no SDK type crosses the seam, ADR 0002/0004). Build a fresh controller and
+    // forward the neutral signal's abort into it — absent signal ⇒ no controller,
+    // byte-identical to today (D85).
+    const signal = this.#init.signal;
+    let abortController: AbortController | undefined;
+    if (signal !== undefined) {
+      abortController = new AbortController();
+      if (signal.aborted) abortController.abort();
+      else signal.addEventListener('abort', () => abortController?.abort(), { once: true });
+    }
     const options = assembleSessionOptions({
       sessionId: this.#init.sessionId,
       backend: {
@@ -232,6 +250,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       ...(model?.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
       ...(env ? { env } : {}),
       ...(this.#init.resume !== undefined ? { resume: this.#init.resume } : {}),
+      ...(abortController !== undefined ? { abortController } : {}),
     });
 
     // Accumulate the canonical neutral transcript: the prior history (carried for
@@ -289,7 +308,13 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       // Usage is intentionally NOT settled here: the SDK exposes it only on the terminal
       // `result` message (above), so a pre-`result` throw settles nothing — bounded by the
       // SDK's own `maxBudgetUsd`, not coa's ledger.
-      this.#init.onBackendMessages?.(transcript);
+      // Trimmed to drop a trailing dangling tool_use (an interrupt or mid-tool error between
+      // the assistant's tool_use and its tool_result): a cross-provider switch replays this
+      // transcript as structured history, and an OpenAI-compatible endpoint 400s on an
+      // assistant tool_calls turn with no matching tool results. On a clean exit the
+      // transcript already ends with the tool results (or a plain answer), so this is a
+      // no-op (D85 byte-identical).
+      this.#init.onBackendMessages?.(dropTrailingDanglingToolCall(transcript));
     }
   }
 }

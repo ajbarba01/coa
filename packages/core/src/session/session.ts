@@ -49,6 +49,19 @@ export interface SessionAdapterInit {
   onBackendMessages?: (messages: readonly BackendMessage[]) => void;
   /** Claude cross-provider switch: deliver `history` as a first-turn preamble (no resumable server session exists for this transcript). Pure-API backends ignore it. */
   deliverHistoryAsPreamble?: boolean;
+  /**
+   * A neutral user-stop (interrupt) from M8, forwarded to the backend so an
+   * in-flight round-trip aborts at its next safe boundary; SC-1 — a user stop,
+   * not a governance block. Absent ⇒ current behavior byte-identical (D85).
+   */
+  signal?: AbortSignal;
+  /**
+   * A synchronous drain of user turns queued while the session was mid-round-trip
+   * (steering). Only the pure-API backends (`adapter-deepseek`/`adapter-longcat`)
+   * consult this today — the Claude SDK path has its own steering seam, a
+   * follow-up. Absent ⇒ current behavior byte-identical (D85).
+   */
+  drainSteer?: () => readonly string[];
 }
 
 /** The active-account resolution M8 supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
@@ -157,6 +170,10 @@ export async function createSession(
     onBackendMessages?: (messages: readonly BackendMessage[]) => void;
     /** Claude cross-provider switch: deliver `history` as a first-turn preamble. */
     deliverHistoryAsPreamble?: boolean;
+    /** M8's per-session user-stop, forwarded to the adapter (see {@link SessionAdapterInit.signal}). */
+    signal?: AbortSignal;
+    /** M8's per-session steer drain, forwarded to the adapter (see {@link SessionAdapterInit.drainSteer}). */
+    drainSteer?: () => readonly string[];
     /** The session's frozen compilation (neutral config + frame). When present the
      *  prompt is NOT recompiled — the byte-stable frozen prompt is reused (cache
      *  warmth + "static unless raised"); absent ⇒ compile fresh (the first turn). */
@@ -226,6 +243,8 @@ export async function createSession(
     ...(req.deliverHistoryAsPreamble !== undefined
       ? { deliverHistoryAsPreamble: req.deliverHistoryAsPreamble }
       : {}),
+    ...(req.signal !== undefined ? { signal: req.signal } : {}),
+    ...(req.drainSteer !== undefined ? { drainSteer: req.drainSteer } : {}),
   });
 
   adapter.renderNative(neutral);

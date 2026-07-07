@@ -99,4 +99,11 @@ describe('renderPush — a CON-PUSH record → terminal lines', () => {
     const out = renderPush({ kind: 'status', sessionId: 's', worktree: 'w', state: 'running' });
     expect(out.terminal).toBeUndefined();
   });
+
+  it('marks an interrupted status as a terminal, non-error, clean stop (SC-1)', () => {
+    const out = renderPush({ kind: 'status', sessionId: 's', worktree: 'w', state: 'interrupted' });
+    expect(out.terminal).toBe('interrupted');
+    expect(out.lines.join(' ')).toMatch(/interrupt/i);
+    expect(out.lines.join(' ')).not.toContain('✗');
+  });
 });

@@ -126,6 +126,7 @@ export type MethodName =
   | 'renameSession'
   | 'deleteSession'
   | 'recompilePrompt'
+  | 'interruptSession'
   | 'listModels'
   | 'listRoles'
   | 'listPackages'
@@ -160,6 +161,12 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   recompilePrompt: {
     params: z.object({ sessionId: z.string() }),
     result: z.object({ recompiled: z.boolean() }),
+  },
+  /** The Stop control / Esc affordance — proxies the daemon's cooperative
+   *  `interruptSession` (CHAT-10, H1). SC-1: a user stop, never a governance block. */
+  interruptSession: {
+    params: z.object({ id: z.string() }),
+    result: z.object({ interrupted: z.boolean() }),
   },
   listModels: { result: z.array(modelDescriptorSchema) },
   listRoles: { result: RoleSummaryListSchema },

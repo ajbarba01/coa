@@ -75,6 +75,17 @@ export interface DeepSeekAdapterInit {
   baseUrl?: string;
   prices?: PriceTable;
   fetchImpl?: FetchLike;
+  /**
+   * The neutral user-stop from M8, forwarded into the governed loop so an interrupt
+   * aborts the in-flight HTTP request; SC-1 — a user stop, not a governance block.
+   */
+  signal?: AbortSignal;
+  /**
+   * A synchronous drain of user turns queued while mid-round-trip (steering), from
+   * M8; the governed loop drains it at the next safe boundary (SC-1 — a user
+   * input, not a governance block).
+   */
+  drainSteer?: () => readonly string[];
 }
 
 /**
@@ -174,6 +185,8 @@ export class DeepSeekAdapter implements RuntimeAdapter {
       ...(this.#init.onBackendMessages !== undefined
         ? { onMessages: this.#init.onBackendMessages }
         : {}),
+      ...(this.#init.signal !== undefined ? { signal: this.#init.signal } : {}),
+      ...(this.#init.drainSteer !== undefined ? { drainSteer: this.#init.drainSteer } : {}),
       onSettle: (sessionId, usage) => {
         this.#lastUsage = usage;
         this.#init.onSettle?.(sessionId, usage);

@@ -27,6 +27,9 @@ const SANDBOX: CapabilitySet = { allowedTools: [], denyRules: [], permissionMode
 
 /** A fake backend that streams the configured frames through `onTurn`, then settles. */
 class FrameAdapter implements RuntimeAdapter {
+  /** Set by the `steerable` mode once `init.drainSteer` is consulted (test observation point). */
+  drained: readonly string[] = [];
+
   constructor(
     readonly init: SessionAdapterInit,
     readonly frames: TurnFrame[],
@@ -35,6 +38,26 @@ class FrameAdapter implements RuntimeAdapter {
     readonly pureApi = false,
     /** Model the fixed adapter: flush the canonical transcript, then throw (a mid-turn drop). */
     readonly flushThenFail = false,
+    /**
+     * Model a real backend's abort behavior: never settles on its own — only
+     * `init.signal` firing ends the loop, by REJECTING (mirroring an aborted
+     * in-flight request throwing), after flushing settlement — same shape as
+     * the governed loop driver's abort-then-finally-flush.
+     */
+    readonly abortable = false,
+    /**
+     * Model the pure-API driver's safe-boundary steer drain: yield once (so a
+     * test can call `steerSession` in the gap) before consulting
+     * `init.drainSteer`, recording what it drained onto `this.drained`.
+     */
+    readonly steerable = false,
+    /**
+     * Model the pure-API driver's CLEAN-BREAK interrupt path: the loop's
+     * top-of-iteration `if (deps.signal?.aborted) break;` returns cleanly (no
+     * throw) instead of rejecting — so the `.then` branch observes the
+     * interrupt, not `.catch`.
+     */
+    readonly cleanBreakAbortable = false,
   ) {}
   renderNative(): BackendConfig {
     return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
@@ -44,6 +67,39 @@ class FrameAdapter implements RuntimeAdapter {
   interceptTool(_c: CanUseTool): void {}
   interceptStop(_s: StopPredicate): void {}
   async runLoop(): Promise<void> {
+    if (this.cleanBreakAbortable) {
+      await new Promise<void>((resolve) => {
+        this.init.signal?.addEventListener(
+          'abort',
+          () => {
+            this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 1, costUsd: 0.1 });
+            resolve(); // clean return — the loop's top-of-iteration break, not a throw
+          },
+          { once: true },
+        );
+      });
+      return;
+    }
+    if (this.abortable) {
+      await new Promise<void>((_resolve, reject) => {
+        this.init.signal?.addEventListener(
+          'abort',
+          () => {
+            this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 1, costUsd: 0.1 });
+            reject(new Error('aborted'));
+          },
+          { once: true },
+        );
+      });
+      return;
+    }
+    if (this.steerable) {
+      await new Promise((r) => setTimeout(r, 0));
+      this.drained = this.init.drainSteer?.() ?? [];
+      for (const frame of this.frames) this.init.onTurn?.(frame);
+      this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
+      return;
+    }
     if (this.flushThenFail) {
       const input = typeof this.init.input === 'string' ? this.init.input : '';
       this.init.onBackendMessages?.([
@@ -117,7 +173,9 @@ function connection(): { push: (n: RpcNotification) => void; pushes: RpcNotifica
     push: (n) => {
       pushes.push(n);
       const p = n.params as Push;
-      if (p.kind === 'status' && (p.state === 'done' || p.state === 'error')) resolve();
+      if (p.kind === 'status' && (p.state === 'done' || p.state === 'error' || p.state === 'interrupted')) {
+        resolve();
+      }
     },
   };
 }
@@ -492,6 +550,92 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     });
     expect(store.getMeta('c1')?.provider).toBe('claude');
     expect(store.getMeta('c1')?.model).toBe('opus');
+  });
+});
+
+function depsAbortable(): SessionDeps {
+  return { ...deps([]), createAdapter: (init) => new FrameAdapter(init, [], false, false, false, true) };
+}
+
+/** A backend whose loop returns CLEANLY (no throw) once the interrupt lands — the
+ *  pure-API driver's top-of-iteration break, not a rejected in-flight request. */
+function depsCleanBreakAbortable(): SessionDeps {
+  return {
+    ...deps([]),
+    createAdapter: (init) => new FrameAdapter(init, [], false, false, false, false, false, true),
+  };
+}
+
+function depsSteerable(adapters: FrameAdapter[]): SessionDeps {
+  return {
+    ...deps([]),
+    createAdapter: (init) => {
+      const adapter = new FrameAdapter(init, [{ t: 'text', text: 'ok' }], false, false, false, false, true);
+      adapters.push(adapter);
+      return adapter;
+    },
+  };
+}
+
+describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', () => {
+  it('aborts the session and surfaces a clean interrupted stop — never an error (SC-1)', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(depsAbortable(), conn);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({ interrupted: true });
+    // Flush the microtasks the abort → reject → `.catch()` chain needs to settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const pushes = pushesOf(conn.pushes);
+    expect(pushes).toEqual([
+      { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'running' },
+      { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'interrupted' },
+    ]);
+    // No error frame and no error status — an interrupt is a user stop, not a governance block.
+    expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+  });
+
+  it('emits `interrupted` exactly once when the loop returns cleanly after an abort (clean-break path)', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(depsCleanBreakAbortable(), conn);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({ interrupted: true });
+    // Flush the microtasks the abort → resolve → `.then()` chain needs to settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const pushes = pushesOf(conn.pushes);
+    // `interruptSession` emits `interrupted` synchronously; the `.then` branch must NOT
+    // emit a second status once the loop settles cleanly on the same interrupt.
+    expect(pushes.filter((p) => p.kind === 'status' && p.state === 'interrupted')).toHaveLength(1);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(false);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+  });
+
+  it('queues a steer turn the pure-API driver drains at its next safe boundary', async () => {
+    const conn = connection();
+    const adapters: FrameAdapter[] = [];
+    const handlers = buildSessionHandlers(depsSteerable(adapters), conn);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also fix the tests' })).toEqual({
+      steered: true,
+    });
+    await conn.settled;
+
+    expect(adapters[0]?.drained).toEqual(['also fix the tests']);
+  });
+
+  it('interruptSession on an unknown id returns the negative result without throwing', async () => {
+    const handlers = buildSessionHandlers(deps([]), connection());
+    expect(await handlers['interruptSession']!.handle({ id: 'nope' })).toEqual({ interrupted: false });
+  });
+
+  it('steerSession on an unknown id returns the negative result without throwing', async () => {
+    const handlers = buildSessionHandlers(deps([]), connection());
+    expect(await handlers['steerSession']!.handle({ id: 'nope', text: 'hi' })).toEqual({ steered: false });
   });
 });
 

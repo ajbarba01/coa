@@ -20,7 +20,12 @@ export type DeepSeekReasoning = { kind: 'effort'; effort: 'high' | 'max' } | { k
 /** A minimal `fetch` surface (injectable so `complete()` is unit-testable with no network). */
 export type FetchLike = (
   url: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string },
+  init: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  },
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -52,7 +57,7 @@ export function makeDeepSeekComplete(config: DeepSeekCompleteConfig): CompleteFn
   const doFetch = config.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
   const prices = config.prices ?? {};
 
-  return async (messages, tools) => {
+  return async (messages, tools, signal) => {
     const body = {
       model: config.model,
       messages: messages.map(toWireMessage),
@@ -66,6 +71,7 @@ export function makeDeepSeekComplete(config: DeepSeekCompleteConfig): CompleteFn
         authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify(body),
+      ...(signal !== undefined ? { signal } : {}),
     });
     if (!res.ok) {
       throw new Error(`deepseek chat/completions failed: ${res.status} ${await res.text()}`);

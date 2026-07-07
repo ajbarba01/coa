@@ -76,6 +76,10 @@ export interface ConsoleBridge {
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
   /** Drop a session's frozen prompt + resume token so the next send recompiles (the drift banner's recompile). */
   recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
+  /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
+   *  Advisory (SC-1 — a user stop, never a governance block): the pill clears via the
+   *  daemon's own `'interrupted'` status Push, not this call's result. */
+  interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
   /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
    *  worktree by main). Advisory — resolves a result; never blocks (SC-1). */
   openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
@@ -161,6 +165,7 @@ export async function startConsole(
     setSessionModel: () => {},
     openPath: () => Promise.resolve({ ok: false }),
     openExternal: () => Promise.resolve({ ok: false }),
+    interruptSession: () => {},
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -443,6 +448,13 @@ export async function startConsole(
       reason: e instanceof Error ? e.message : String(e),
     }));
 
+  /** The Stop/Esc affordance — a user-initiated stop (SC-1: never a governance block).
+   *  Fire-and-forget: the running pill clears from the daemon's own `'interrupted'`
+   *  status Push (the existing `onPush` handler above), not from this call's result. */
+  const interruptSession = (sessionId: string): void => {
+    void bridge.interruptSession({ id: sessionId }).catch(() => {});
+  };
+
   /** Set a session's in-chat model override; the next send routes there (and the
    *  daemon persists it as the new pin). Republishes so the picker + cache banner update.
    *
@@ -625,6 +637,7 @@ export async function startConsole(
       setSessionModel,
       openPath,
       openExternal,
+      interruptSession,
     },
   };
   push();

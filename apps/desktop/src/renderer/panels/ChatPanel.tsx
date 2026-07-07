@@ -69,6 +69,11 @@ export type ChatVm =
       onPickEffort: (v: string) => void;
       onRespond: RespondFn;
       onSend: (text: string) => void;
+      /** The Stop/Esc affordance — cooperatively interrupts the active session's running
+       *  turn (SC-1: a user stop, never a governance block; D85: unpressed, nothing
+       *  changes). A no-op with no active session (Composer only surfaces Stop while
+       *  running, which implies one). */
+      onInterrupt: () => void;
       /** Reveal a tool card's touched file in the editor/OS at an optional line. Stable
        *  action identity (from `state.actions`) so it can be threaded into the memoized
        *  transcript rows; resolves an advisory result the view toasts on failure. */
@@ -400,6 +405,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     },
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
+    onInterrupt: () => {
+      if (activeSessionId !== undefined) state.actions.interruptSession(activeSessionId);
+    },
     openPath: state.actions.openPath,
     openExternal: state.actions.openExternal,
     toggleRaw: state.actions.toggleRaw,
@@ -704,6 +712,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
           <div ref={composerRef} className="absolute bottom-0 left-0 right-0">
           <Composer
             onSend={vm.onSend}
+            onInterrupt={vm.onInterrupt}
             running={vm.sessionStatus === 'running'}
             disabled={vm.activeSessionId === undefined}
             slotStart={

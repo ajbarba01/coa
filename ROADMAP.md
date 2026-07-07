@@ -19,9 +19,9 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M5 Config Compiler | Done (interface) | Public interface complete: `compile`, `versionGate`, `importBundle`. | — |
 | M6 Workbench | Partial | Governed tools, base tools, and the M6↔M9 bridge (the rented loop is genuinely governed) are live. | AST-ops (rename/rewrite), fork, and the diff engine are not built. |
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
-| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening). | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; block-preserving interrupt/error-resilience and role/capability enforcement (see "Coa-agent hardening"). |
+| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering). | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; SDK-path steering and role/capability enforcement (see "Coa-agent hardening"). |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
-| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners. | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. |
+| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`). | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer; console steer affordance (deferred, see "Coa-agent hardening"). |
 
 **Cross-cutting workstreams**
 
@@ -35,11 +35,19 @@ For **what each module is** (public interface, owned decisions), see the handoff
   provider/model with a resume-vs-replay-vs-preamble plan across restarts and provider switches),
   frozen/byte-stable compiled prompts for cache warmth with drift detection, live drift and
   cache-staleness banners in the console, per-provider model reasoning surfaced as thinking blocks
-  (DeepSeek/LongCat/pure-API), and block-preserving persistence on a mid-turn error (both governed
+  (DeepSeek/LongCat/pure-API), block-preserving persistence on a mid-turn error (both governed
   loops flush the completed transcript before the resume token is cleared; proven by a session-level
-  reconciliation test). Remaining: block-preserving interrupt (H1) and steering, streaming output,
-  role/capability enforcement, the system-prompt viewer, and the apply-as-update injection spike — see
-  "Coa-agent hardening" below and item G.
+  reconciliation test), and block-preserving interrupt (H1) — `interruptSession`/`steerSession` RPC
+  verbs over a per-session `AbortController` + steer queue, landing interrupt on both backends and
+  steering on the pure-API path (SC-1: a user stop, never rendered as an error), **now wired end to
+  end: the console's Stop button + Esc call `interruptSession` for the active session, and the
+  running pill clears from the daemon's own `'interrupted'` status Push.** Remaining: SDK-path
+  steering AND the console steer affordance (typing a redirect while a turn is running) are
+  **deferred to a future plan bundled with interactive multi-turn** — both require streaming-input
+  mode, which cascades into streamed-turn transcript capture, preamble-under-streaming, and a real-SDK
+  termination assumption needing a live smoke. Also remaining: streaming output, role/capability
+  enforcement, the system-prompt viewer, and the apply-as-update injection spike — see "Coa-agent
+  hardening" below and item G.
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.
@@ -93,8 +101,15 @@ This is the intermediate phase between "docs refactor done" and "coa agents exec
 unsupervised" (Phase 2 of the de-drift refactor arc, see "In flight" below). It doubles as the
 first genuine increment of coa's Pieces/packages/skills system, not throwaway plumbing:
 
-- **H1 Interrupt** — block-preserving stop: discard only the in-progress block on interrupt, never
-  the whole user turn. Steering (mid-turn redirection) remains too.
+- **H1 Interrupt** — done: `interruptSession`/`steerSession` RPC verbs over a per-session
+  `AbortController` + steer queue (M8), threaded to both backends via a neutral `signal`/`drainSteer`
+  on the `SessionAdapterInit` seam. Interrupt lands on both backends (the existing block-preserving
+  flush discards only the in-progress round-trip, never the completed transcript) **and is now wired
+  to the console (M10): a Stop button and Esc, visible only while a turn is running, call
+  `interruptSession` for the active session** — never rendered as an error affordance (SC-1). Steering
+  (mid-turn redirection, queue-only — no inject-now mode) lands on the pure-API path only. SDK-path
+  steering, and the console's own steer affordance (typing a redirect mid-turn), are **deferred to a
+  future plan bundled with interactive multi-turn** (both need streaming-input mode).
 - **H2 Error resilience** — done. Both governed loops now flush the completed transcript on every
   exit path before the resume token is cleared, so completed blocks survive a mid-turn error instead
   of stranding in-turn edits on disk while dropping them from the conversation (proven by a
@@ -149,4 +164,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-07-06_
+_Last reviewed: 2026-07-07_

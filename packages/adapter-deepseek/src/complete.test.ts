@@ -168,4 +168,23 @@ describe('makeDeepSeekComplete', () => {
     });
     await expect(complete([{ role: 'user', content: 'go' }], [])).rejects.toThrow('429');
   });
+
+  it('forwards the abort signal into the fetch call', async () => {
+    let seenInit: { signal?: AbortSignal } | undefined;
+    const fetchImpl: FetchLike = async (_url, init) => {
+      seenInit = init;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => textResponse,
+      };
+    };
+    const complete = makeDeepSeekComplete({ apiKey: 'sk-1', model: 'm', fetchImpl });
+    const controller = new AbortController();
+
+    await complete([{ role: 'user', content: 'go' }], [], controller.signal);
+
+    expect(seenInit?.signal).toBe(controller.signal);
+  });
 });

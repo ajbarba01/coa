@@ -35,6 +35,12 @@ export function assembleSessionOptions(args: {
   env?: Record<string, string | undefined>;
   /** A prior backend session id to resume (R-7 continuity): loads that conversation's history. */
   resume?: string;
+  /**
+   * The SDK-owned controller the adapter binds to M8's neutral `AbortSignal`
+   * (SC-1 — a user stop, not a governance block); absent ⇒ no controller passed,
+   * byte-identical to today (D85).
+   */
+  abortController?: AbortController;
 }): Options {
   const {
     sessionId,
@@ -49,6 +55,7 @@ export function assembleSessionOptions(args: {
     reasoning,
     env,
     resume,
+    abortController,
   } = args;
 
   const sdkCanUseTool: SdkCanUseTool = async (toolName, input) => {
@@ -72,5 +79,6 @@ export function assembleSessionOptions(args: {
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(env ? { env } : {}),
     ...(resume !== undefined ? { resume } : {}),
+    ...(abortController !== undefined ? { abortController } : {}),
   };
 }

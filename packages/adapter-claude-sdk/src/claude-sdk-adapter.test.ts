@@ -101,6 +101,70 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
     expect(flushed).toContainEqual({ role: 'assistant', content: 'partial work' });
   });
 
+  it('trims a dangling tool_use from the flushed transcript when the stream drops between the call and its result', async () => {
+    const flushed: unknown[] = [];
+    async function* boom(): AsyncGenerator<unknown> {
+      yield {
+        type: 'assistant',
+        session_id: 'srv-1',
+        message: {
+          content: [{ type: 'tool_use', id: 'tu_1', name: 'Read', input: { path: 'a.ts' } }],
+        },
+      };
+      throw new Error('stream dropped mid-tool');
+    }
+    const a = adapter({
+      query: (() => boom()) as unknown as typeof import('@anthropic-ai/claude-agent-sdk').query,
+      onBackendMessages: (m) => flushed.push(...m),
+    });
+    a.renderNative(neutral());
+    a.interceptTool(() => ({ behavior: 'allow' }));
+    a.interceptStop(() => ({ allow: true }));
+
+    await expect(a.runLoop(session)).rejects.toThrow('stream dropped mid-tool');
+    // The dangling assistant tool_use (no matching tool_result ever arrived) must not
+    // survive the flush — a cross-provider replay would otherwise 400 on it.
+    expect(flushed.some((m) => (m as { toolCalls?: unknown }).toolCalls !== undefined)).toBe(false);
+    // The user turn recorded ahead of the stream is untouched.
+    expect(flushed).toContainEqual({ role: 'user', content: 'hi' });
+  });
+
+  it('forwards an abort signal to the SDK abortController and flushes on early stop', async () => {
+    const controller = new AbortController();
+    let seen: AbortController | undefined;
+    const flushed: unknown[] = [];
+    async function* gen(opts: { abortController?: AbortController }): AsyncGenerator<unknown> {
+      seen = opts.abortController;
+      yield {
+        type: 'assistant',
+        session_id: 'srv-1',
+        message: { content: [{ type: 'text', text: 'partial work' }] },
+      };
+      controller.abort(); // M8 interrupts after the first message
+      if (opts.abortController?.signal.aborted) return; // the SDK stops when its controller aborts
+      yield {
+        type: 'result',
+        session_id: 'srv-1',
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0 },
+      };
+    }
+    const a = adapter({
+      signal: controller.signal,
+      query: ((arg: { options: { abortController?: AbortController } }) =>
+        gen(arg.options)) as unknown as typeof import('@anthropic-ai/claude-agent-sdk').query,
+      onBackendMessages: (m) => flushed.push(...m),
+    });
+    a.renderNative(neutral());
+    a.interceptTool(() => ({ behavior: 'allow' }));
+    a.interceptStop(() => ({ allow: true }));
+
+    await a.runLoop(session);
+
+    expect(seen?.signal.aborted).toBe(true);
+    expect(flushed).toContainEqual({ role: 'assistant', content: 'partial work' });
+  });
+
   it('flushes the transcript exactly once when a clean stream runs to completion (D85)', async () => {
     async function* clean(): AsyncGenerator<unknown> {
       yield {

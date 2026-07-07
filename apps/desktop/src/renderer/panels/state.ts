@@ -123,6 +123,10 @@ export interface ConsoleActions {
    *  Validated to http(s) by main; resolves an advisory result the caller toasts on
    *  failure — never blocks (SC-1). */
   openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
+  /** The Stop/Esc affordance: cooperatively interrupts a session's running turn
+   *  (SC-1 — a user stop, never a governance block). Fire-and-forget; the running
+   *  pill clears from the daemon's own `'interrupted'` status Push. */
+  interruptSession: (sessionId: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,

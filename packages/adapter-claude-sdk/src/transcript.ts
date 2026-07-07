@@ -86,3 +86,27 @@ function resultText(content: unknown): string {
   }
   return '';
 }
+
+/**
+ * Trim a transcript so it never ends on an unanswered `tool_use` (the block-preserving
+ * invariant the pure-API driver already enforces via `lastConsistent` — see
+ * `packages/loop-driver/src/driver.ts`). If the stream ends (an interrupt, or a mid-tool
+ * error) between an assistant `tool_use` message and its `tool_result`, the accumulated
+ * transcript ends with a dangling assistant message carrying `toolCalls` and no following
+ * `tool` messages. Replayed as structured `history` on a cross-provider switch, an
+ * OpenAI-compatible endpoint rejects an assistant `tool_calls` turn with no matching `tool`
+ * results — so drop any such trailing turn before it is flushed. On a clean exit the
+ * transcript already ends with the tool results (or a plain assistant answer), so this is a
+ * no-op (D85 byte-identical).
+ */
+export function dropTrailingDanglingToolCall(messages: readonly BackendMessage[]): BackendMessage[] {
+  const trimmed = [...messages];
+  while (
+    trimmed.length > 0 &&
+    trimmed[trimmed.length - 1]!.role === 'assistant' &&
+    (trimmed[trimmed.length - 1]!.toolCalls?.length ?? 0) > 0
+  ) {
+    trimmed.pop();
+  }
+  return trimmed;
+}

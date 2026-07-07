@@ -73,6 +73,22 @@ export interface GovernedLoopDeps {
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** Override the round-trip bound (tests / tuning). */
   maxIterations?: number;
+  /**
+   * A user-initiated stop (interrupt/steer), checked at the safe boundary — the top of
+   * the loop, where `lastConsistent` already reflects the last completed round-trip.
+   * SC-1: this is a user stop, not a governance block, so it reuses A1's `finally` flush
+   * rather than adding a new deny channel. Absent ⇒ current behavior byte-identical.
+   */
+  signal?: AbortSignal;
+  /**
+   * A synchronous drain of any user turns queued while the loop was mid-round-trip
+   * (steering). Called at the safe boundary — the loop top, right after the abort
+   * check — so an already-aborted loop injects nothing. Each drained string is pushed
+   * as a `{ role: 'user' }` message; a user turn is itself a round-trip-consistent
+   * boundary, so `lastConsistent` advances past it. Absent ⇒ current behavior
+   * byte-identical (D85).
+   */
+  drainSteer?: () => readonly string[];
 }
 
 /** Map the governed catalogue to the model-facing tool list. */
@@ -115,7 +131,13 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
 
   try {
     for (let i = 0; i < maxIterations; i += 1) {
-      const result = await deps.complete(messages, tools);
+      if (deps.signal?.aborted) break;
+      // Steering (SC-1: user input injected at a safe boundary, not a governance block).
+      for (const steer of deps.drainSteer?.() ?? []) {
+        messages.push({ role: 'user', content: steer });
+      }
+      lastConsistent = messages.length; // a user turn is a consistent boundary
+      const result = await deps.complete(messages, tools, deps.signal);
       addUsage(usage, result.usage);
       // Reasoning precedes the answer (pre-answer thinking). Display-only: emitted as a
       // thinking frame but never pushed into `messages` — the API rejects reasoning on input.

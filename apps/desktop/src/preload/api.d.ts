@@ -41,6 +41,9 @@ declare global {
       renameSession(params: { id: string; title: string }): Promise<{ ok: boolean }>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
+      /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
+       *  Advisory (SC-1 — a user stop, never a governance block). */
+      interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
       listModels(): Promise<ModelDescriptor[]>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;
