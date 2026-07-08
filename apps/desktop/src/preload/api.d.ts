@@ -44,6 +44,9 @@ declare global {
       /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
        *  Advisory (SC-1 — a user stop, never a governance block). */
       interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
+      /** Console reattach (G4) — proxies the daemon's `subscribeSession`, which
+       *  immediately hydrates this connection with the session's CURRENT run-status. */
+      subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
       listModels(): Promise<ModelDescriptor[]>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;

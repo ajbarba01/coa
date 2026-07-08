@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CapabilitySet, NeutralConfig, Push, RpcNotification, TurnFrame } from '@coa/shared';
 import {
   barebonesProfile,
@@ -15,6 +15,7 @@ import type { SessionAdapterInit, SessionDeps } from './session.js';
 import { buildSessionHandlers } from './session-handlers.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 import { configHashOf } from './prompt-freeze.js';
+import { LiveSessionRegistry } from './live-registry.js';
 
 const NEUTRAL: NeutralConfig = {
   prefixHead: [],
@@ -162,11 +163,21 @@ function deps(frames: TurnFrame[], fail = false): SessionDeps {
   };
 }
 
-/** A fake connection that records pushes and resolves once a terminal `status` arrives. */
-function connection(): { push: (n: RpcNotification) => void; pushes: RpcNotification[]; settled: Promise<void> } {
+/** A fake connection that records pushes and resolves once a terminal `status` arrives.
+ *  `triggerClose` simulates the underlying stream closing (a dropped socket), firing every
+ *  listener registered via `onClose` — the seam `buildSessionHandlers` uses to release its
+ *  per-connection sinks. */
+function connection(): {
+  push: (n: RpcNotification) => void;
+  pushes: RpcNotification[];
+  settled: Promise<void>;
+  onClose: (listener: () => void) => void;
+  triggerClose: () => void;
+} {
   const pushes: RpcNotification[] = [];
   let resolve!: () => void;
   const settled = new Promise<void>((r) => (resolve = r));
+  const closeListeners: (() => void)[] = [];
   return {
     pushes,
     settled,
@@ -177,15 +188,25 @@ function connection(): { push: (n: RpcNotification) => void; pushes: RpcNotifica
         resolve();
       }
     },
+    onClose: (listener) => {
+      closeListeners.push(listener);
+    },
+    triggerClose: () => {
+      for (const l of [...closeListeners]) l();
+    },
   };
 }
 
 const pushesOf = (notes: RpcNotification[]): Push[] => notes.map((n) => n.params as Push);
 
+/** Let every currently-pending microtask (incl. the loop's post-turn `idle` push,
+ *  which lands one hop after the turn's own `done`/`error`/`interrupted`) settle. */
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
 describe('buildSessionHandlers — createSession over RPC', () => {
   it('returns the session id + worktree once the session starts', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'hi' }]), conn);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'hi' }]), conn, undefined, new LiveSessionRegistry());
     const result = await handlers['createSession']!.handle({ input: 'go' });
     expect(result).toEqual({ sessionId: 'sess-1', worktree: '/wt/sess-1' });
     await conn.settled;
@@ -197,21 +218,23 @@ describe('buildSessionHandlers — createSession over RPC', () => {
       { t: 'text', text: 'thinking out loud' },
       { t: 'tool_use', tool: 'Read', input: { path: 'a' }, handle: 'tu1' },
     ];
-    const handlers = buildSessionHandlers(deps(frames), conn);
+    const handlers = buildSessionHandlers(deps(frames), conn, undefined, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
+    await flush(); // the live session's post-turn `idle` (run-live-session.ts) lands one hop later
 
     expect(pushesOf(conn.pushes)).toEqual([
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'running' },
       { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 0, frame: frames[0] },
       { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 1, frame: frames[1] },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'done' },
+      { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
   });
 
   it('every pushed record is sent as a `push` JSON-RPC notification', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'x' }]), conn);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'x' }]), conn, undefined, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
     expect(conn.pushes.every((n) => n.method === 'push')).toBe(true);
@@ -219,21 +242,24 @@ describe('buildSessionHandlers — createSession over RPC', () => {
 
   it('surfaces a loop failure as an error frame + an error status (never a thrown RPC)', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([], true), conn);
+    const handlers = buildSessionHandlers(deps([], true), conn, undefined, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
+    await flush();
 
     const kinds = pushesOf(conn.pushes);
     expect(kinds[0]).toMatchObject({ kind: 'status', state: 'running' });
     expect(kinds).toContainEqual(
       expect.objectContaining({ kind: 'turn', frame: { t: 'error', message: 'loop blew up', origin: 'loop' } }),
     );
-    expect(kinds.at(-1)).toMatchObject({ kind: 'status', state: 'error' });
+    expect(kinds).toContainEqual(expect.objectContaining({ kind: 'status', state: 'error' }));
+    // The live session's own idle-between-turns status trails the turn's terminal one.
+    expect(kinds.at(-1)).toMatchObject({ kind: 'status', state: 'idle' });
   });
 
   it('rejects a request with no input via invalid params (Zod-validated)', () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([]), conn);
+    const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
     expect(handlers['createSession']!.params?.safeParse({}).success).toBe(false);
   });
 });
@@ -264,7 +290,7 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
 
   it('persists the user prompt then the streamed frames, and auto-titles from the prompt', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'on it' }]), conn, store);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'on it' }]), conn, store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({
       input: 'Refactor the auth module',
       role: 'roles/refactor',
@@ -287,13 +313,21 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
 
   it('records the backend session id and resumes it on the next send, continuing the seq', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'reply' }], inits), connection(), store);
+    const handlers = buildSessionHandlers(
+      depsCapturing([{ t: 'text', text: 'reply' }], inits),
+      connection(),
+      store,
+      new LiveSessionRegistry(),
+    );
 
     await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1' });
     expect(store.getMeta('c1')?.backendSessionId).toBe('backend-c1');
     expect(inits[0]?.resume).toBeUndefined(); // no prior memory on the first send
 
     await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1' });
+    // An already-live session doesn't block the RPC reply on the queued turn (it may
+    // sit behind another one) — flush so the second turn actually runs before assertion.
+    await flush();
     expect(inits[1]?.resume).toBe('backend-c1'); // resumes the captured backend session
 
     expect(store.reload('c1').map((t) => ({ seq: t.seq, frame: t.frame }))).toEqual([
@@ -306,8 +340,9 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
 
   it('clears the stale resume token when a send fails mid-turn, so the next send replays a consistent transcript', async () => {
     const conn = connection();
+    const registry = new LiveSessionRegistry();
     // Turn 1 succeeds and captures a resumable backend session.
-    await buildSessionHandlers(deps([{ t: 'text', text: 'reply' }]), conn, store)['createSession']!.handle({
+    await buildSessionHandlers(deps([{ t: 'text', text: 'reply' }]), conn, store, registry)['createSession']!.handle({
       input: 'first',
       role: '',
       scope: '',
@@ -320,7 +355,7 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
     // dropped so the next send replays the last-good transcript rather than resuming a
     // phantom server session the model never actually advanced (the "confused agent" bug).
     const conn2 = connection();
-    await buildSessionHandlers(deps([], true), conn2, store)['createSession']!.handle({
+    await buildSessionHandlers(deps([], true), conn2, store, new LiveSessionRegistry())['createSession']!.handle({
       input: 'second',
       role: '',
       scope: '',
@@ -336,12 +371,16 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
       depsCapturing([{ t: 'text', text: 'reply' }], inits, true),
       connection(),
       store,
+      new LiveSessionRegistry(),
     );
 
     await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1' });
     expect(inits[0]?.history).toBeUndefined(); // no memory on the first send
 
     await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1' });
+    // An already-live session doesn't block the RPC reply on the queued turn — flush
+    // so the second turn actually runs before assertion.
+    await flush();
     // The second send replays turn 1's full transcript verbatim ahead of the new turn.
     expect(inits[1]?.history).toEqual([
       { role: 'user', content: 'first' },
@@ -358,7 +397,7 @@ describe('buildSessionHandlers — persistent conversation (R-7)', () => {
 
   it('does not persist or resume an ephemeral session (no conversationId)', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'x' }], inits), connection(), store);
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'x' }], inits), connection(), store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     expect(store.list()).toEqual([]);
     expect(inits[0]?.resume).toBeUndefined();
@@ -386,13 +425,21 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('pins the provider and, on a fresh daemon (restart), routes DeepSeek back to itself with memory intact', async () => {
     const inits: SessionAdapterInit[] = [];
-    await send(buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store), 'first', 'deepseek');
+    await send(
+      buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry()),
+      'first',
+      'deepseek',
+    );
     expect(store.getMeta('c1')?.provider).toBe('deepseek');
     expect(inits[0]?.resume).toBeUndefined();
 
     // Simulate a console/daemon restart: brand-new handlers over the same on-disk store.
     const inits2: SessionAdapterInit[] = [];
-    await send(buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits2), connection(), store), 'second', 'deepseek');
+    await send(
+      buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits2), connection(), store, new LiveSessionRegistry()),
+      'second',
+      'deepseek',
+    );
     // No wrong-backend revival: still DeepSeek, no Claude resume, and the prior transcript replayed.
     expect(inits2[0]?.resume).toBeUndefined();
     expect(inits2[0]?.deliverHistoryAsPreamble).toBeFalsy();
@@ -404,10 +451,13 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('Claude→DeepSeek: drops the Claude resume token and replays the Claude transcript as history', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store);
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry());
     await send(handlers, 'first', 'claude');
     expect(store.getMeta('c1')?.backendSessionId).toBe('backend-c1'); // Claude captured a session
     await send(handlers, 'second', 'deepseek');
+    // An already-live session doesn't block the RPC reply on the queued turn — flush
+    // so the second turn actually runs before assertion.
+    await flush();
     expect(inits[1]?.resume).toBeUndefined(); // the Claude token is not eligible for DeepSeek
     expect(inits[1]?.deliverHistoryAsPreamble).toBeFalsy(); // DeepSeek replays as messages, not a preamble
     expect(inits[1]?.history).toEqual([
@@ -418,9 +468,10 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('DeepSeek→Claude: no resumable session, so the transcript is delivered as a first-turn preamble', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store);
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry());
     await send(handlers, 'first', 'deepseek');
     await send(handlers, 'second', 'claude');
+    await flush();
     expect(inits[1]?.resume).toBeUndefined();
     expect(inits[1]?.deliverHistoryAsPreamble).toBe(true);
     expect(inits[1]?.history).toEqual([
@@ -431,9 +482,10 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('same-provider Claude continuation still uses native resume (fast path preserved)', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store);
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry());
     await send(handlers, 'first', 'claude');
     await send(handlers, 'second', 'claude');
+    await flush();
     expect(inits[1]?.resume).toBe('backend-c1');
     expect(inits[1]?.deliverHistoryAsPreamble).toBeFalsy();
   });
@@ -448,13 +500,14 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
         return base.compile(...args);
       },
     };
-    const handlers = buildSessionHandlers(countingDeps, connection(), store);
+    const handlers = buildSessionHandlers(countingDeps, connection(), store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'first', role: '', scope: '', conversationId: 'c1' });
     expect(compiles).toBe(1);
     expect(store.getCompilation('c1')?.promptVersion).toBeTruthy();
 
     // The second turn reuses the frozen compilation — no recompile.
     await handlers['createSession']!.handle({ input: 'second', role: '', scope: '', conversationId: 'c1' });
+    await flush();
     expect(compiles).toBe(1);
   });
 
@@ -468,7 +521,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
         return base.compile(...args);
       },
     };
-    const handlers = buildSessionHandlers(countingDeps, connection(), store);
+    const handlers = buildSessionHandlers(countingDeps, connection(), store, new LiveSessionRegistry());
 
     // First send on claude → compiles + freezes, stamped with the model.
     await handlers['createSession']!.handle({
@@ -482,12 +535,14 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     await handlers['createSession']!.handle({
       input: 'second', role: 'swe', scope: '', conversationId: 'c1', model: { provider: 'claude', model: 'opus' },
     });
+    await flush();
     expect(compiles).toBe(1);
 
     // Switched model → recompiles so the `## Model` line is re-authored...
     await handlers['createSession']!.handle({
       input: 'third', role: 'swe', scope: '', conversationId: 'c1', model: { provider: 'deepseek', model: 'v4' },
     });
+    await flush();
     expect(compiles).toBe(2);
     expect(store.getCompilation('c1')?.model).toEqual({ provider: 'deepseek', model: 'v4' });
     // ...but the drift key (role + packages) is unchanged: a model switch is NOT drift.
@@ -495,7 +550,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('stamps the frozen compilation with the drift key of the config that produced it', async () => {
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({
       input: 'first',
       role: 'swe',
@@ -511,7 +566,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('stamps the frozen compilation with the sorted role list when multiple roles are selected', async () => {
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({
       input: 'first',
       role: '',
@@ -527,7 +582,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('recompilePrompt drops the frozen prompt and the resume token so the next turn recompiles', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), conn, store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'first', role: 'swe', scope: '', conversationId: 'c1' });
     await conn.settled;
     expect(store.getCompilation('c1')).toBeDefined();
@@ -539,12 +594,12 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('recompilePrompt is a no-op (never throws) without a store', async () => {
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection());
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), undefined, new LiveSessionRegistry());
     expect(await handlers['recompilePrompt']!.handle({ sessionId: 'c1' })).toEqual({ recompiled: false });
   });
 
   it('pins the effective provider even when the send names only a model (keeps the pin complete for routing + drift/cache detection)', async () => {
-    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store);
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'r' }]), connection(), store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({
       input: 'first', role: '', scope: '', conversationId: 'c1', model: { model: 'opus' },
     });
@@ -580,17 +635,19 @@ function depsSteerable(adapters: FrameAdapter[]): SessionDeps {
 describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', () => {
   it('aborts the session and surfaces a clean interrupted stop — never an error (SC-1)', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(depsAbortable(), conn);
+    const handlers = buildSessionHandlers(depsAbortable(), conn, undefined, new LiveSessionRegistry());
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({ interrupted: true });
-    // Flush the microtasks the abort → reject → `.catch()` chain needs to settle.
-    await new Promise((r) => setTimeout(r, 0));
+    // Flush the microtasks the abort → reject → `catch` chain (and the live session's
+    // post-turn idle) need to settle.
+    await flush();
 
     const pushes = pushesOf(conn.pushes);
     expect(pushes).toEqual([
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'running' },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'interrupted' },
+      { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
     // No error frame and no error status — an interrupt is a user stop, not a governance block.
     expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
@@ -599,16 +656,16 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
 
   it('emits `interrupted` exactly once when the loop returns cleanly after an abort (clean-break path)', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(depsCleanBreakAbortable(), conn);
+    const handlers = buildSessionHandlers(depsCleanBreakAbortable(), conn, undefined, new LiveSessionRegistry());
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({ interrupted: true });
-    // Flush the microtasks the abort → resolve → `.then()` chain needs to settle.
-    await new Promise((r) => setTimeout(r, 0));
+    // Flush the microtasks the abort → resolve → settle chain (and the trailing idle) need.
+    await flush();
 
     const pushes = pushesOf(conn.pushes);
-    // `interruptSession` emits `interrupted` synchronously; the `.then` branch must NOT
-    // emit a second status once the loop settles cleanly on the same interrupt.
+    // `interruptSession` emits `interrupted` synchronously; the settle path must NOT
+    // emit it a second time once the loop settles cleanly on the same interrupt.
     expect(pushes.filter((p) => p.kind === 'status' && p.state === 'interrupted')).toHaveLength(1);
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(false);
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
@@ -617,7 +674,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
   it('queues a steer turn the pure-API driver drains at its next safe boundary', async () => {
     const conn = connection();
     const adapters: FrameAdapter[] = [];
-    const handlers = buildSessionHandlers(depsSteerable(adapters), conn);
+    const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, new LiveSessionRegistry());
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also fix the tests' })).toEqual({
@@ -629,26 +686,32 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
   });
 
   it('interruptSession on an unknown id returns the negative result without throwing', async () => {
-    const handlers = buildSessionHandlers(deps([]), connection());
+    const handlers = buildSessionHandlers(deps([]), connection(), undefined, new LiveSessionRegistry());
     expect(await handlers['interruptSession']!.handle({ id: 'nope' })).toEqual({ interrupted: false });
   });
 
   it('steerSession on an unknown id returns the negative result without throwing', async () => {
-    const handlers = buildSessionHandlers(deps([]), connection());
+    const handlers = buildSessionHandlers(deps([]), connection(), undefined, new LiveSessionRegistry());
     expect(await handlers['steerSession']!.handle({ id: 'nope', text: 'hi' })).toEqual({ steered: false });
   });
 });
 
 describe('buildSessionHandlers — closeSession', () => {
-  it('checkpoints + releases a known finished session and reports closed', async () => {
+  it('delegates to registry.close, which checkpoints + releases via its onClose hook, and reports closed', async () => {
+    // Mirrors how `apps/cli`'s daemon composition wires the registry: checkpoint +
+    // worktree-release now happen exactly once, via the registry's `onClose` hook
+    // (FIX #3) — `closeSession` itself no longer calls `deps.checkpoint`/`releaseWorktree`
+    // directly, it only delegates to `registry.close(id)`.
     const released: string[] = [];
     let checkpoints = 0;
-    const base = deps([{ t: 'text', text: 'x' }]);
+    const registry = new LiveSessionRegistry({
+      onClose: (s) => {
+        checkpoints += 1;
+        if (s.worktree !== undefined) released.push(s.worktree);
+      },
+    });
     const conn = connection();
-    const handlers = buildSessionHandlers(
-      { ...base, releaseWorktree: (wt) => released.push(wt), checkpoint: () => (checkpoints += 1) },
-      conn,
-    );
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
 
@@ -660,7 +723,7 @@ describe('buildSessionHandlers — closeSession', () => {
 
   it('reports not-closed for an unknown session id', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([]), conn);
+    const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
     expect(await handlers['closeSession']!.handle({ id: 'nope' })).toEqual({ closed: false });
   });
 });
@@ -671,16 +734,190 @@ describe('buildSessionHandlers — block-preserving persistence on error', () =>
     try {
       const store = createConversationStore(dir);
       const conn = connection();
-      const handlers = buildSessionHandlers(depsFlushThenFail(), conn, store);
+      const handlers = buildSessionHandlers(depsFlushThenFail(), conn, store, new LiveSessionRegistry());
       await handlers['createSession']!.handle({ input: 'edit the file', conversationId: 'c1' });
       await conn.settled;
 
       // The completed work reached canonical memory despite the mid-turn throw.
       expect(store.loadBackendMessages('c1')).toContainEqual({ role: 'assistant', content: 'reply' });
       // The failure is still surfaced (SC-1: surface, don't cage).
-      expect(pushesOf(conn.pushes).at(-1)).toMatchObject({ kind: 'status', state: 'error' });
+      expect(pushesOf(conn.pushes)).toContainEqual(expect.objectContaining({ kind: 'status', state: 'error' }));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('buildSessionHandlers — one live session across turns (P-α multi-turn)', () => {
+  it('runs two createSession calls with the same conversationId as two turns on one live session, idling between them', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const registry = new LiveSessionRegistry();
+    const conn = connection();
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'ok' }], inits), conn, undefined, registry);
+
+    const first = await handlers['createSession']!.handle({ input: 'first', conversationId: 'live-1' });
+    await flush();
+    expect(registry.get('live-1')?.state).toBe('idle'); // not torn down between turns
+
+    const second = await handlers['createSession']!.handle({ input: 'second', conversationId: 'live-1' });
+    await flush();
+
+    expect(first).toEqual({ sessionId: 'live-1', worktree: '/wt/sess-1' });
+    expect(second).toEqual({ sessionId: 'live-1', worktree: '/wt/sess-1' });
+    expect(inits.map((i) => i.input)).toEqual(['first', 'second']);
+    expect(registry.get('live-1')).toBeDefined();
+    expect(registry.get('live-1')?.state).toBe('idle');
+  });
+});
+
+describe('buildSessionHandlers — subscribeSession (G4 reattach)', () => {
+  it('hydrates a newly subscribing connection with the running status of an in-flight session', async () => {
+    const registry = new LiveSessionRegistry();
+    const founder = connection();
+    const adapters: FrameAdapter[] = [];
+    const handlers = buildSessionHandlers(depsSteerable(adapters), founder, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    // A second, independent connection joins the SAME daemon-owned live session.
+    const watcher = connection();
+    const watcherHandlers = buildSessionHandlers(deps([]), watcher, undefined, registry);
+    const result = await watcherHandlers['subscribeSession']!.handle({ id: sessionId });
+
+    expect(result).toEqual({ subscribed: true });
+    expect(pushesOf(watcher.pushes)).toEqual([
+      { kind: 'status', sessionId, worktree: '/wt/sess-1', state: 'running' },
+    ]);
+  });
+
+  it('reports not-subscribed for an unknown session id', async () => {
+    const watcher = connection();
+    const handlers = buildSessionHandlers(deps([]), watcher, undefined, new LiveSessionRegistry());
+    expect(await handlers['subscribeSession']!.handle({ id: 'nope' })).toEqual({ subscribed: false });
+  });
+});
+
+describe('buildSessionHandlers — interrupt on a registry-backed conversation preserves SC-1', () => {
+  it('interrupts the live session (a real conversationId) and never renders an error', async () => {
+    const registry = new LiveSessionRegistry();
+    const conn = connection();
+    const handlers = buildSessionHandlers(depsAbortable(), conn, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'live-int' });
+    expect(sessionId).toBe('live-int');
+
+    expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({ interrupted: true });
+    await flush();
+
+    const pushes = pushesOf(conn.pushes);
+    expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'interrupted')).toBe(true);
+    // The interrupt is a user stop (SC-1) — the live session survives, it isn't torn down.
+    expect(registry.get(sessionId)).toBeDefined();
+  });
+});
+
+describe('buildSessionHandlers — interruptSession resolves via the LiveSession, not a per-connection map (docs/adr/0011 G4)', () => {
+  it('a second connection that never started the turn can still interrupt it through the shared registry', async () => {
+    const registry = new LiveSessionRegistry();
+
+    // Connection A starts the in-flight (abortable) turn.
+    const connA = connection();
+    const handlersA = buildSessionHandlers(depsAbortable(), connA, undefined, registry);
+    const { sessionId } = await handlersA['createSession']!.handle({ input: 'go' });
+
+    // Connection B is a DIFFERENT `buildSessionHandlers` call (its own, empty
+    // per-connection state) that only shares the daemon-singleton registry — the
+    // G4 reattach shape (e.g. a viewer that reconnects and never itself sent the
+    // turn). Before the fix, B's own `control` map is empty, so this would
+    // silently return `{ interrupted: false }` and never touch A's in-flight turn.
+    const connB = connection();
+    const handlersB = buildSessionHandlers(deps([]), connB, undefined, registry);
+
+    const result = await handlersB['interruptSession']!.handle({ id: sessionId });
+    expect(result).toEqual({ interrupted: true });
+
+    // The interrupt lands on the turn connection A is watching: an `interrupted`
+    // status is fanned out, and — SC-1 — never rendered as an error.
+    const pushesA = pushesOf(connA.pushes);
+    expect(pushesA.some((p) => p.kind === 'status' && p.state === 'interrupted')).toBe(true);
+    expect(pushesA.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
+    expect(pushesA.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+  });
+});
+
+describe('buildSessionHandlers — closeSession removes the live session from the registry', () => {
+  it('registry.get returns undefined once closeSession has run', async () => {
+    const registry = new LiveSessionRegistry();
+    const conn = connection();
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await conn.settled;
+
+    expect(registry.get(sessionId)).toBeDefined();
+    expect(await handlers['closeSession']!.handle({ id: sessionId })).toEqual({ closed: true });
+    expect(registry.get(sessionId)).toBeUndefined();
+  });
+});
+
+describe('buildSessionHandlers — connection-close teardown (FIX #2b)', () => {
+  it('unsubscribes this connection\'s sinks once its connection closes, so a later emit no longer reaches it', async () => {
+    const conn = connection();
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await conn.settled;
+    const pushesBeforeClose = conn.pushes.length;
+
+    conn.triggerClose();
+
+    const session = registry.get(sessionId)!;
+    session.emit({
+      kind: 'turn',
+      sessionId,
+      worktree: session.worktree ?? '',
+      seq: 999,
+      frame: { t: 'text', text: 'late, after this connection closed' },
+    });
+
+    // Nothing new reached this connection — its sink was unsubscribed on close.
+    expect(conn.pushes.length).toBe(pushesBeforeClose);
+  });
+
+  it('unsubscribes a subscribeSession (G4 reattach) sink too, once that connection closes', async () => {
+    const registry = new LiveSessionRegistry();
+    const founder = connection();
+    const handlers = buildSessionHandlers(depsSteerable([]), founder, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    const watcher = connection();
+    const watcherHandlers = buildSessionHandlers(deps([]), watcher, undefined, registry);
+    await watcherHandlers['subscribeSession']!.handle({ id: sessionId });
+    const pushesBeforeClose = watcher.pushes.length;
+
+    watcher.triggerClose();
+
+    registry.get(sessionId)!.emit({
+      kind: 'turn',
+      sessionId,
+      worktree: '',
+      seq: 1000,
+      frame: { t: 'text', text: 'late' },
+    });
+
+    expect(watcher.pushes.length).toBe(pushesBeforeClose);
+  });
+});
+
+describe('buildSessionHandlers — idle-timer touch on turn activity (FIX #1)', () => {
+  it('touches the registry when a turn starts, resetting the idle clock', async () => {
+    const conn = connection();
+    const registry = new LiveSessionRegistry();
+    const touchSpy = vi.spyOn(registry, 'touch');
+    const handlers = buildSessionHandlers(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await conn.settled;
+
+    expect(touchSpy).toHaveBeenCalledWith(sessionId);
   });
 });

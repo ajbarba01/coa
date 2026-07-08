@@ -11,6 +11,7 @@ import {
   connectClient,
   createConversationStore,
   defaultDaemonPath,
+  LiveSessionRegistry,
   packageSummaries,
   roleSummaries,
   type ModelCache,
@@ -129,6 +130,14 @@ export async function runSession(args: string[], io: CliIo): Promise<number> {
   }
 }
 
+/**
+ * The idle-timeout (ms) a daemon-owned live session is closed after with no
+ * activity — a session left untouched this long is evicted so a long-lived
+ * daemon doesn't accumulate abandoned sessions. A config seam to override this
+ * per-deployment may land later; today it's a fixed constant.
+ */
+const DEFAULT_LIVE_IDLE_MS = 10 * 60_000;
+
 export interface DaemonOptions {
   out: (line: string) => void;
   err: (line: string) => void;
@@ -189,6 +198,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
   const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
   const conversationHandlers = buildConversationHandlers(store);
+  // The daemon-authoritative home for every conversation's live session (docs/adr/0011),
+  // constructed once — same lifetime as `store` — so two connections sharing a
+  // conversation id share the one live session rather than each getting their own.
+  // `onClose` is the SINGLE teardown path (live-registry.ts#close): the M1
+  // checkpoint + worktree release happen exactly once here, on whichever of
+  // idle-eviction / the `closeSession` verb / shutdown (`closeAll`) tears a
+  // session down — never in `session-handlers.ts` directly (no double-release).
+  // Idle-eviction never fires on a still-`running` session (see FIX #1's
+  // running-aware re-arm), so this only actually releases a live adapter's
+  // worktree on the explicit `closeSession` verb or shutdown — attended-v1-acceptable.
+  const registry = new LiveSessionRegistry({
+    idleMs: DEFAULT_LIVE_IDLE_MS,
+    onClose: (s) => {
+      deps.checkpoint();
+      if (s.worktree !== undefined) deps.releaseWorktree(s.worktree);
+    },
+  });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
   // reply flushes first, then the teardown runs on the next tick (see `onShutdown`).
@@ -200,6 +226,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   const shutdownHandlers = {
     shutdown: {
       handle: () => {
+        // Tear down every live session/loop before scheduling the injected
+        // teardown, so this runs on every daemon stop regardless of `onShutdown`.
+        registry.closeAll();
         const server = bound.server;
         if (server !== undefined) setTimeout(() => onShutdown(server), 10).unref();
         return { ok: true };
@@ -211,7 +240,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...registryHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
-    ...buildSessionHandlers(deps, connection, store),
+    ...buildSessionHandlers(deps, connection, store, registry),
     // Every provider's models + per-model reasoning levels, merged into one list
     // (cached, fetched lazily; a provider that fails to fetch is logged + skipped
     // for this call, not fatal — it self-heals on the next call since the failure

@@ -36,7 +36,8 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0008](0008-strict-superset.md) — Strict-superset: feature-off ≤ the raw loop
 - [0009](0009-single-deny-channel.md) — Exactly two blocks through one deny channel (SC-1)
 - [0010](0010-append-only-conversation-log.md) — Converge conversation persistence onto a single append-only log (deferred)
+- [0011](0011-daemon-authoritative-live-session.md) — The daemon is the authoritative owner of a live session across turns
 
 ---
 
-_Last reviewed: 2026-07-06_
+_Last reviewed: 2026-07-07_

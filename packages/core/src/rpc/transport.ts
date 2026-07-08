@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { serveOverStream, type StreamHandlers } from './stream.js';
+import { serveOverStream, type DuplexLike, type StreamHandlers } from './stream.js';
 
 /**
  * M8 — the OS-stream transport: bind a Unix domain socket (Linux/macOS) or a
@@ -51,7 +51,22 @@ export function listen(path: string, handlers: StreamHandlers): Promise<RpcServe
     const server = createServer((socket) => {
       // ⚠ D140 seam — the peer-cred (Unix) / DACL (Windows) check belongs here.
       socket.setEncoding('utf8');
-      serveOverStream(socket, handlers);
+      // A write to a socket the peer already dropped (or that was destroyed)
+      // surfaces as an async 'error' event; with no listener, Node treats that as
+      // an uncaught exception and takes the whole daemon down. Swallow it — a
+      // dead connection is not a daemon-level failure (the fan-out crash-safety
+      // in live-session.ts's `emit` already drops the sink that hit this).
+      socket.on('error', () => {});
+      // Adapt the real socket into a `DuplexLike` that also exposes the `close`
+      // event as `onClose`, so `serveOverStream`'s connection-close teardown (the
+      // seam `session-handlers.ts` uses to release its per-connection sinks) is
+      // wired for real connections, not just test doubles.
+      const duplex: DuplexLike = {
+        on: (event, listener) => socket.on(event, listener),
+        write: (data) => socket.write(data),
+        onClose: (listener) => socket.on('close', listener),
+      };
+      serveOverStream(duplex, handlers);
     });
 
     server.once('error', reject);

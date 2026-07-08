@@ -366,6 +366,8 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('recompilePrompt', params);
     case 'interruptSession':
       return proxyDaemon('interruptSession', params);
+    case 'subscribeSession':
+      return proxyDaemon('subscribeSession', params);
     case 'listModels':
       return proxyDaemon('listModels');
     case 'listRoles':

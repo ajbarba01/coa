@@ -67,4 +67,24 @@ describe('listen — JSON-RPC over a real OS pipe/socket', () => {
 
     await expect(listen(path, handlers)).rejects.toThrow();
   });
+
+  it('keeps serving after a client abruptly destroys its connection (FIX #2a socket crash-safety)', async () => {
+    const path = testPath();
+    server = await listen(path, handlers);
+
+    const sock = connect(path);
+    sock.on('error', () => {}); // this test destroys the CLIENT end with an error on purpose
+    await new Promise<void>((resolve) => sock.on('connect', () => resolve()));
+    // An abrupt, non-graceful teardown — the kind of drop that can surface as a
+    // server-side socket 'error' (e.g. on a subsequent write). Without the
+    // `socket.on('error', …)` no-op registered in `transport.ts`, an unhandled
+    // 'error' event on the server-side socket would crash the whole process.
+    sock.destroy(new Error('client dropped'));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The daemon is still alive and accepting connections — proof the drop
+    // didn't take the process down.
+    const res = await roundTrip(path, { jsonrpc: '2.0', id: 99, method: 'ping' });
+    expect(res).toEqual({ jsonrpc: '2.0', id: 99, result: 'pong' });
+  });
 });

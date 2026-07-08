@@ -26,12 +26,27 @@ import { dispatch, type RpcHandlers } from './router.js';
 export interface DuplexLike {
   on(event: 'data', listener: (chunk: Buffer | string) => void): void;
   write(data: string): void;
+  /**
+   * Optional: registers a listener that fires once the underlying connection
+   * closes. Only a real transport (e.g. the `net.Socket`-backed adapter
+   * `transport.ts` builds) provides this; a `DuplexLike` fake/test double that
+   * doesn't model teardown may omit it entirely and still satisfy this type —
+   * `serveOverStream` guards with a runtime check before calling it.
+   */
+  onClose?(listener: () => void): void;
 }
 
-/** The per-connection surface a handler factory receives — today just the push channel. */
+/** The per-connection surface a handler factory receives. */
 export interface RpcConnection {
   /** Send a server→client notification over this connection (no id, no response). */
   push: (note: RpcNotification) => void;
+  /**
+   * Register a listener that fires once this connection's underlying stream
+   * closes (e.g. a dropped socket) — the teardown seam a handler factory uses to
+   * release its own per-connection state (subscriptions, sinks) so a dropped
+   * connection doesn't leak them (see `session-handlers.ts`'s `buildSessionHandlers`).
+   */
+  onClose: (listener: () => void) => void;
 }
 
 /** Static handlers, or a factory that builds them with the connection's push channel bound in. */
@@ -46,7 +61,11 @@ export interface StreamServer {
 
 export function serveOverStream(stream: DuplexLike, handlers: StreamHandlers): StreamServer {
   const push = (note: RpcNotification): void => stream.write(encodeLine(note));
-  const resolved = typeof handlers === 'function' ? handlers({ push }) : handlers;
+  const closeListeners = new Set<() => void>();
+  const onClose = (listener: () => void): void => {
+    closeListeners.add(listener);
+  };
+  const resolved = typeof handlers === 'function' ? handlers({ push, onClose }) : handlers;
   const decoder = new FrameDecoder();
   let chain: Promise<void> = Promise.resolve();
 
@@ -56,6 +75,16 @@ export function serveOverStream(stream: DuplexLike, handlers: StreamHandlers): S
       chain = chain.then(() => handleLine(lineText, resolved, stream));
     }
   });
+
+  // Fire every registered close-listener exactly once the underlying connection
+  // actually closes — a `DuplexLike` that doesn't model teardown (e.g. a test
+  // fake) simply never fires them, which is fine (nothing to release).
+  if (typeof stream.onClose === 'function') {
+    stream.onClose(() => {
+      for (const listener of [...closeListeners]) listener();
+      closeListeners.clear();
+    });
+  }
 
   return { idle: () => chain, push };
 }

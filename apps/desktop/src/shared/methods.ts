@@ -127,6 +127,7 @@ export type MethodName =
   | 'deleteSession'
   | 'recompilePrompt'
   | 'interruptSession'
+  | 'subscribeSession'
   | 'listModels'
   | 'listRoles'
   | 'listPackages'
@@ -167,6 +168,14 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   interruptSession: {
     params: z.object({ id: z.string() }),
     result: z.object({ interrupted: z.boolean() }),
+  },
+  /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
+   *  conversation becomes the active one; the daemon immediately hydrates this
+   *  connection with the session's CURRENT run-status, so a reload mid-run reads
+   *  `running` from the daemon snapshot, not from this renderer's own send-tracking. */
+  subscribeSession: {
+    params: z.object({ id: z.string() }),
+    result: z.object({ subscribed: z.boolean() }),
   },
   listModels: { result: z.array(modelDescriptorSchema) },
   listRoles: { result: RoleSummaryListSchema },

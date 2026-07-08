@@ -19,7 +19,7 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M5 Config Compiler | Done (interface) | Public interface complete: `compile`, `versionGate`, `importBundle`. | — |
 | M6 Workbench | Partial | Governed tools, base tools, and the M6↔M9 bridge (the rented loop is genuinely governed) are live. | AST-ops (rename/rewrite), fork, and the diff engine are not built. |
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
-| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering). | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; SDK-path steering and role/capability enforcement (see "Coa-agent hardening"). |
+| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; SDK-path steering and role/capability enforcement (see "Coa-agent hardening"). |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
 | M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`). | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer; console steer affordance (deferred, see "Coa-agent hardening"). |
 
@@ -41,13 +41,21 @@ For **what each module is** (public interface, owned decisions), see the handoff
   verbs over a per-session `AbortController` + steer queue, landing interrupt on both backends and
   steering on the pure-API path (SC-1: a user stop, never rendered as an error), **now wired end to
   end: the console's Stop button + Esc call `interruptSession` for the active session, and the
-  running pill clears from the daemon's own `'interrupted'` status Push.** Remaining: SDK-path
-  steering AND the console steer affordance (typing a redirect while a turn is running) are
-  **deferred to a future plan bundled with interactive multi-turn** — both require streaming-input
-  mode, which cascades into streamed-turn transcript capture, preamble-under-streaming, and a real-SDK
-  termination assumption needing a live smoke. Also remaining: streaming output, role/capability
-  enforcement, the system-prompt viewer, and the apply-as-update injection spike — see "Coa-agent
-  hardening" below and item G.
+  running pill clears from the daemon's own `'interrupted'` status Push.** Also done: the **long-lived
+  session core (P-α)** — the daemon is now the authoritative owner of a conversation's live state
+  across turns (a `LiveSessionRegistry` of `LiveSession`s; `createSession` is send-or-create, queuing a
+  second send on a live conversation as its next turn instead of starting a fresh one) and a
+  `subscribeSession` verb reattaches a connection with an immediate run-status hydration. **G4
+  (session independence) is now proven end to end:** the console calls `subscribeSession` on every
+  conversation-open (mount-time restore, session switch, and new-session create alike), so a reload
+  mid-run reads `running` from the daemon's own snapshot rather than reconstructing it from this
+  renderer's send-tracking (see `docs/adr/0011`). Remaining: SDK-path steering AND the console steer
+  affordance (typing a redirect while a turn is running) are **deferred to a future plan bundled with
+  interactive multi-turn** — both require streaming-input mode, which cascades into streamed-turn
+  transcript capture, preamble-under-streaming, and a real-SDK termination assumption needing a live
+  smoke. Also remaining: the daemon-singleton registry wiring (item I), streaming output,
+  role/capability enforcement, the system-prompt viewer, and the apply-as-update injection spike —
+  see "Coa-agent hardening" below and item G.
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.
@@ -90,8 +98,11 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   [S]; **`apps/cli` has no `build` script** (only `typecheck` — verified in
   `apps/cli/package.json`) [S], needed so daemon auto-spawn works from a built CLI rather than a
   dev-mode run.
-- **I. M8 deferred** — interactive multi-turn REPL [M]; worktree manager [L]; subagents (D122
-  depth-1 fan-out) [L]; DACL/peer-cred hardening on the named-pipe transport [M].
+- **I. M8 deferred** — the daemon-singleton `LiveSessionRegistry` (threaded into `apps/cli`'s daemon
+  composition, with running-aware idle-timeout eviction, `onClose`-hooked checkpoint/worktree-release, and
+  `registry.closeAll()` wired into shutdown) is DONE; interactive multi-turn REPL / streaming-input mode [M];
+  worktree manager [L]; subagents (D122 depth-1 fan-out) [L]; DACL/peer-cred hardening on the
+  named-pipe transport [M].
 - **J. M1 graph hardening (GRF-*)** — calls/inherits/weight edges, an SCC model, temporal
   projection [L]; underpins M3 staleness and M4 health scoring.
 
@@ -164,4 +175,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-07-07_
+_Last reviewed: 2026-07-08_

@@ -41,6 +41,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
+    subscribeSession: vi.fn().mockResolvedValue({ subscribed: true }),
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
@@ -244,6 +245,31 @@ describe('startConsole (inspector-first)', () => {
       emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'error' });
     });
     expect(dock().textContent).toContain('idle');
+  });
+
+  it('hydrates the run-status pill from the daemon on connect (G4 reattach), not from local send-tracking', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    // The active conversation ('c1', opened by the mount-time initSessions restore) must
+    // have subscribed to the daemon's live session — the reattach that lets a fresh
+    // renderer (e.g. a reload mid-run) hydrate from the daemon's snapshot.
+    expect(bridge.subscribeSession).toHaveBeenCalledWith({ id: 'c1' });
+
+    // Simulate the daemon's subscribe-time hydration: a running status push arrives with
+    // no local send/startSession issued in this renderer instance.
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    });
+    expect(dock().textContent).toContain('running for');
+    expect(bridge.startSession).not.toHaveBeenCalled();
   });
 
   it('clears the status pill when the dispatch itself fails', async () => {

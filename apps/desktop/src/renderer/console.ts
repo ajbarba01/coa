@@ -80,6 +80,11 @@ export interface ConsoleBridge {
    *  Advisory (SC-1 — a user stop, never a governance block): the pill clears via the
    *  daemon's own `'interrupted'` status Push, not this call's result. */
   interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
+  /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
+   *  conversation becomes active; the daemon immediately hydrates this connection with
+   *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
+   *  daemon snapshot rather than from this renderer's own send-tracking (docs/adr/0011). */
+  subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
   /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
    *  worktree by main). Advisory — resolves a result; never blocks (SC-1). */
   openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
@@ -326,7 +331,12 @@ export async function startConsole(
     push();
   }
 
-  /** Open a session: reload its persisted transcript and make it active. */
+  /** Open a session: reload its persisted transcript and make it active. Also
+   *  (re)subscribes to the daemon's live session (G4 reattach) so a fresh mount —
+   *  e.g. a reload mid-run — hydrates `runStatus` from the daemon's own snapshot
+   *  instead of reconstructing it from this renderer's send-tracking (docs/adr/0011).
+   *  Fire-and-forget like `interruptSession`: the pill is driven by the resulting
+   *  status Push (the existing `onPush` handler below), not by this call's result. */
   async function openSession(id: string): Promise<void> {
     const loaded = await settle(() => bridge.reloadConversation({ id }));
     if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
@@ -334,6 +344,7 @@ export async function startConsole(
       loaded.status === 'ok' ? { status: 'ok', value: turnsBySession.get(id) ?? [] } : loaded;
     state = { ...state, data: { ...state.data, turns }, ui: { ...state.ui, activeSessionId: id } };
     push();
+    void bridge.subscribeSession({ id }).catch(() => {});
   }
 
   /** Clear the active selection when no session remains. */

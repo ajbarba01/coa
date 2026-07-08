@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 class FakeStream implements DuplexLike {
   private listeners: ((chunk: string) => void)[] = [];
+  private closeListeners: (() => void)[] = [];
   readonly writes: string[] = [];
 
   on(event: 'data', listener: (chunk: string) => void): void {
@@ -16,6 +17,14 @@ class FakeStream implements DuplexLike {
   }
   emit(chunk: string): void {
     for (const l of this.listeners) l(chunk);
+  }
+  /** Optional in `DuplexLike` — this fake DOES model it, so tests can simulate a
+   *  real connection closing. */
+  onClose(listener: () => void): void {
+    this.closeListeners.push(listener);
+  }
+  triggerClose(): void {
+    for (const l of [...this.closeListeners]) l();
   }
 }
 
@@ -115,5 +124,23 @@ describe('serveOverStream — JSON-RPC over a byte stream', () => {
       { jsonrpc: '2.0', method: 'pushed' },
       { jsonrpc: '2.0', id: 1, result: 'ok' },
     ]);
+  });
+
+  it('fires a connection.onClose listener once the underlying stream closes (FIX #2b)', () => {
+    const stream = new FakeStream();
+    const closed: string[] = [];
+    serveOverStream(stream, (conn) => {
+      conn.onClose(() => closed.push('a'));
+      conn.onClose(() => closed.push('b'));
+      return handlers;
+    });
+
+    expect(closed).toEqual([]); // not fired yet — the stream hasn't closed
+    stream.triggerClose();
+    expect(closed).toEqual(['a', 'b']);
+
+    // Firing again does not re-invoke already-fired listeners (fired once, then cleared).
+    stream.triggerClose();
+    expect(closed).toEqual(['a', 'b']);
   });
 });

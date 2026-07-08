@@ -1,0 +1,139 @@
+import { LiveSession } from './live-session.js';
+
+/** A cancellable handle returned by `setTimer`. */
+interface TimerHandle {
+  clear: () => void;
+}
+
+/**
+ * Constructor options for {@link LiveSessionRegistry}. `now` and `setTimer`
+ * are injectable so idle-timeout behavior is deterministic in tests; `now` is
+ * reserved for future use (e.g. surfacing last-activity timestamps).
+ */
+export interface LiveRegistryOptions {
+  idleMs?: number;
+  now?: () => number;
+  setTimer?: (fn: () => void, ms: number) => TimerHandle;
+  /**
+   * Fired once, synchronously, from `close(id)` (the SINGLE teardown path — see
+   * `close` below) right before the session is torn down and removed: idle-evict,
+   * the `closeSession` verb, and `closeAll()` (daemon shutdown) all route through
+   * it exactly once per session. This is where a caller (e.g. `apps/cli`) hangs
+   * the M1 checkpoint + worktree release so cleanup happens in exactly one place.
+   */
+  onClose?: (session: LiveSession) => void;
+}
+
+interface Entry {
+  session: LiveSession;
+  timer: TimerHandle | undefined;
+}
+
+function defaultSetTimer(fn: () => void, ms: number): TimerHandle {
+  const h = setTimeout(fn, ms);
+  if (typeof h.unref === 'function') h.unref();
+  return { clear: () => clearTimeout(h) };
+}
+
+/**
+ * The daemon-wide home for every conversation's `LiveSession`, keyed by
+ * conversation id. Owns idle-timeout lifecycle: a session left untouched for
+ * `idleMs` is closed and evicted automatically, so a long-lived daemon
+ * doesn't accumulate abandoned sessions.
+ */
+export class LiveSessionRegistry {
+  #entries = new Map<string, Entry>();
+  #idleMs: number | undefined;
+  #setTimer: (fn: () => void, ms: number) => TimerHandle;
+  #onClose: ((session: LiveSession) => void) | undefined;
+
+  constructor(options: LiveRegistryOptions = {}) {
+    this.#idleMs = options.idleMs;
+    this.#setTimer = options.setTimer ?? defaultSetTimer;
+    this.#onClose = options.onClose;
+  }
+
+  /** Look up an existing session, or create and register a new one. */
+  getOrCreate(id: string): { session: LiveSession; created: boolean } {
+    const existing = this.#entries.get(id);
+    if (existing) return { session: existing.session, created: false };
+    const session = new LiveSession(id);
+    this.#entries.set(id, { session, timer: undefined });
+    this.#arm(id);
+    return { session, created: true };
+  }
+
+  /** Look up a session without creating one. */
+  get(id: string): LiveSession | undefined {
+    return this.#entries.get(id)?.session;
+  }
+
+  /**
+   * The SINGLE teardown path for a session — idle-eviction, the `closeSession`
+   * verb, and `closeAll()` (shutdown) all call this and only this. Clears the
+   * idle timer, aborts an in-flight turn (if any), runs `onClose` (the
+   * checkpoint/worktree-release hook), closes the session's turn channel, and
+   * removes it from the registry.
+   *
+   * With idle-eviction now running-aware (see `#onIdleFire`), this only ever
+   * aborts a turn on the explicit `closeSession` verb or on shutdown — never on
+   * a silent idle-timeout race against a genuinely active adapter (v1-acceptable
+   * per docs/adr/0011).
+   */
+  close(id: string): void {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    entry.timer?.clear();
+    const { session } = entry;
+    if (session.control !== undefined) {
+      // SC-1: a close-triggered abort is a user-style stop, never a governance
+      // block — mark it interrupted BEFORE aborting so `session-handlers.ts`'s
+      // settlement (the same guard `interruptSession` relies on) suppresses the
+      // resulting throw/settle instead of rendering it as an error.
+      session.control.interrupted = true;
+      session.control.controller.abort();
+    }
+    this.#onClose?.(session);
+    session.close();
+    this.#entries.delete(id);
+  }
+
+  /** Close and remove every registered session. */
+  closeAll(): void {
+    for (const id of [...this.#entries.keys()]) this.close(id);
+  }
+
+  /** Reset the idle timer for `id` (never stacks timers). Called on any turn activity. */
+  touch(id: string): void {
+    if (!this.#entries.has(id)) return;
+    this.#arm(id);
+  }
+
+  /** Clear any existing idle timer for `id` and, when `idleMs` is set, arm a fresh one. */
+  #arm(id: string): void {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    entry.timer?.clear();
+    entry.timer = undefined;
+    if (this.#idleMs === undefined) return;
+    entry.timer = this.#setTimer(() => this.#onIdleFire(id), this.#idleMs);
+  }
+
+  /**
+   * The idle timer fired for `id`. A session still genuinely `running` a turn
+   * (FIX #1) is NOT evicted — that would detach the loop mid-run, orphaning it
+   * from `interruptSession`/`steerSession` and risking a second `LiveSession`
+   * minted for the same conversation on the next send. Instead, re-arm and keep
+   * waiting; only a session that is actually `idle` when the timer fires is
+   * evicted.
+   */
+  #onIdleFire(id: string): void {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    if (entry.session.state === 'running') {
+      this.#arm(id);
+      return;
+    }
+    this.close(id);
+  }
+}
