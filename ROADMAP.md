@@ -19,7 +19,7 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M5 Config Compiler | Done (interface) | Public interface complete: `compile`, `versionGate`, `importBundle`. | — |
 | M6 Workbench | Partial | Governed tools, base tools, and the M6↔M9 bridge (the rented loop is genuinely governed) are live. | AST-ops (rename/rewrite), fork, and the diff engine are not built. |
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
-| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; SDK-path steering and role/capability enforcement (see "Coa-agent hardening"). |
+| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`): it holds one `query()` open across turns, selected by the abstract `sessionStrategy(provider)` verdict (never a backend branch), and a **live smoke** (`streaming-smoke.live.test.ts`, `COA_LIVE`-gated) verified held-open multi-turn + cross-turn memory + graceful termination against the real SDK. A pushed steer is **queued** as the next turn (the SDK has no mid-turn inject); barge-in redirect is a follow-up. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; SDK-path barge-in (true mid-turn redirect via `query.interrupt()`+push) + the console steer affordance; role/capability enforcement (see "Coa-agent hardening"). |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
 | M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`). | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer; console steer affordance (deferred, see "Coa-agent hardening"). |
 
@@ -49,11 +49,19 @@ For **what each module is** (public interface, owned decisions), see the handoff
   (session independence) is now proven end to end:** the console calls `subscribeSession` on every
   conversation-open (mount-time restore, session switch, and new-session create alike), so a reload
   mid-run reads `running` from the daemon's own snapshot rather than reconstructing it from this
-  renderer's send-tracking (see `docs/adr/0011`). Remaining: SDK-path steering AND the console steer
-  affordance (typing a redirect while a turn is running) are **deferred to a future plan bundled with
-  interactive multi-turn** — both require streaming-input mode, which cascades into streamed-turn
-  transcript capture, preamble-under-streaming, and a real-SDK termination assumption needing a live
-  smoke. Also remaining: the daemon-singleton registry wiring (item I), streaming output,
+  renderer's send-tracking (see `docs/adr/0011`). **The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`):**
+  it holds ONE `query()` open across a session's turns, fed the session's user turns (and each steer) as a
+  derived `AsyncIterable<string>` — selected by an abstract `sessionStrategy(provider)` verdict in the
+  composition root (held-open for the SDK, per-turn for the pure-API backends), never a backend branch in M8.
+  Streamed-turn transcript capture, preamble-under-streaming, and per-turn-boundary flush all landed with it,
+  and a **live smoke** (`streaming-smoke.live.test.ts`, gated behind `COA_LIVE`, skipped by default) verified
+  against the real `@anthropic-ai/claude-agent-sdk` `query()`: held-open multi-turn, cross-turn memory on one
+  server session, and graceful termination on iterable-close all hold. The gate also established the SDK's
+  **steering ceiling** — a pushed steer is **queued** and runs as the next turn (the SDK has no mid-turn inject
+  primitive; upstream feature #50246 pending), so SDK steering is a queued warm follow-up, not mid-turn
+  redirect. Remaining on that path: **barge-in** (true mid-turn redirect via the SDK's turn-level
+  `query.interrupt()` + push — its own follow-up, the neutral queue-vs-barge-in seam for both backends), and
+  the **console steer affordance** (typing a redirect while a turn is running). Also remaining: the daemon-singleton registry wiring (item I), streaming output,
   role/capability enforcement, the system-prompt viewer, and the apply-as-update injection spike —
   see "Coa-agent hardening" below and item G.
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
@@ -118,9 +126,14 @@ first genuine increment of coa's Pieces/packages/skills system, not throwaway pl
   flush discards only the in-progress round-trip, never the completed transcript) **and is now wired
   to the console (M10): a Stop button and Esc, visible only while a turn is running, call
   `interruptSession` for the active session** — never rendered as an error affordance (SC-1). Steering
-  (mid-turn redirection, queue-only — no inject-now mode) lands on the pure-API path only. SDK-path
-  steering, and the console's own steer affordance (typing a redirect mid-turn), are **deferred to a
-  future plan bundled with interactive multi-turn** (both need streaming-input mode).
+  (mid-turn redirection, queue-only — no inject-now mode) lands on the pure-API path via `drainSteer`;
+  the **Claude backend now holds one `query()` open across turns (P-β; `docs/adr/0012`)** — a steer is pushed
+  into its live input feed (selected by the abstract `sessionStrategy(provider)` verdict, never a backend
+  branch) and **live-smoke-verified** to be **queued** as the next turn: the Agent SDK has no mid-turn inject,
+  so SDK steering is a queued warm follow-up, not mid-turn redirect. Retired the prior deferral (the held-open
+  streaming-input substrate now exists and is proven live). What remains: **barge-in** (true mid-turn redirect
+  via the SDK's turn-level `query.interrupt()` + push — the neutral queue-vs-barge-in seam for both backends,
+  its own follow-up) and the **console's own steer affordance** (typing a redirect mid-turn).
 - **H2 Error resilience** — done. Both governed loops now flush the completed transcript on every
   exit path before the resume token is cleared, so completed blocks survive a mid-turn error instead
   of stranding in-turn edits on disk while dropping them from the conversation (proven by a

@@ -230,6 +230,7 @@ export {
   closeSession,
   type SessionDeps,
   type SessionAdapterInit,
+  type SessionStrategy,
   type ActiveAccountResolution,
   type AssemblePiecesContext,
 } from './session/session.js';

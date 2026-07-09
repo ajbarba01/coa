@@ -2,6 +2,8 @@ import { z } from 'zod';
 import {
   modelSelectionSchema,
   type BackendMessage,
+  type CapabilityFrame,
+  type NeutralConfig,
   type RpcNotification,
   type TurnFrame,
 } from '@coa/shared';
@@ -14,12 +16,14 @@ import { describeLoopFailure } from './loop-failure.js';
 import type { LiveSession, Sink, TurnRequest } from './live-session.js';
 import type { LiveSessionRegistry } from './live-registry.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
+import { InputChannel } from './input-channel.js';
 import {
   configHashOf,
   frozenModelMatches,
   modelPromptKeyOf,
   promptVersionOf,
   type FrozenCompilation,
+  type ModelPromptKey,
   type PromptConfig,
 } from './prompt-freeze.js';
 
@@ -117,6 +121,92 @@ function turnRequestFromParams(params: CreateParams): TurnRequest {
   };
 }
 
+/** The persistence target for a turn: the conversation id + its store, or `undefined`
+ *  for an ephemeral session (no `conversationId`). */
+interface PersistIn {
+  convId: string;
+  store: ConversationStore;
+}
+
+/** The per-turn facts the persistence prelude computes and the `createSession` hooks
+ *  consume — shared verbatim by the `per-turn` and `held-open` establishment paths. */
+interface PreparedTurn {
+  persistIn: PersistIn | undefined;
+  role: string;
+  provider: string;
+  model: string | undefined;
+  modelKey: ModelPromptKey;
+  currentConfig: PromptConfig;
+  plan: MemoryPlan;
+  frozen: FrozenCompilation | undefined;
+  promptVersion: string | undefined;
+}
+
+/** The subset of a `createSession` request that carries memory + persistence — spread
+ *  into the call by both drive strategies (built by `buildPersistenceHooks`). */
+interface PersistenceHooks {
+  resume?: string;
+  history?: readonly BackendMessage[];
+  deliverHistoryAsPreamble?: true;
+  frozen?: { neutral: NeutralConfig; frame: CapabilityFrame };
+  onCompile?: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }) => void;
+  onBackendSession?: (id: string) => void;
+  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
+}
+
+/**
+ * A single held-open SDK query (the streaming-input strategy, docs/adr/0012): its
+ * derived input feed, the current turn's boundary latch, the persistence target, and
+ * the long-lived `createSession` promise. `close` ends the feed so the query
+ * terminates after the last result; `terminated` guards a settled query.
+ */
+interface HeldQuery {
+  configKey: string;
+  channel: InputChannel;
+  persistIn: PersistIn | undefined;
+  /** The in-flight turn's completion latch — resolved on its `turn-boundary` frame
+   *  (or when the query settles). `undefined` between turns. */
+  boundary: Deferred | undefined;
+  terminated: boolean;
+  close: () => void;
+  done: Promise<void>;
+}
+
+/** A minimal resolve-only latch — one per held-open turn, awaited by the driver and
+ *  resolved from the turn-boundary frame (or query settlement). */
+interface Deferred {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
+function deferred(): Deferred {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/**
+ * The identity of a held-open query's prompt-shaping config + model. A later turn
+ * whose key differs (a mid-conversation model/role/scope switch) cannot ride the open
+ * query — the prompt/model were fixed when it was created — so the driver re-establishes
+ * (docs/adr/0012, R4). The model IS part of the key (unlike the drift/`configHash`),
+ * since the held query pinned it.
+ */
+function configKeyOf(turn: TurnRequest, role: string): string {
+  return JSON.stringify({
+    provider: turn.model?.provider ?? 'claude',
+    model: turn.model?.model ?? null,
+    reasoning: turn.model?.reasoning ?? null,
+    role,
+    roles: turn.roles ? [...turn.roles].sort() : null,
+    packageIds: turn.packageIds ?? null,
+    exclude: turn.exclude ?? null,
+    scope: turn.scope ?? '',
+  });
+}
+
 export function buildSessionHandlers(
   deps: SessionDeps,
   connection: RpcConnection,
@@ -149,218 +239,442 @@ export function buildSessionHandlers(
   });
 
   /**
-   * Run ONE turn of `session` through today's per-turn `createSession`
-   * (session.ts) — the neutral facade both backends run unchanged (D85; see
-   * docs/adr/0011). `persistentStore` is fixed at session-creation time:
-   * `undefined` for an ephemeral session (no `conversationId` on the founding
-   * request), even if a store happens to be wired to this connection.
+   * The per-turn persistence prelude shared by BOTH drive strategies (D85): create
+   * the conversation if new, decide the memory hand-off (resume/replay/preamble),
+   * pin the effective selection, auto-title, and append this turn's user prompt —
+   * advancing `seqBox` past it. The `seqBox` is a shared cursor: for a `per-turn`
+   * turn it is fresh; for the `held-open` strategy it is the query-scoped cursor the
+   * long-lived record closure keeps incrementing, so a later turn's user prompt
+   * never collides with the prior turn's streamed frames. Ephemeral (no-store) turns
+   * carry no memory and start at `seq` 0.
+   */
+  function prepareTurnPersistence(
+    turn: TurnRequest,
+    session: LiveSession,
+    persistentStore: ConversationStore | undefined,
+    seqBox: { value: number },
+  ): PreparedTurn {
+    const meta = turnMeta.get(turn);
+    const role = meta?.role ?? '';
+    const persistIn: PersistIn | undefined =
+      persistentStore !== undefined ? { convId: session.id, store: persistentStore } : undefined;
+    const provider = turn.model?.provider ?? 'claude';
+    const model = turn.model?.model;
+    const modelKey = modelPromptKeyOf(turn.model);
+    const currentConfig: PromptConfig = {
+      role,
+      ...(turn.roles !== undefined ? { roles: [...turn.roles].sort() } : {}),
+      ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
+      ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+    };
+    let plan: MemoryPlan = { history: [], deliverHistoryAsPreamble: false };
+    let frozen: FrozenCompilation | undefined;
+    let promptVersion: string | undefined;
+    seqBox.value = 0;
+
+    if (persistIn !== undefined) {
+      const { convId: id, store: cs } = persistIn;
+      if (cs.getMeta(id) === undefined) {
+        cs.create({
+          // Known mock coupling: `agentRef` stands in for a real agent reference;
+          // prefer the first selected role when present.
+          id,
+          agentRef: turn.roles?.[0] ?? role,
+          title: deriveTitle(turn.input),
+          scope: turn.scope ?? '',
+        });
+      }
+      const prior = cs.reload(id);
+      const transcript = cs.loadBackendMessages(id);
+      const storedFrozen = cs.getCompilation(id);
+      // Reuse the frozen prompt only when the send's model matches the one it was
+      // compiled with; a model switch drops it here (undefined ⇒ recompile), so the
+      // `## Model` line is re-authored — silently, WITHOUT touching drift.
+      frozen =
+        storedFrozen !== undefined && frozenModelMatches(storedFrozen, modelKey)
+          ? storedFrozen
+          : undefined;
+      promptVersion = frozen?.promptVersion;
+      const priorMeta = cs.getMeta(id);
+      seqBox.value = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
+      if (prior.length === 0) {
+        const title = cs.getMeta(id)?.title;
+        if (title === undefined || title === '' || title === 'new session') {
+          cs.rename(id, deriveTitle(turn.input));
+        }
+      }
+      // Decide the memory hand-off BEFORE re-pinning the selection (the plan reads the
+      // PRIOR turn's resume stamp), then pin what this turn runs on so a restart/next
+      // turn routes to the same backend the memory lives in.
+      plan = planMemory({
+        provider,
+        ...(model !== undefined ? { model } : {}),
+        ...(promptVersion !== undefined ? { promptVersion } : {}),
+        meta: priorMeta,
+        transcript,
+      });
+      cs.setSelection(id, {
+        provider,
+        ...(model !== undefined ? { model } : {}),
+        ...(turn.model?.reasoning !== undefined ? { reasoning: turn.model.reasoning } : {}),
+      });
+      // Persist (but never push — the console already showed it optimistically) the user turn.
+      cs.append(id, [{ seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } }]);
+      seqBox.value += 1;
+    }
+
+    return { persistIn, role, provider, model, modelKey, currentConfig, plan, frozen, promptVersion };
+  }
+
+  /**
+   * Build the `createSession` persistence hooks from a prepared turn — the memory
+   * hand-off (`resume`/`history`/preamble), the frozen-prompt reuse or fresh-compile
+   * capture, and the backend-session/transcript persistence. Owns the mutable
+   * `promptVersion` the compile capture writes and the session/transcript stamps read.
+   */
+  function buildPersistenceHooks(prep: PreparedTurn): PersistenceHooks {
+    const { persistIn, plan, frozen, currentConfig, modelKey, provider, model } = prep;
+    let promptVersion = prep.promptVersion;
+    return {
+      ...(plan.resume !== undefined ? { resume: plan.resume } : {}),
+      ...(plan.history.length > 0 ? { history: plan.history } : {}),
+      ...(plan.deliverHistoryAsPreamble ? { deliverHistoryAsPreamble: true as const } : {}),
+      // Reuse the frozen prompt when the session has one; otherwise compile fresh and
+      // freeze the result (first turn only).
+      ...(frozen !== undefined ? { frozen: { neutral: frozen.neutral, frame: frozen.frame } } : {}),
+      ...(persistIn !== undefined && frozen === undefined
+        ? {
+            onCompile: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }): void => {
+              promptVersion = promptVersionOf(compiled.neutral);
+              persistIn.store.setCompilation(persistIn.convId, {
+                ...compiled,
+                promptVersion,
+                configHash: configHashOf(currentConfig),
+                config: currentConfig,
+                model: modelKey,
+              });
+            },
+          }
+        : {}),
+      ...(persistIn !== undefined
+        ? {
+            // Stamp the resume token with the provider/model + frozen prompt it's valid
+            // for, so a later model/provider switch OR a deliberate recompile falls back
+            // to replay instead of resuming a stale server session.
+            onBackendSession: (id: string): void =>
+              persistIn.store.setBackendSession(persistIn.convId, id, {
+                provider,
+                ...(model !== undefined ? { model } : {}),
+                ...(promptVersion !== undefined ? { promptVersion } : {}),
+              }),
+            onBackendMessages: (messages: readonly BackendMessage[]): void =>
+              persistIn.store.saveBackendMessages(persistIn.convId, messages),
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * Run ONE turn of `session` through today's per-turn `createSession` (session.ts)
+   * — the `per-turn` strategy every pure-API backend runs unchanged (D85; see
+   * docs/adr/0011, docs/adr/0012). A fresh adapter, a one-shot string `input`, and
+   * the loop awaited to completion; the neutral user-stop + steer queue live on
+   * `control` (mode left unset ⇒ steers drain via `drainSteer`).
+   */
+  async function runPerTurn(
+    turn: TurnRequest,
+    session: LiveSession,
+    persistentStore: ConversationStore | undefined,
+  ): Promise<void> {
+    const meta = turnMeta.get(turn);
+    const seqBox = { value: 0 };
+    const prep = prepareTurnPersistence(turn, session, persistentStore, seqBox);
+    let started: { id: string; worktree: string } | undefined;
+    const record = (frame: TurnFrame): void => {
+      if (started === undefined) return;
+      const s = seqBox.value++;
+      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+      if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+    };
+    const controller = new AbortController();
+    const steer: string[] = [];
+
+    try {
+      await createSession(
+        {
+          role: prep.role,
+          ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
+          scope: turn.scope ?? '',
+          input: turn.input,
+          ...(turn.model ? { model: turn.model } : {}),
+          ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
+          ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+          sessionId: session.id,
+          ...buildPersistenceHooks(prep),
+          signal: controller.signal,
+          drainSteer: () => steer.splice(0, steer.length),
+          onStart: (s) => {
+            started = s;
+            session.control = { controller, steer, interrupted: false, mode: 'per-turn' };
+            session.setState('running', s.worktree);
+            // Turn activity resets the idle-eviction clock (FIX #1) — belt-and-braces
+            // alongside the running-aware idle timer in live-registry.ts.
+            registry.touch(session.id);
+            // Hydration reflects the true first status ('running') — this fires AFTER setState.
+            if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
+            meta?.onReady?.(s);
+          },
+          onTurn: record,
+        },
+        deps,
+      );
+      // A pure-API backend aborted at the loop's top-of-iteration boundary settles
+      // cleanly (no throw) — so a completed interrupt is seen here, not in `catch`.
+      const interrupted = session.control?.interrupted === true;
+      session.control = undefined;
+      // SC-1: `interruptSession` already emitted `'interrupted'` synchronously — this
+      // clean-break settle must not emit it again. Only a genuine completion emits `'done'`.
+      if (interrupted) return;
+      if (started !== undefined) emitStatus(session, started.worktree, 'done');
+    } catch (err) {
+      // A mid-turn throw (most often a dropped provider connection) leaves the backend
+      // session id captured but this turn's transcript unsaved — a resume on the next
+      // send would replay a phantom server session. Drop the token so the next send
+      // replays the last-good transcript instead (fail-safe, not resume).
+      if (prep.persistIn !== undefined) prep.persistIn.store.clearBackendSession(prep.persistIn.convId);
+      const interrupted = session.control?.interrupted === true;
+      session.control = undefined;
+      // SC-1: an interrupt is a user stop, not a governance block; `interruptSession`
+      // already emitted `'interrupted'`. Nothing further to surface.
+      if (interrupted) return;
+      const message = describeLoopFailure(err);
+      if (started !== undefined) {
+        record({ t: 'error', message, origin: 'loop' });
+        emitStatus(session, started.worktree, 'error');
+      }
+    }
+  }
+
+  /**
+   * The turn dispatcher (D85; docs/adr/0012). It consults the injected, abstract
+   * per-provider strategy verdict — NEVER the backend itself, keeping composition
+   * backend-neutral (ADR 0002/0004) — and drives the turn accordingly. The
+   * `held-open` strategy keeps ONE `createSession` open across turns, feeding it the
+   * streamed user turns as an {@link InputChannel}; `per-turn` (the default, and every
+   * pure-API backend) runs a fresh `createSession` per turn, unchanged. State that a
+   * held-open query threads across its turns (the open query, its shared `seq` cursor,
+   * and the started handle) is hoisted here, session-scoped, since `makeRunTurn` is
+   * built once per live session.
    */
   function makeRunTurn(persistentStore: ConversationStore | undefined): RunTurn {
-    return async (turn, session) => {
-      const meta = turnMeta.get(turn);
-      const role = meta?.role ?? '';
-      const persistIn =
-        persistentStore !== undefined ? { convId: session.id, store: persistentStore } : undefined;
-      let seq = 0;
-      // The per-turn memory strategy (resume vs. replay vs. preamble), computed from
-      // the stored selection stamp and the canonical transcript. Ephemeral (no-store)
-      // turns carry no memory, so the default is a fresh, memoryless plan.
-      let plan: MemoryPlan = { history: [], deliverHistoryAsPreamble: false };
-      // The provider/model this turn actually routes to (mirrors session.ts's default).
-      const provider = turn.model?.provider ?? 'claude';
-      const model = turn.model?.model;
-      // The model facts the `## Model` prompt line depends on (provider/model/effort).
-      // A frozen prompt is reused only when this matches the model it was compiled
-      // with — a switch recompiles so the line stays correct. This is SEPARATE from
-      // the drift key (configHash): a model switch never trips the drift banner.
-      const modelKey = modelPromptKeyOf(turn.model);
-      // The drift-relevant config that SHAPES the prompt (role + package selection,
-      // never the model) — hashed into the frozen compilation so a later config change
-      // under the frozen prompt is detectable.
-      const currentConfig: PromptConfig = {
-        role,
-        ...(turn.roles !== undefined ? { roles: [...turn.roles].sort() } : {}),
-        ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
-        ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
-      };
-      // The session's frozen compilation (reused every turn for cache warmth) and its
-      // prompt version — undefined until the first turn compiles it below.
-      let frozen: FrozenCompilation | undefined;
-      let promptVersion: string | undefined;
+    // Held-open, query-scoped state (the SDK streaming strategy only). `held` is the
+    // currently open query, if any; `heldSeqBox`/`heldStarted` are the shared cursor +
+    // start handle its long-lived record closure and its per-turn user-append both use.
+    let held: HeldQuery | undefined;
+    const heldSeqBox = { value: 0 };
+    const heldStarted: { current: { id: string; worktree: string } | undefined } = { current: undefined };
 
-      if (persistIn !== undefined) {
-        const { convId: id, store: cs } = persistIn;
-        if (cs.getMeta(id) === undefined) {
-          cs.create({
-            id,
-            // Known mock coupling: `agentRef` stands in for a real agent reference;
-            // prefer the first selected role when present. A proper agent-ref is out
-            // of scope here.
-            agentRef: turn.roles?.[0] ?? role,
-            title: deriveTitle(turn.input),
-            scope: turn.scope ?? '',
-          });
-        }
-        const prior = cs.reload(id);
-        const transcript = cs.loadBackendMessages(id);
-        const storedFrozen = cs.getCompilation(id);
-        // Reuse the frozen prompt only when the send's model matches the one it was
-        // compiled with; a model switch drops it here (undefined ⇒ recompile below),
-        // so the `## Model` line is re-authored — silently, WITHOUT touching drift.
-        frozen =
-          storedFrozen !== undefined && frozenModelMatches(storedFrozen, modelKey)
-            ? storedFrozen
-            : undefined;
-        promptVersion = frozen?.promptVersion;
-        // The PRIOR turn's stored facts (read before this turn re-pins the selection),
-        // shared by the memory plan. Drift + cache-status banners are now computed
-        // PREDICTIVELY in the console (from the pinned selection + the running prompt's
-        // config it reads back), so the daemon no longer emits them on send.
-        const priorMeta = cs.getMeta(id);
-        seq = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
-        // First message of a still-untitled session sets the VSCode-style auto-title.
-        if (prior.length === 0) {
-          const title = cs.getMeta(id)?.title;
-          if (title === undefined || title === '' || title === 'new session') {
-            cs.rename(id, deriveTitle(turn.input));
-          }
-        }
-        // Decide how to hand memory to this turn's backend BEFORE re-pinning the
-        // selection (the plan reads the PRIOR turn's resume stamp), then pin what this
-        // turn runs on so a restart/next turn routes to the same backend the memory
-        // lives in — the fix for a conversation silently reviving on the wrong backend.
-        plan = planMemory({
-          provider,
-          ...(model !== undefined ? { model } : {}),
-          ...(promptVersion !== undefined ? { promptVersion } : {}),
-          meta: priorMeta,
-          transcript,
-        });
-        // Pin the EFFECTIVE selection (provider defaulted to the routed backend), not
-        // the raw request — a send that names only a model must still record which
-        // backend it ran on, or the pin is incomplete and a later provider switch is
-        // invisible to both routing and the cache-status check.
-        cs.setSelection(id, {
-          provider,
-          ...(model !== undefined ? { model } : {}),
-          ...(turn.model?.reasoning !== undefined ? { reasoning: turn.model.reasoning } : {}),
-        });
-        // Persist (but never push — the console already showed it optimistically) the user turn.
-        cs.append(id, [{ seq, frame: { t: 'text', text: turn.input, role: 'user' } }]);
-        seq += 1;
+    const closeHeld = async (): Promise<void> => {
+      if (held === undefined) return;
+      const closing = held;
+      closing.close();
+      await closing.done;
+      if (held === closing) held = undefined;
+    };
+
+    return async (turn, session) => {
+      const provider = turn.model?.provider ?? 'claude';
+      const strategy = deps.sessionStrategy?.(provider) ?? 'per-turn';
+      if (strategy !== 'held-open') {
+        // Provider switched to a per-turn backend mid-conversation ⇒ retire any open
+        // held query first (its input feed closes, the query terminates), then run the
+        // turn through the unchanged per-turn facade.
+        await closeHeld();
+        await runPerTurn(turn, session, persistentStore);
+        return;
       }
 
-      let started: { id: string; worktree: string } | undefined;
-      const record = (frame: TurnFrame): void => {
-        if (started === undefined) return;
-        const s = seq++;
-        session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
-        if (persistIn !== undefined) persistIn.store.append(persistIn.convId, [{ seq: s, frame }]);
-      };
+      const configKey = configKeyOf(turn, turnMeta.get(turn)?.role ?? '');
+      // Re-establish (rather than continue) when the open query can no longer serve this
+      // turn — otherwise a continue pushes into a feed with no consumer and hangs on a
+      // boundary that never resolves. Two cases: (1) it has TERMINATED — a prior interrupt
+      // or mid-turn error already settled the query (its adapter loop is gone); the next
+      // turn must start a fresh one, not resume the dead one (SC-1: an interrupt must leave
+      // the session usable). (2) its pinned prompt-shaping config + model DIFFER from this
+      // turn's — a mid-conversation model/role/scope switch can't ride the pinned query
+      // (R4; docs/adr/0012).
+      if (held !== undefined && (held.terminated || held.configKey !== configKey)) await closeHeld();
 
-      // The neutral user-stop + steer queue for THIS turn (CHAT-10). Created
-      // unconditionally — a turn never interrupted/steered behaves byte-identically
-      // to today (D85); the controller's signal just never aborts and the queue stays
-      // empty. Registered against `control` in `onStart`, keyed by the conversation id
-      // — so `interruptSession`/`steerSession` can find the in-flight turn.
-      const controller = new AbortController();
-      const steer: string[] = [];
-
-      try {
-        await createSession(
-          {
-            role,
-            ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
-            scope: turn.scope ?? '',
-            input: turn.input,
-            ...(turn.model ? { model: turn.model } : {}),
-            ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
-            ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
-            sessionId: session.id,
-            ...(plan.resume !== undefined ? { resume: plan.resume } : {}),
-            ...(plan.history.length > 0 ? { history: plan.history } : {}),
-            ...(plan.deliverHistoryAsPreamble ? { deliverHistoryAsPreamble: true } : {}),
-            // Reuse the frozen prompt when the session has one; otherwise let the loop
-            // compile fresh and freeze the result (first turn only).
-            ...(frozen !== undefined ? { frozen: { neutral: frozen.neutral, frame: frozen.frame } } : {}),
-            ...(persistIn !== undefined && frozen === undefined
-              ? {
-                  onCompile: (compiled) => {
-                    promptVersion = promptVersionOf(compiled.neutral);
-                    persistIn.store.setCompilation(persistIn.convId, {
-                      ...compiled,
-                      promptVersion,
-                      configHash: configHashOf(currentConfig),
-                      config: currentConfig,
-                      model: modelKey,
-                    });
-                  },
-                }
-              : {}),
-            ...(persistIn !== undefined
-              ? {
-                  // Stamp the resume token with the provider/model + frozen prompt it's
-                  // valid for, so a later model/provider switch OR a deliberate recompile
-                  // falls back to replay instead of resuming a stale server session.
-                  onBackendSession: (id: string) =>
-                    persistIn.store.setBackendSession(persistIn.convId, id, {
-                      provider,
-                      ...(model !== undefined ? { model } : {}),
-                      ...(promptVersion !== undefined ? { promptVersion } : {}),
-                    }),
-                  onBackendMessages: (messages: readonly BackendMessage[]) =>
-                    persistIn.store.saveBackendMessages(persistIn.convId, messages),
-                }
-              : {}),
-            signal: controller.signal,
-            drainSteer: () => steer.splice(0, steer.length),
-            onStart: (s) => {
-              started = s;
-              session.control = { controller, steer, interrupted: false };
-              session.setState('running', s.worktree);
-              // Turn activity resets the idle-eviction clock (FIX #1) — belt-and-braces
-              // alongside the running-aware idle timer in live-registry.ts, so a session
-              // whose loop keeps running past `idleMs` is never detached mid-turn.
-              registry.touch(session.id);
-              // Hydration now reflects the true first status ('running') — never a
-              // spurious leading 'idle' — because this fires AFTER setState above.
-              if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
-              meta?.onReady?.(s);
-            },
-            onTurn: record,
-          },
-          deps,
-        );
-        // A pure-API backend aborted at the loop's top-of-iteration boundary settles
-        // cleanly (no throw) — so a completed interrupt is seen here, not in `catch`.
-        const interrupted = session.control?.interrupted === true;
-        session.control = undefined;
-        // SC-1: `interruptSession` already emitted the `'interrupted'` status
-        // synchronously when it aborted — this clean-break settle must not emit it a
-        // second time. Only a genuine, non-interrupted completion emits `'done'`.
-        if (interrupted) return;
-        if (started !== undefined) emitStatus(session, started.worktree, 'done');
-      } catch (err) {
-        // A mid-turn throw (most often a dropped connection to the provider)
-        // leaves the backend session id captured but this turn's canonical
-        // transcript unsaved — a resume on the next send would replay a phantom
-        // server session the model never advanced. Drop the token so the next
-        // send replays the last-good transcript instead (fail-safe, not resume).
-        if (persistIn !== undefined) persistIn.store.clearBackendSession(persistIn.convId);
-        const interrupted = session.control?.interrupted === true;
-        session.control = undefined;
-        // SC-1: an interrupt is a user stop, not a governance block — an aborted
-        // in-flight request (the Claude SDK path, or a pure-API fetch abort) throws
-        // here, but it must never render as an error. `interruptSession` already
-        // emitted the `'interrupted'` status; nothing further to surface.
-        if (interrupted) return;
-        const message = describeLoopFailure(err);
-        if (started !== undefined) {
-          record({ t: 'error', message, origin: 'loop' });
-          emitStatus(session, started.worktree, 'error');
-        }
+      if (held === undefined) {
+        await establishHeldQuery(turn, session, configKey, persistentStore, heldSeqBox, heldStarted, (q) => {
+          held = q;
+        });
+      } else {
+        await continueHeldQuery(turn, session, held, heldSeqBox, heldStarted);
       }
     };
+  }
+
+  /**
+   * Establish a held-open SDK query for this turn: run the full persistence prelude,
+   * create the derived {@link InputChannel} the query reads, start ONE `createSession`
+   * over it (NOT awaited to completion — it spans every later turn), route steers +
+   * the close finalizer at it, feed this turn, and await this turn's boundary. The
+   * per-turn-boundary transcript flush + cost settle happen inside the adapter/loop
+   * at each result; the boundary is observed here from the `turn-boundary` frame.
+   */
+  async function establishHeldQuery(
+    turn: TurnRequest,
+    session: LiveSession,
+    configKey: string,
+    persistentStore: ConversationStore | undefined,
+    seqBox: { value: number },
+    startedRef: { current: { id: string; worktree: string } | undefined },
+    setHeld: (q: HeldQuery) => void,
+  ): Promise<void> {
+    const meta = turnMeta.get(turn);
+    startedRef.current = undefined;
+    const prep = prepareTurnPersistence(turn, session, persistentStore, seqBox);
+    const channel = new InputChannel();
+    const controller = new AbortController();
+    const steer: string[] = [];
+    const boundary = deferred();
+    const query: HeldQuery = {
+      configKey,
+      channel,
+      persistIn: prep.persistIn,
+      boundary,
+      terminated: false,
+      close: () => channel.close(),
+      done: Promise.resolve(),
+    };
+    setHeld(query);
+
+    const record = (frame: TurnFrame): void => {
+      const started = startedRef.current;
+      if (started === undefined) return;
+      const s = seqBox.value++;
+      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+      if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+      // The SDK marks a turn's end with a `turn-boundary` frame (M9); mirror today's
+      // per-turn `'done'` and release the awaiting driver so the next turn can run.
+      if (frame.t === 'turn-boundary') {
+        emitStatus(session, started.worktree, 'done');
+        query.boundary?.resolve();
+        query.boundary = undefined;
+      }
+    };
+
+    // NOT awaited: this createSession spans the whole live session. Its promise settles
+    // only when the input feed closes (clean) or the query aborts (interrupt/error).
+    query.done = createSession(
+      {
+        role: prep.role,
+        ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
+        scope: turn.scope ?? '',
+        input: channel,
+        ...(turn.model ? { model: turn.model } : {}),
+        ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
+        ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+        sessionId: session.id,
+        ...buildPersistenceHooks(prep),
+        signal: controller.signal,
+        drainSteer: () => steer.splice(0, steer.length),
+        onStart: (s) => {
+          startedRef.current = s;
+          session.control = { controller, steer, interrupted: false, mode: 'held-open' };
+          // A steer routes into THIS query's input feed (SDK streaming-input), not the
+          // per-turn `drainSteer` queue.
+          session.setSteerSink((text) => channel.push(text));
+          session.setState('running', s.worktree);
+          registry.touch(session.id);
+          if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
+          meta?.onReady?.(s);
+        },
+        onTurn: record,
+      },
+      deps,
+    ).then(
+      () => settleHeldQuery(session, query, seqBox, startedRef, undefined),
+      (err: unknown) => settleHeldQuery(session, query, seqBox, startedRef, err),
+    );
+
+    // Closing the session ends this query's input feed ⇒ the query terminates after
+    // the last turn's result (docs/adr/0012 termination contract).
+    session.onClose(() => query.close());
+
+    channel.push(turn.input);
+    await boundary.promise;
+  }
+
+  /**
+   * Feed a further turn into an already-open held query (same config): append the
+   * user turn (continuing the shared `seq`), re-mark `running` + (re)subscribe this
+   * connection, push the text into the live feed, and await this turn's boundary.
+   * No new `createSession` — the open query's record closure handles the frames.
+   */
+  async function continueHeldQuery(
+    turn: TurnRequest,
+    session: LiveSession,
+    query: HeldQuery,
+    seqBox: { value: number },
+    startedRef: { current: { id: string; worktree: string } | undefined },
+  ): Promise<void> {
+    const meta = turnMeta.get(turn);
+    if (query.persistIn !== undefined) {
+      query.persistIn.store.append(query.persistIn.convId, [
+        { seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } },
+      ]);
+      seqBox.value += 1;
+    }
+    const started = startedRef.current;
+    if (started !== undefined) {
+      session.setState('running', started.worktree);
+      registry.touch(session.id);
+      // A connection sending its first turn to an already-live session subscribes here
+      // (there is no fresh `onStart` on a continue turn).
+      if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
+    }
+    const boundary = deferred();
+    query.boundary = boundary;
+    query.channel.push(turn.input);
+    await boundary.promise;
+  }
+
+  /**
+   * Settle a held query once its long-lived `createSession` promise resolves (input
+   * feed closed) or rejects (an interrupt-abort or a mid-turn provider drop). Clears
+   * the steer route + control, releases any turn still awaiting a boundary, and — on
+   * a genuine (non-interrupt) error — drops the stale resume token and surfaces the
+   * failure (SC-1: an interrupt is a user stop, never rendered as an error).
+   */
+  function settleHeldQuery(
+    session: LiveSession,
+    query: HeldQuery,
+    seqBox: { value: number },
+    startedRef: { current: { id: string; worktree: string } | undefined },
+    err: unknown,
+  ): void {
+    query.terminated = true;
+    session.setSteerSink(undefined);
+    const interrupted = session.control?.interrupted === true;
+    session.control = undefined;
+    // Release a turn parked on this query's boundary so its driver returns and the
+    // live-session loop can advance/idle instead of hanging on a dead query.
+    const pending = query.boundary;
+    query.boundary = undefined;
+    pending?.resolve();
+    if (err === undefined) return; // clean termination: the per-turn `'done'` already fired.
+    if (query.persistIn !== undefined) query.persistIn.store.clearBackendSession(query.persistIn.convId);
+    if (interrupted) return; // SC-1: `interruptSession` already emitted `'interrupted'`.
+    const started = startedRef.current;
+    if (started !== undefined) {
+      const s = seqBox.value++;
+      const frame: TurnFrame = { t: 'error', message: describeLoopFailure(err), origin: 'loop' };
+      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+      if (query.persistIn !== undefined) query.persistIn.store.append(query.persistIn.convId, [{ seq: s, frame }]);
+      emitStatus(session, started.worktree, 'error');
+    }
   }
 
   return {
@@ -432,12 +746,19 @@ export function buildSessionHandlers(
       return { interrupted: true };
     }),
 
-    // Queue a mid-turn steer (CHAT-10); the pure-API driver drains it at its next
-    // safe boundary (SDK-path steering is a separate follow-up — see the M9 seam).
+    // Queue a mid-turn steer (CHAT-10). The held-open SDK query takes it into its live
+    // input feed (a steer is another streamed user turn — docs/adr/0012); the pure-API
+    // path queues it for `drainSteer` at the driver's next safe boundary. An empty steer
+    // is a no-op — it would otherwise be recorded as a blank user turn in canonical memory.
     steerSession: rpcMethod(steerParams, (params) => {
       const session = registry.get(params.id);
       if (session?.control === undefined) return { steered: false };
-      session.control.steer.push(params.text);
+      if (params.text === '') return { steered: false };
+      if (session.control.mode === 'held-open') {
+        session.pushSteer(params.text);
+      } else {
+        session.control.steer.push(params.text);
+      }
       return { steered: true };
     }),
 

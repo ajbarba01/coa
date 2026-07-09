@@ -6,6 +6,7 @@ import type {
   AssemblePiecesContext,
   SessionAdapterInit,
   SessionDeps,
+  SessionStrategy,
 } from './session.js';
 
 /**
@@ -63,6 +64,12 @@ export interface SessionWiring {
   perSessionCeiling?: number;
   /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
   activeAccount?: (provider: string) => ActiveAccountResolution;
+  /**
+   * The per-provider turn-driving strategy (see `SessionStrategy`). Co-located with
+   * {@link createAdapter} in the composition root so the provider→backend and
+   * provider→strategy maps stay a single source of truth; absent ⇒ per-turn (D85).
+   */
+  sessionStrategy?: (provider: string) => SessionStrategy;
 }
 
 const EMPTY_FRAME: CapabilityFrame = { allow: [], deny: [] };
@@ -90,5 +97,6 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
       ? { perSessionCeiling: wiring.perSessionCeiling }
       : {}),
     ...(wiring.activeAccount ? { activeAccount: wiring.activeAccount } : {}),
+    ...(wiring.sessionStrategy ? { sessionStrategy: wiring.sessionStrategy } : {}),
   };
 }

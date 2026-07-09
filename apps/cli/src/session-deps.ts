@@ -17,7 +17,7 @@ import {
   type SessionDeps,
 } from '@coa/core';
 import { providerSchema, type Provider } from '@coa/shared';
-import { createAdapter, fetchModels } from './adapter-factory.js';
+import { createAdapter, fetchModels, sessionStrategy } from './adapter-factory.js';
 import { buildGenerationProducers } from './generation.js';
 
 /**
@@ -72,6 +72,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     resolveActiveAccount(registry, provider);
   const deps = composeSessionDeps(handle.core, {
     createAdapter,
+    sessionStrategy,
     bindWorktree: () => root,
     assemblePieces: createRegistryAssemblePieces({
       roles: roleRegistry(),

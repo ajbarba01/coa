@@ -70,6 +70,19 @@ export interface ActiveAccountResolution {
   locator?: Locator;
 }
 
+/**
+ * How M8 drives the live session's turns for a given backend (see docs/adr/0012):
+ * `per-turn` runs a fresh {@link createSession} per turn (the pure-API strategy,
+ * unchanged); `held-open` keeps ONE `createSession` open across turns, feeding it
+ * the streamed user turns as an {@link SessionAdapterInit.input} async iterable
+ * (the SDK streaming-input strategy). This is an ABSTRACT verdict — M8 branches on
+ * the returned string, never on which backend is active. The provider→strategy
+ * mapping lives with the {@link SessionDeps.createAdapter} factory in the
+ * composition root (the one place that knows the backend), so the two stay a
+ * single source of truth (ADR 0002/0004).
+ */
+export type SessionStrategy = 'per-turn' | 'held-open';
+
 /** The per-session facts M8 hands `assemblePieces` so it can author the standing scaffold (incl. the env block). */
 export interface AssemblePiecesContext {
   role: string;
@@ -140,6 +153,13 @@ export interface SessionDeps {
   trust?: 'local' | 'imported';
   /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
   activeAccount?: (provider: string) => ActiveAccountResolution;
+  /**
+   * The turn-driving strategy for a provider — see {@link SessionStrategy}. Absent
+   * (or returning `per-turn`) ⇒ today's per-turn drive, byte-identical (D85). Only
+   * a backend the composition root maps to `held-open` gets the SDK streaming-input
+   * drive; M8 consumes the abstract verdict and never learns the backend.
+   */
+  sessionStrategy?: (provider: string) => SessionStrategy;
 }
 
 /** Start a session: bind, compile, render, wire both SC-1 hooks, and run the loop. */

@@ -88,6 +88,37 @@ function resultText(content: unknown): string {
 }
 
 /**
+ * Wrap a streamed user-input feed so each turn's text is recorded into the
+ * canonical transcript at the moment it is CONSUMED, not merely fed. This is the
+ * streaming-input counterpart to the one-shot string path's `rawInput` push: the
+ * SDK's outbound message stream never echoes a fed user turn back (a plain-text
+ * `user` message maps to `[]` above, and a tool_result `user` message is a
+ * different turn entirely), so the only place a streamed user/steer turn is
+ * reliably observable is where it is pulled off the input iterable, ahead of
+ * `toSdkPrompt`. Turns are recorded in the order they are consumed — so the initial
+ * prompt precedes its own assistant/tool messages (those are produced only after the
+ * SDK reads the prompt). It does NOT guarantee an ordering of a later steer relative
+ * to the outbound stream: a steer pushed mid-turn may be recorded before or after the
+ * in-flight turn's messages, since the SDK controls when it pulls the next input.
+ * Every turn fed through this same iterable (the initial prompt, and any later steer
+ * M8 injects into it) is captured the same way, with no separate call needed. An
+ * empty turn is not recorded — it carries no memory and would otherwise write a blank
+ * user turn (mirroring the one-shot path's `rawInput !== ''` guard) — but is still
+ * yielded, so delivery to the model is unchanged.
+ */
+export function tapStreamedUserTurns(
+  input: AsyncIterable<string>,
+  transcript: BackendMessage[],
+): AsyncIterable<string> {
+  return (async function* () {
+    for await (const text of input) {
+      if (text !== '') transcript.push({ role: 'user', content: text });
+      yield text;
+    }
+  })();
+}
+
+/**
  * Trim a transcript so it never ends on an unanswered `tool_use` (the block-preserving
  * invariant the pure-API driver already enforces via `lastConsistent` — see
  * `packages/loop-driver/src/driver.ts`). If the stream ends (an interrupt, or a mid-tool

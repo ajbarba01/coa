@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { BackendMessage } from '@coa/shared';
-import { formatHistoryPreamble, withHistoryPreamble } from './history-preamble.js';
+import {
+  formatHistoryPreamble,
+  withHistoryPreamble,
+  withHistoryPreambleStreaming,
+} from './history-preamble.js';
 
 const history: BackendMessage[] = [
   { role: 'user', content: 'find the pay code' },
@@ -35,5 +39,31 @@ describe('withHistoryPreamble', () => {
 
   it('returns the input unchanged when there is no history', () => {
     expect(withHistoryPreamble('hello', [])).toBe('hello');
+  });
+});
+
+describe('withHistoryPreambleStreaming', () => {
+  it('prepends the preamble to only the first streamed turn, passing later turns through unchanged', async () => {
+    async function* turns(): AsyncGenerator<string> {
+      yield 'now fix it';
+      yield 'also do this';
+    }
+    const seen: string[] = [];
+    for await (const text of withHistoryPreambleStreaming(turns(), history)) seen.push(text);
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBe(withHistoryPreamble('now fix it', history));
+    expect(seen[1]).toBe('also do this');
+  });
+
+  it('degrades to a pure pass-through when there is no history (D85)', async () => {
+    async function* turns(): AsyncGenerator<string> {
+      yield 'hello';
+      yield 'world';
+    }
+    const seen: string[] = [];
+    for await (const text of withHistoryPreambleStreaming(turns(), [])) seen.push(text);
+
+    expect(seen).toEqual(['hello', 'world']);
   });
 });

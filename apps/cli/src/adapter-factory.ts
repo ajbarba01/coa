@@ -11,7 +11,7 @@ import {
   loadEffortCaps as loadLongCatEffortCaps,
   resolveApiKey as resolveLongCatApiKey,
 } from '@coa/adapter-longcat';
-import type { ModelCacheAccount, SessionAdapterInit } from '@coa/core';
+import type { ModelCacheAccount, SessionAdapterInit, SessionStrategy } from '@coa/core';
 import type { ModelDescriptor } from '@coa/shared';
 import type { RuntimeAdapter } from '@coa/spi';
 
@@ -39,6 +39,18 @@ export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
     default:
       throw new Error(`runtime provider '${provider}' is not wired yet`);
   }
+}
+
+/**
+ * The per-provider turn-drive strategy — co-located with {@link createAdapter} so the
+ * provider→backend and provider→strategy maps are a SINGLE source of truth (M8 core
+ * consumes only the abstract verdict, never a provider literal — see docs/adr/0012,
+ * ADR 0002/0004). The Claude SDK backend holds ONE `query` open across turns (its
+ * streaming-input steering); every pure-API backend stays per-turn (a fresh loop +
+ * `drainSteer` each turn). An unknown provider defaults to the safe per-turn floor.
+ */
+export function sessionStrategy(provider: string): SessionStrategy {
+  return provider === 'claude' ? 'held-open' : 'per-turn';
 }
 
 /**

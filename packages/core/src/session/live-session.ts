@@ -39,6 +39,13 @@ export interface TurnControl {
   controller: AbortController;
   steer: string[];
   interrupted: boolean;
+  /**
+   * Which drive strategy owns this turn (see docs/adr/0012). `held-open` ⇒ a steer
+   * is routed into the live query's derived input feed via {@link LiveSession.pushSteer}
+   * (SDK streaming-input); absent/`per-turn` ⇒ a steer queues on {@link steer} for the
+   * pure-API driver to drain at its next safe boundary. Set when the turn starts.
+   */
+  mode?: 'per-turn' | 'held-open';
 }
 
 /**
@@ -59,9 +66,37 @@ export class LiveSession {
   #queue: TurnRequest[] = [];
   #waiter: ((turn: TurnRequest | undefined) => void) | undefined;
   #closed = false;
+  #steerSink: ((text: string) => void) | undefined = undefined;
+  #onClose: Array<() => void> = [];
 
   constructor(id: string) {
     this.id = id;
+  }
+
+  /**
+   * Point the held-open steer route at the live query's derived input feed (the SDK
+   * streaming-input strategy — see docs/adr/0012). Set by the held-open driver when
+   * a query is established, cleared (`undefined`) when it terminates; a `per-turn`
+   * session leaves it unset, so {@link pushSteer} reports it has nowhere to route.
+   */
+  setSteerSink(sink: ((text: string) => void) | undefined): void {
+    this.#steerSink = sink;
+  }
+
+  /** Route a steer into the live held-open query's derived input feed. Returns
+   *  `false` when no held-open query is active (the caller falls back to the
+   *  per-turn `control.steer` queue). */
+  pushSteer(text: string): boolean {
+    if (this.#steerSink === undefined) return false;
+    this.#steerSink(text);
+    return true;
+  }
+
+  /** Register a finalizer run once from {@link close} — where the held-open driver
+   *  ends its derived input feed so the long-lived backend query terminates after
+   *  the last turn's result (docs/adr/0012). */
+  onClose(fn: () => void): void {
+    this.#onClose.push(fn);
   }
 
   /** Add `sink` to the fan-out set, hydrate it with the current status push,
@@ -114,9 +149,16 @@ export class LiveSession {
     });
   }
 
-  /** Mark the channel closed; any parked `nextTurn()` waiter resolves `undefined`. */
+  /** Mark the channel closed; run the registered finalizers (e.g. ending a
+   *  held-open query's input feed), and resolve any parked `nextTurn()` waiter with
+   *  `undefined`. */
   close(): void {
     this.#closed = true;
+    // Finalizers first (and once): ending the held-open input feed lets the backend
+    // query drain its last result before the parked loop wakes and exits.
+    const finalizers = this.#onClose;
+    this.#onClose = [];
+    for (const fn of finalizers) fn();
     if (this.#waiter) {
       const waiter = this.#waiter;
       this.#waiter = undefined;

@@ -1,7 +1,11 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { BackendMessage } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
-import { dropTrailingDanglingToolCall, messageToBackendMessages } from './transcript.js';
+import {
+  dropTrailingDanglingToolCall,
+  messageToBackendMessages,
+  tapStreamedUserTurns,
+} from './transcript.js';
 
 /** Build a minimal SDK message; the mapper reads only a few fields (cast through unknown). */
 function sdk(message: unknown): SDKMessage {
@@ -143,5 +147,50 @@ describe('dropTrailingDanglingToolCall — trims an unanswered tool_use before i
 
   it('leaves an empty transcript unchanged', () => {
     expect(dropTrailingDanglingToolCall([])).toEqual([]);
+  });
+});
+
+describe('tapStreamedUserTurns — records each streamed user/steer turn at consumption time', () => {
+  it('records one streamed turn into the transcript and yields it onward unchanged', async () => {
+    async function* one(): AsyncGenerator<string> {
+      yield 'hello';
+    }
+    const transcript: BackendMessage[] = [];
+    const seen: string[] = [];
+    for await (const text of tapStreamedUserTurns(one(), transcript)) seen.push(text);
+
+    expect(seen).toEqual(['hello']);
+    expect(transcript).toEqual([{ role: 'user', content: 'hello' }]);
+  });
+
+  it('records multiple streamed turns (an initial turn then a steer) in order', async () => {
+    async function* two(): AsyncGenerator<string> {
+      yield 'first';
+      yield 'also do X';
+    }
+    const transcript: BackendMessage[] = [];
+    for await (const _text of tapStreamedUserTurns(two(), transcript)) {
+      // drain
+    }
+
+    expect(transcript).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'user', content: 'also do X' },
+    ]);
+  });
+
+  it('appends to a transcript that already carries prior history, without disturbing it', async () => {
+    async function* one(): AsyncGenerator<string> {
+      yield 'new turn';
+    }
+    const transcript: BackendMessage[] = [{ role: 'assistant', content: 'earlier reply' }];
+    for await (const _text of tapStreamedUserTurns(one(), transcript)) {
+      // drain
+    }
+
+    expect(transcript).toEqual([
+      { role: 'assistant', content: 'earlier reply' },
+      { role: 'user', content: 'new turn' },
+    ]);
   });
 });
