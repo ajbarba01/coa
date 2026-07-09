@@ -499,6 +499,27 @@ describe('runGovernedLoop', () => {
     expect(seen[1]).toContainEqual({ role: 'user', content: 'actually, also do X' });
   });
 
+  it('injects a drainQueuedSteer turn at the close-gate boundary (queue mode: after the turn would end)', async () => {
+    // A one-round-trip complete() that returns a plain answer (no tool calls) so the
+    // close-gate is consulted immediately. The queued steer must be injected there and
+    // the loop must continue for one more round-trip rather than ending.
+    const answers = ['done for now', 'ok, did X too'];
+    let i = 0;
+    const complete = vi.fn(async () => ({
+      text: answers[i++]!, reasoning: '', toolCalls: [], usage: USAGE,
+    }));
+    const gate = vi.fn(() => ({ allow: true }));       // model wants to stop each time
+    const queued = ['also do X'];
+    const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
+    const onMessages = vi.fn();
+    await runGovernedLoop(deps({ complete, gate, drainQueuedSteer, input: 'do it', onMessages }));
+    // Two round-trips: the queued steer forced a continue after the first close-gate.
+    expect(complete).toHaveBeenCalledTimes(2);
+    // The steer landed as a user message between the two assistant answers.
+    const msgs = onMessages.mock.calls.at(-1)![0] as Array<{ role: string; content: string }>;
+    expect(msgs.some((m) => m.role === 'user' && m.content === 'also do X')).toBe(true);
+  });
+
   it('trims the flush to the last complete round-trip when a throw lands mid tool-loop (unrenderable result)', async () => {
     const onMessages = vi.fn();
     const onSettle = vi.fn();

@@ -24,6 +24,11 @@ export interface TurnRequest {
 /** A subscriber callback that receives every push fanned out by a session. */
 export type Sink = (push: Push) => void;
 
+/** Which steer semantics the caller intends (docs/adr/0012 barge-in follow-up):
+ *  `queue` runs strictly after the current turn; `barge-in` stops the current turn
+ *  and runs now. Each strategy realizes both within its own turn model. */
+export type SteerMode = 'queue' | 'barge-in';
+
 /**
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
  * {@link AbortController} whose signal M8 forwards to the adapter as the
@@ -38,6 +43,8 @@ export type Sink = (push: Push) => void;
 export interface TurnControl {
   controller: AbortController;
   steer: string[];
+  /** The `queue`-mode buffer; `steer` is the `barge-in`/next-safe-boundary buffer — pure-API only. */
+  queueSteer: string[];
   interrupted: boolean;
   /**
    * Which drive strategy owns this turn (see docs/adr/0012). `held-open` ⇒ a steer
@@ -66,7 +73,7 @@ export class LiveSession {
   #queue: TurnRequest[] = [];
   #waiter: ((turn: TurnRequest | undefined) => void) | undefined;
   #closed = false;
-  #steerSink: ((text: string) => void) | undefined = undefined;
+  #steerSink: ((text: string, mode: SteerMode) => void) | undefined = undefined;
   #onClose: Array<() => void> = [];
 
   constructor(id: string) {
@@ -79,16 +86,16 @@ export class LiveSession {
    * a query is established, cleared (`undefined`) when it terminates; a `per-turn`
    * session leaves it unset, so {@link pushSteer} reports it has nowhere to route.
    */
-  setSteerSink(sink: ((text: string) => void) | undefined): void {
+  setSteerSink(sink: ((text: string, mode: SteerMode) => void) | undefined): void {
     this.#steerSink = sink;
   }
 
   /** Route a steer into the live held-open query's derived input feed. Returns
    *  `false` when no held-open query is active (the caller falls back to the
    *  per-turn `control.steer` queue). */
-  pushSteer(text: string): boolean {
+  pushSteer(text: string, mode: SteerMode): boolean {
     if (this.#steerSink === undefined) return false;
-    this.#steerSink(text);
+    this.#steerSink(text, mode);
     return true;
   }
 

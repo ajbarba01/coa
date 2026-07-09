@@ -37,6 +37,8 @@ const SANDBOX: CapabilitySet = { allowedTools: [], denyRules: [], permissionMode
 class FrameAdapter implements RuntimeAdapter {
   /** Set by the `steerable` mode once `init.drainSteer` is consulted (test observation point). */
   drained: readonly string[] = [];
+  /** Set by the `steerable` mode once `init.drainQueuedSteer` is consulted (test observation point). */
+  queueDrained: readonly string[] = [];
 
   constructor(
     readonly init: SessionAdapterInit,
@@ -104,6 +106,7 @@ class FrameAdapter implements RuntimeAdapter {
     if (this.steerable) {
       await new Promise((r) => setTimeout(r, 0));
       this.drained = this.init.drainSteer?.() ?? [];
+      this.queueDrained = this.init.drainQueuedSteer?.() ?? [];
       for (const frame of this.frames) this.init.onTurn?.(frame);
       this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
       return;
@@ -684,12 +687,38 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, new LiveSessionRegistry());
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
-    expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also fix the tests' })).toEqual({
+    // `barge-in` mode is this test's intent: a next-safe-boundary inject into the
+    // pure-API `control.steer` buffer that `drainSteer` reads (`queue` mode instead
+    // routes to `control.queueSteer`, drained at the turn-end boundary — Task 4).
+    expect(
+      await handlers['steerSession']!.handle({ id: sessionId, text: 'also fix the tests', mode: 'barge-in' }),
+    ).toEqual({
       steered: true,
     });
     await conn.settled;
 
     expect(adapters[0]?.drained).toEqual(['also fix the tests']);
+  });
+
+  it('routes a queue-mode steer to control.queueSteer, drained via drainQueuedSteer at the close-gate boundary', async () => {
+    const conn = connection();
+    const adapters: FrameAdapter[] = [];
+    const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, new LiveSessionRegistry());
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    // The default mode (no explicit `mode`) is `queue` — this is the regression-window
+    // case (Task 4): a plain steerSession() call must land in `control.queueSteer` and
+    // actually be drained, not silently dropped.
+    expect(
+      await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' }),
+    ).toEqual({
+      steered: true,
+    });
+    await conn.settled;
+
+    expect(adapters[0]?.queueDrained).toEqual(['also do X']);
+    // It must NOT have been routed to the barge-in buffer.
+    expect(adapters[0]?.drained).toEqual([]);
   });
 
   it('interruptSession on an unknown id returns the negative result without throwing', async () => {
@@ -1029,6 +1058,144 @@ function depsHeldOpen(
   };
 }
 
+/**
+ * A held-open adapter that models the I3/SC-1 barge-in contract (docs/adr/0012): it
+ * reports its turn-interrupt handle via `onTurnInterrupt` before consuming any input
+ * (mirroring the real Claude adapter's streaming-input path), runs turn A only to a
+ * PARTIAL frame — never its normal reply — and then blocks until the test's barge-in
+ * calls the reported handle. The interrupt handle emits `interruptFrames` for turn A
+ * (default: a single terminal `turn-boundary`, the success-subtype live-smoke case; a
+ * non-success interrupt scripts an `error` frame + boundary, as turn-frames.ts maps a
+ * non-success result to BOTH) and lets the loop resume, consuming the next turn (the
+ * framed steer) to a normal completion. A later turn whose index equals
+ * `errorOnTurnIndex` emits a genuine `error` frame + boundary instead of the normal
+ * reply — the unrelated failure used to prove `barging` was cleared, not leaked.
+ * Deterministic: turn A's boundary is driven by the interrupt call itself, never a timer.
+ */
+class BargeInAdapter implements RuntimeAdapter {
+  readonly consumed: string[] = [];
+  interruptCalls = 0;
+
+  constructor(
+    readonly init: SessionAdapterInit,
+    /** What the interrupt handle emits to end turn A. */
+    readonly interruptFrames: TurnFrame[] = [{ t: 'turn-boundary', role: 'assistant' }],
+    /** A later turn index (in `consumed` order) that emits a genuine `error` + boundary. */
+    readonly errorOnTurnIndex = -1,
+  ) {}
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  async runLoop(): Promise<void> {
+    let resolveTurnA: (() => void) | undefined;
+    this.init.onTurnInterrupt?.(async () => {
+      this.interruptCalls += 1;
+      for (const frame of this.interruptFrames) this.init.onTurn?.(frame);
+      resolveTurnA?.();
+    });
+    const input = this.init.input;
+    if (typeof input === 'string') throw new Error('BargeInAdapter expects a streamed held-open input');
+    let turnIndex = 0;
+    for await (const text of input) {
+      this.consumed.push(text);
+      if (turnIndex === 0) {
+        // Turn A: a partial frame only — the barge-in interrupts before it completes.
+        this.init.onTurn?.({ t: 'text', text: 'partial' });
+        await new Promise<void>((resolve) => {
+          resolveTurnA = resolve;
+        });
+      } else if (turnIndex === this.errorOnTurnIndex) {
+        // A later, UNRELATED turn that genuinely fails: its error must surface (proving
+        // an earlier barge-in's `barging` suppression did not leak into this turn).
+        this.init.onTurn?.({ t: 'error', message: 'genuine failure', origin: 'loop' });
+        this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+      } else {
+        // Turn B (the framed steer): runs to a normal completion + boundary.
+        this.init.onTurn?.({ t: 'text', text: 'ok' });
+        this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
+        this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+      }
+      turnIndex += 1;
+    }
+  }
+  deliverReminder(): void {}
+  render_context(): void {}
+  inject_runtime(): void {}
+  cache_control(): void {}
+  usageTelemetry(): RuntimeUsage {
+    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  }
+  capabilityProfile() {
+    return barebonesProfile;
+  }
+  refs() {
+    return null;
+  }
+  runEval() {
+    return Promise.reject(new Error('no eval'));
+  }
+}
+
+/**
+ * A held-open adapter whose every turn's boundary is driven explicitly by the test
+ * (`boundaryCurrent()`), so a test can interleave sends/steers with turn completions
+ * deterministically. Each consumed turn emits a distinguishable `reply:<text>` frame,
+ * then parks until the test emits its `turn-boundary`. Used to prove the I3 latch
+ * accounts a queue-mode steer that runs as its own SDK turn.
+ */
+class QueueSteerAdapter implements RuntimeAdapter {
+  readonly consumed: string[] = [];
+  #gate: (() => void) | undefined;
+
+  constructor(readonly init: SessionAdapterInit) {}
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  /** Complete the currently in-flight turn: emit its `turn-boundary` and advance the loop. */
+  boundaryCurrent(): void {
+    const gate = this.#gate;
+    this.#gate = undefined;
+    gate?.();
+  }
+  async runLoop(): Promise<void> {
+    const input = this.init.input;
+    if (typeof input === 'string') throw new Error('QueueSteerAdapter expects a streamed held-open input');
+    for await (const text of input) {
+      this.consumed.push(text);
+      this.init.onTurn?.({ t: 'text', text: `reply:${text}` });
+      this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
+      await new Promise<void>((resolve) => {
+        this.#gate = resolve;
+      });
+      this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+    }
+  }
+  deliverReminder(): void {}
+  render_context(): void {}
+  inject_runtime(): void {}
+  cache_control(): void {}
+  usageTelemetry(): RuntimeUsage {
+    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  }
+  capabilityProfile() {
+    return barebonesProfile;
+  }
+  refs() {
+    return null;
+  }
+  runEval() {
+    return Promise.reject(new Error('no eval'));
+  }
+}
+
 describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/adr/0012)', () => {
   it('feeds two turns of one live session into ONE held-open query, not two createSession calls', async () => {
     const adapters: HeldOpenAdapter[] = [];
@@ -1204,5 +1371,219 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(
       pushes.flatMap((p) => (p.kind === 'turn' && p.frame.t !== 'turn-boundary' ? [p.frame] : [])),
     ).toEqual([{ t: 'text', text: 'ok' }]);
+  });
+
+  it('barge-in interrupts the running turn and runs the framed steer next (I3: resolves the steer turn)', async () => {
+    const adapters: BargeInAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new BargeInAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+    await flush(); // turn A's partial frame lands; the adapter now blocks on the interrupt handle
+
+    expect(
+      await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
+    ).toEqual({ steered: true });
+    await flush();
+    await flush();
+
+    expect(adapters.length).toBe(1);
+    // (a) the turn-interrupt handle was called exactly once.
+    expect(adapters[0]?.interruptCalls).toBe(1);
+    // (b) the framed text — not the bare steer — is what landed in the input feed.
+    expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
+
+    // (c) the driver's turn promise resolves only after the STEER turn's (B) boundary,
+    // not the interrupted turn's (A): exactly one `turn-boundary` frame — A's — precedes
+    // the `done` status, and it is NOT immediately followed by `done` (B's frames land
+    // first).
+    const pushes = pushesOf(conn.pushes);
+    const boundaryIndices = pushes
+      .map((p, i) => (p.kind === 'turn' && p.frame.t === 'turn-boundary' ? i : -1))
+      .filter((i) => i >= 0);
+    const doneIndex = pushes.findIndex((p) => p.kind === 'status' && p.state === 'done');
+    expect(boundaryIndices).toHaveLength(2); // A's boundary, then B's
+    expect(doneIndex).toBeGreaterThan(boundaryIndices[0]!); // NOT resolved right after A
+    expect(doneIndex).toBe(boundaryIndices[1]! + 1); // resolved immediately after B
+  });
+
+  it('suppresses the interrupted turn\'s own error frame — never emitted nor persisted (SC-1)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-bi-'));
+    try {
+      const store = createConversationStore(dir);
+      const adapters: BargeInAdapter[] = [];
+      const conn = connection();
+      const customDeps: SessionDeps = {
+        ...deps([]),
+        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+        createAdapter: (init) => {
+          // A NON-success interrupt: turn A's terminal result maps to an `error` frame
+          // AND a boundary (turn-frames.ts pairs both from one non-success message).
+          const adapter = new BargeInAdapter(init, [
+            { t: 'error', message: 'interrupted mid-flight', origin: 'loop' },
+            { t: 'turn-boundary', role: 'assistant' },
+          ]);
+          adapters.push(adapter);
+          return adapter;
+        },
+      };
+      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+
+      const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+      await flush();
+      expect(
+        await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
+      ).toEqual({ steered: true });
+      await flush();
+      await flush();
+
+      const pushes = pushesOf(conn.pushes);
+      // SC-1: the interrupted turn's error is never surfaced to the session sink…
+      expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
+      expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+      // …nor persisted into canonical memory.
+      expect(store.reload('h1').some((t) => t.frame.t === 'error')).toBe(false);
+      // The framed steer (turn B) still ran to completion, and the driver resolved on it.
+      expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
+      expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not leak barge-in error-suppression into a later turn — a success-subtype interrupt clears it (SC-1)', async () => {
+    const adapters: BargeInAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        // Turn A's interrupt is a SUCCESS subtype: only a boundary, NO error frame — so
+        // `barging` is never decremented by an error and would leak without the reset.
+        // The third consumed turn (index 2, turn C) genuinely fails.
+        const adapter = new BargeInAdapter(init, [{ t: 'turn-boundary', role: 'assistant' }], 2);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+    await flush();
+    // Barge-in during turn A (success-subtype interrupt, then framed steer B runs).
+    await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' });
+    await flush();
+    await flush();
+
+    // A later, unrelated turn C that genuinely fails.
+    await handlers['createSession']!.handle({ input: 'unrelated', conversationId: 'h1' });
+    await flush();
+    await flush();
+
+    expect(adapters.length).toBe(1);
+    expect(adapters[0]?.consumed).toEqual([
+      'go',
+      '[The user interrupted to steer you] redirect',
+      'unrelated',
+    ]);
+    // C's genuine error IS surfaced — the barge-in's `barging` counter was cleared when
+    // the redirect completed, not left to swallow this unrelated turn's failure.
+    const pushes = pushesOf(conn.pushes);
+    expect(
+      pushes.some(
+        (p) => p.kind === 'turn' && p.frame.t === 'error' && p.frame.message === 'genuine failure',
+      ),
+    ).toBe(true);
+  });
+
+  it('a barge-in with no turn in flight is a plain next turn — no interrupt, no framing (SC-1)', async () => {
+    // `control` stays set between turns of a held-open query; a `barge-in` steer arriving
+    // while idle (pendingTurns === 0) must NOT interrupt nothing, frame the text, or bump
+    // the counters — it is just a normal next turn.
+    const adapters: HeldOpenAdapter[] = [];
+    const conn = connection();
+    const handlers = buildSessionHandlers(depsHeldOpen(adapters), conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'first', conversationId: 'h1' });
+    await flush(); // turn 1 completes; the query is open but idle (pendingTurns === 0)
+
+    await handlers['steerSession']!.handle({ id: sessionId, text: 'more', mode: 'barge-in' });
+    await flush();
+    await flush();
+
+    // The raw text — NOT the `FRAME_BARGE_IN`-prefixed form — was fed as a normal turn.
+    expect(adapters.length).toBe(1);
+    expect(adapters[0]?.consumed).toEqual(['first', 'more']);
+  });
+
+  it('counts a queue-mode steer pushed while running, so a LATER turn\'s latch does not resolve early (I3)', async () => {
+    // A queue-mode steer delivered mid-turn runs as its OWN SDK turn (its own boundary).
+    // If that boundary is unaccounted, a later send's latch resolves on it instead of on
+    // the later turn's own boundary (docs/adr/0012 I3) — the desync this test pins down.
+    let adapter: QueueSteerAdapter | undefined;
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        adapter = new QueueSteerAdapter(init);
+        return adapter;
+      },
+    };
+    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    // Turn A starts and parks (running).
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'A', conversationId: 'h1' });
+    await flush();
+
+    // A queue-mode steer (the DEFAULT mode) arrives while A runs — it becomes its own turn.
+    expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'steer' })).toEqual({
+      steered: true,
+    });
+
+    // A boundaries; the steer turn is then consumed and parks (still no completion for A's
+    // driver, which must now also await the steer turn's boundary).
+    adapter!.boundaryCurrent();
+    await flush();
+
+    // A SECOND send C arrives. It must NOT start until A's driver returns (after the steer
+    // turn boundaries) — and once it runs, its latch must ride C's OWN boundary.
+    await handlers['createSession']!.handle({ input: 'C', conversationId: 'h1' });
+    await flush();
+
+    // The steer turn boundaries: this releases A's driver (pendingTurns → 0), after which C
+    // runs and parks. If the steer turn were UNCOUNTED, this boundary would instead resolve
+    // C's latch early (the bug).
+    adapter!.boundaryCurrent();
+    await flush();
+
+    // Finally C boundaries — the only thing that should complete C.
+    adapter!.boundaryCurrent();
+    await flush();
+
+    expect(adapter!.consumed).toEqual(['A', 'steer', 'C']);
+    const pushes = pushesOf(conn.pushes);
+    const idxReplyC = pushes.findIndex((p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text === 'reply:C');
+    expect(idxReplyC).toBeGreaterThanOrEqual(0);
+    const doneIdxs = pushes
+      .map((p, i) => (p.kind === 'status' && p.state === 'done' ? i : -1))
+      .filter((i) => i >= 0);
+    // Exactly one completion per client send (A and C) — the queued steer turn does NOT add a
+    // spurious completion. With the bug there are THREE dones (A, an early C, then C again).
+    expect(doneIdxs).toHaveLength(2);
+    // Only turn A completed before C was ever generated. With the bug, the queued steer's
+    // boundary resolves C's latch early, so TWO dones land before `reply:C`.
+    expect(doneIdxs.filter((i) => i < idxReplyC)).toHaveLength(1);
+    // C's completion rides its own boundary — the last done follows C's content.
+    expect(doneIdxs[doneIdxs.length - 1]!).toBeGreaterThan(idxReplyC);
   });
 });

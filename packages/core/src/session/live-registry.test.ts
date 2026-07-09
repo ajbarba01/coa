@@ -102,7 +102,7 @@ describe('LiveSessionRegistry', () => {
     const r = new LiveSessionRegistry();
     const { session } = r.getOrCreate('c1');
     const controller = new AbortController();
-    session.control = { controller, steer: [], interrupted: false };
+    session.control = { controller, steer: [], queueSteer: [], interrupted: false };
 
     r.close('c1');
 

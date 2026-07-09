@@ -9,7 +9,7 @@ import type {
   Session,
   TurnFrame,
 } from '@coa/shared';
-import type { RuntimeAdapter, RuntimeUsage, StopDecision, ToolCatalogue } from '@coa/spi';
+import type { RuntimeAdapter, RuntimeUsage, StopDecision, ToolCatalogue, TurnInterrupt } from '@coa/spi';
 import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
 
 /**
@@ -62,6 +62,20 @@ export interface SessionAdapterInit {
    * follow-up. Absent ⇒ current behavior byte-identical (D85).
    */
   drainSteer?: () => readonly string[];
+  /**
+   * A synchronous drain of `queue`-mode steers — user turns that should run AFTER the
+   * current turn's work, not at the next round-trip boundary. Only the pure-API
+   * backends consult this today, mirroring {@link drainSteer}'s reach. Absent ⇒
+   * current behavior byte-identical (D85).
+   */
+  drainQueuedSteer?: () => readonly string[];
+  /**
+   * A backend that can stop its current turn while keeping the session alive reports
+   * its turn-interrupt handle here (the Claude SDK's held-open `query.interrupt`). M8
+   * routes a `barge-in` steer through it. Absent ⇒ the backend has no mid-turn
+   * interrupt (per-turn backends); byte-identical to today (D85). See docs/adr/0012.
+   */
+  onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
 }
 
 /** The active-account resolution M8 supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
@@ -194,6 +208,10 @@ export async function createSession(
     signal?: AbortSignal;
     /** M8's per-session steer drain, forwarded to the adapter (see {@link SessionAdapterInit.drainSteer}). */
     drainSteer?: () => readonly string[];
+    /** M8's per-session queued-steer drain, forwarded to the adapter (see {@link SessionAdapterInit.drainQueuedSteer}). */
+    drainQueuedSteer?: () => readonly string[];
+    /** M8's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
+    onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
     /** The session's frozen compilation (neutral config + frame). When present the
      *  prompt is NOT recompiled — the byte-stable frozen prompt is reused (cache
      *  warmth + "static unless raised"); absent ⇒ compile fresh (the first turn). */
@@ -265,6 +283,8 @@ export async function createSession(
       : {}),
     ...(req.signal !== undefined ? { signal: req.signal } : {}),
     ...(req.drainSteer !== undefined ? { drainSteer: req.drainSteer } : {}),
+    ...(req.drainQueuedSteer !== undefined ? { drainQueuedSteer: req.drainQueuedSteer } : {}),
+    ...(req.onTurnInterrupt !== undefined ? { onTurnInterrupt: req.onTurnInterrupt } : {}),
   });
 
   adapter.renderNative(neutral);

@@ -131,23 +131,37 @@ M8 drives a live session by an **abstract strategy verdict**, never by the backe
 - The two-store persistence model (ADR 0010 deferred) is retained; the per-turn-boundary flush is a
   whole-array rewrite of `messages.json` per turn, accepted until 0010 lands.
 
-## Follow-up: mid-turn redirect (barge-in)
+## Follow-up: mid-turn redirect (barge-in) — DELIVERED (2026-07-09)
 
-True mid-turn steering — redirect the agent *while it works* — is out of scope here because the SDK cannot inject
-into a running turn. Its own decision, to be planned separately:
-- A **neutral queue-vs-barge-in steer seam** for EVERY backend (not just Claude): `queue` (run after the current
-  turn) and `barge-in` (stop the current turn, inject now). Pure-API already injects at its loop boundary via
-  `drainSteer`; Claude does `queue` = push and `barge-in` = the SDK's turn-level `query.interrupt()` + push.
-- Claude barge-in wraps the injected turn with framing (e.g. `[The user interrupted to steer you] <message>`) so
-  the model reads a deliberate redirect, not a bare interruption.
-- In-flight work is discarded on barge-in (partial output still preserved by the A1 flush) — the Cline/Goose
-  pattern — accepted as the trade-off for immediacy.
-- **Known limitation to fix in the same follow-up:** the held-open turn-completion latch (`query.boundary`) is a
-  SINGLE slot resolved by any `turn-boundary` frame. Today a queued steer runs as an extra turn whose boundary
-  can resolve a stale/other latch — harmless now (canonical memory stays correct; a stray `'done'` at worst) and
-  not user-reachable (no console steer surface yet), but once steers interleave with real follow-up turns the
-  latch must become per-awaited-turn (or count boundaries), or a follow-up turn's latch resolves early.
+True mid-turn steering — redirect the agent *while it works* — was out of scope in the decision above because a
+pushed message cannot inject into a running turn. It is now delivered on top of this ADR, within its scope (no
+new decision was needed; the live gate confirmed the design):
+
+- A **neutral queue-vs-barge-in steer seam** for EVERY backend. `steerSession` carries `mode`
+  (`queue | barge-in`, default `queue`), realized per strategy — M8 never branches on the backend. Held-open
+  (Claude): `queue` = push into the input feed; `barge-in` = the SDK's turn-level `query.interrupt()` (stops the
+  current turn, keeps the query ALIVE) + a framed push. Pure-API: `barge-in` = the existing `drainSteer` inject at
+  the loop's next round-trip boundary; `queue` = a new `drainQueuedSteer` inject at the point the close-gate would
+  end the turn (run after the current turn's work).
+- Claude barge-in wraps the injected turn with framing (`[The user interrupted to steer you] <message>`) so the
+  model reads a deliberate redirect, not a bare interruption. Pure-API does not frame — it injects at a clean
+  boundary with no bare-interrupt signal to counteract.
+- In-flight generation is discarded on a Claude barge-in (partial output still preserved by the A1 flush) — the
+  Cline/Goose pattern. Pure-API completes the in-flight round-trip (its earliest safe point), so nothing is wasted.
+- **The I3 limitation is fixed:** the single-slot `query.boundary` latch became a **`pendingTurns` count** —
+  incremented on every push into the feed that yields a boundary (the initial turn, a continue turn, AND any
+  steer — queue OR barge-in — pushed while a turn is running) and decremented on each `turn-boundary` frame; the
+  driver's latch resolves only at 0, so an injected steer turn resolves the correct awaited turn rather than a
+  later turn's latch resolving early.
+- **SC-1:** interrupting a running turn surfaces a NON-success result; M8 suppresses its `error` frame (a bounded
+  `barging` counter, cleared when the redirect completes so it can never swallow a later unrelated error) so a
+  barge-in never renders as an error.
+- **Live-verified** (`packages/adapter-claude-sdk/src/barge-in-smoke.live.test.ts`, `COA_LIVE`-gated): interrupting
+  a genuinely-running turn emits the turn's partial `text` blocks (A1-preserved), then a terminal result of subtype
+  `error_during_execution` carrying BOTH an `error` frame and its own `turn-boundary`, after which the framed steer
+  runs as the next turn on the still-open query. This makes the `pendingTurns` accounting exact (the interrupted
+  turn emits its boundary, so no hang) and confirms the `barging` suppression is necessary and sufficient.
 
 ---
 
-_Last reviewed: 2026-07-08_
+_Last reviewed: 2026-07-09_

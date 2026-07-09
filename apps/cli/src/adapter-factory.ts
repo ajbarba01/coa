@@ -101,6 +101,7 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
     ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
+    ...(init.drainQueuedSteer !== undefined ? { drainQueuedSteer: init.drainQueuedSteer } : {}),
   });
 }
 
@@ -118,6 +119,7 @@ export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
+    ...(init.drainQueuedSteer !== undefined ? { drainQueuedSteer: init.drainQueuedSteer } : {}),
   });
 }
 

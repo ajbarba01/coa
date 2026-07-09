@@ -89,6 +89,14 @@ export interface GovernedLoopDeps {
    * byte-identical (D85).
    */
   drainSteer?: () => readonly string[];
+  /**
+   * A synchronous drain of `queue`-mode steers — user turns that should run AFTER the
+   * current turn's work, not at the next round-trip boundary. Consulted at the point the
+   * close-gate would let the turn end: a drained steer is injected and the loop continues
+   * instead of ending ("run after the current turn"). Distinct from `drainSteer`
+   * (`barge-in`, drained at the loop top). Absent ⇒ byte-identical to today (D85).
+   */
+  drainQueuedSteer?: () => readonly string[];
 }
 
 /** Map the governed catalogue to the model-facing tool list. */
@@ -158,7 +166,15 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
         // The model wants to stop — the close-gate decides (SC-1). Allowed ⇒ settle & end;
         // blocked ⇒ inject the reason (as the SDK's Stop hook does) and let it continue.
         const decision = await deps.gate();
-        if (decision.allow) break;
+        if (decision.allow) {
+          const queued = deps.drainQueuedSteer?.() ?? [];
+          if (queued.length > 0) {
+            for (const q of queued) messages.push({ role: 'user', content: q });
+            lastConsistent = messages.length; // a user turn is a consistent boundary
+            continue;                          // run after the current turn's work
+          }
+          break;
+        }
         messages.push({ role: 'user', content: decision.message });
         lastConsistent = messages.length;
         continue;

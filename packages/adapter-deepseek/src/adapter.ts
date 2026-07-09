@@ -86,6 +86,12 @@ export interface DeepSeekAdapterInit {
    * input, not a governance block).
    */
   drainSteer?: () => readonly string[];
+  /**
+   * A synchronous drain of `queue`-mode steers — user turns that should run AFTER the
+   * current turn's work, from M8; the governed loop drains it at the close-gate
+   * boundary (see {@link drainSteer} for the `barge-in` counterpart).
+   */
+  drainQueuedSteer?: () => readonly string[];
 }
 
 /**
@@ -187,6 +193,9 @@ export class DeepSeekAdapter implements RuntimeAdapter {
         : {}),
       ...(this.#init.signal !== undefined ? { signal: this.#init.signal } : {}),
       ...(this.#init.drainSteer !== undefined ? { drainSteer: this.#init.drainSteer } : {}),
+      ...(this.#init.drainQueuedSteer !== undefined
+        ? { drainQueuedSteer: this.#init.drainQueuedSteer }
+        : {}),
       onSettle: (sessionId, usage) => {
         this.#lastUsage = usage;
         this.#init.onSettle?.(sessionId, usage);

@@ -7,6 +7,7 @@ import {
   type RpcNotification,
   type TurnFrame,
 } from '@coa/shared';
+import type { TurnInterrupt } from '@coa/spi';
 import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import { createSession, type SessionDeps } from './session.js';
@@ -76,8 +77,17 @@ type CreateParams = z.infer<typeof createParams>;
 
 const closeParams = z.object({ id: z.string() });
 const interruptParams = z.object({ id: z.string() });
-const steerParams = z.object({ id: z.string(), text: z.string() });
+const steerParams = z.object({
+  id: z.string(),
+  text: z.string(),
+  mode: z.enum(['queue', 'barge-in']).default('queue'),
+});
 const subscribeParams = z.object({ id: z.string() });
+
+/** Prefix wrapping a Claude barge-in steer so the model reads a deliberate redirect,
+ *  not a bare interruption (docs/adr/0012). Claude-specific: pure-API injects at a
+ *  clean boundary with no bare-interrupt signal to counteract. */
+const FRAME_BARGE_IN = '[The user interrupted to steer you] ';
 
 /**
  * The per-turn bookkeeping `TurnRequest` (live-session.ts) has no room for:
@@ -167,6 +177,19 @@ interface HeldQuery {
   /** The in-flight turn's completion latch — resolved on its `turn-boundary` frame
    *  (or when the query settles). `undefined` between turns. */
   boundary: Deferred | undefined;
+  /** How many pushed-but-not-yet-boundaried turns are outstanding on this query
+   *  (initial + continue + any barge-in-injected steer). The driver's `boundary`
+   *  latch resolves only when this returns to 0, so a barge-in's injected steer turn
+   *  resolves the correct awaited turn rather than the interrupted one (docs/adr/0012
+   *  I3). */
+  pendingTurns: number;
+  /** This backend's turn-level interrupt (reported up via `onTurnInterrupt`), used by a
+   *  `barge-in` steer to stop the current turn while keeping the query alive. */
+  turnInterrupt: TurnInterrupt | undefined;
+  /** Count of in-flight barge-ins whose interrupted-turn terminal result should be
+   *  suppressed from surfacing as an error frame (SC-1). Decremented as those results
+   *  arrive. Finalized against the live smoke (Task 5). */
+  barging: number;
   terminated: boolean;
   close: () => void;
   done: Promise<void>;
@@ -398,6 +421,7 @@ export function buildSessionHandlers(
     };
     const controller = new AbortController();
     const steer: string[] = [];
+    const queueSteer: string[] = [];
 
     try {
       await createSession(
@@ -413,9 +437,10 @@ export function buildSessionHandlers(
           ...buildPersistenceHooks(prep),
           signal: controller.signal,
           drainSteer: () => steer.splice(0, steer.length),
+          drainQueuedSteer: () => queueSteer.splice(0, queueSteer.length),
           onStart: (s) => {
             started = s;
-            session.control = { controller, steer, interrupted: false, mode: 'per-turn' };
+            session.control = { controller, steer, queueSteer, interrupted: false, mode: 'per-turn' };
             session.setState('running', s.worktree);
             // Turn activity resets the idle-eviction clock (FIX #1) — belt-and-braces
             // alongside the running-aware idle timer in live-registry.ts.
@@ -544,6 +569,9 @@ export function buildSessionHandlers(
       channel,
       persistIn: prep.persistIn,
       boundary,
+      pendingTurns: 0,
+      turnInterrupt: undefined,
+      barging: 0,
       terminated: false,
       close: () => channel.close(),
       done: Promise.resolve(),
@@ -553,15 +581,29 @@ export function buildSessionHandlers(
     const record = (frame: TurnFrame): void => {
       const started = startedRef.current;
       if (started === undefined) return;
+      // SC-1: an interrupted turn's terminal result (from a barge-in `interrupt()`) must
+      // not surface as an error frame. Swallow one error frame per outstanding barge-in.
+      if (frame.t === 'error' && query.barging > 0) {
+        query.barging -= 1;
+        return;
+      }
       const s = seqBox.value++;
       session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
       if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
-      // The SDK marks a turn's end with a `turn-boundary` frame (M9); mirror today's
-      // per-turn `'done'` and release the awaiting driver so the next turn can run.
       if (frame.t === 'turn-boundary') {
-        emitStatus(session, started.worktree, 'done');
-        query.boundary?.resolve();
-        query.boundary = undefined;
+        query.pendingTurns -= 1;
+        // Resolve the driver only when every outstanding turn (incl. a barge-in-injected
+        // steer) has boundaried — otherwise the redirect is still running (docs/adr/0012 I3).
+        if (query.pendingTurns <= 0) {
+          query.pendingTurns = 0;
+          // SC-1: bound the interrupt-error suppression to this redirect — a success-subtype
+          // interrupt leaves no error to swallow, so clear it rather than letting it swallow
+          // a future turn's genuine error.
+          query.barging = 0;
+          emitStatus(session, started.worktree, 'done');
+          query.boundary?.resolve();
+          query.boundary = undefined;
+        }
       }
     };
 
@@ -580,12 +622,34 @@ export function buildSessionHandlers(
         ...buildPersistenceHooks(prep),
         signal: controller.signal,
         drainSteer: () => steer.splice(0, steer.length),
+        onTurnInterrupt: (fn) => {
+          query.turnInterrupt = fn;
+        },
         onStart: (s) => {
           startedRef.current = s;
-          session.control = { controller, steer, interrupted: false, mode: 'held-open' };
+          session.control = { controller, steer, queueSteer: [], interrupted: false, mode: 'held-open' };
           // A steer routes into THIS query's input feed (SDK streaming-input), not the
-          // per-turn `drainSteer` queue.
-          session.setSteerSink((text) => channel.push(text));
+          // per-turn `drainSteer` queue. `barge-in` stops the running turn first (via the
+          // reported interrupt handle) and injects a framed redirect; `queue` runs after
+          // the current turn (the SDK ceiling).
+          session.setSteerSink((text, mode) => {
+            const running = query.pendingTurns > 0;
+            // Any steer pushed while a turn runs becomes its OWN SDK turn (its own boundary),
+            // so the awaiting driver must count it or a later turn's latch resolves early
+            // (docs/adr/0012 I3). A steer while idle has no awaiting driver — it runs as a
+            // plain next turn, uncounted (not reachable from a current client; steer is only
+            // offered mid-turn). `control` stays set between turns, hence the runtime guard.
+            if (running) query.pendingTurns += 1;
+            if (mode === 'barge-in' && running) {
+              query.barging += 1;
+              void (async () => {
+                await query.turnInterrupt?.();
+                channel.push(FRAME_BARGE_IN + text);
+              })();
+            } else {
+              channel.push(text);
+            }
+          });
           session.setState('running', s.worktree);
           registry.touch(session.id);
           if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
@@ -603,6 +667,7 @@ export function buildSessionHandlers(
     // the last turn's result (docs/adr/0012 termination contract).
     session.onClose(() => query.close());
 
+    query.pendingTurns += 1;
     channel.push(turn.input);
     await boundary.promise;
   }
@@ -637,6 +702,7 @@ export function buildSessionHandlers(
     }
     const boundary = deferred();
     query.boundary = boundary;
+    query.pendingTurns += 1; // a normal continue expects one boundary
     query.channel.push(turn.input);
     await boundary.promise;
   }
@@ -755,9 +821,11 @@ export function buildSessionHandlers(
       if (session?.control === undefined) return { steered: false };
       if (params.text === '') return { steered: false };
       if (session.control.mode === 'held-open') {
-        session.pushSteer(params.text);
+        session.pushSteer(params.text, params.mode);
+      } else if (params.mode === 'barge-in') {
+        session.control.steer.push(params.text); // next-safe-boundary inject
       } else {
-        session.control.steer.push(params.text);
+        session.control.queueSteer.push(params.text); // run after the current turn
       }
       return { steered: true };
     }),

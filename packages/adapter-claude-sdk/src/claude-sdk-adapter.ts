@@ -23,6 +23,7 @@ import type {
   StopPredicate,
   SymbolReference,
   ToolCatalogue,
+  TurnInterrupt,
 } from '@coa/spi';
 import { barebonesProfile, REFS_NULL_FALLBACK } from '@coa/spi';
 import type { CapabilityProfile } from '@coa/shared';
@@ -102,6 +103,13 @@ export interface ClaudeSdkAdapterInit {
    * to today (D85).
    */
   signal?: AbortSignal;
+  /**
+   * Report this backend's turn-level interrupt UP to M8 (docs/adr/0012 barge-in
+   * follow-up): a held-open streaming-input `query` can stop its current turn while
+   * staying alive. Called once, streaming-input only (the SDK `interrupt` control
+   * request is streaming-input only). Absent input-string path ⇒ never called (D85).
+   */
+  onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
 }
 
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -301,11 +309,17 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     // realistic mid-turn drop still reaches canonical memory.
     let dirty = false;
     const runQuery = this.#init.query ?? query;
+    const sdkQuery = runQuery({
+      prompt: toSdkPrompt(modelPrompt),
+      options: { ...options, cwd: sessionConfig.worktree },
+    });
+    // Streaming-input only: the SDK's turn-level interrupt is a streaming-input control
+    // request. A one-shot string turn has no held-open query to interrupt (D85).
+    if (typeof this.#init.input !== 'string' && this.#init.onTurnInterrupt !== undefined) {
+      this.#init.onTurnInterrupt(() => sdkQuery.interrupt());
+    }
     try {
-      for await (const message of runQuery({
-        prompt: toSdkPrompt(modelPrompt),
-        options: { ...options, cwd: sessionConfig.worktree },
-      })) {
+      for await (const message of sdkQuery) {
         dirty = true;
         transcript.push(...messageToBackendMessages(message));
         // Capture the backend's own session id once — M8 stores it to `resume` the

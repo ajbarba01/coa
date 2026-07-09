@@ -334,4 +334,42 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
     expect(flushed).toContainEqual({ role: 'user', content: 'first' });
     expect(flushed.some((m) => m.role === 'user' && m.content.includes('<prior_conversation>'))).toBe(false);
   });
+
+  it('reports a turn-interrupt handle bound to the SDK query (streaming input only)', async () => {
+    const interrupt = vi.fn(async () => {});
+    // A query double: an async generator function carrying an `interrupt` method,
+    // matching the SDK `Query` shape (AsyncGenerator<SDKMessage> & { interrupt }).
+    const makeQuery = () => {
+      const gen = (async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 's1' } as never;
+        yield {
+          type: 'result',
+          subtype: 'success',
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+          total_cost_usd: 0,
+          session_id: 's1',
+        } as never;
+      })();
+      return Object.assign(gen, { interrupt, setPermissionMode: vi.fn() });
+    };
+    let reported: (() => Promise<void>) | undefined;
+    const channel = (async function* () {
+      yield 'hi';
+    })(); // streaming input
+    const a = adapter({
+      input: channel,
+      query: makeQuery as never,
+      onTurnInterrupt: (fn) => {
+        reported = fn;
+      },
+    });
+    a.renderNative(neutral());
+    a.interceptTool(() => ({ behavior: 'allow' }));
+    a.interceptStop(() => ({ allow: true }));
+    await a.runLoop(session);
+    expect(reported).toBeTypeOf('function');
+    await reported!();
+    expect(interrupt).toHaveBeenCalledTimes(1);
+  });
 });
