@@ -50,6 +50,9 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     kind: z.literal('text'),
     text: z.string(),
     depth: z.number().optional(),
+    // Piece B: an in-progress streaming block (fed by `text-delta`), replaced by the
+    // settled `text` frame that follows. Absent ⇒ a committed block (docs/adr/0013).
+    streaming: z.boolean().optional(),
   }),
   z.object({
     id: z.string(),
@@ -90,6 +93,9 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     kind: z.literal('thinking'),
     text: z.string(),
     depth: z.number().optional(),
+    // Piece B: an in-progress streaming thinking block (fed by `thinking-delta`),
+    // replaced by the settled `thinking` frame that follows (docs/adr/0013).
+    streaming: z.boolean().optional(),
   }),
   z.object({
     id: z.string(),

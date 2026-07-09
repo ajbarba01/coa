@@ -108,4 +108,23 @@ describe('messageToFrames — SDK message → neutral M0 TurnFrame', () => {
   it('returns nothing for transport/system messages the transcript does not render', () => {
     expect(messageToFrames(sdk({ type: 'system', subtype: 'init' }))).toEqual([]);
   });
+
+  it('maps a content_block_delta stream_event (text_delta) to a text-delta frame', () => {
+    const frames = messageToFrames(
+      sdk({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hel' } } }),
+    );
+    expect(frames).toEqual([{ t: 'text-delta', text: 'Hel' }]);
+  });
+
+  it('maps a content_block_delta stream_event (thinking_delta) to a thinking-delta frame', () => {
+    const frames = messageToFrames(
+      sdk({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hmm' } } }),
+    );
+    expect(frames).toEqual([{ t: 'thinking-delta', text: 'hmm' }]);
+  });
+
+  it('ignores non-delta stream_events (block start/stop, message-level)', () => {
+    expect(messageToFrames(sdk({ type: 'stream_event', event: { type: 'content_block_start', index: 0 } }))).toEqual([]);
+    expect(messageToFrames(sdk({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } } }))).toEqual([]);
+  });
 });

@@ -1,6 +1,6 @@
 import type { TurnFrame } from '@coa/shared';
 import type { CanUseTool, RuntimeUsage, StopPredicate, ToolCatalogue } from '@coa/spi';
-import type { CompleteFn, DriverMessage, ToolDef } from './complete.js';
+import type { CompleteFn, CompletionDelta, CompletionResult, DriverMessage, ToolDef } from './complete.js';
 
 /**
  * The coa-owned governed loop driver (dual-backend spec C2) — the ReAct loop the
@@ -136,7 +136,33 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
         messages.push({ role: 'user', content: steer });
         emit({ t: 'text', text: steer, role: 'user' });
       }
-      const result = await deps.complete(messages, tools, deps.signal);
+      // Drive the streaming round-trip: emit each delta live, then settle from the
+      // generator's return value. Delta frames are delivery-only (docs/adr/0013) —
+      // M8's record policy pushes but never persists them.
+      const it = deps.complete(messages, tools, deps.signal);
+      let partialText = '';
+      let step: IteratorResult<CompletionDelta, CompletionResult>;
+      try {
+        step = await it.next();
+        while (step.done !== true) {
+          const delta = step.value;
+          if (delta.kind === 'text') {
+            partialText += delta.text;
+            emit({ t: 'text-delta', text: delta.text });
+          } else emit({ t: 'thinking-delta', text: delta.text });
+          step = await it.next();
+        }
+      } catch (err) {
+        // SC-1 + A1: a user interrupt mid-stream is not an error — keep the streamed partial
+        // and mark it, landing it as ONE settled `text` frame (docs/adr/0013) so the
+        // append-only log has the partial. Any other throw still propagates.
+        if (deps.signal?.aborted === true) {
+          if (partialText !== '') emit({ t: 'text', text: `${partialText}\n\n[interrupted]` });
+          break; // settle via the outer finally; interrupted-status suppression is M8's job
+        }
+        throw err;
+      }
+      const result = step.value;
       addUsage(usage, result.usage);
       // Reasoning precedes the answer (pre-answer thinking). Display-only: emitted as a
       // thinking frame but never pushed into `messages` — the API rejects reasoning on input.

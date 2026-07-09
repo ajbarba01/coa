@@ -1,13 +1,19 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import type { CapabilitySet, Locator, NeutralConfig, TurnFrame } from '@coa/shared';
-import { accountsFileSchema } from '@coa/shared';
-import type { CanUseTool, StopPredicate } from '@coa/spi';
+import type { Locator, TurnFrame } from '@coa/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
+import {
+  allowAllTools,
+  barebonesSandbox,
+  createPushQueue,
+  minimalNeutralConfig,
+  neverStop,
+  resolveLiveLocator,
+  waitForCondition,
+  withTimeoutMessage,
+} from './live-smoke-helpers.js';
 
 /**
  * The append-only source-of-truth de-risk gate (docs/adr/0010): a real
@@ -99,89 +105,3 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live source-of-t
   );
 });
 
-// --- Fixtures (gated live-test scaffolding; shared shape with the other .live.test.ts) ---
-
-function barebonesSandbox(): CapabilitySet {
-  return { allowedTools: [], denyRules: [], permissionMode: 'default', denyRead: [] };
-}
-
-function minimalNeutralConfig(): NeutralConfig {
-  return { prefixHead: [], systemReminders: [], onDemandPullable: [], scopePushed: [], toolIntents: { allow: [], deny: [] } };
-}
-
-const allowAllTools: CanUseTool = () => ({ behavior: 'allow' });
-const neverStop: StopPredicate = () => ({ allow: true });
-
-function resolveLiveLocator(): Locator {
-  const override = process.env['COA_LIVE_CONFIG_DIR'];
-  if (override !== undefined && override !== '') return { type: 'config-dir', dir: override };
-  const path = join(homedir(), '.coa', 'accounts.yaml');
-  let raw: unknown;
-  try {
-    raw = parseYaml(readFileSync(path, 'utf8'));
-  } catch (err) {
-    throw new Error(`COA_LIVE=1 requires a Claude account: could not read ${path}. ${String(err)}`);
-  }
-  const file = accountsFileSchema.parse(raw);
-  const label = file.active['claude'];
-  const account = label !== undefined ? file.accounts.find((a) => a.label === label && a.provider === 'claude') : undefined;
-  if (account === undefined) throw new Error(`COA_LIVE=1 requires an active 'claude' account in ${path}`);
-  return account.locator;
-}
-
-interface PushQueue extends AsyncIterable<string> {
-  push(text: string): void;
-  close(): void;
-}
-
-function createPushQueue(): PushQueue {
-  const buffered: string[] = [];
-  const waiters: Array<(result: IteratorResult<string>) => void> = [];
-  let closed = false;
-  return {
-    push(text: string): void {
-      if (closed) throw new Error('createPushQueue: push after close');
-      const waiter = waiters.shift();
-      if (waiter !== undefined) waiter({ value: text, done: false });
-      else buffered.push(text);
-    },
-    close(): void {
-      closed = true;
-      while (waiters.length > 0) waiters.shift()!({ value: undefined, done: true });
-    },
-    [Symbol.asyncIterator](): AsyncIterator<string> {
-      return {
-        next(): Promise<IteratorResult<string>> {
-          const next = buffered.shift();
-          if (next !== undefined) return Promise.resolve({ value: next, done: false });
-          if (closed) return Promise.resolve({ value: undefined, done: true });
-          return new Promise((resolve) => waiters.push(resolve));
-        },
-      };
-    },
-  };
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForCondition(predicate: () => boolean, timeoutMs: number, message: string, pollMs = 100): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitForCondition timed out: ${message}`);
-    await delay(pollMs);
-  }
-}
-
-async function withTimeoutMessage<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer!);
-  }
-}

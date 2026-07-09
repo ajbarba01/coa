@@ -1,13 +1,24 @@
 import { mkdtempSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import type { CapabilitySet, Locator, NeutralConfig, TurnFrame } from '@coa/shared';
-import { accountsFileSchema } from '@coa/shared';
-import type { CanUseTool, StopPredicate, TurnInterrupt } from '@coa/spi';
+import type { Locator, TurnFrame } from '@coa/shared';
+import type { TurnInterrupt } from '@coa/spi';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
+import {
+  allowAllTools,
+  barebonesSandbox,
+  boundaryCount,
+  collectText,
+  createPushQueue,
+  delay,
+  isPending,
+  minimalNeutralConfig,
+  neverStop,
+  resolveLiveLocator,
+  waitForCondition,
+  withTimeoutMessage,
+} from './live-smoke-helpers.js';
 
 /**
  * The barge-in de-risk gate (docs/adr/0012 follow-up): a real
@@ -73,11 +84,11 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
       );
 
       // --- Turn A: a long generation the barge-in will cut off MID-flight -------
-      // A pure-generation turn's text lands only at its turn boundary (incremental
-      // streaming — piece B — is not built), so we cannot wait for a mid-turn text
-      // frame: there is none until the turn ends. Instead we push a long essay and
-      // interrupt on a TIMER, while the model is still generating server-side. This
-      // is exactly the production barge-in case: the user redirects a running turn.
+      // We interrupt on a TIMER while the model is still generating server-side, rather
+      // than waiting for a specific mid-turn frame: the settled `text` frame lands only
+      // at the turn boundary (and streaming `text-delta`s, piece B, are display-only), so
+      // a timer is the robust way to catch turn A running. This is exactly the production
+      // barge-in case: the user redirects a running turn.
       queue.push(
         'Write a long, detailed essay of at least 500 words about the history of the number zero across civilizations. Take your time and be thorough; do not stop early.',
       );
@@ -110,7 +121,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
       const window = frames.slice(cutIndex);
       const boundariesInWindow = boundaryCount(window);
       const errorFramesInWindow = window.filter((f) => f.t === 'error');
-      // eslint-disable-next-line no-console
       console.log(
         `[barge-in diagnostic] frames-in-window=${window.length} ` +
           `turn-boundary=${boundariesInWindow} (before-cut=${boundariesBeforeCut}) ` +
@@ -145,149 +155,3 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
   );
 });
 
-// --- Fixtures ---------------------------------------------------------------
-
-function barebonesSandbox(): CapabilitySet {
-  return { allowedTools: [], denyRules: [], permissionMode: 'default', denyRead: [] };
-}
-
-function minimalNeutralConfig(): NeutralConfig {
-  return {
-    prefixHead: [],
-    systemReminders: [],
-    onDemandPullable: [],
-    scopePushed: [],
-    toolIntents: { allow: [], deny: [] },
-  };
-}
-
-const allowAllTools: CanUseTool = () => ({ behavior: 'allow' });
-const neverStop: StopPredicate = () => ({ allow: true });
-
-// --- Account resolution -------------------------------------------------------
-
-/** Resolve the active `claude` account's {@link Locator} from `~/.coa/accounts.yaml`
- *  (or `COA_LIVE_CONFIG_DIR`) WITHOUT importing `@coa/core` — same as the streaming smoke. */
-function resolveLiveLocator(): Locator {
-  const override = process.env['COA_LIVE_CONFIG_DIR'];
-  if (override !== undefined && override !== '') {
-    return { type: 'config-dir', dir: override };
-  }
-  const path = join(homedir(), '.coa', 'accounts.yaml');
-  let raw: unknown;
-  try {
-    raw = parseYaml(readFileSync(path, 'utf8'));
-  } catch (err) {
-    throw new Error(
-      `COA_LIVE=1 requires a Claude account: could not read ${path} (set COA_LIVE_CONFIG_DIR, or run 'coa auth add <label> --config-dir <dir>' then 'coa auth use <label>'). ${String(err)}`,
-    );
-  }
-  const file = accountsFileSchema.parse(raw);
-  const label = file.active['claude'];
-  const account =
-    label !== undefined
-      ? file.accounts.find((a) => a.label === label && a.provider === 'claude')
-      : undefined;
-  if (account === undefined) {
-    throw new Error(
-      `COA_LIVE=1 requires an active 'claude' account (coa auth use <label>) — none found in ${path}`,
-    );
-  }
-  return account.locator;
-}
-
-// --- A minimal push-driven AsyncIterable<string> -----------------------------
-
-interface PushQueue extends AsyncIterable<string> {
-  push(text: string): void;
-  close(): void;
-}
-
-/** A hand-rolled queue feeding turns into the streaming-input `query()` on our own
- *  schedule — deliberately not core's `InputChannel`, so this test drives the adapter's
- *  raw `AsyncIterable<string>` seam directly with no core dependency. */
-function createPushQueue(): PushQueue {
-  const buffered: string[] = [];
-  const waiters: Array<(result: IteratorResult<string>) => void> = [];
-  let closed = false;
-  return {
-    push(text: string): void {
-      if (closed) throw new Error('createPushQueue: push after close');
-      const waiter = waiters.shift();
-      if (waiter !== undefined) waiter({ value: text, done: false });
-      else buffered.push(text);
-    },
-    close(): void {
-      closed = true;
-      while (waiters.length > 0) {
-        waiters.shift()!({ value: undefined, done: true });
-      }
-    },
-    [Symbol.asyncIterator](): AsyncIterator<string> {
-      return {
-        next(): Promise<IteratorResult<string>> {
-          const next = buffered.shift();
-          if (next !== undefined) return Promise.resolve({ value: next, done: false });
-          if (closed) return Promise.resolve({ value: undefined, done: true });
-          return new Promise((resolve) => waiters.push(resolve));
-        },
-      };
-    },
-  };
-}
-
-// --- Timing helpers -----------------------------------------------------------
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function isPending(promise: Promise<unknown>, graceMs = 250): Promise<boolean> {
-  const PENDING = Symbol('pending');
-  const settledOrPending = await Promise.race([
-    promise.then(
-      () => 'settled' as const,
-      () => 'settled' as const,
-    ),
-    delay(graceMs).then(() => PENDING),
-  ]);
-  return settledOrPending === PENDING;
-}
-
-async function waitForCondition(
-  predicate: () => boolean,
-  timeoutMs: number,
-  message: string,
-  pollMs = 100,
-): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitForCondition timed out: ${message}`);
-    await delay(pollMs);
-  }
-}
-
-async function withTimeoutMessage<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer!);
-  }
-}
-
-// --- Frame helpers --------------------------------------------------------------
-
-function boundaryCount(frames: readonly TurnFrame[]): number {
-  return frames.filter((f) => f.t === 'turn-boundary').length;
-}
-
-function collectText(frames: readonly TurnFrame[]): string {
-  return frames
-    .filter((f): f is Extract<TurnFrame, { t: 'text' }> => f.t === 'text')
-    .map((f) => f.text)
-    .join(' ');
-}

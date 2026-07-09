@@ -321,6 +321,37 @@ function depsCapturing(frames: TurnFrame[], inits: SessionAdapterInit[], pureApi
   };
 }
 
+describe('buildSessionHandlers — streaming deltas are delivery-only (docs/adr/0013)', () => {
+  it('pushes a text-delta frame but never appends it to the durable log (regression: opencode #11329)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-delta-'));
+    try {
+      const store = createConversationStore(dir);
+      const conn = connection();
+      const frames: TurnFrame[] = [
+        { t: 'text-delta', text: 'Hel' },
+        { t: 'text-delta', text: 'lo' },
+        { t: 'text', text: 'Hello' },
+      ];
+      const handlers = buildSessionHandlers(deps(frames), conn, store, new LiveSessionRegistry());
+      await handlers['createSession']!.handle({ input: 'go', conversationId: 'c1' });
+      await conn.settled;
+
+      const pushedFrames = pushesOf(conn.pushes).flatMap((p) => (p.kind === 'turn' ? [p.frame] : []));
+      expect(pushedFrames).toContainEqual({ t: 'text-delta', text: 'Hel' });
+      expect(pushedFrames).toContainEqual({ t: 'text-delta', text: 'lo' });
+      expect(pushedFrames).toContainEqual({ t: 'text', text: 'Hello' });
+
+      // The durable log holds only the settled frame — deltas never reach `store.append`.
+      const persistedFrames = store.reload('c1').map((t) => t.frame);
+      expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'Hel' });
+      expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'lo' });
+      expect(persistedFrames).toContainEqual({ t: 'text', text: 'Hello' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('buildSessionHandlers — persistent conversation (R-7)', () => {
   let dir: string;
   let store: ConversationStore;
@@ -1711,6 +1742,49 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
         { role: 'user', content: '[The user interrupted to steer you] redirect' },
         { role: 'assistant', content: 'ok' },
       ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('pushes streaming deltas over the held-open query but never appends them (docs/adr/0013)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-ho-delta-'));
+    try {
+      const store = createConversationStore(dir);
+      const adapters: HeldOpenAdapter[] = [];
+      const conn = connection();
+      const customDeps: SessionDeps = {
+        ...deps([]),
+        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+        createAdapter: (init) => {
+          const adapter = new HeldOpenAdapter(init, [
+            { t: 'text-delta', text: 'Hel' },
+            { t: 'text-delta', text: 'lo' },
+            { t: 'text', text: 'Hello' },
+          ]);
+          adapters.push(adapter);
+          return adapter;
+        },
+      };
+      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+
+      await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+      await flush();
+
+      const pushedFrames = pushesOf(conn.pushes).flatMap((p) => (p.kind === 'turn' ? [p.frame] : []));
+      expect(pushedFrames).toContainEqual({ t: 'text-delta', text: 'Hel' });
+      expect(pushedFrames).toContainEqual({ t: 'text-delta', text: 'lo' });
+      expect(pushedFrames).toContainEqual({ t: 'text', text: 'Hello' });
+
+      const persistedFrames = store.reload('h1').map((t) => t.frame);
+      expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'Hel' });
+      expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'lo' });
+      expect(persistedFrames).toContainEqual({ t: 'text', text: 'Hello' });
+
+      // The delta guard sits ahead of the barging/boundary accounting — the turn's
+      // `turn-boundary` still resolves the driver normally (a delta must not touch it).
+      const pushes = pushesOf(conn.pushes);
+      expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -36,6 +36,18 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     });
   });
 
+  it('maps a text-delta to a streaming agent text frame', () => {
+    expect(pushToViewFrames(turn({ t: 'text-delta', text: 'Hel' }, 3))).toEqual([
+      { id: 's:3', role: 'agent', kind: 'text', text: 'Hel', streaming: true },
+    ]);
+  });
+
+  it('maps a thinking-delta to a streaming agent thinking frame', () => {
+    expect(pushToViewFrames(turn({ t: 'thinking-delta', text: 'po' }, 4))).toEqual([
+      { id: 's:4', role: 'agent', kind: 'thinking', text: 'po', streaming: true },
+    ]);
+  });
+
   it('drops empty-text thinking frames', () => {
     expect(pushToViewFrames(turn({ t: 'thinking', text: '  ' }))).toEqual([]);
   });

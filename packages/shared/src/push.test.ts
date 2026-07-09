@@ -81,3 +81,15 @@ describe('turnFrameSchema', () => {
     );
   });
 });
+
+describe('turnFrameSchema delta kinds', () => {
+  it('accepts a text-delta frame', () => {
+    const parsed = turnFrameSchema.parse({ t: 'text-delta', text: 'hel' });
+    expect(parsed).toEqual({ t: 'text-delta', text: 'hel' });
+  });
+
+  it('accepts a thinking-delta frame', () => {
+    const parsed = turnFrameSchema.parse({ t: 'thinking-delta', text: 'ponder' });
+    expect(parsed).toEqual({ t: 'thinking-delta', text: 'ponder' });
+  });
+});

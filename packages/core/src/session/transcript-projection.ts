@@ -76,6 +76,11 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
       case 'subagent':
         // No transcript memory — these frames are dropped.
         break;
+      case 'text-delta':
+      case 'thinking-delta':
+        // Delivery-only (docs/adr/0013): the E-seam never appends these to the
+        // durable log, so they should never reach the fold — dropped defensively.
+        break;
       default: {
         // A future TurnFrame kind must make an explicit fold decision above.
         const _exhaustive: never = frame;

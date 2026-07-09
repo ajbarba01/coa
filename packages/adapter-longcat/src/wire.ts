@@ -52,3 +52,30 @@ export type ChatCompletionResponse = z.infer<typeof chatCompletionResponseSchema
 export const modelsResponseSchema = z.object({
   data: z.array(z.object({ id: z.string() })),
 });
+
+/**
+ * One OpenAI-compatible streaming chunk (`chat.completion.chunk`): a partial `delta`
+ * carrying incremental content/reasoning text and tool-call fragments (accumulated by
+ * `index`), plus the usage block on the final chunk (`stream_options.include_usage`).
+ */
+export const streamDeltaSchema = z.object({
+  content: z.string().nullable().optional(),
+  reasoning_content: z.string().nullable().optional(),
+  tool_calls: z
+    .array(
+      z.object({
+        index: z.number(),
+        id: z.string().optional(),
+        function: z
+          .object({ name: z.string().optional(), arguments: z.string().optional() })
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+export const streamChunkSchema = z.object({
+  choices: z.array(z.object({ delta: streamDeltaSchema.optional() })),
+  // OpenAI-compatible streams send `usage: null` on EVERY chunk until the final one —
+  // accept null, or a null-blind `.optional()` fails the whole chunk's parse and drops its text.
+  usage: wireUsageSchema.nullish(),
+});

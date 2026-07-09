@@ -4,8 +4,12 @@ import { makeSummarizer } from './summarizer.js';
 
 const USAGE = { tokensIn: 10, tokensOut: 5, costUsd: 0.001 } satisfies RuntimeUsage;
 
+// A non-streaming fake (D85 degrade): yields nothing, returns the settled result.
 const completeReturning = (text: string) =>
-  vi.fn(async () => ({ text, toolCalls: [], usage: USAGE }));
+  // eslint-disable-next-line require-yield
+  vi.fn(async function* () {
+    return { text, toolCalls: [], usage: USAGE };
+  });
 
 describe('makeSummarizer', () => {
   it('feeds page + prompt to complete() and returns its text', async () => {

@@ -64,7 +64,15 @@ For **what each module is** (public interface, owned decisions), see the handoff
   + a framed push, pure-API via `drainSteer`/`drainQueuedSteer` — with the I3 boundary-latch fix (`pendingTurns`
   counting) and SC-1 suppression of the interrupt's result, live-verified. Remaining on that path: only the
   **console steer affordance** (typing a redirect while a turn is running; the daemon seam is ready).
-  Also remaining: streaming output,
+  **Streaming output (G7) now ships for all backends** (`docs/adr/0013`): the pure-API `complete()` primitive is
+  an `AsyncGenerator<CompletionDelta, CompletionResult>` streaming text/reasoning deltas over SSE
+  (DeepSeek/LongCat) and the Claude SDK enables `includePartialMessages` — both mapped to two delivery-only
+  `TurnFrame` kinds (`text-delta`/`thinking-delta`) that are pushed over R-12 but **never** appended to the
+  append-only log (only the settled frame persists, so the fold and cross-turn memory are unchanged); the
+  console accumulates deltas into a live block and the settled frame replaces it, and an interrupt mid-stream
+  keeps + marks the partial (`[interrupted]`) as one settled frame (A1). A `COA_LIVE` smoke
+  (`streaming-output-smoke.live.test.ts`) verifies real partial-message streaming against the SDK.
+  Also remaining:
   role/capability enforcement, the system-prompt viewer, and the apply-as-update injection spike —
   see "Coa-agent hardening" below and item G.
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context

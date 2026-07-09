@@ -38,7 +38,8 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0010](0010-append-only-conversation-log.md) — Converge conversation persistence onto a single append-only log (deferred)
 - [0011](0011-daemon-authoritative-live-session.md) — The daemon is the authoritative owner of a live session across turns
 - [0012](0012-sdk-streaming-input-steering.md) — Hold the Claude SDK query open for streaming-input steering
+- [0013](0013-streaming-complete-and-delta-frames.md) — Streaming complete() contract and delivery-only delta frames
 
 ---
 
-_Last reviewed: 2026-07-08_
+_Last reviewed: 2026-07-09_

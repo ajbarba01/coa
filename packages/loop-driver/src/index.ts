@@ -9,6 +9,7 @@
 
 export type {
   CompleteFn,
+  CompletionDelta,
   CompletionResult,
   DriverMessage,
   LoopToolCall,

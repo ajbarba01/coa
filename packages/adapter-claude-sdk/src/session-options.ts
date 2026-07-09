@@ -72,6 +72,9 @@ export function assembleSessionOptions(args: {
       ...(reasoning !== undefined ? { reasoning } : {}),
     }),
     canUseTool: sdkCanUseTool,
+    // Stream partial assistant messages (Piece B / G7): the adapter maps their content-block
+    // deltas to delivery-only `text-delta`/`thinking-delta` frames (docs/adr/0013).
+    includePartialMessages: true,
     hooks: {
       Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
     },

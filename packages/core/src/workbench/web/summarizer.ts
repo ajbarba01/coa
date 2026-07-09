@@ -21,7 +21,13 @@ export function makeSummarizer(config: {
         { role: 'system', content: config.systemPrompt ?? DEFAULT_SYSTEM },
         { role: 'user', content: `Prompt: ${req.prompt}\n\nPage:\n${req.markdown}` },
       ];
-      const result = await config.complete(messages, []);
+      // The summarizer has no UI to stream to, so it drains the generator without
+      // surfacing deltas — a non-streaming complete() (D85 degrade) yields nothing and
+      // this loop settles on the first `next()`.
+      const it = config.complete(messages, []);
+      let step = await it.next();
+      while (step.done !== true) step = await it.next();
+      const result = step.value;
       config.recordCost?.(result.usage);
       return result.text;
     },

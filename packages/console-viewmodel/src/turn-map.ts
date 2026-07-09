@@ -64,6 +64,12 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
   switch (frame.t) {
     case 'text':
       return { id, role: frame.role === 'user' ? 'you' : 'agent', kind: 'text', text: frame.text, ...d };
+    case 'text-delta':
+      // A streaming chunk (Piece B): the shell accumulates it into the live agent block,
+      // then the settled `text` frame replaces it (docs/adr/0013).
+      return { id, role: 'agent', kind: 'text', text: frame.text, streaming: true, ...d };
+    case 'thinking-delta':
+      return { id, role: 'agent', kind: 'thinking', text: frame.text, streaming: true, ...d };
     case 'thinking':
       // Opus often emits blank/redacted thinking — an empty expander is dishonest UI,
       // so drop the frame entirely rather than render nothing to expand.

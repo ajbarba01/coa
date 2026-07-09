@@ -44,9 +44,24 @@ export interface CompletionResult {
   reasoning?: string | undefined;
 }
 
-/** The `complete()` primitive: one model round-trip, mapped to neutral shapes. */
+/**
+ * One streaming chunk from a model round-trip (Piece B / G7): an incremental piece of
+ * answer `text` or of the reasoning ("thinking") channel. Neutral — the driver maps a
+ * delta to a `text-delta`/`thinking-delta` TurnFrame; no frame vocabulary crosses this
+ * seam. Delivery-only: deltas are pushed to the UI, never persisted (docs/adr/0013).
+ */
+export type CompletionDelta =
+  | { kind: 'text'; text: string }
+  | { kind: 'reasoning'; text: string };
+
+/**
+ * The streaming `complete()` primitive: one model round-trip as an async-iterable of
+ * text/reasoning deltas TERMINATING IN the settled {@link CompletionResult} (the
+ * generator's return value). A non-streaming backend degrades to yielding nothing and
+ * returning the whole result — byte-identical to a single-block turn (D85).
+ */
 export type CompleteFn = (
   messages: readonly DriverMessage[],
   tools: readonly ToolDef[],
   signal?: AbortSignal,
-) => Promise<CompletionResult>;
+) => AsyncGenerator<CompletionDelta, CompletionResult>;

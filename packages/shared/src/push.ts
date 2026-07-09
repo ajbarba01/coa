@@ -10,6 +10,12 @@ import { flagRecordSchema } from './flag.js';
 /** The discriminated turn-event union (CHAT-5). */
 export const turnFrameSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('thinking'), text: z.string() }),
+  // Delivery-only streaming deltas (Piece B / G7): pushed over R-12 for live render,
+  // NEVER store.append-ed — the durable log holds only settled frames (docs/adr/0010,
+  // docs/adr/0013). The console appends a delta to the in-progress block; the settled
+  // `text`/`thinking` frame that follows is the canonical record.
+  z.object({ t: z.literal('text-delta'), text: z.string() }),
+  z.object({ t: z.literal('thinking-delta'), text: z.string() }),
   // `role` marks a persisted user prompt in the R-7 store (assistant text omits it,
   // staying the live-stream default); the console renders a `user` text as a `you` turn.
   z.object({ t: z.literal('text'), text: z.string(), role: z.enum(['user', 'assistant']).optional() }),

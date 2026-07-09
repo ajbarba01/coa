@@ -1,6 +1,7 @@
 import { z, type ZodRawShape } from 'zod';
 import type { CompleteFn, DriverMessage, ToolDef } from '@coa/loop-driver';
-import { chatCompletionResponseSchema } from './wire.js';
+import { streamChunkSchema, type WireUsage } from './wire.js';
+import { parseSseChunks } from './sse.js';
 import { toRuntimeUsage, type PriceTable } from './pricing.js';
 
 /** LongCat's default OpenAI-compatible API host + model. */
@@ -28,6 +29,8 @@ export type FetchLike = (
   status: number;
   text: () => Promise<string>;
   json: () => Promise<unknown>;
+  /** The streaming response body (SSE). `Response.body` is an async-iterable of bytes on Node 18+. */
+  body?: AsyncIterable<Uint8Array> | null;
 }>;
 
 export interface LongCatCompleteConfig {
@@ -53,12 +56,17 @@ export function makeLongCatComplete(config: LongCatCompleteConfig): CompleteFn {
   const doFetch = config.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
   const prices = config.prices ?? {};
 
-  return async (messages, tools, signal) => {
+  // Streaming form (Piece B / G7): SSE-parse the round-trip, yield each content/reasoning
+  // delta as it arrives, and RETURN the assembled settled result (docs/adr/0013). The
+  // driver maps each delta to a delivery-only frame; the settled result is what persists.
+  return async function* (messages, tools, signal) {
     const body = {
       model: config.model,
       messages: messages.map(toWireMessage),
       ...(tools.length > 0 ? { tools: tools.map(toWireTool) } : {}),
       ...reasoningBody(config.reasoning),
+      stream: true,
+      stream_options: { include_usage: true },
     };
     const res = await doFetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -72,19 +80,47 @@ export function makeLongCatComplete(config: LongCatCompleteConfig): CompleteFn {
     if (!res.ok) {
       throw new Error(`longcat chat/completions failed: ${res.status} ${await res.text()}`);
     }
-    const parsed = chatCompletionResponseSchema.parse(await res.json());
-    const choice = parsed.choices[0]!;
+    if (res.body == null) throw new Error('longcat: streaming response had no body');
+
+    let text = '';
+    let reasoning = '';
+    // Tool calls stream as fragments keyed by `index`: the id + name arrive first, the
+    // JSON `arguments` string in pieces to concatenate, then parse once at the end.
+    const toolAcc = new Map<number, { id: string; name: string; args: string }>();
+    let usage: WireUsage | undefined;
+
+    for await (const raw of parseSseChunks(res.body)) {
+      const chunk = streamChunkSchema.safeParse(raw);
+      if (!chunk.success) continue;
+      const delta = chunk.data.choices[0]?.delta;
+      if (delta?.content != null && delta.content !== '') {
+        text += delta.content;
+        yield { kind: 'text', text: delta.content };
+      }
+      if (delta?.reasoning_content != null && delta.reasoning_content !== '') {
+        reasoning += delta.reasoning_content;
+        yield { kind: 'reasoning', text: delta.reasoning_content };
+      }
+      for (const tc of delta?.tool_calls ?? []) {
+        const acc = toolAcc.get(tc.index) ?? { id: '', name: '', args: '' };
+        if (tc.id != null) acc.id = tc.id;
+        if (tc.function?.name != null) acc.name = tc.function.name;
+        if (tc.function?.arguments != null) acc.args += tc.function.arguments;
+        toolAcc.set(tc.index, acc);
+      }
+      if (chunk.data.usage != null) usage = chunk.data.usage;
+    }
+
     return {
-      text: choice.message.content ?? '',
-      // Reasoning is display-only (the driver emits it as a thinking frame, never resends it);
-      // `?? undefined` maps LongCat's null (thinking off) to "no thinking".
-      reasoning: choice.message.reasoning_content ?? undefined,
-      toolCalls: (choice.message.tool_calls ?? []).map((call) => ({
-        id: call.id,
-        name: call.function.name,
-        arguments: parseArguments(call.function.arguments),
+      text,
+      // Reasoning is display-only (the driver emits it as a thinking frame, never resends it).
+      reasoning: reasoning !== '' ? reasoning : undefined,
+      toolCalls: [...toolAcc.values()].map((t) => ({
+        id: t.id,
+        name: t.name,
+        arguments: parseArguments(t.args),
       })),
-      usage: toRuntimeUsage(parsed.usage, config.model, prices),
+      usage: toRuntimeUsage(usage, config.model, prices),
     };
   };
 }

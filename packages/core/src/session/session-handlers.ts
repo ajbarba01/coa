@@ -414,6 +414,14 @@ export function buildSessionHandlers(
     // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
     const record = (frame: TurnFrame, full?: string): void => {
       if (started === undefined) return;
+      // Streaming deltas are delivery-only (docs/adr/0013): push for live render, but
+      // NEVER persist — the append-only log (docs/adr/0010) holds only settled frames,
+      // so the read-time fold and cross-turn memory are unchanged (opencode #11329).
+      if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
+        const s = seqBox.value++;
+        session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+        return;
+      }
       const s = seqBox.value++;
       session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
       if (prep.persistIn !== undefined) {
@@ -586,6 +594,14 @@ export function buildSessionHandlers(
     const record = (frame: TurnFrame, full?: string): void => {
       const started = startedRef.current;
       if (started === undefined) return;
+      // Streaming deltas are delivery-only (docs/adr/0013): push for live render, but
+      // NEVER persist, and never touch the barging/boundary accounting below — the
+      // append-only log (docs/adr/0010) holds only settled frames (opencode #11329).
+      if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
+        const s = seqBox.value++;
+        session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+        return;
+      }
       // SC-1: an interrupted turn's terminal result (from a barge-in `interrupt()`) must
       // not surface as an error frame. Swallow one error frame per outstanding barge-in.
       if (frame.t === 'error' && query.barging > 0) {

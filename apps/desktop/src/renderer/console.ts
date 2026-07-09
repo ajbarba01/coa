@@ -4,6 +4,7 @@ import {
   pushSchema,
   pushToViewFrames,
   reasoningValue,
+  reconcileStreaming,
   reloadToViewFrames,
   type AgentSummary,
   type CapState,
@@ -383,17 +384,47 @@ export async function startConsole(
   // not misfiled into whatever transcript is active.
   const turnsBySession = new Map<string, TurnFrame[]>();
 
-  /** Append frames to a session's buffer; publish to the visible transcript only when
-   *  that session is the active one. */
-  const appendTurns = (sessionId: string, frames: TurnFrame[]): void => {
-    if (frames.length === 0) return;
-    const prev = turnsBySession.get(sessionId) ?? [];
-    const next = [...prev, ...frames];
-    turnsBySession.set(sessionId, next);
-    if (sessionId === state.ui.activeSessionId) {
-      state = { ...state, data: { ...state.data, turns: { status: 'ok', value: next } } };
+  // Frames arriving between animation frames are coalesced (Piece B): token streaming emits
+  // many `text-delta` pushes per second, and applying each synchronously (reconcile the whole
+  // conversation + a full transcript re-render, per token) saturates the renderer — the
+  // transcript and even the elapsed-seconds timer fall behind. Instead we buffer incoming
+  // frames per session and flush once per `requestAnimationFrame`, so the transcript repaints
+  // at the display's refresh rate (smooth) no matter how fast the tokens arrive.
+  const pendingTurns = new Map<string, TurnFrame[]>();
+  let flushHandle: number | undefined;
+
+  /** Reconcile every session's buffered frames in one batch and push the active one's
+   *  transcript once. Runs on the animation frame, or synchronously when a terminal status
+   *  needs the final frames landed first (also the guard against a throttled rAF). */
+  const flushTurns = (): void => {
+    if (flushHandle !== undefined) {
+      cancelAnimationFrame(flushHandle);
+      flushHandle = undefined;
+    }
+    if (pendingTurns.size === 0) return;
+    let activeValue: TurnFrame[] | undefined;
+    for (const [sessionId, frames] of pendingTurns) {
+      const prev = turnsBySession.get(sessionId) ?? [];
+      // A `text-delta`/`thinking-delta` accumulates into the live block, then the settled
+      // frame replaces it — no double-render (docs/adr/0013).
+      const next = reconcileStreaming(prev, frames);
+      turnsBySession.set(sessionId, next);
+      if (sessionId === state.ui.activeSessionId) activeValue = next;
+    }
+    pendingTurns.clear();
+    if (activeValue !== undefined) {
+      state = { ...state, data: { ...state.data, turns: { status: 'ok', value: activeValue } } };
       push();
     }
+  };
+
+  /** Buffer frames for a session and schedule the coalesced flush. */
+  const appendTurns = (sessionId: string, frames: TurnFrame[]): void => {
+    if (frames.length === 0) return;
+    const q = pendingTurns.get(sessionId);
+    if (q !== undefined) q.push(...frames);
+    else pendingTurns.set(sessionId, [...frames]);
+    if (flushHandle === undefined) flushHandle = requestAnimationFrame(flushTurns);
   };
 
   // The drift/cache banners are DERIVED live in the chat vm (predictive: computed from
@@ -495,6 +526,9 @@ export async function startConsole(
     if (!parsed.success) return;
     const data = parsed.data;
     if (data.kind === 'status') {
+      // Land any buffered stream frames before a terminal status renders (so the last text
+      // is present when the pill clears), and guarantee the flush even if rAF is throttled.
+      flushTurns();
       const runStatus = { ...state.ui.runStatus };
       if (data.state === 'running') runStatus[data.sessionId] ??= { since: Date.now() };
       else delete runStatus[data.sessionId];

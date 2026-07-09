@@ -37,9 +37,30 @@ export function messageToFrames(message: SDKMessage): TurnFrame[] {
       return blocksToFrames(contentBlocks(message.message.content));
     case 'result':
       return resultFrames(message);
+    case 'stream_event':
+      return streamEventFrames(message);
     default:
       return [];
   }
+}
+
+/** A partial-message stream event's fields this mapper reads (Anthropic `BetaRawMessageStreamEvent`). */
+interface StreamEvent {
+  event?: { type?: string; delta?: { type?: string; text?: string; thinking?: string } };
+}
+
+/**
+ * Map a `SDKPartialAssistantMessage` (`includePartialMessages`, Piece B / G7) to a delivery-only
+ * delta frame. Only content-block text/thinking deltas render live; block start/stop, tool-input
+ * (`input_json_delta`), and message-level events carry no frame — the settled assistant message
+ * still yields the canonical `text`/`thinking` frames, and only those persist (docs/adr/0013).
+ */
+function streamEventFrames(message: SDKMessage): TurnFrame[] {
+  const ev = (message as unknown as StreamEvent).event;
+  if (ev?.type !== 'content_block_delta') return [];
+  if (ev.delta?.type === 'text_delta') return [{ t: 'text-delta', text: ev.delta.text ?? '' }];
+  if (ev.delta?.type === 'thinking_delta') return [{ t: 'thinking-delta', text: ev.delta.thinking ?? '' }];
+  return [];
 }
 
 /** Normalize a message `content` field to a block array (a plain string carries no renderable frame). */

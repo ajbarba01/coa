@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TurnFrame } from '@coa/shared';
 import type { RegisteredTool, ToolCatalogue } from '@coa/spi';
-import type { CompletionResult } from './complete.js';
+import type { CompletionDelta, CompletionResult } from './complete.js';
 import type { DriverMessage } from './complete.js';
 import {
   runGovernedLoop,
@@ -41,7 +41,9 @@ function scriptedComplete(rounds: CompletionResult[]): {
 } {
   const seen: unknown[] = [];
   let i = 0;
-  const fn = vi.fn(async (messages: unknown) => {
+  // A non-streaming fake (D85 degrade): yields nothing, returns the settled round.
+  // eslint-disable-next-line require-yield
+  const fn = vi.fn(async function* (messages: unknown) {
     seen.push(structuredClone(messages));
     const round = rounds[Math.min(i, rounds.length - 1)]!;
     i += 1;
@@ -55,7 +57,11 @@ const text = (t: string): CompletionResult => ({ text: t, toolCalls: [], usage: 
 function deps(over: Partial<GovernedLoopDeps>): GovernedLoopDeps {
   return {
     sessionId: 's1',
-    complete: async () => text(''),
+    // A non-streaming default fake (D85 degrade): yields nothing, returns the result.
+    // eslint-disable-next-line require-yield
+    complete: async function* () {
+      return text('');
+    },
     catalogue: [],
     systemPrompt: 'sys',
     input: 'do it',
@@ -132,10 +138,68 @@ describe('runGovernedLoop', () => {
     expect(JSON.stringify(complete.seen[1])).not.toContain('the user asked 2+2');
   });
 
+  it('emits text-delta and thinking-delta frames as the generator yields, then the settled frames', async () => {
+    const frames: TurnFrame[] = [];
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async function* streamingComplete(): AsyncGenerator<CompletionDelta, CompletionResult> {
+      yield { kind: 'reasoning', text: 'th' };
+      yield { kind: 'reasoning', text: 'ink' };
+      yield { kind: 'text', text: 'Hel' };
+      yield { kind: 'text', text: 'lo' };
+      return { text: 'Hello', reasoning: 'think', toolCalls: [], usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } };
+    }
+    await runGovernedLoop({
+      sessionId: 's', complete: streamingComplete, catalogue: [], systemPrompt: '', input: 'hi',
+      canUseTool: async () => ({ behavior: 'allow' }) as never,
+      gate: async () => ({ allow: true }),
+      onTurn: (f) => frames.push(f),
+    });
+    // deltas arrive in order, then the settled thinking + settled text
+    expect(frames).toEqual([
+      { t: 'thinking-delta', text: 'th' },
+      { t: 'thinking-delta', text: 'ink' },
+      { t: 'text-delta', text: 'Hel' },
+      { t: 'text-delta', text: 'lo' },
+      { t: 'thinking', text: 'think' },
+      { t: 'text', text: 'Hello' },
+    ]);
+  });
+
+  it('on interrupt mid-stream, keeps the streamed partial as one settled text frame marked interrupted', async () => {
+    const controller = new AbortController();
+    const frames: TurnFrame[] = [];
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async function* streamThenAbort(): AsyncGenerator<CompletionDelta, CompletionResult> {
+      yield { kind: 'text', text: 'Par' };
+      yield { kind: 'text', text: 'tial' };
+      // The user interrupts; the adapter's next read observes the abort and throws.
+      controller.abort();
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    }
+    await runGovernedLoop({
+      sessionId: 's', complete: streamThenAbort, catalogue: [], systemPrompt: '', input: 'hi',
+      canUseTool: async () => ({ behavior: 'allow' }) as never,
+      gate: async () => ({ allow: true }),
+      signal: controller.signal,
+      onTurn: (f) => frames.push(f),
+    });
+    expect(frames).toContainEqual({ t: 'text-delta', text: 'Par' });
+    expect(frames).toContainEqual({ t: 'text-delta', text: 'tial' });
+    // exactly one settled text frame — the partial, marked — and no full-output settled text
+    expect(frames).toContainEqual({ t: 'text', text: 'Partial\n\n[interrupted]' });
+    expect(frames.filter((f) => f.t === 'text')).toHaveLength(1);
+  });
+
   it('emits no thinking frame when a completion has no reasoning', async () => {
     const frames: TurnFrame[] = [];
     await runGovernedLoop(
-      deps({ complete: async () => text('just the answer'), onTurn: (f) => frames.push(f) }),
+      deps({
+        // eslint-disable-next-line require-yield
+        complete: async function* () {
+          return text('just the answer');
+        },
+        onTurn: (f) => frames.push(f),
+      }),
     );
     expect(frames.map((f) => f.t)).toEqual(['text']);
   });
@@ -263,7 +327,8 @@ describe('runGovernedLoop', () => {
   it('emits a user text frame for an injected steer (drainSteer), landing it in the log', async () => {
     const frames: TurnFrame[] = [];
     let n = 0;
-    const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
+    // eslint-disable-next-line require-yield
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* () {
       n += 1;
       return n === 1 ? { text: 'ok', toolCalls: [], usage: USAGE } : { text: 'done', toolCalls: [], usage: USAGE };
     });
@@ -280,7 +345,10 @@ describe('runGovernedLoop', () => {
     const frames: TurnFrame[] = [];
     const answers = ['done for now', 'ok, did X too'];
     let i = 0;
-    const complete = vi.fn(async () => ({ text: answers[i++]!, toolCalls: [], usage: USAGE }));
+    // eslint-disable-next-line require-yield
+    const complete = vi.fn(async function* () {
+      return { text: answers[i++]!, toolCalls: [], usage: USAGE };
+    });
     const gate = vi.fn(() => ({ allow: true }));
     const queued = ['also do X'];
     const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
@@ -412,11 +480,14 @@ describe('runGovernedLoop', () => {
 
   it('is bounded by maxIterations when the model never stops, still settling', async () => {
     const onSettle = vi.fn();
-    const complete = vi.fn(async () => ({
-      text: '',
-      toolCalls: [{ id: 'c', name: 'get_symbol', arguments: {} }],
-      usage: USAGE,
-    }));
+    // eslint-disable-next-line require-yield
+    const complete = vi.fn(async function* () {
+      return {
+        text: '',
+        toolCalls: [{ id: 'c', name: 'get_symbol', arguments: {} }],
+        usage: USAGE,
+      };
+    });
 
     await runGovernedLoop(
       deps({ catalogue: [tool('get_symbol')], complete, onSettle, maxIterations: 3 }),
@@ -429,7 +500,8 @@ describe('runGovernedLoop', () => {
   it('settles the accrued usage even when a later round-trip throws', async () => {
     const onSettle = vi.fn();
     let n = 0;
-    const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
+    // eslint-disable-next-line require-yield
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* () {
       n += 1;
       if (n === 1) {
         return {
@@ -453,7 +525,8 @@ describe('runGovernedLoop', () => {
   it('stops at the next safe boundary when the signal aborts', async () => {
     const controller = new AbortController();
     let n = 0;
-    const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
+    // eslint-disable-next-line require-yield
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* () {
       n += 1;
       if (n === 1) return { text: 'first answer', toolCalls: [], usage: USAGE };
       throw new Error('should not reach a second round-trip after abort');
@@ -470,7 +543,8 @@ describe('runGovernedLoop', () => {
   it('injects a queued steer turn at the next safe boundary before the next round-trip', async () => {
     const seen: DriverMessage[][] = [];
     let n = 0;
-    const complete: GovernedLoopDeps['complete'] = vi.fn(async (messages) => {
+    // eslint-disable-next-line require-yield
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* (messages) {
       seen.push(structuredClone(messages) as DriverMessage[]);
       n += 1;
       if (n === 1) return { text: 'ok', toolCalls: [], usage: USAGE };
@@ -492,7 +566,8 @@ describe('runGovernedLoop', () => {
     const answers = ['done for now', 'ok, did X too'];
     let i = 0;
     const seen: DriverMessage[][] = [];
-    const complete = vi.fn(async (messages: DriverMessage[]) => {
+    // eslint-disable-next-line require-yield
+    const complete = vi.fn(async function* (messages: DriverMessage[]) {
       seen.push(structuredClone(messages));
       return { text: answers[i++]!, reasoning: '', toolCalls: [], usage: USAGE };
     });
