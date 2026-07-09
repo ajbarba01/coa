@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { BackendMessage, TurnFrame } from '@coa/shared';
+import type { TurnFrame } from '@coa/shared';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 
 /** A monotonic ISO clock so recency ordering is deterministic in tests. */
@@ -148,8 +148,8 @@ describe('conversation store (R-7)', () => {
     // a directory with no/broken meta.json is ignored by list
     mkdirSync(join(dir, 'orphan'), { recursive: true });
     writeFileSync(join(dir, 'orphan', 'meta.json'), '{ not json', 'utf8');
-    // a garbage line between valid turns is skipped by reload
-    appendFileSync(join(dir, 'good', 'turns.ndjson'), 'not-json\n', 'utf8');
+    // a garbage line between valid events is skipped by reload
+    appendFileSync(join(dir, 'good', 'events.ndjson'), 'not-json\n', 'utf8');
     store.append('good', [{ seq: 5, frame: text('after') }]);
     expect(store.list().map((m) => m.id)).toEqual(['good']);
     expect(store.reload('good')).toEqual([{ seq: 5, frame: { t: 'text', text: 'after' } }]);
@@ -161,29 +161,30 @@ describe('conversation store (R-7)', () => {
     expect(store.loadBackendMessages('nope')).toEqual([]);
   });
 
-  it('round-trips the pure-API backend transcript verbatim (tool calls + results kept)', () => {
+  it('append writes events.ndjson; loadBackendMessages folds it (no messages.json)', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
-    const messages: BackendMessage[] = [
-      { role: 'user', content: 'find pay' },
-      {
-        role: 'assistant',
-        content: 'looking',
-        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
-      },
-      { role: 'tool', toolCallId: 'c1', content: '{"rows":3}' },
-      { role: 'assistant', content: 'found it' },
-    ];
-    store.saveBackendMessages('c1', messages);
-    expect(store.loadBackendMessages('c1')).toEqual(messages);
-    // Rewritten in full each turn (not appended).
-    store.saveBackendMessages('c1', [{ role: 'user', content: 'only me now' }]);
-    expect(store.loadBackendMessages('c1')).toEqual([{ role: 'user', content: 'only me now' }]);
+    store.append('c1', [
+      { seq: 0, frame: { t: 'text', text: 'hi', role: 'user' } },
+      { seq: 1, frame: { t: 'tool_use', tool: 'Read', input: { p: 'a' }, handle: 'h1' } },
+      { seq: 2, frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' }, full: 'FULLBODY' },
+      { seq: 3, frame: { t: 'text', text: 'done' } },
+      { seq: 4, frame: { t: 'turn-boundary', role: 'assistant' } },
+    ]);
+    // Transcript = the fold (full body preserved), NOT the pointer.
+    expect(store.loadBackendMessages('c1')).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'h1', name: 'Read', arguments: { p: 'a' } }] },
+      { role: 'tool', toolCallId: 'h1', content: 'FULLBODY' },
+      { role: 'assistant', content: 'done' },
+    ]);
+    // UI view = the frame stream (full dropped).
+    expect(store.reload('c1').map((t) => t.frame.t)).toEqual(['text', 'tool_use', 'tool_result', 'text', 'turn-boundary']);
+    expect(store.reload('c1').every((t) => !('full' in t))).toBe(true);
   });
 
-  it('reads an unparseable transcript as no memory (all-or-nothing, never throws)', () => {
-    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
-    writeFileSync(join(dir, 'c1', 'messages.json'), '{ not json', 'utf8');
-    expect(store.loadBackendMessages('c1')).toEqual([]);
+  it('loadBackendMessages returns [] for a session with no events (fresh start; old files ignored)', () => {
+    store.create({ id: 'c2', agentRef: 'r', title: 't', scope: '' });
+    expect(store.loadBackendMessages('c2')).toEqual([]);
   });
 
   it('freezes and reloads a session compilation; a corrupt one reads as none', () => {

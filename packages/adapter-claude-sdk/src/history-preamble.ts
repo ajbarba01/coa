@@ -51,9 +51,8 @@ export function withHistoryPreamble(input: string, history: readonly BackendMess
  * every later turn (a steer M8 injects into the same feed) passes through unchanged.
  * With no history this is a pure pass-through (D85 strict-superset).
  *
- * This wrapper is model-delivery only. Compose it OUTSIDE `tapStreamedUserTurns`
- * (i.e. wrap that function's output, not the raw input) so the canonical transcript
- * tap observes the raw turn text and never the preamble-augmented delivery.
+ * This wrapper is model-delivery only — it augments what the model sees, never the
+ * canonical record (the append-only event log, docs/adr/0010).
  */
 export function withHistoryPreambleStreaming(
   input: AsyncIterable<string>,

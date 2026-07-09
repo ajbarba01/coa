@@ -161,7 +161,6 @@ interface PersistenceHooks {
   frozen?: { neutral: NeutralConfig; frame: CapabilityFrame };
   onCompile?: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }) => void;
   onBackendSession?: (id: string) => void;
-  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
 }
 
 /**
@@ -390,8 +389,6 @@ export function buildSessionHandlers(
                 ...(model !== undefined ? { model } : {}),
                 ...(promptVersion !== undefined ? { promptVersion } : {}),
               }),
-            onBackendMessages: (messages: readonly BackendMessage[]): void =>
-              persistIn.store.saveBackendMessages(persistIn.convId, messages),
           }
         : {}),
     };
@@ -413,11 +410,17 @@ export function buildSessionHandlers(
     const seqBox = { value: 0 };
     const prep = prepareTurnPersistence(turn, session, persistentStore, seqBox);
     let started: { id: string; worktree: string } | undefined;
-    const record = (frame: TurnFrame): void => {
+    // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
+    // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
+    const record = (frame: TurnFrame, full?: string): void => {
       if (started === undefined) return;
       const s = seqBox.value++;
       session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
-      if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+      if (prep.persistIn !== undefined) {
+        prep.persistIn.store.append(prep.persistIn.convId, [
+          { seq: s, frame, ...(full !== undefined ? { full } : {}) },
+        ]);
+      }
     };
     const controller = new AbortController();
     const steer: string[] = [];
@@ -578,7 +581,9 @@ export function buildSessionHandlers(
     };
     setHeld(query);
 
-    const record = (frame: TurnFrame): void => {
+    // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
+    // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
+    const record = (frame: TurnFrame, full?: string): void => {
       const started = startedRef.current;
       if (started === undefined) return;
       // SC-1: an interrupted turn's terminal result (from a barge-in `interrupt()`) must
@@ -589,7 +594,11 @@ export function buildSessionHandlers(
       }
       const s = seqBox.value++;
       session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
-      if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+      if (prep.persistIn !== undefined) {
+        prep.persistIn.store.append(prep.persistIn.convId, [
+          { seq: s, frame, ...(full !== undefined ? { full } : {}) },
+        ]);
+      }
       if (frame.t === 'turn-boundary') {
         query.pendingTurns -= 1;
         // Resolve the driver only when every outstanding turn (incl. a barge-in-injected
@@ -605,6 +614,17 @@ export function buildSessionHandlers(
           query.boundary = undefined;
         }
       }
+    };
+
+    // Persist the steer as a user turn in the single log (the SoT — docs/adr/0010), so it
+    // reaches canonical memory + reload. Append-only (not pushed): like the founding user
+    // turn, a steer is shown optimistically by the console. Restores what the retired
+    // streaming tap recorded. Records the text AS FED to the model (framed, for barge-in).
+    const recordSteerTurn = (steerText: string): void => {
+      if (startedRef.current === undefined) return;
+      const s = seqBox.value++;
+      const frame: TurnFrame = { t: 'text', text: steerText, role: 'user' };
+      if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
     };
 
     // NOT awaited: this createSession spans the whole live session. Its promise settles
@@ -642,11 +662,14 @@ export function buildSessionHandlers(
             if (running) query.pendingTurns += 1;
             if (mode === 'barge-in' && running) {
               query.barging += 1;
+              const framed = FRAME_BARGE_IN + text;
+              recordSteerTurn(framed);
               void (async () => {
                 await query.turnInterrupt?.();
-                channel.push(FRAME_BARGE_IN + text);
+                channel.push(framed);
               })();
             } else {
+              recordSteerTurn(text);
               channel.push(text);
             }
           });

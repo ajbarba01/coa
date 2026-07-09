@@ -1,0 +1,115 @@
+import type { BackendMessage, LoopToolCall, TurnFrame } from '@coa/shared';
+
+/**
+ * The append-only conversation log's entry (docs/adr/0010): the UNCHANGED M0 wire
+ * frame plus, for a `tool_result`, the FULL body the model saw (the only thing the
+ * lossy UI frame drops). `full` is persistence-only — never on the wire.
+ */
+export interface PersistedEvent {
+  seq: number;
+  frame: TurnFrame;
+  full?: string;
+}
+
+/** The synthetic body a repaired (interrupted / stranded) tool call gets. */
+const INTERRUPTED = '[Tool execution was interrupted]';
+
+/**
+ * Fold the append-only event log into the provider-neutral transcript (system omitted)
+ * — the read-time projection that replaces the whole-rewrite `messages.json`
+ * (docs/adr/0010). Assistant `text`/`tool_use` frames group into one assistant message
+ * until a `tool_result` (or a user turn / boundary) closes it; `tool_result` frames
+ * become `tool` messages (full body from `full`, else the frame pointer). Thinking/
+ * error/reconcile/permission/subagent frames carry no transcript memory and are
+ * dropped. Every unmatched tool call is REPAIRED (a synthesized paired result), never
+ * dropped — so the assistant turn survives and cross-provider replay stays valid.
+ */
+export function foldEventsToTranscript(events: readonly PersistedEvent[]): BackendMessage[] {
+  const out: BackendMessage[] = [];
+  const issued = new Set<string>(); // tool_use handles seen so far — the integrity boundary.
+  let assistant: BackendMessage | undefined;
+  const closeAssistant = (): void => {
+    if (assistant !== undefined) {
+      // Skip a wholly-empty assistant turn (no text, no tool calls) — matching the
+      // retired `messageToBackendMessages`, so the fold stays byte-parity with the old
+      // path (D85) and never emits a stray `{ role:'assistant', content:'' }`.
+      if (assistant.content !== '' || (assistant.toolCalls?.length ?? 0) > 0) out.push(assistant);
+      assistant = undefined;
+    }
+  };
+  for (const { frame, full } of events) {
+    switch (frame.t) {
+      case 'text':
+        if (frame.role === 'user') {
+          closeAssistant();
+          out.push({ role: 'user', content: frame.text });
+        } else {
+          // Assistant text: open or extend the current assistant message.
+          if (assistant === undefined) assistant = { role: 'assistant', content: '' };
+          assistant.content += frame.text;
+        }
+        break;
+      case 'tool_use': {
+        if (assistant === undefined) assistant = { role: 'assistant', content: '' };
+        issued.add(frame.handle);
+        const call: LoopToolCall = { id: frame.handle, name: frame.tool, arguments: frame.input };
+        assistant.toolCalls = [...(assistant.toolCalls ?? []), call];
+        break;
+      }
+      case 'tool_result':
+        // An orphaned result (no prior tool_use with this handle) answers no assistant
+        // tool call; emitting it would invalidate the transcript (an OpenAI-compatible
+        // endpoint 400s on a tool message pairing with nothing) — so drop it. Current
+        // producers always emit tool_use first, but the fold is the integrity boundary.
+        if (!issued.has(frame.handle)) break;
+        // A matched result closes the assistant turn that issued the call(s).
+        closeAssistant();
+        out.push({ role: 'tool', toolCallId: frame.handle, content: full ?? frame.pointer });
+        break;
+      case 'turn-boundary':
+        closeAssistant();
+        break;
+      case 'thinking':
+      case 'error':
+      case 'reconcile':
+      case 'permission':
+      case 'subagent':
+        // No transcript memory — these frames are dropped.
+        break;
+      default: {
+        // A future TurnFrame kind must make an explicit fold decision above.
+        const _exhaustive: never = frame;
+        void _exhaustive;
+        break;
+      }
+    }
+  }
+  closeAssistant();
+  return repairUnpairedToolCalls(out);
+}
+
+/**
+ * Guarantee every assistant `toolCall.id` has a matching `tool` message — synthesizing
+ * a paired result for any that don't (an interrupt / mid-tool crash, or a stranded
+ * non-last call in a parallel batch). Keyed by id SET MEMBERSHIP, not list position
+ * (docs/design/research/2026-07-09-append-only-persistence-oss.md — the convergent OSS
+ * practice: synthesize, don't drop). A synthesized result is inserted immediately after
+ * its assistant message, before the next message.
+ */
+export function repairUnpairedToolCalls(messages: readonly BackendMessage[]): BackendMessage[] {
+  const answered = new Set<string>();
+  for (const m of messages) if (m.role === 'tool' && m.toolCallId !== undefined) answered.add(m.toolCallId);
+  const out: BackendMessage[] = [];
+  for (const m of messages) {
+    out.push(m);
+    if (m.role === 'assistant' && m.toolCalls !== undefined) {
+      for (const call of m.toolCalls) {
+        if (!answered.has(call.id)) {
+          out.push({ role: 'tool', toolCallId: call.id, content: INTERRUPTED });
+          answered.add(call.id); // guard against duplicate ids
+        }
+      }
+    }
+  }
+  return out;
+}

@@ -98,7 +98,6 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
     ...(init.maxBudgetUsd !== undefined ? { maxBudgetUsd: init.maxBudgetUsd } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
-    ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
     ...(init.drainQueuedSteer !== undefined ? { drainQueuedSteer: init.drainQueuedSteer } : {}),
@@ -116,7 +115,6 @@ export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.maxBudgetUsd !== undefined ? { maxBudgetUsd: init.maxBudgetUsd } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
-    ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
     ...(init.drainQueuedSteer !== undefined ? { drainQueuedSteer: init.drainQueuedSteer } : {}),
@@ -137,7 +135,6 @@ export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.resume !== undefined ? { resume: init.resume } : {}),
     ...(init.onBackendSession !== undefined ? { onBackendSession: init.onBackendSession } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
-    ...(init.onBackendMessages !== undefined ? { onBackendMessages: init.onBackendMessages } : {}),
     ...(init.deliverHistoryAsPreamble !== undefined
       ? { deliverHistoryAsPreamble: init.deliverHistoryAsPreamble }
       : {}),

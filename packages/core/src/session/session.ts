@@ -35,8 +35,13 @@ export interface SessionAdapterInit {
   maxBudgetUsd?: number;
   /** M9's settlement step → M7.charge, called once per settled result. */
   onSettle: (sessionId: string, usage: RuntimeUsage) => void;
-  /** Per-frame session output: the backend maps its stream to neutral M0 frames; M8 sequences + pushes them. */
-  onTurn?: (frame: TurnFrame) => void;
+  /**
+   * Per-frame session output: the backend maps its stream to neutral M0 frames; M8
+   * sequences + pushes them. `full`, when present (a `tool_result`), is the complete
+   * body the model saw — the append-only log's fidelity companion to the lossy
+   * pointer frame (docs/adr/0010); M8 persists it alongside the frame, never on the wire.
+   */
+  onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
   locator?: Locator;
   /** A prior backend session id to resume (R-7 continuity); absent ⇒ a fresh conversation. */
@@ -45,8 +50,6 @@ export interface SessionAdapterInit {
   onBackendSession?: (backendSessionId: string) => void;
   /** The prior conversation transcript (R-7, system omitted). A pure-API backend resends it for memory; the Claude backend carries it for bookkeeping (and, when `deliverHistoryAsPreamble`, as a first-turn preamble). */
   history?: readonly BackendMessage[];
-  /** Report the settled transcript; M8 persists it as the next turn's `history` (every backend now reports this, making memory provider-independent). */
-  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
   /** Claude cross-provider switch: deliver `history` as a first-turn preamble (no resumable server session exists for this transcript). Pure-API backends ignore it. */
   deliverHistoryAsPreamble?: boolean;
   /**
@@ -189,7 +192,7 @@ export async function createSession(
     packageIds?: string[];
     /** Default packages the user turned off (assembly selection). */
     exclude?: string[];
-    onTurn?: (frame: TurnFrame) => void;
+    onTurn?: (frame: TurnFrame, full?: string) => void;
     /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
     onStart?: (started: { id: string; worktree: string }) => void;
     /** The persistent conversation id to run within (R-7); absent ⇒ an ephemeral session (a fresh generated id). */
@@ -200,8 +203,6 @@ export async function createSession(
     onBackendSession?: (backendSessionId: string) => void;
     /** The prior conversation transcript (system omitted) — carried to any backend. */
     history?: readonly BackendMessage[];
-    /** Report the settled transcript so M8 can persist it for the next turn. */
-    onBackendMessages?: (messages: readonly BackendMessage[]) => void;
     /** Claude cross-provider switch: deliver `history` as a first-turn preamble. */
     deliverHistoryAsPreamble?: boolean;
     /** M8's per-session user-stop, forwarded to the adapter (see {@link SessionAdapterInit.signal}). */
@@ -277,7 +278,6 @@ export async function createSession(
     ...(req.resume !== undefined ? { resume: req.resume } : {}),
     ...(req.onBackendSession ? { onBackendSession: req.onBackendSession } : {}),
     ...(req.history !== undefined ? { history: req.history } : {}),
-    ...(req.onBackendMessages ? { onBackendMessages: req.onBackendMessages } : {}),
     ...(req.deliverHistoryAsPreamble !== undefined
       ? { deliverHistoryAsPreamble: req.deliverHistoryAsPreamble }
       : {}),

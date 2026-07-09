@@ -101,7 +101,7 @@ describe('runGovernedLoop', () => {
 
   it('emits a thinking frame (before the answer) when a completion carries reasoning, and never resends it', async () => {
     const frames: TurnFrame[] = [];
-    let settled: readonly DriverMessage[] = [];
+    let gateCalls = 0;
     const complete = scriptedComplete([
       {
         text: 'the answer is 4',
@@ -109,15 +109,15 @@ describe('runGovernedLoop', () => {
         usage: USAGE,
         reasoning: 'the user asked 2+2, so add them',
       },
+      text('done'),
     ]);
 
     await runGovernedLoop(
       deps({
         complete: complete.fn,
         onTurn: (f) => frames.push(f),
-        onMessages: (m) => {
-          settled = m;
-        },
+        gate: async () =>
+          gateCalls++ === 0 ? { allow: false, message: 'keep going' } : { allow: true },
       }),
     );
 
@@ -125,9 +125,11 @@ describe('runGovernedLoop', () => {
     expect(frames).toEqual([
       { t: 'thinking', text: 'the user asked 2+2, so add them' },
       { t: 'text', text: 'the answer is 4' },
+      { t: 'text', text: 'done' },
     ]);
-    // Display-only: reasoning must never enter the resent transcript (the API rejects it on input).
-    expect(JSON.stringify(settled)).not.toContain('the user asked 2+2');
+    // Display-only: reasoning must never enter the resent transcript (the API rejects it on
+    // input) — proven by inspecting what the SECOND round-trip actually resends.
+    expect(JSON.stringify(complete.seen[1])).not.toContain('the user asked 2+2');
   });
 
   it('emits no thinking frame when a completion has no reasoning', async () => {
@@ -204,7 +206,6 @@ describe('runGovernedLoop', () => {
     }));
     const render = vi.fn(() => rendered);
     const frames: TurnFrame[] = [];
-    const onMessages = vi.fn();
     const complete = scriptedComplete([
       {
         text: '',
@@ -219,7 +220,6 @@ describe('runGovernedLoop', () => {
         catalogue: [tool('Grep', invoke, render)],
         complete: complete.fn,
         onTurn: (f) => frames.push(f),
-        onMessages,
       }),
     );
 
@@ -231,11 +231,63 @@ describe('runGovernedLoop', () => {
       ok: true,
       pointer: rendered,
     });
-    // The model reads the same rendered text — not raw JSON, not the pattern.
-    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find(
-      (m) => m.role === 'tool',
-    )!;
+    // The model reads the same rendered text — not raw JSON, not the pattern — proven by
+    // what the SECOND round-trip actually resends.
+    const toolMsg = (complete.seen[1] as DriverMessage[]).find((m) => m.role === 'tool')!;
     expect(toolMsg.content).toBe(rendered);
+  });
+
+  it('carries the display body as `full` on the tool_result frame (append-only log fidelity)', async () => {
+    const invoke = vi.fn(async () => ({ result: { rows: 3 }, handle: 'raw', pointer: 'P' }));
+    const catalogue: ToolCatalogue = [tool('get_symbol', invoke)];
+    const seen: Array<{ frame: TurnFrame; full?: string }> = [];
+    const onTurn = (frame: TurnFrame, full?: string): void => {
+      seen.push(full !== undefined ? { frame, full } : { frame });
+    };
+    const complete = scriptedComplete([
+      {
+        text: '',
+        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
+        usage: USAGE,
+      },
+      text('done'),
+    ]);
+
+    await runGovernedLoop(deps({ catalogue, complete: complete.fn, onTurn }));
+
+    const resultEntry = seen.find((s) => s.frame.t === 'tool_result');
+    expect(resultEntry?.full).toBe(JSON.stringify({ rows: 3 }));
+    expect(resultEntry?.full).toBe((resultEntry?.frame as { pointer: string }).pointer);
+  });
+
+  it('emits a user text frame for an injected steer (drainSteer), landing it in the log', async () => {
+    const frames: TurnFrame[] = [];
+    let n = 0;
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
+      n += 1;
+      return n === 1 ? { text: 'ok', toolCalls: [], usage: USAGE } : { text: 'done', toolCalls: [], usage: USAGE };
+    });
+    const gate = vi.fn(async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const);
+    const steer = ['actually, also do X'];
+    const drainSteer = vi.fn(() => steer.splice(0, steer.length));
+    await runGovernedLoop(
+      deps({ complete, gate, drainSteer, input: 'do it', onTurn: (f) => frames.push(f) }),
+    );
+    expect(frames).toContainEqual({ t: 'text', text: 'actually, also do X', role: 'user' });
+  });
+
+  it('emits a user text frame for an injected queued steer (drainQueuedSteer)', async () => {
+    const frames: TurnFrame[] = [];
+    const answers = ['done for now', 'ok, did X too'];
+    let i = 0;
+    const complete = vi.fn(async () => ({ text: answers[i++]!, toolCalls: [], usage: USAGE }));
+    const gate = vi.fn(() => ({ allow: true }));
+    const queued = ['also do X'];
+    const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
+    await runGovernedLoop(
+      deps({ complete, gate, drainQueuedSteer, input: 'do it', onTurn: (f) => frames.push(f) }),
+    );
+    expect(frames).toContainEqual({ t: 'text', text: 'also do X', role: 'user' });
   });
 
   it('does not execute a denied tool call — the deny reason goes back to the model', async () => {
@@ -324,59 +376,19 @@ describe('runGovernedLoop', () => {
     ]);
   });
 
-  it('hands back the settled transcript (system omitted) via onMessages for persistence', async () => {
-    const onMessages = vi.fn();
-    const complete = scriptedComplete([
-      {
-        text: 'looking',
-        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
-        usage: USAGE,
-      },
-      text('the answer'),
-    ]);
-
-    await runGovernedLoop(
-      deps({
-        catalogue: [tool('get_symbol')],
-        complete: complete.fn,
-        input: 'find pay',
-        onMessages,
-      }),
-    );
-
-    expect(onMessages).toHaveBeenCalledExactlyOnceWith([
-      { role: 'user', content: 'find pay' },
-      {
-        role: 'assistant',
-        content: 'looking',
-        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: { name: 'pay' } }],
-      },
-      {
-        role: 'tool',
-        toolCallId: 'c1',
-        content: JSON.stringify({ ok: true, args: { name: 'pay' } }),
-      },
-      { role: 'assistant', content: 'the answer' },
-    ]);
-  });
-
   it('caps an oversized tool result before it enters the conversation (history-poison backstop)', async () => {
     const result = { blob: 'x'.repeat(TOOL_RESULT_CHAR_CAP * 4) };
     const fullLen = JSON.stringify(result).length;
     const invoke = vi.fn(async () => ({ result, handle: 'raw', pointer: 'P' }));
-    const onMessages = vi.fn();
     const complete = scriptedComplete([
       { text: '', toolCalls: [{ id: 'c1', name: 'big', arguments: {} }], usage: USAGE },
       text('done'),
     ]);
 
-    await runGovernedLoop(
-      deps({ catalogue: [tool('big', invoke)], complete: complete.fn, onMessages }),
-    );
+    await runGovernedLoop(deps({ catalogue: [tool('big', invoke)], complete: complete.fn }));
 
-    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find(
-      (m) => m.role === 'tool',
-    )!;
+    // What the SECOND round-trip resends is what actually reaches the model.
+    const toolMsg = (complete.seen[1] as DriverMessage[]).find((m) => m.role === 'tool')!;
     // The verbatim raw store still holds the full result; only what enters the resent
     // transcript is bounded, with a marker telling the model how much was truncated.
     expect(toolMsg.content.length).toBeLessThan(TOOL_RESULT_CHAR_CAP + 200);
@@ -387,19 +399,14 @@ describe('runGovernedLoop', () => {
 
   it('leaves a small tool result untouched', async () => {
     const invoke = vi.fn(async () => ({ result: { ok: true }, handle: 'raw', pointer: 'P' }));
-    const onMessages = vi.fn();
     const complete = scriptedComplete([
       { text: '', toolCalls: [{ id: 'c1', name: 'small', arguments: {} }], usage: USAGE },
       text('done'),
     ]);
 
-    await runGovernedLoop(
-      deps({ catalogue: [tool('small', invoke)], complete: complete.fn, onMessages }),
-    );
+    await runGovernedLoop(deps({ catalogue: [tool('small', invoke)], complete: complete.fn }));
 
-    const toolMsg = (onMessages.mock.calls[0]![0] as DriverMessage[]).find(
-      (m) => m.role === 'tool',
-    )!;
+    const toolMsg = (complete.seen[1] as DriverMessage[]).find((m) => m.role === 'tool')!;
     expect(toolMsg.content).toBe(JSON.stringify({ ok: true }));
   });
 
@@ -419,8 +426,7 @@ describe('runGovernedLoop', () => {
     expect(onSettle).toHaveBeenCalledOnce();
   });
 
-  it('flushes completed blocks and usage when a later round-trip throws (block-preserving)', async () => {
-    const onMessages = vi.fn();
+  it('settles the accrued usage even when a later round-trip throws', async () => {
     const onSettle = vi.fn();
     let n = 0;
     const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
@@ -436,28 +442,15 @@ describe('runGovernedLoop', () => {
     });
 
     await expect(
-      runGovernedLoop(
-        deps({ catalogue: [tool('get_symbol')], complete, input: 'do it', onMessages, onSettle }),
-      ),
+      runGovernedLoop(deps({ catalogue: [tool('get_symbol')], complete, input: 'do it', onSettle })),
     ).rejects.toThrow('connection dropped');
 
-    // The completed first round-trip survived in the canonical transcript (system omitted).
-    expect(onMessages).toHaveBeenCalledTimes(1);
-    expect(onMessages.mock.calls[0]![0]).toEqual([
-      { role: 'user', content: 'do it' },
-      {
-        role: 'assistant',
-        content: 'working',
-        toolCalls: [{ id: 'c1', name: 'get_symbol', arguments: {} }],
-      },
-      { role: 'tool', toolCallId: 'c1', content: '{"ok":true,"args":{}}' },
-    ]);
-    // Usage accrued for the completed round-trip is still charged.
+    // Usage accrued for the completed first round-trip is still charged, even though the
+    // second round-trip threw before the loop settled cleanly.
     expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', USAGE);
   });
 
-  it('stops at the next safe boundary when the signal aborts, flushing completed blocks', async () => {
-    const onMessages = vi.fn();
+  it('stops at the next safe boundary when the signal aborts', async () => {
     const controller = new AbortController();
     let n = 0;
     const complete: GovernedLoopDeps['complete'] = vi.fn(async () => {
@@ -470,15 +463,8 @@ describe('runGovernedLoop', () => {
       controller.abort(); // abort after the first round-trip settles
       return { allow: false, message: 'keep going' } as const;
     });
-    await runGovernedLoop(
-      deps({ complete, gate, signal: controller.signal, onMessages, input: 'do it' }),
-    );
+    await runGovernedLoop(deps({ complete, gate, signal: controller.signal, input: 'do it' }));
     expect(n).toBe(1); // never called complete() again after abort
-    expect(onMessages).toHaveBeenCalledExactlyOnceWith([
-      { role: 'user', content: 'do it' },
-      { role: 'assistant', content: 'first answer' },
-      { role: 'user', content: 'keep going' },
-    ]);
   });
 
   it('injects a queued steer turn at the next safe boundary before the next round-trip', async () => {
@@ -505,23 +491,22 @@ describe('runGovernedLoop', () => {
     // the loop must continue for one more round-trip rather than ending.
     const answers = ['done for now', 'ok, did X too'];
     let i = 0;
-    const complete = vi.fn(async () => ({
-      text: answers[i++]!, reasoning: '', toolCalls: [], usage: USAGE,
-    }));
+    const seen: DriverMessage[][] = [];
+    const complete = vi.fn(async (messages: DriverMessage[]) => {
+      seen.push(structuredClone(messages));
+      return { text: answers[i++]!, reasoning: '', toolCalls: [], usage: USAGE };
+    });
     const gate = vi.fn(() => ({ allow: true }));       // model wants to stop each time
     const queued = ['also do X'];
     const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
-    const onMessages = vi.fn();
-    await runGovernedLoop(deps({ complete, gate, drainQueuedSteer, input: 'do it', onMessages }));
+    await runGovernedLoop(deps({ complete, gate, drainQueuedSteer, input: 'do it' }));
     // Two round-trips: the queued steer forced a continue after the first close-gate.
     expect(complete).toHaveBeenCalledTimes(2);
-    // The steer landed as a user message between the two assistant answers.
-    const msgs = onMessages.mock.calls.at(-1)![0] as Array<{ role: string; content: string }>;
-    expect(msgs.some((m) => m.role === 'user' && m.content === 'also do X')).toBe(true);
+    // The steer landed as a user message ahead of the second round-trip.
+    expect(seen[1]).toContainEqual({ role: 'user', content: 'also do X' });
   });
 
-  it('trims the flush to the last complete round-trip when a throw lands mid tool-loop (unrenderable result)', async () => {
-    const onMessages = vi.fn();
+  it('settles usage even when a mid-tool-loop throw leaves a dangling tool_use unanswered', async () => {
     const onSettle = vi.fn();
     // No `render`, and a result that JSON.stringify cannot serialize (a BigInt) — the
     // driver's `capToolResult(JSON.stringify(...))` fallback throws AFTER the assistant
@@ -541,16 +526,13 @@ describe('runGovernedLoop', () => {
           catalogue: [tool('bad_tool', invoke)],
           complete: complete.fn,
           input: 'do it',
-          onMessages,
           onSettle,
         }),
       ),
     ).rejects.toThrow();
 
-    // Only the last round-trip-consistent prefix survives — the dangling assistant(toolCalls)
-    // with no answered tool result must NOT be in the flushed transcript.
-    expect(onMessages).toHaveBeenCalledExactlyOnceWith([{ role: 'user', content: 'do it' }]);
-    // Usage from the completed `complete()` call is still charged.
+    // Usage from the completed `complete()` call is still charged even though the
+    // in-flight tool_use never got its result.
     expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', USAGE);
   });
 });

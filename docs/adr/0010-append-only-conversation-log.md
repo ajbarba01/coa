@@ -1,6 +1,6 @@
 # 0010. Converge conversation persistence onto a single append-only log
 
-- Status: accepted (execution deferred — see Consequences)
+- Status: accepted (executed 2026-07-09 — see Delivered)
 - Date: 2026-07-06
 
 ## Context and problem
@@ -72,3 +72,32 @@ plan. Until then, new persistence-touching code follows the flush-on-exit discip
 - A non-trivial refactor of R-7 (`conversation-store.ts`) and its consumers (memory plan, prompt-freeze, the
   console reload path); deferred precisely to bound that cost to when G4 needs it.
 - Until it lands, correctness still rests on the flush-on-exit discipline — a known, documented interim risk.
+
+## Delivered (2026-07-09)
+
+Executed as designed (`docs/superpowers/specs/2026-07-09-coa-append-only-sot-design.md`), informed by an OSS
+mechanics survey (`docs/design/research/2026-07-09-append-only-persistence-oss.md`):
+
+- **One append-only `events.ndjson` per session** (`PersistedEvent = {seq, frame, full?}`) is the sole writer.
+  `reload` projects the `frame` stream (the UI view, unchanged, `full` dropped); `loadBackendMessages`
+  **folds** the log into the provider transcript at read time (`foldEventsToTranscript`). `messages.json` and
+  `turns.ndjson` are gone; the transcript is computed on demand, never a second durable store.
+- **The adapter emits ONE enriched stream** (`onTurn(frame, full?)`, `full` = the complete tool-result body,
+  persistence-only — never on the R-12 wire, D57). The second writer (`onBackendMessages` +
+  `messageToBackendMessages`/`tapStreamedUserTurns` + the driver's `onMessages` flush) is retired, so the
+  transcript integrity is now **structural**, not a flush-on-exit discipline.
+- **`dropTrailingDanglingToolCall` (write-time drop) became `repairUnpairedToolCalls` (read-time synthesize)** —
+  the convergent OSS practice: an unmatched tool call gets a synthesized paired result
+  (`[Tool execution was interrupted]`), keyed by call-id **set membership** (not list position, so a stranded
+  non-last parallel call is repaired too), so the assistant turn survives and cross-provider replay stays valid.
+  The fold also drops an orphaned `tool_result` (a result answering no call) — the integrity boundary in both
+  directions.
+- **The P-β M2 divergence vanishes** (a steer is appended once → both projections see it; the pure-API driver
+  now emits a user frame per injected steer too) and **A1 is structural** (the log only grows; a mid-turn crash
+  is handled by the read-time repair). Streaming token-deltas stay OUT of the log (settled frames only — a
+  constraint the incremental-streaming work must honor).
+- **Fresh start:** old two-store sessions are not read by the new path (the local store is disposable scratch).
+- Verified: the full-fidelity real-tool capture and the folded transcript are proven against the live Claude
+  backend (`sot-smoke.live.test.ts`, `COA_LIVE`-gated); the fold is exhaustively unit-tested.
+
+_Last reviewed: 2026-07-09_

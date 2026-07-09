@@ -1,11 +1,12 @@
 import type { BackendMessage } from '@coa/shared';
 
 /**
- * M8 — the per-turn memory strategy (SPEC R-7). The canonical neutral transcript
- * (conversation-store `messages.json`) is the single source of truth for a
- * conversation's memory; this decides HOW to hand it to the turn's backend so the
- * agent's memory always matches what the user sees, across restarts and provider
- * switches, while keeping the provider's cache as warm as possible:
+ * M8 — the per-turn memory strategy (SPEC R-7). The canonical transcript is the
+ * read-time fold over the conversation's append-only `events.ndjson` (docs/adr/0010)
+ * — the single source of truth for a conversation's memory; this decides HOW to hand
+ * it to the turn's backend so the agent's memory always matches what the user sees,
+ * across restarts and provider switches, while keeping the provider's cache as warm
+ * as possible:
  *
  *  - **Same-provider Claude continuation** → the native `resume` fast path (by the
  *    stored backend session id). This is the strongest cache guarantee: the server
@@ -21,9 +22,9 @@ import type { BackendMessage } from '@coa/shared';
  *    is CLI-internal), so a preamble is the supported, robust way to carry memory
  *    across the switch. After that turn Claude owns a resumable session again.
  *
- * The transcript is ALWAYS carried to the adapter (for bookkeeping — the adapter
- * appends this turn and reports the full transcript back), independent of whether
- * the model is fed `resume`, `history`, or a preamble.
+ * The transcript is ALWAYS carried to the adapter (for bookkeeping — the server
+ * session or a preamble carries it forward), independent of whether the model is
+ * fed `resume`, `history`, or a preamble.
  */
 
 /** The minimal slice of stored session metadata the plan reads (structural — no store coupling). */

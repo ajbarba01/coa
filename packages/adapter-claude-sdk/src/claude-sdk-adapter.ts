@@ -33,12 +33,7 @@ import { assembleSessionOptions } from './session-options.js';
 import { toCoaMcpServer } from './mcp-tools.js';
 import { resolveToolTransport } from './tool-frame.js';
 import { sessionAuthEnv } from './auth-env.js';
-import { messageToFrames } from './turn-frames.js';
-import {
-  dropTrailingDanglingToolCall,
-  messageToBackendMessages,
-  tapStreamedUserTurns,
-} from './transcript.js';
+import { messageToEnrichedFrames } from './enriched-frames.js';
 import { withHistoryPreamble, withHistoryPreambleStreaming } from './history-preamble.js';
 import { toSdkPrompt } from './session-input.js';
 
@@ -56,9 +51,11 @@ export interface ClaudeSdkAdapterInit {
   /**
    * Bridge each mapped neutral {@link TurnFrame} to M8's emission policy (which
    * sequences + wraps it into a `turn` Push, R-12). Best-effort; the SDK→frame
-   * mapping is M9's ({@link messageToFrames}), the wire vocabulary is M0's.
+   * mapping is M9's ({@link messageToEnrichedFrames}), the wire vocabulary is M0's.
+   * `full`, present on a `tool_result`, is the complete body the model saw — the
+   * append-only log's fidelity companion to the lossy `pointer` (docs/adr/0010).
    */
-  onTurn?: (frame: TurnFrame) => void;
+  onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The agent's model selection (model id + faithful reasoning config); absent ⇒ account/SDK defaults. */
   model?: ModelSelection;
   /** M9's settlement step → `M7.charge(sessionId, cost)`, called once per settled result. */
@@ -74,21 +71,17 @@ export interface ClaudeSdkAdapterInit {
   /**
    * The prior conversation transcript (R-7, system omitted). Unlike a pure-API
    * backend, Claude does NOT feed this to the model when resuming by id (the server
-   * session already holds the memory) — it is carried here only so the adapter can
-   * append this turn and report the FULL canonical transcript back for persistence.
-   * (On a cross-provider switch INTO Claude, where there is no server session to
-   * resume, M8 additionally delivers it as a first-turn context preamble.)
+   * session already holds the memory) — it is carried here only for the cross-provider
+   * switch INTO Claude, where M8 delivers it as a first-turn context preamble (there is
+   * no server session to resume). The canonical record itself is the append-only event
+   * log (docs/adr/0010), folded at read time — this adapter no longer reports a
+   * transcript back for persistence.
    */
   history?: readonly BackendMessage[];
-  /** Report the settled canonical transcript (system omitted) so M8 can persist it —
-   *  the same neutral shape DeepSeek reports, making the memory provider-independent. */
-  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
   /**
    * Deliver {@link history} to the model as a first-turn context preamble instead of
    * resuming (the cross-provider switch INTO Claude — no resumable server session
-   * exists for this transcript). The preamble carries the prior memory in-band; the
-   * canonical transcript still records the raw turns, so what the agent sees matches
-   * what the user sees. Ignored when there is no history or `resume` is set.
+   * exists for this transcript). Ignored when there is no history or `resume` is set.
    */
   deliverHistoryAsPreamble?: boolean;
   /**
@@ -265,49 +258,19 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       ...(abortController !== undefined ? { abortController } : {}),
     });
 
-    // Accumulate the canonical neutral transcript: the prior history (carried for
-    // bookkeeping — the server session already holds it when resuming), this turn's
-    // raw user prompt, then every assistant/tool message the SDK streams. Reported
-    // at settle so M8 persists it in the same shape DeepSeek uses (provider-neutral
-    // memory). The one-shot string path has a single raw prompt, recorded here
-    // directly; the streaming-input path (async iterable) has no single raw prompt —
-    // each turn (the initial one, and any later steer) is recorded as it is consumed,
-    // below, via `tapStreamedUserTurns` (D85: this branch is unchanged).
-    const rawInput = typeof this.#init.input === 'string' ? this.#init.input : '';
-    const transcript: BackendMessage[] = [...(this.#init.history ?? [])];
-    if (rawInput !== '') transcript.push({ role: 'user', content: rawInput });
-
     // On a cross-provider switch into Claude there is no server session to resume, so
-    // deliver the prior memory as a first-turn preamble. The raw turn is still what
-    // the transcript records above (or, under streaming, what the tap records below)
-    // — the preamble is model delivery only, never canonical memory. Under streaming
-    // input, tap the feed so each consumed turn lands in `transcript` (same buffer,
-    // same `onBackendMessages` report) at the moment it is pulled — ordered ahead of
-    // that turn's assistant/tool messages, which arrive later off the outbound
-    // stream. The preamble wrapper composes OUTSIDE the tap (wraps its output) so
-    // the tap observes only the raw turn text, never the preamble-augmented one.
+    // deliver the prior memory as a first-turn preamble — model delivery only, never
+    // canonical memory (the append-only event log, docs/adr/0010, is that record now).
     const modelPrompt: string | AsyncIterable<string> =
       typeof this.#init.input === 'string'
         ? this.#init.deliverHistoryAsPreamble
           ? withHistoryPreamble(this.#init.input, this.#init.history ?? [])
           : this.#init.input
         : this.#init.deliverHistoryAsPreamble
-          ? withHistoryPreambleStreaming(
-              tapStreamedUserTurns(this.#init.input, transcript),
-              this.#init.history ?? [],
-            )
-          : tapStreamedUserTurns(this.#init.input, transcript);
+          ? withHistoryPreambleStreaming(this.#init.input, this.#init.history ?? [])
+          : this.#init.input;
 
     let backendSessionReported = false;
-    // Whether the transcript holds messages not yet flushed by a per-result flush.
-    // Guards the `finally` net so a clean run that already flushed at its terminal
-    // `result` does not flush a second, redundant time (the one-shot path stays a
-    // single flush — D85); a pre-`result` throw/interrupt still flushes there.
-    // A throw before the FIRST streamed message leaves `dirty` false, so that turn's
-    // un-answered user text is intentionally not flushed — acceptable because the SDK
-    // yields a system/init message before any network failure, setting `dirty`, so any
-    // realistic mid-turn drop still reaches canonical memory.
-    let dirty = false;
     const runQuery = this.#init.query ?? query;
     const sdkQuery = runQuery({
       prompt: toSdkPrompt(modelPrompt),
@@ -318,55 +281,27 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     if (typeof this.#init.input !== 'string' && this.#init.onTurnInterrupt !== undefined) {
       this.#init.onTurnInterrupt(() => sdkQuery.interrupt());
     }
-    try {
-      for await (const message of sdkQuery) {
-        dirty = true;
-        transcript.push(...messageToBackendMessages(message));
-        // Capture the backend's own session id once — M8 stores it to `resume` the
-        // conversation's memory on the next send (R-7 continuity).
-        if (
-          !backendSessionReported &&
-          'session_id' in message &&
-          typeof message.session_id === 'string'
-        ) {
-          backendSessionReported = true;
-          this.#init.onBackendSession?.(message.session_id);
-        }
-        if (this.#init.onTurn !== undefined) {
-          for (const frame of messageToFrames(message)) this.#init.onTurn(frame);
-        }
-        if (message.type === 'result') {
-          this.#lastUsage = {
-            tokensIn: message.usage.input_tokens,
-            tokensOut: message.usage.output_tokens,
-            costUsd: message.total_cost_usd,
-            cacheReadTokens: message.usage.cache_read_input_tokens,
-          };
-          this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
-          // Flush the canonical transcript at EACH turn boundary (every `result`), not
-          // only at session end — so under the held-open streaming-input strategy
-          // (docs/adr/0012) a crash loses only the in-flight turn, matching the one-shot
-          // path's durability. Trimmed identically to the `finally` flush (A1
-          // block-preserving: never end on a dangling tool_use). The one-shot string path
-          // has a single terminal `result`, so this is that path's sole flush and stays
-          // byte-identical (D85) — the `finally` net is skipped when nothing is unflushed.
-          this.#init.onBackendMessages?.(dropTrailingDanglingToolCall(transcript));
-          dirty = false;
-        }
+    for await (const message of sdkQuery) {
+      // Capture the backend's own session id once — M8 stores it to `resume` the
+      // conversation's memory on the next send (R-7 continuity).
+      if (
+        !backendSessionReported &&
+        'session_id' in message &&
+        typeof message.session_id === 'string'
+      ) {
+        backendSessionReported = true;
+        this.#init.onBackendSession?.(message.session_id);
       }
-    } finally {
-      // The A1 net: flush unflushed work on an early exit (a pre-`result` throw or an
-      // interrupt) — the model may have produced real blocks before the stream dropped;
-      // they must reach canonical memory. Skipped when a terminal `result` already
-      // flushed everything (`dirty === false`), so a clean run flushes exactly once
-      // (D85). Usage is intentionally NOT settled here: the SDK exposes it only on the
-      // terminal `result` (above), so a pre-`result` throw settles nothing — bounded by
-      // the SDK's own `maxBudgetUsd`, not coa's ledger. Trimmed to drop a trailing
-      // dangling tool_use (an interrupt or mid-tool error between an assistant's
-      // tool_use and its tool_result): a cross-provider switch replays this transcript
-      // as structured history, and an OpenAI-compatible endpoint 400s on an assistant
-      // tool_calls turn with no matching tool results.
-      if (dirty) this.#init.onBackendMessages?.(dropTrailingDanglingToolCall(transcript));
+      for (const { frame, full } of messageToEnrichedFrames(message)) this.#init.onTurn?.(frame, full);
+      if (message.type === 'result') {
+        this.#lastUsage = {
+          tokensIn: message.usage.input_tokens,
+          tokensOut: message.usage.output_tokens,
+          costUsd: message.total_cost_usd,
+          cacheReadTokens: message.usage.cache_read_input_tokens,
+        };
+        this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
+      }
     }
   }
 }

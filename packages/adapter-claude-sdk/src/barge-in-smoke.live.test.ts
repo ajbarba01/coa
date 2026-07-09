@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { BackendMessage, CapabilitySet, Locator, NeutralConfig, TurnFrame } from '@coa/shared';
+import type { CapabilitySet, Locator, NeutralConfig, TurnFrame } from '@coa/shared';
 import { accountsFileSchema } from '@coa/shared';
 import type { CanUseTool, StopPredicate, TurnInterrupt } from '@coa/spi';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -15,9 +15,8 @@ import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
  * directly through {@link ClaudeSdkAdapter}, proving the assumption the fake
  * suite could only model — that the SDK's TURN-LEVEL `query.interrupt()` (the
  * handle the adapter reports up via `onTurnInterrupt`) (a) stops the current turn
- * while keeping the query ALIVE, (b) lets a message pushed right after run as the
- * next turn (the redirect), and (c) still flushes the interrupted turn's completed
- * blocks (A1). It ALSO records the exact frame sequence the interrupted turn emits
+ * while keeping the query ALIVE, and (b) lets a message pushed right after run as
+ * the next turn (the redirect). It ALSO records the exact frame sequence the interrupted turn emits
  * — a `turn-boundary`? an `error` frame? nothing? — which is the datum that
  * finalizes the M8 `pendingTurns`/`barging` accounting (session-handlers.ts): the
  * accounting assumes the interrupted turn emits exactly one terminal boundary and
@@ -41,7 +40,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
     'interrupts a running turn, keeps the query alive, runs the framed steer next, and flushes the interrupted turn',
     async () => {
       const frames: TurnFrame[] = [];
-      const flushed: BackendMessage[][] = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-bargein-'));
       let turnInterrupt: TurnInterrupt | undefined;
@@ -52,7 +50,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
         input: queue,
         locator,
         onTurn: (frame) => frames.push(frame),
-        onBackendMessages: (messages) => flushed.push([...messages]),
         onTurnInterrupt: (fn) => {
           turnInterrupt = fn;
         },
@@ -89,7 +86,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
       await delay(4_000);
       const cutIndex = frames.length;
       const boundariesBeforeCut = boundaryCount(frames);
-      const flushesBeforeCut = flushed.length;
       // Confirm we are catching turn A WHILE it runs — it must not have boundaried yet.
       // (If this ever fails, turn A finished too fast; lengthen the essay.)
       expect(boundariesBeforeCut).toBe(0);
@@ -120,7 +116,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
           `turn-boundary=${boundariesInWindow} (before-cut=${boundariesBeforeCut}) ` +
           `error-frames=${errorFramesInWindow.length} ` +
           `error-subtypes=${JSON.stringify(errorFramesInWindow.map((f) => (f.t === 'error' ? f.message : '')))} ` +
-          `flushes-added=${flushed.length - flushesBeforeCut} ` +
           `window-frame-types=${JSON.stringify(window.map((f) => f.t))}`,
       );
 
@@ -136,11 +131,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
       // held-open `record()` must suppress (the `barging` counter) so a barge-in never
       // surfaces as an error. Locking it here flags any future SDK change to that shape.
       expect(window.some((f) => f.t === 'error' && f.message === 'error_during_execution')).toBe(true);
-
-      // A1: the interrupted turn's partial completed blocks reached canonical memory.
-      expect(flushed.length).toBeGreaterThan(0);
-      const lastFlush = flushed[flushed.length - 1]!;
-      expect(lastFlush.some((m) => m.role === 'assistant')).toBe(true);
 
       // --- Clean close: the still-open query terminates, not hangs --------------
       queue.close();

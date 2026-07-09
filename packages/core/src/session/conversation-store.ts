@@ -10,7 +10,6 @@ import {
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
-  backendMessageSchema,
   capabilityFrameSchema,
   claudeReasoningSchema,
   neutralConfigSchema,
@@ -20,6 +19,7 @@ import {
   type TurnFrame,
 } from '@coa/shared';
 import type { FrozenCompilation } from './prompt-freeze.js';
+import { foldEventsToTranscript, type PersistedEvent } from './transcript-projection.js';
 
 /**
  * M8 — the R-7 conversation store. It mirrors each session's conversation to a
@@ -27,30 +27,25 @@ import type { FrozenCompilation } from './prompt-freeze.js';
  * this by worktree; until the worktree manager D90/D96 lands every session shares
  * the repo root, so the session id stands in for the worktree — the documented
  * tripwire). Each session directory holds:
- *   - `meta.json`      — the session index entry (agent, title, timestamps, the
- *                        backend session id used to resume the loop's memory)
- *   - `turns.ndjson`   — the append-only `TurnFrame` sequence (R-7.a), each line a
- *                        `{ seq, frame }` — the durable analog of the live `turn` Push.
- *   - `messages.json`  — the **canonical** provider-neutral chat transcript (system
- *                        omitted), rewritten each turn. Unlike the lossy `turns.ndjson`
- *                        UI view (a tool-result pointer, not its full output), this is
- *                        the verbatim, full-content message array — the single source of
- *                        truth for cross-turn memory. EVERY backend populates it (the
- *                        Claude adapter maps its SDK stream to the same shape), so a
- *                        conversation can be replayed into any backend: a pure-API
- *                        backend resends it as `history` for continuity + cache warmth,
- *                        and it is the lossless source when a session switches providers.
- *                        A server-session backend (Claude) additionally keeps
- *                        `backendSessionId` as a same-provider `resume` fast path.
+ *   - `meta.json`        — the session index entry (agent, title, timestamps, the
+ *                          backend session id used to resume the loop's memory)
+ *   - `events.ndjson`    — ONE append-only event log (docs/adr/0010), each line a
+ *                          {@link PersistedEvent} (`{ seq, frame, full? }`) — the
+ *                          UNCHANGED M0 wire frame plus, for a `tool_result`, the full
+ *                          body the model saw. `messages.json`/`turns.ndjson` are
+ *                          retired: there is no separate whole-rewrite transcript file
+ *                          — the provider-neutral transcript is a READ-TIME FOLD of
+ *                          this log (`foldEventsToTranscript`), so the UI view
+ *                          (`reload`, frame-only) and the canonical memory
+ *                          (`loadBackendMessages`) can never drift apart.
  *   - `compilation.json` — the session's FROZEN compiled prompt (the neutral config +
- *                        capability frame + its `promptVersion`). Written once at the
- *                        first turn and reused verbatim thereafter, so the provider's
- *                        prompt cache stays warm; a deliberate recompile rewrites it.
+ *                          capability frame + its `promptVersion`). Written once at the
+ *                          first turn and reused verbatim thereafter, so the provider's
+ *                          prompt cache stays warm; a deliberate recompile rewrites it.
  *
- * Reads never throw: a corrupt `meta.json` drops that session from the listing, a
- * garbage turn line is skipped, and an unparseable `messages.json` reads as no memory
- * — so a hand-edited or partially-written store still re-materializes what it can
- * (the D85 floor).
+ * Reads never throw: a corrupt `meta.json` drops that session from the listing, and a
+ * garbage `events.ndjson` line is skipped — so a hand-edited or partially-written store
+ * still re-materializes what it can (the D85 floor).
  */
 
 /** The (provider, model) a `backendSessionId` was captured under — the native
@@ -113,13 +108,16 @@ const metaSchema = z.object({
 /** A session's index entry — the durable metadata behind the rail's `SessionSummary`. */
 export type SessionMeta = z.infer<typeof metaSchema>;
 
-/** A persisted turn: the M0 `TurnFrame` with the monotonic `seq` M8 assigned it. */
+/** A persisted turn — the UI view of the event log: the M0 `TurnFrame` with the
+ *  monotonic `seq` M8 assigned it (the persistence-only `full` body, when present, is
+ *  dropped — that's the fold's job, not the raw frame stream's). */
 export interface PersistedTurn {
   seq: number;
   frame: TurnFrame;
 }
 
-const persistedTurnSchema = z.object({ seq: z.number(), frame: turnFrameSchema });
+/** Validates one `events.ndjson` line — the on-disk shape of a {@link PersistedEvent}. */
+const persistedEventSchema = z.object({ seq: z.number(), frame: turnFrameSchema, full: z.string().optional() });
 
 export interface ConversationStore {
   /** Start a session: write its initial metadata (createdAt = updatedAt = now). */
@@ -141,14 +139,14 @@ export interface ConversationStore {
    *  fresh server session (carrying memory via the transcript). Used by a deliberate
    *  prompt recompile: the old server session still holds the superseded prompt. */
   clearBackendSession(id: string): void;
-  /** Append turns to the session's stream (bumps updatedAt). */
-  append(id: string, turns: PersistedTurn[]): void;
-  /** The persisted turn sequence (up to and including `toSeq`, when given). */
+  /** Append events to the session's log (bumps updatedAt). */
+  append(id: string, events: PersistedEvent[]): void;
+  /** The persisted turn sequence (up to and including `toSeq`, when given) — the frame
+   *  stream, `full` dropped (the UI view). */
   reload(id: string, toSeq?: number): PersistedTurn[];
-  /** The canonical neutral transcript (system omitted); empty if none / unparseable. */
+  /** The canonical neutral transcript (system omitted) — a read-time fold of the event
+   *  log (docs/adr/0010); empty if none / unparseable. */
   loadBackendMessages(id: string): BackendMessage[];
-  /** Replace the canonical neutral transcript (rewritten in full each turn). */
-  saveBackendMessages(id: string, messages: readonly BackendMessage[]): void;
   /** The session's frozen compilation (the byte-stable prompt reused every turn), or
    *  undefined before the first turn compiles it / if unparseable. */
   getCompilation(id: string): FrozenCompilation | undefined;
@@ -161,17 +159,37 @@ export interface ConversationStore {
   remove(id: string): void;
 }
 
-const backendMessagesSchema = z.array(backendMessageSchema);
-
 export function createConversationStore(
   dir: string,
   now: () => string = () => new Date().toISOString(),
 ): ConversationStore {
   const sessionDir = (id: string): string => join(dir, id);
   const metaPath = (id: string): string => join(sessionDir(id), 'meta.json');
-  const turnsPath = (id: string): string => join(sessionDir(id), 'turns.ndjson');
-  const messagesPath = (id: string): string => join(sessionDir(id), 'messages.json');
+  const eventsPath = (id: string): string => join(sessionDir(id), 'events.ndjson');
   const compilationPath = (id: string): string => join(sessionDir(id), 'compilation.json');
+
+  /** Read + validate the raw event log, skipping any garbage line (never throw — D85). */
+  const readEvents = (id: string): PersistedEvent[] => {
+    const path = eventsPath(id);
+    if (!existsSync(path)) return [];
+    const out: PersistedEvent[] = [];
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      if (line.trim() === '') continue;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(line);
+      } catch {
+        continue; // skip a garbage line (D85 floor: re-materialize what we can)
+      }
+      const parsed = persistedEventSchema.safeParse(raw);
+      if (!parsed.success) continue;
+      const { seq, frame, full } = parsed.data;
+      // `exactOptionalPropertyTypes`: zod's `.optional()` yields `full: string | undefined`
+      // (a present-but-undefined key), not the absent-key `full?: string` PersistedEvent wants.
+      out.push(full !== undefined ? { seq, frame, full } : { seq, frame });
+    }
+    return out;
+  };
 
   const readMeta = (id: string): SessionMeta | undefined => {
     const path = metaPath(id);
@@ -247,49 +265,22 @@ export function createConversationStore(
       writeMeta({ ...rest, updatedAt: now() });
     },
 
-    append(id, turns) {
-      if (turns.length === 0) return;
+    append(id, events) {
+      if (events.length === 0) return;
       mkdirSync(sessionDir(id), { recursive: true });
-      const lines = turns.map((t) => `${JSON.stringify(t)}\n`).join('');
-      appendFileSync(turnsPath(id), lines, 'utf8');
+      const lines = events.map((e) => `${JSON.stringify(e)}\n`).join('');
+      appendFileSync(eventsPath(id), lines, 'utf8');
       touch(id, {});
     },
 
     reload(id, toSeq) {
-      const path = turnsPath(id);
-      if (!existsSync(path)) return [];
-      const out: PersistedTurn[] = [];
-      for (const line of readFileSync(path, 'utf8').split('\n')) {
-        if (line.trim() === '') continue;
-        let raw: unknown;
-        try {
-          raw = JSON.parse(line);
-        } catch {
-          continue; // skip a garbage line (D85 floor: re-materialize what we can)
-        }
-        const parsed = persistedTurnSchema.safeParse(raw);
-        if (!parsed.success) continue;
-        if (toSeq !== undefined && parsed.data.seq > toSeq) continue;
-        out.push(parsed.data);
-      }
-      return out;
+      return readEvents(id)
+        .filter((e) => toSeq === undefined || e.seq <= toSeq)
+        .map(({ seq, frame }) => ({ seq, frame }));
     },
 
     loadBackendMessages(id) {
-      const path = messagesPath(id);
-      if (!existsSync(path)) return [];
-      try {
-        const parsed = backendMessagesSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
-        return parsed.success ? parsed.data : []; // all-or-nothing: a partial transcript would malform tool pairing
-      } catch {
-        return []; // unreadable/partial write → no memory (never throw)
-      }
-    },
-
-    saveBackendMessages(id, messages) {
-      mkdirSync(sessionDir(id), { recursive: true });
-      writeFileSync(messagesPath(id), `${JSON.stringify(messages, null, 2)}\n`, 'utf8');
-      touch(id, {});
+      return foldEventsToTranscript(readEvents(id));
     },
 
     getCompilation(id) {

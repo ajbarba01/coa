@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { BackendMessage, CapabilitySet, Locator, NeutralConfig, TurnFrame } from '@coa/shared';
+import type { CapabilitySet, Locator, NeutralConfig, TurnFrame } from '@coa/shared';
 import { accountsFileSchema } from '@coa/shared';
 import type { CanUseTool, StopPredicate } from '@coa/spi';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -15,8 +15,8 @@ import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
  * held-open query fed a coa-owned input iterable (docs/adr/0012) (a) stays alive
  * across turns instead of tearing down after the first, (b) shares memory across
  * those turns on the SAME server session, (c) lets a message pushed mid-turn reach
- * the running turn (steering), (d) aborts promptly and flushes on interrupt, and
- * (e) terminates cleanly (no hang, no leak) once the input iterable closes.
+ * the running turn (steering), (d) aborts promptly on interrupt, and (e) terminates
+ * cleanly (no hang, no leak) once the input iterable closes.
  *
  * Gated exactly like `packages/core/src/workbench/web/web-tools.smoke.test.ts`:
  * `COA_LIVE` unset ⇒ the whole describe is skipped, so the default
@@ -119,10 +119,9 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
   );
 
   it(
-    'aborts an in-flight turn promptly and flushes the transcript (adapter-level interrupt)',
+    'aborts an in-flight turn promptly (adapter-level interrupt)',
     async () => {
       const frames: TurnFrame[] = [];
-      const flushed: BackendMessage[][] = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-smoke-interrupt-'));
       const controller = new AbortController();
@@ -134,7 +133,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
         locator,
         signal: controller.signal,
         onTurn: (frame) => frames.push(frame),
-        onBackendMessages: (messages) => flushed.push([...messages]),
       });
       adapter.renderNative(minimalNeutralConfig());
       adapter.interceptTool(allowAllTools);
@@ -149,7 +147,7 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
 
       queue.push('Count slowly from one to fifty, one number per line.');
       // Wait for at least one streamed frame before aborting, so there is
-      // something in-flight for the A1 flush net to actually catch.
+      // something genuinely in-flight to interrupt.
       await waitForCondition(
         () => frames.length > 0,
         30_000,
@@ -172,7 +170,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
       // Prevent an unhandled rejection from a `'rejected'` outcome above.
       await runLoopPromise.catch(() => undefined);
 
-      expect(flushed.length).toBeGreaterThan(0);
       queue.close();
     },
     60_000,

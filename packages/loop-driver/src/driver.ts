@@ -55,38 +55,31 @@ export interface GovernedLoopDeps {
    * prefix/context cache hits on the identical leading prefix.
    */
   history?: readonly DriverMessage[];
-  /**
-   * Called once the turn settles — cleanly, OR on a model/fetch error (or, later, an
-   * interrupt) — with the full conversation (system prompt omitted) so the caller can
-   * persist it as the next turn's {@link history}. Every *completed* block is included;
-   * the block in flight when a throw happened is excluded by construction, so the
-   * persisted transcript is always block-consistent.
-   */
-  onMessages?: (messages: readonly DriverMessage[]) => void;
   /** The per-tool block: cost-cap + M3 deny, assembled by M8 (first-deny-wins, fail-closed). */
   canUseTool: CanUseTool;
   /** The close-gate (M3.gate) run before the turn may end. */
   gate: StopPredicate;
-  /** Per-frame session output → M8's emission policy (sequenced + pushed, R-12). */
-  onTurn?: (frame: TurnFrame) => void;
+  /**
+   * Per-frame session output → M8's emission policy (sequenced + pushed, R-12).
+   * `full`, present on a `tool_result`, is the complete (uncapped) display body —
+   * the append-only log's fidelity companion to the capped `pointer` (docs/adr/0010).
+   */
+  onTurn?: (frame: TurnFrame, full?: string) => void;
   /** Settlement → M7.charge, called once with the loop's summed usage. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** Override the round-trip bound (tests / tuning). */
   maxIterations?: number;
   /**
    * A user-initiated stop (interrupt/steer), checked at the safe boundary — the top of
-   * the loop, where `lastConsistent` already reflects the last completed round-trip.
-   * SC-1: this is a user stop, not a governance block, so it reuses A1's `finally` flush
-   * rather than adding a new deny channel. Absent ⇒ current behavior byte-identical.
+   * the loop. SC-1: this is a user stop, not a governance block. Absent ⇒ current
+   * behavior byte-identical.
    */
   signal?: AbortSignal;
   /**
    * A synchronous drain of any user turns queued while the loop was mid-round-trip
    * (steering). Called at the safe boundary — the loop top, right after the abort
    * check — so an already-aborted loop injects nothing. Each drained string is pushed
-   * as a `{ role: 'user' }` message; a user turn is itself a round-trip-consistent
-   * boundary, so `lastConsistent` advances past it. Absent ⇒ current behavior
-   * byte-identical (D85).
+   * as a `{ role: 'user' }` message. Absent ⇒ current behavior byte-identical (D85).
    */
   drainSteer?: () => readonly string[];
   /**
@@ -122,7 +115,7 @@ function addUsage(total: RuntimeUsage, next: RuntimeUsage): void {
 
 /** Drive the governed ReAct loop for one session. Runs to a clean close-gate or the round-trip bound. */
 export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
-  const emit = (frame: TurnFrame): void => deps.onTurn?.(frame);
+  const emit = (frame: TurnFrame, full?: string): void => deps.onTurn?.(frame, full);
   const tools = toToolDefs(deps.catalogue);
   const byName = new Map(deps.catalogue.map((tool) => [tool.name, tool] as const));
   const messages: DriverMessage[] = [
@@ -130,10 +123,6 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
     ...(deps.history ?? []),
     { role: 'user', content: deps.input },
   ];
-  // The `[system, ...history, user]` state above is round-trip-consistent (no dangling
-  // tool_use). Advanced only when `messages` returns to a consistent boundary, so a throw
-  // mid round-trip flushes the last consistent prefix instead of a dangling tool call.
-  let lastConsistent = messages.length;
   const usage: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
   const maxIterations = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
@@ -141,10 +130,12 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
     for (let i = 0; i < maxIterations; i += 1) {
       if (deps.signal?.aborted) break;
       // Steering (SC-1: user input injected at a safe boundary, not a governance block).
+      // Also emitted as a frame so the steer lands in the single append-only log
+      // (docs/adr/0010) — the log is the only durable record of what the user sent.
       for (const steer of deps.drainSteer?.() ?? []) {
         messages.push({ role: 'user', content: steer });
+        emit({ t: 'text', text: steer, role: 'user' });
       }
-      lastConsistent = messages.length; // a user turn is a consistent boundary
       const result = await deps.complete(messages, tools, deps.signal);
       addUsage(usage, result.usage);
       // Reasoning precedes the answer (pre-answer thinking). Display-only: emitted as a
@@ -160,23 +151,21 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       });
 
       if (result.toolCalls.length === 0) {
-        // A plain answer carries no pending tool_use — consistent as soon as it's pushed,
-        // so a clean `break` right below still flushes it.
-        lastConsistent = messages.length;
         // The model wants to stop — the close-gate decides (SC-1). Allowed ⇒ settle & end;
         // blocked ⇒ inject the reason (as the SDK's Stop hook does) and let it continue.
         const decision = await deps.gate();
         if (decision.allow) {
           const queued = deps.drainQueuedSteer?.() ?? [];
           if (queued.length > 0) {
-            for (const q of queued) messages.push({ role: 'user', content: q });
-            lastConsistent = messages.length; // a user turn is a consistent boundary
-            continue;                          // run after the current turn's work
+            for (const q of queued) {
+              messages.push({ role: 'user', content: q });
+              emit({ t: 'text', text: q, role: 'user' });
+            }
+            continue; // run after the current turn's work
           }
           break;
         }
         messages.push({ role: 'user', content: decision.message });
-        lastConsistent = messages.length;
         continue;
       }
 
@@ -222,22 +211,17 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
         // the per-call handle (console correlation); binding that handle to coa's raw store
         // (`response.handle`) for getToolDetail is a follow-up.
         const ok = tool.ok?.(response.result) ?? true;
-        emit({ t: 'tool_result', handle, ok, pointer: display });
+        // `full` = `display`: the driver has no separate lossy/lossless bodies (unlike the
+        // SDK's short pointer), so the append-only log gets the same text as the frame.
+        emit({ t: 'tool_result', handle, ok, pointer: display }, display);
         messages.push({ role: 'tool', toolCallId: call.id, content: display });
       }
-      // Every call's result is in — the round-trip is answered, so this is a consistent
-      // boundary again.
-      lastConsistent = messages.length;
     }
   } finally {
-    // Flush on EVERY exit — clean settle, model/fetch error, or (later) interrupt — so the
-    // canonical transcript records every completed block and a partial turn is still charged.
-    // Trimmed to `lastConsistent`: a throw between pushing an assistant message that carries
-    // `toolCalls` and pushing its tool results would otherwise leave the flushed transcript
-    // ending in an unanswered tool_use — a permanent 400 on replay to an OpenAI-compatible
-    // endpoint next turn. On every clean exit `lastConsistent === messages.length`, so this
-    // is a no-op slice and existing behavior is unchanged.
+    // Settle on EVERY exit — clean end, model/fetch error, or (later) interrupt — so a
+    // partial turn is still charged. The canonical transcript is the append-only event
+    // log (docs/adr/0010), not this in-memory array; `messages` (bounded per-tool by
+    // `capToolResult`) exists only to resend the round-trip history to the model.
     deps.onSettle?.(deps.sessionId, usage);
-    deps.onMessages?.(messages.slice(1, lastConsistent));
   }
 }

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  BackendMessage,
   CapabilitySet,
   NeutralConfig,
   Push,
@@ -112,28 +111,56 @@ class FrameAdapter implements RuntimeAdapter {
       return;
     }
     if (this.flushThenFail) {
-      const input = typeof this.init.input === 'string' ? this.init.input : '';
-      this.init.onBackendMessages?.([
-        ...(this.init.history ?? []),
-        { role: 'user', content: input },
-        { role: 'assistant', content: 'reply' },
-      ]);
+      // Partial work streams (and so persists, via the per-frame `onTurn` append) before
+      // the mid-turn drop — proving completed work survives a throw (block-preserving
+      // persistence), now via the event log rather than a whole-transcript flush.
+      this.init.onTurn?.({ t: 'text', text: 'reply' });
       throw new Error('stream dropped after partial work');
     }
     if (this.fail) throw new Error('loop blew up');
-    const input = typeof this.init.input === 'string' ? this.init.input : '';
     for (const frame of this.frames) this.init.onTurn?.(frame);
     // A pure-API backend when constructed so, or whenever the turn routes to DeepSeek
     // (so a single session can switch providers across sends).
     const isPureApi = this.pureApi || this.init.model?.provider === 'deepseek';
-    // Both backends now report the canonical transcript (prior history + this turn).
-    this.init.onBackendMessages?.([
-      ...(this.init.history ?? []),
-      { role: 'user', content: input },
-      { role: 'assistant', content: 'reply' },
-    ]);
     // A server-session backend (Claude) additionally reports its resumable id.
     if (!isPureApi) this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
+    this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
+  }
+  deliverReminder(): void {}
+  render_context(): void {}
+  inject_runtime(): void {}
+  cache_control(): void {}
+  usageTelemetry(): RuntimeUsage {
+    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  }
+  capabilityProfile() {
+    return barebonesProfile;
+  }
+  refs() {
+    return null;
+  }
+  runEval() {
+    return Promise.reject(new Error('no eval'));
+  }
+}
+
+/** A fake backend that streams enriched (frame, full) pairs through `onTurn`, then settles —
+ *  proving a tool_result's FULL body (not just the lossy pointer) reaches persistence
+ *  (docs/adr/0010's fidelity companion, threaded end to end via `onTurn(frame, full)`). */
+class EnrichedFrameAdapter implements RuntimeAdapter {
+  constructor(
+    readonly init: SessionAdapterInit,
+    readonly enriched: ReadonlyArray<{ frame: TurnFrame; full?: string }>,
+  ) {}
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  async runLoop(): Promise<void> {
+    for (const { frame, full } of this.enriched) this.init.onTurn?.(frame, full);
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
   }
   deliverReminder(): void {}
@@ -276,6 +303,11 @@ describe('buildSessionHandlers — createSession over RPC', () => {
 
 function depsFlushThenFail(): SessionDeps {
   return { ...deps([]), createAdapter: (init) => new FrameAdapter(init, [], false, false, true) };
+}
+
+/** Deps whose adapter streams enriched (frame, full) pairs — see {@link EnrichedFrameAdapter}. */
+function depsEnriched(enriched: ReadonlyArray<{ frame: TurnFrame; full?: string }>): SessionDeps {
+  return { ...deps([]), createAdapter: (init) => new EnrichedFrameAdapter(init, enriched) };
 }
 
 /** Deps whose adapter factory also records each init, so a test can assert `resume`/`history`. */
@@ -436,7 +468,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   it('pins the provider and, on a fresh daemon (restart), routes DeepSeek back to itself with memory intact', async () => {
     const inits: SessionAdapterInit[] = [];
     await send(
-      buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry()),
+      buildSessionHandlers(depsCapturing([{ t: 'text', text: 'reply' }], inits), connection(), store, new LiveSessionRegistry()),
       'first',
       'deepseek',
     );
@@ -446,7 +478,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     // Simulate a console/daemon restart: brand-new handlers over the same on-disk store.
     const inits2: SessionAdapterInit[] = [];
     await send(
-      buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits2), connection(), store, new LiveSessionRegistry()),
+      buildSessionHandlers(depsCapturing([{ t: 'text', text: 'reply' }], inits2), connection(), store, new LiveSessionRegistry()),
       'second',
       'deepseek',
     );
@@ -461,7 +493,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('Claude→DeepSeek: drops the Claude resume token and replays the Claude transcript as history', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry());
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'reply' }], inits), connection(), store, new LiveSessionRegistry());
     await send(handlers, 'first', 'claude');
     expect(store.getMeta('c1')?.backendSessionId).toBe('backend-c1'); // Claude captured a session
     await send(handlers, 'second', 'deepseek');
@@ -478,7 +510,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('DeepSeek→Claude: no resumable session, so the transcript is delivered as a first-turn preamble', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'r' }], inits), connection(), store, new LiveSessionRegistry());
+    const handlers = buildSessionHandlers(depsCapturing([{ t: 'text', text: 'reply' }], inits), connection(), store, new LiveSessionRegistry());
     await send(handlers, 'first', 'deepseek');
     await send(handlers, 'second', 'claude');
     await flush();
@@ -784,6 +816,38 @@ describe('buildSessionHandlers — block-preserving persistence on error', () =>
   });
 });
 
+describe('buildSessionHandlers — full tool-result fidelity (docs/adr/0010)', () => {
+  it("persists a tool_result's FULL body (not its lossy pointer), so it folds into loadBackendMessages", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-conv-'));
+    try {
+      const store = createConversationStore(dir);
+      const conn = connection();
+      const FULL_BODY = 'the complete tool-result body the model actually saw — longer than any pointer';
+      const enriched: Array<{ frame: TurnFrame; full?: string }> = [
+        { frame: { t: 'tool_use', tool: 'Read', input: { path: 'a.ts' }, handle: 'h1' } },
+        {
+          frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'a.ts (truncated)' },
+          full: FULL_BODY,
+        },
+      ];
+      const handlers = buildSessionHandlers(depsEnriched(enriched), conn, store, new LiveSessionRegistry());
+      await handlers['createSession']!.handle({ input: 'read the file', conversationId: 'c1' });
+      await conn.settled;
+
+      // The fold reads the persisted `full` body — not the frame's lossy `pointer` —
+      // into the provider-neutral tool message (`reload` deliberately omits `full`;
+      // it is a frame-only read surface, see conversation-store.ts).
+      expect(store.loadBackendMessages('c1')).toContainEqual({
+        role: 'tool',
+        toolCallId: 'h1',
+        content: FULL_BODY,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('buildSessionHandlers — one live session across turns (P-α multi-turn)', () => {
   it('runs two createSession calls with the same conversationId as two turns on one live session, idling between them', async () => {
     const inits: SessionAdapterInit[] = [];
@@ -1000,13 +1064,9 @@ class HeldOpenAdapter implements RuntimeAdapter {
       });
       return;
     }
-    const transcript: BackendMessage[] = [...(this.init.history ?? [])];
     const process = (text: string): void => {
       this.consumed.push(text);
-      transcript.push({ role: 'user', content: text });
       for (const frame of this.replyFrames) this.init.onTurn?.(frame);
-      transcript.push({ role: 'assistant', content: 'reply' });
-      this.init.onBackendMessages?.([...transcript]); // per-turn-boundary flush (each result)
       this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
       if (!this.#reported) {
         this.#reported = true;
@@ -1021,7 +1081,6 @@ class HeldOpenAdapter implements RuntimeAdapter {
       for await (const text of input) process(text);
     }
     this.ended = true;
-    this.init.onBackendMessages?.([...transcript]); // final flush when the feed closes (A1 net)
   }
   deliverReminder(): void {}
   render_context(): void {}
@@ -1255,12 +1314,13 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
         { seq: 4, frame: { t: 'text', text: 'ok' } },
         { seq: 5, frame: { t: 'turn-boundary', role: 'assistant' } },
       ]);
-      // The transcript flush at each turn boundary covers both turns (per-turn-boundary durability).
+      // The canonical transcript is the read-time fold of the persisted frame stream
+      // above (docs/adr/0010) — it covers both turns.
       expect(store.loadBackendMessages('h1')).toEqual([
         { role: 'user', content: 'first' },
-        { role: 'assistant', content: 'reply' },
+        { role: 'assistant', content: 'ok' },
         { role: 'user', content: 'second' },
-        { role: 'assistant', content: 'reply' },
+        { role: 'assistant', content: 'ok' },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1585,5 +1645,74 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(doneIdxs.filter((i) => i < idxReplyC)).toHaveLength(1);
     // C's completion rides its own boundary — the last done follows C's content.
     expect(doneIdxs[doneIdxs.length - 1]!).toBeGreaterThan(idxReplyC);
+  });
+
+  it('persists a queue-mode steer as a user turn in the append-only log (regression: steers used to vanish from canonical memory)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-ho-queue-'));
+    try {
+      const store = createConversationStore(dir);
+      const adapters: HeldOpenAdapter[] = [];
+      const conn = connection();
+      const handlers = buildSessionHandlers(depsHeldOpen(adapters), conn, store, new LiveSessionRegistry());
+
+      const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+      expect(
+        await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' }),
+      ).toEqual({ steered: true });
+      await flush();
+      await flush();
+
+      expect(adapters.length).toBe(1);
+      expect(adapters[0]?.consumed).toEqual(['go', 'also do X']);
+      // The steer reaches canonical memory as its own user turn — not just the live feed —
+      // so it survives a console reload (the retired streaming tap used to record this).
+      expect(store.loadBackendMessages('h1')).toEqual([
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: 'ok' },
+        { role: 'user', content: 'also do X' },
+        { role: 'assistant', content: 'ok' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists a barge-in steer as a FRAMED user turn in the append-only log (regression: steers used to vanish from canonical memory)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-bi-persist-'));
+    try {
+      const store = createConversationStore(dir);
+      const adapters: BargeInAdapter[] = [];
+      const conn = connection();
+      const customDeps: SessionDeps = {
+        ...deps([]),
+        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+        createAdapter: (init) => {
+          const adapter = new BargeInAdapter(init);
+          adapters.push(adapter);
+          return adapter;
+        },
+      };
+      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+
+      const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+      await flush(); // turn A's partial frame lands; the adapter now blocks on the interrupt handle
+
+      expect(
+        await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
+      ).toEqual({ steered: true });
+      await flush();
+      await flush();
+
+      // The FRAMED text — as fed to the model, not the bare steer — reaches canonical
+      // memory as its own user turn (docs/adr/0012's framing is part of what happened).
+      expect(store.loadBackendMessages('h1')).toEqual([
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: 'partial' },
+        { role: 'user', content: '[The user interrupted to steer you] redirect' },
+        { role: 'assistant', content: 'ok' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

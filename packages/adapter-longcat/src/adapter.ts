@@ -53,12 +53,15 @@ export interface LongCatAdapterInit {
   model?: ModelSelection;
   /** M9's settlement step → M7.charge, called once with the loop's summed usage. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
-  /** Per-frame session output → M8's emission policy. */
-  onTurn?: (frame: TurnFrame) => void;
+  /**
+   * Per-frame session output → M8's emission policy. `full`, present on a
+   * `tool_result`, is the complete display body — the append-only log's fidelity
+   * companion to the frame's `pointer` (docs/adr/0010); forwarded unchanged from
+   * the governed loop driver, which already supplies it.
+   */
+  onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The prior conversation transcript (R-7, system omitted), resent verbatim for cross-turn memory. */
   history?: readonly BackendMessage[];
-  /** Report the settled transcript so M8 can persist it as the next turn's `history`. */
-  onBackendMessages?: (messages: readonly BackendMessage[]) => void;
   /** The account's login pointer (an env-var/key-file pointer); absent ⇒ the default key var. */
   locator?: Locator;
   /** Accepted for D121 parity; a raw chat API has no native mid-loop hard stop. */
@@ -174,9 +177,6 @@ export class LongCatAdapter implements RuntimeAdapter {
       canUseTool: this.#canUseTool,
       gate: this.#stopPredicate,
       ...(this.#init.onTurn !== undefined ? { onTurn: this.#init.onTurn } : {}),
-      ...(this.#init.onBackendMessages !== undefined
-        ? { onMessages: this.#init.onBackendMessages }
-        : {}),
       ...(this.#init.signal !== undefined ? { signal: this.#init.signal } : {}),
       ...(this.#init.drainSteer !== undefined ? { drainSteer: this.#init.drainSteer } : {}),
       ...(this.#init.drainQueuedSteer !== undefined
