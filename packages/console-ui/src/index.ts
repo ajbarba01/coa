@@ -77,6 +77,13 @@ export {
 } from './dense/Transcript.js';
 export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
 export { Markdown, type MarkdownProps } from './dense/Markdown.js';
+export {
+  defaultReveal,
+  type RevealConfig,
+  type TextVariant,
+  type BlockVariant,
+  type ReasoningMode,
+} from './dense/reveal.js';
 export { Composer, type ComposerProps } from './dense/Composer.js';
 export { describeTool, toolPath, toolTarget, type ToolDescriptor } from './dense/toolRegistry.js';
 export { diffLines, type DiffLine, type LineDiff } from './dense/toolDiff.js';

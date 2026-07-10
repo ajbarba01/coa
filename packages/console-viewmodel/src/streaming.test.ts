@@ -8,6 +8,16 @@ const settledText = (id: string, text: string): TurnFrame => ({ id, role: 'agent
 const settledThinking = (id: string, text: string): TurnFrame => ({ id, role: 'agent', kind: 'thinking', text });
 
 describe('reconcileStreaming', () => {
+  it('settles an open thinking block when agent output text begins (#3)', () => {
+    const turns = reconcileStreaming([], [thinkingDelta('th', 'reasoning')]);
+    expect((turns[0] as { streaming?: boolean }).streaming).toBe(true);
+    // Output text starts → the reasoning that preceded it is done, so its live flag clears
+    // now (its auto-collapse fires) rather than waiting for the message-end settled frame.
+    const next = reconcileStreaming(turns, [textDelta('tx', 'Answer')]);
+    const thinking = next.find((f) => f.kind === 'thinking') as { streaming?: boolean };
+    expect(thinking.streaming).toBe(false);
+  });
+
   it('accumulates consecutive text deltas into one live block', () => {
     const turns = reconcileStreaming([], [textDelta('a', 'Hel'), textDelta('b', 'lo')]);
     expect(turns).toEqual([{ id: 'a', role: 'agent', kind: 'text', text: 'Hello', streaming: true }]);

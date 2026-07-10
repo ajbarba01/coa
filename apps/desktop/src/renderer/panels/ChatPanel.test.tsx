@@ -684,3 +684,18 @@ describe('ChatView states-first', () => {
     expect(selectSession).toHaveBeenCalledExactlyOnceWith('s-review-bridge');
   });
 });
+
+describe('toGovernedFrame streaming', () => {
+  it('carries the streaming flag onto the governed text frame', () => {
+    const f = { id: 'a', role: 'agent', kind: 'text', text: 'hi', streaming: true } as TurnFrame;
+    expect(toGovernedFrame(f)).toMatchObject({ kind: 'text', text: 'hi', streaming: true });
+  });
+  it('carries the streaming flag onto the governed thinking frame', () => {
+    const f = { id: 'b', role: 'agent', kind: 'thinking', text: 'po', streaming: true } as TurnFrame;
+    expect(toGovernedFrame(f)).toMatchObject({ kind: 'thinking', text: 'po', streaming: true });
+  });
+  it('omits streaming for a settled text frame', () => {
+    const f = { id: 'c', role: 'agent', kind: 'text', text: 'hi' } as TurnFrame;
+    expect((toGovernedFrame(f) as { streaming?: boolean }).streaming).toBeUndefined();
+  });
+});

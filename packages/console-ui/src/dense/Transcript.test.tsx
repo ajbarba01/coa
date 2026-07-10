@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dotTone,
   foldToolFrames,
+  nextBatchIndex,
+  revealSuppressed,
   toolQuickInfo,
   Transcript,
   TranscriptRow,
@@ -478,12 +480,20 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('pre')?.textContent).toBe(text);
   });
 
-  it('renders a thinking frame collapsed by default, showing only the label', () => {
-    render(
+  it('renders a settled thinking frame collapsed by default (label shown, body hidden)', () => {
+    const { container } = render(
       <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'considering' }} />,
     );
     expect(screen.getByText(/thinking/i)).toBeInTheDocument();
-    expect(screen.queryByText('considering')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    // The body stays mounted (so the collapse can animate its height) but the region is
+    // collapsed and hidden from the accessibility tree.
+    const collapse = container.querySelector('.cx-collapse');
+    expect(collapse?.getAttribute('data-open')).toBe('false');
+    expect(collapse?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('expands a thinking frame on click to reveal the full text', async () => {
@@ -753,5 +763,75 @@ describe('WorkingFooter', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('spine continuity', () => {
+  it('renders a spine dot + connector for an agent row and omits them for a user row', () => {
+    const { container: agent } = render(
+      <TranscriptRow frame={{ id: 'a', role: 'agent', kind: 'text', text: 'x' }} />,
+    );
+    expect(agent.querySelector('[data-dot]')).not.toBeNull();
+    expect(agent.querySelectorAll('[data-spine-line]').length).toBeGreaterThan(0);
+
+    const { container: you } = render(
+      <TranscriptRow frame={{ id: 'y', role: 'you', kind: 'text', text: 'x' }} />,
+    );
+    expect(you.querySelector('[data-dot]')).toBeNull();
+  });
+});
+
+describe('revealSuppressed', () => {
+  it('suppresses the block entrance for agent text/thinking (the per-word reveal channel) and raw', () => {
+    expect(revealSuppressed({ id: '1', role: 'agent', kind: 'text', text: 'x' } as TranscriptFrame)).toBe(true);
+    expect(revealSuppressed({ id: '2', role: 'subagent', kind: 'thinking', text: 'x' } as TranscriptFrame)).toBe(true);
+    expect(revealSuppressed({ id: '3', kind: 'raw', text: 'x' } as TranscriptFrame)).toBe(true);
+  });
+  it('does not suppress the entrance for a user turn or a tool card', () => {
+    expect(revealSuppressed({ id: '4', role: 'you', kind: 'text', text: 'x' } as TranscriptFrame)).toBe(false);
+    expect(revealSuppressed({ id: '5', role: 'agent', kind: 'tool', tool: 'Edit', input: '' } as TranscriptFrame)).toBe(false);
+  });
+});
+
+describe('nextBatchIndex', () => {
+  it('hands out incrementing indices within one synchronous burst', () => {
+    const a = nextBatchIndex();
+    const b = nextBatchIndex();
+    const c = nextBatchIndex();
+    expect(b).toBe(a + 1);
+    expect(c).toBe(a + 2);
+  });
+});
+
+describe('ThinkingCard auto-expand', () => {
+  it('auto-opens while streaming and collapses to a "Thought for Ns" label after the delay', () => {
+    vi.useFakeTimers();
+    try {
+      const frame = {
+        id: 't',
+        role: 'agent',
+        kind: 'thinking',
+        text: 'reasoning…',
+        streaming: true,
+      } as const;
+      const { rerender, container } = render(<TranscriptRow frame={frame} />);
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('true');
+
+      // stream ends
+      rerender(<TranscriptRow frame={{ ...frame, streaming: false }} />);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
+      expect(container.textContent).toMatch(/Thought for \d+s/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts collapsed for a settled (non-streaming) reasoning frame', () => {
+    const frame = { id: 't2', role: 'agent', kind: 'thinking', text: 'done reasoning' } as const;
+    const { container } = render(<TranscriptRow frame={frame} />);
+    expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
   });
 });

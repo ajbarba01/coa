@@ -9,6 +9,7 @@ import { Spinner } from '../feedback/Spinner.js';
 import { findMatches } from './find.js';
 import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
+import { defaultReveal, type BlockVariant } from './reveal.js';
 import { ToolCard } from './ToolCard.js';
 import { nearBottom, previousPromptIndex } from './scrollState.js';
 import { cx } from '../lib/cx.js';
@@ -28,7 +29,16 @@ export type TranscriptRole = 'you' | 'agent' | 'subagent';
 /** One rendered turn frame. A discriminated union so each kind renders on its own
  *  footing; `raw` is the verbatim (unfiltered-loop) projection. */
 export type TranscriptFrame =
-  | { id: string; role: TranscriptRole; kind: 'text'; text: string; depth?: number | undefined }
+  | {
+      id: string;
+      role: TranscriptRole;
+      kind: 'text';
+      text: string;
+      depth?: number | undefined;
+      /** True while this block is still streaming (fed by `text-delta`) — drives the
+       *  per-word reveal. Absent/false once settled or on reload (D85: plain, no reveal). */
+      streaming?: boolean | undefined;
+    }
   | {
       id: string;
       role: TranscriptRole;
@@ -77,6 +87,9 @@ export type TranscriptFrame =
       kind: 'thinking';
       text: string;
       depth?: number | undefined;
+      /** True while the reasoning is still streaming (fed by `thinking-delta`) — drives the
+       *  auto-expand + per-word reveal; on settle it collapses. Absent on reload. */
+      streaming?: boolean | undefined;
     }
   | {
       id: string;
@@ -182,13 +195,47 @@ export function toolQuickInfo(tool: string, input: string): string | undefined {
  *  just a caret + `Thinking` label, expanding on click to reveal the full text
  *  underneath (also unboxed). Deliberately plainer than {@link ToolCard} — the
  *  reasoning trace is a quiet aside, not a distinct unit. */
-function ThinkingCard({ text }: { text: string }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
+function ThinkingCard({
+  text,
+  streaming,
+}: {
+  text: string;
+  streaming?: boolean | undefined;
+}): React.JSX.Element {
+  const cfg = defaultReveal.reasoning;
+  const auto = cfg.mode === 'auto-expand';
+  const [open, setOpen] = useState(auto ? streaming === true : false);
+  const [userTouched, setUserTouched] = useState(false);
+  const startedRef = useRef<number | undefined>(streaming === true ? Date.now() : undefined);
+  const [secs, setSecs] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!auto || userTouched) return;
+    if (streaming === true) {
+      // reasoning is (still) streaming: open it, mark the start, clear any prior duration.
+      startedRef.current ??= Date.now();
+      setSecs(undefined);
+      setOpen(true);
+      return;
+    }
+    // stream ended: record how long it thought, then melt closed after the delay so the
+    // answer eases up to meet it (the .cx-collapse height transition does the easing).
+    if (startedRef.current !== undefined) {
+      setSecs(Math.max(1, Math.round((Date.now() - startedRef.current) / 1000)));
+    }
+    const t = setTimeout(() => setOpen(false), cfg.collapseDelayMs);
+    return () => clearTimeout(t);
+  }, [streaming, auto, userTouched, cfg.collapseDelayMs]);
+
+  const label = secs !== undefined ? `Thought for ${secs}s` : 'Thinking';
   return (
     <div className="flex flex-col gap-1">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setUserTouched(true);
+          setOpen((v) => !v);
+        }}
         className="group flex items-center gap-1.5 text-left motion-reduce:transition-none"
         aria-expanded={open}
       >
@@ -200,11 +247,29 @@ function ThinkingCard({ text }: { text: string }): React.JSX.Element {
             open && 'rotate-90',
           )}
         />
-        <span className="text-eyebrow uppercase tracking-[0.06em] text-faint transition-colors group-hover:text-muted">
-          Thinking
+        <span
+          className={cx(
+            'text-eyebrow uppercase tracking-[0.06em] text-faint transition-colors group-hover:text-muted',
+            streaming === true && 'animate-pulse',
+          )}
+        >
+          {label}
         </span>
       </button>
-      {open && <div className="pl-4.5 text-label italic text-muted">{text}</div>}
+      <div
+        className="cx-collapse pl-4.5"
+        data-open={open ? 'true' : 'false'}
+        aria-hidden={open ? undefined : true}
+        style={{ '--collapse-dur': `${cfg.collapseDurationMs}ms` } as React.CSSProperties}
+      >
+        <div className="cx-collapse-inner">
+          {/* `italic` cascades into the Markdown prose; `muted` keeps the reasoning trace in
+              the quiet secondary color (Markdown otherwise renders in the primary fg). */}
+          <div className="py-0.5 text-label italic">
+            <Markdown source={text} muted {...(streaming === true ? { streaming: true } : {})} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -461,7 +526,10 @@ export function TranscriptRow({
         indent={indent}
         className="pt-2.5 pb-2"
       >
-        <ThinkingCard text={frame.text} />
+        <ThinkingCard
+          text={frame.text}
+          {...(frame.streaming !== undefined ? { streaming: frame.streaming } : {})}
+        />
       </RowShell>
     );
   }
@@ -548,7 +616,10 @@ export function TranscriptRow({
                 <CopyButton text={frame.text} />
               </div>
             )}
-            <Markdown source={frame.text} />
+            <Markdown
+              source={frame.text}
+              {...(frame.streaming !== undefined ? { streaming: frame.streaming } : {})}
+            />
           </div>
         )}
         {frame.kind === 'tool' && (
@@ -699,6 +770,62 @@ export function WorkingFooter({
   );
 }
 
+/** The block entrance is skipped for the channels that reveal per-word (agent/subagent
+ *  text + thinking — they animate as words arrive, so a block-level entrance would double
+ *  up) and for `raw` frames (D85 — raw is the verbatim loop, never animated). Every other
+ *  newly-arrived block (tool card, result, plan, error, approval, subagent, user turn,
+ *  note) gets the entrance. Exported for unit testing. */
+export function revealSuppressed(frame: TranscriptFrame): boolean {
+  if (frame.kind === 'raw') return true;
+  if (frame.kind === 'text' || frame.kind === 'thinking') return 'role' in frame && frame.role !== 'you';
+  return false;
+}
+
+// Cascade counter: rows mounting within one animation frame get incrementing indices, so a
+// coalesced batch of blocks enters as a stagger rather than a simultaneous pop. Reset each
+// frame. Exported for unit testing.
+let batchIndex = 0;
+let batchScheduled = false;
+export function nextBatchIndex(): number {
+  const i = batchIndex++;
+  if (!batchScheduled && typeof requestAnimationFrame === 'function') {
+    batchScheduled = true;
+    requestAnimationFrame(() => {
+      batchIndex = 0;
+      batchScheduled = false;
+    });
+  }
+  return i;
+}
+
+// True once the transcript has completed its initial paint. Rows mounting BEFORE this (a
+// session's existing history on open) do not animate; only live arrivals after first paint
+// enter. Child mount effects run before the parent's, so initial rows read `false`.
+let liveMountReady = false;
+
+/** The WAAPI keyframes for each block-entrance variant (GPU-only). */
+function blockKeyframes(v: Exclude<BlockVariant, 'none'>): Keyframe[] {
+  switch (v) {
+    case 'blurRise':
+      return [
+        { opacity: 0, filter: 'blur(6px)', transform: 'translateY(4px)' },
+        { opacity: 1, filter: 'blur(0px)', transform: 'none' },
+      ];
+    case 'fadeRise':
+      return [
+        { opacity: 0, transform: 'translateY(6px)' },
+        { opacity: 1, transform: 'none' },
+      ];
+    case 'fade':
+      return [{ opacity: 0 }, { opacity: 1 }];
+    case 'scale':
+      return [
+        { opacity: 0, transform: 'scale(0.985) translateY(3px)' },
+        { opacity: 1, transform: 'none' },
+      ];
+  }
+}
+
 /** Memoized so a streamed frame re-renders only the appended row, and `content-visibility`
  *  lets the browser skip layout/paint for off-screen rows while keeping them in the DOM
  *  (full-transcript selection + Ctrl-F). `contain-intrinsic-size` is a height estimate that
@@ -725,18 +852,21 @@ const MemoRow = memo(function MemoRow({
   spineBottom?: boolean | undefined;
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
-  // Appear-on-mount via the Web Animations API rather than a CSS keyframe (no
-  // globals.css touch — see the task's workspace note). Skipped under
-  // prefers-reduced-motion; `animate` is guarded since jsdom stubs it inconsistently.
+  // Whole-block entrance on live arrival, via the Web Animations API (guarded — jsdom stubs
+  // `animate` inconsistently). Skipped for the per-word-reveal channels + raw (revealSuppressed),
+  // for history on session-open (liveMountReady), for `variant: 'none'`, and under
+  // prefers-reduced-motion. A coalesced batch cascades via nextBatchIndex.
   useLayoutEffect(() => {
+    const cfg = defaultReveal.block;
+    if (cfg.variant === 'none' || revealSuppressed(frame) || !liveMountReady) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    ref.current?.animate?.(
-      [
-        { opacity: 0, transform: 'translateY(4px)' },
-        { opacity: 1, transform: 'none' },
-      ],
-      { duration: 140, easing: 'ease-out' },
-    );
+    const delay = Math.min(nextBatchIndex(), cfg.staggerCap) * cfg.staggerMs;
+    ref.current?.animate?.(blockKeyframes(cfg.variant), {
+      duration: cfg.durationMs,
+      delay,
+      easing: 'cubic-bezier(0.2, 0.65, 0.3, 1)',
+      fill: 'both',
+    });
   }, []);
   return (
     <div
@@ -847,6 +977,15 @@ export function Transcript({
   useEffect(() => {
     return () => {
       if (navTimerRef.current !== undefined) clearTimeout(navTimerRef.current);
+    };
+  }, []);
+
+  // Mark live-mount ready after the first paint so a session's existing history (mounted in
+  // this first commit) does not animate — only rows appended afterward get the block entrance.
+  useEffect(() => {
+    liveMountReady = true;
+    return () => {
+      liveMountReady = false;
     };
   }, []);
 

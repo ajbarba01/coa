@@ -30,25 +30,60 @@ function openBlockIndex(turns: readonly TurnFrame[], kind: TextKind, role: strin
   return -1;
 }
 
+/** Last block of this channel regardless of `streaming`, or -1. Used to still replace a
+ *  reasoning block whose `streaming` flag was cleared early (settleOpenThinking) when its
+ *  message-end settled frame finally arrives — otherwise it would append a duplicate. */
+function lastBlockIndex(turns: readonly TurnFrame[], kind: TextKind, role: string): number {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const f = turns[i]!;
+    if (isStreamingChannel(f) && f.kind === kind && f.role === role) return i;
+  }
+  return -1;
+}
+
+/** When agent output text begins, any still-open reasoning block is done — clear its
+ *  `streaming` flag so the reasoning card's auto-collapse fires now, rather than waiting for
+ *  the message-end settled `thinking` frame (which the backend emits together with the
+ *  settled text, so the flag would otherwise stay set through the whole output). */
+function settleOpenThinking(turns: readonly TurnFrame[]): readonly TurnFrame[] {
+  if (!turns.some((t) => t.kind === 'thinking' && t.streaming === true)) return turns;
+  return turns.map((t) => (t.kind === 'thinking' && t.streaming === true ? { ...t, streaming: false } : t));
+}
+
 /** Fold one incoming frame into the turn list with streaming reconciliation. */
 export function appendStreamingFrame(turns: readonly TurnFrame[], frame: TurnFrame): TurnFrame[] {
-  if (!isStreamingChannel(frame)) return [...turns, frame];
+  // Agent/subagent output text ends the reasoning phase (see settleOpenThinking).
+  const base =
+    frame.kind === 'text' && frame.role !== 'you' ? settleOpenThinking(turns) : turns;
+  if (!isStreamingChannel(frame)) return [...base, frame];
 
-  const openIdx = openBlockIndex(turns, frame.kind, frame.role);
+  const openIdx = openBlockIndex(base, frame.kind, frame.role);
 
   if (frame.streaming === true) {
     // Accumulate the chunk into the open block of this channel, or open a new one.
-    if (openIdx === -1) return [...turns, frame];
-    const open = turns[openIdx] as Extract<TurnFrame, { kind: TextKind }>;
+    if (openIdx === -1) return [...base, frame];
+    const open = base[openIdx] as Extract<TurnFrame, { kind: TextKind }>;
     const merged = { ...open, text: open.text + frame.text };
-    return [...turns.slice(0, openIdx), merged, ...turns.slice(openIdx + 1)];
+    return [...base.slice(0, openIdx), merged, ...base.slice(openIdx + 1)];
   }
 
   // A settled block replaces the open streaming block of its channel (keeping the id so the
-  // row does not remount), or appends when there was no streaming (D85 / reloaded log).
-  if (openIdx === -1) return [...turns, frame];
-  const open = turns[openIdx] as Extract<TurnFrame, { kind: TextKind }>;
-  return [...turns.slice(0, openIdx), { ...frame, id: open.id }, ...turns.slice(openIdx + 1)];
+  // row does not remount).
+  if (openIdx !== -1) {
+    const open = base[openIdx] as Extract<TurnFrame, { kind: TextKind }>;
+    return [...base.slice(0, openIdx), { ...frame, id: open.id }, ...base.slice(openIdx + 1)];
+  }
+  // A settled thinking frame whose live block was already closed early (settleOpenThinking)
+  // replaces that block rather than duplicating it. Other settled frames with no open block
+  // append (D85 / reloaded log — non-streaming backends and reload never carry deltas).
+  if (frame.kind === 'thinking') {
+    const lastIdx = lastBlockIndex(base, 'thinking', frame.role);
+    if (lastIdx !== -1) {
+      const prev = base[lastIdx]!;
+      return [...base.slice(0, lastIdx), { ...frame, id: prev.id }, ...base.slice(lastIdx + 1)];
+    }
+  }
+  return [...base, frame];
 }
 
 /** Fold a batch of incoming frames into the turn list, in order. */

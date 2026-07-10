@@ -53,3 +53,26 @@ describe('Markdown', () => {
     expect(container.firstElementChild?.className).toMatch(/first/);
   });
 });
+
+describe('Markdown streaming', () => {
+  it('renders in the muted color when muted, and the primary fg otherwise', () => {
+    const { container: m } = render(<Markdown source="hi" muted />);
+    expect(m.firstElementChild?.className).toMatch(/text-muted/);
+    expect(m.firstElementChild?.className).not.toMatch(/text-fg/);
+    const { container: d } = render(<Markdown source="hi" />);
+    expect(d.firstElementChild?.className).toMatch(/text-fg/);
+  });
+
+  // The per-word reveal is being reworked into a block-split StreamingMarkdown (see handoff);
+  // for now `streaming` is a no-op and the block renders as plain, visible markdown.
+  it('renders plain markdown while streaming (per-word reveal reworked out)', () => {
+    const { container } = render(<Markdown source="hello world" streaming />);
+    expect(container.querySelectorAll('span.cx-tok').length).toBe(0);
+    expect(container.textContent).toContain('hello world');
+  });
+
+  it('renders plain when not streaming too', () => {
+    const { container } = render(<Markdown source="hello world" />);
+    expect(container.querySelectorAll('span.cx-tok').length).toBe(0);
+  });
+});

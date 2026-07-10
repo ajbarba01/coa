@@ -117,7 +117,14 @@ export type ChatVm =
 export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
   switch (f.kind) {
     case 'text':
-      return { id: f.id, role: f.role, kind: 'text', text: f.text, depth: f.depth };
+      return {
+        id: f.id,
+        role: f.role,
+        kind: 'text',
+        text: f.text,
+        depth: f.depth,
+        ...(f.streaming !== undefined ? { streaming: f.streaming } : {}),
+      };
     case 'tool-use':
       return {
         id: f.id,
@@ -151,7 +158,14 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
     case 'deny':
       return { id: f.id, kind: 'deny', denyKind: f.denyKind, reason: f.reason };
     case 'thinking':
-      return { id: f.id, role: f.role, kind: 'thinking', text: f.text, depth: f.depth };
+      return {
+        id: f.id,
+        role: f.role,
+        kind: 'thinking',
+        text: f.text,
+        depth: f.depth,
+        ...(f.streaming !== undefined ? { streaming: f.streaming } : {}),
+      };
     case 'error':
       return { id: f.id, role: f.role, kind: 'error', message: f.message, origin: f.origin, depth: f.depth };
     case 'plan':
