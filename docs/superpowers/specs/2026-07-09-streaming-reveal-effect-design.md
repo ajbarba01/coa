@@ -3,6 +3,27 @@
 _Phase 0 streaming polish. Console-only (M10). No new ADR — this is presentation, not a
 cross-module contract. Design date: 2026-07-09._
 
+> **SHIPPED FORM (2026-07-09, supersedes the per-word-output design below).** The per-word reveal
+> was first attempted via a `rehype` plugin on `Markdown` (§2 as originally written) and **reverted**:
+> react-markdown re-parses the whole streaming block every frame, remounting the word spans (so each
+> word's blur restarts every ~16ms → invisible) and re-reconciling hundreds of spans (laggy). The
+> reveal was reworked as a **block-split `StreamingMarkdown`** (see
+> `docs/superpowers/plans/2026-07-09-streaming-reveal-block-split.md`), and then, after the maintainer
+> live-tested it, settled on this final behavior:
+>
+> - **Agent OUTPUT reveals whole markdown blocks only** — nothing streams per-word. A pure
+>   `splitStreamingMarkdown` segments the accumulating text; each *completed* block renders as
+>   memoized formatted `<Markdown>` with a one-time blur-rise entrance, and the in-progress trailing
+>   block is **held** until it completes. (Per-word can't format markdown, so output — which is
+>   markdown — arrives a whole block at a time; a live prose paragraph that revealed then reformatted
+>   read as jarring, so output does not stream at all.)
+> - **The reasoning trace is the only per-word surface** — it types out word-by-word as plain text
+>   with **stable React keys**, so React reuses each word's DOM node and the one-shot blur completes
+>   instead of restarting. This is the live "typing" affordance while output assembles.
+> - Reasoning auto-expand/collapse and the whole-block entrance for non-streamed blocks (§3, §4)
+>   shipped as designed. The "Locked feel" table's "Output text = per-word" row is superseded by the
+>   above; the reasoning/whole-block rows stand.
+
 ## Problem
 
 Streaming output works (piece B / ADR 0013) and the render is coalesced to one
@@ -84,31 +105,40 @@ Variants map to a CSS class / `data-` attribute; durations/staggers apply as inl
 custom properties (`--reveal-dur`, `--enter-dur`) so no per-value CSS is generated. `'none'`
 degrades to a literal pass-through (D85-style: the feature off is never worse than plain).
 
-### 2. Per-word reveal — `rehype` plugin on `Markdown`
+### 2. Reveal — block-split `StreamingMarkdown` (shipped)
 
-`Markdown` gains `streaming?: boolean` and reads `defaultReveal.text`. A new
-`rehypeReveal` plugin (`packages/console-ui/src/dense/rehype-reveal.ts`) runs **only when
-`streaming` is true**:
+> The original text of this section specified a `rehype` plugin on `Markdown` that wrapped words
+> in `.cx-tok` spans with a `seenChars` skip-guard. It was **reverted** (see the SHIPPED FORM note
+> at the top): react-markdown re-parses the whole block every frame → remounts the spans → the blur
+> restarts each frame (invisible) and the reconcile is laggy. A render-phase `useRef` skip-guard also
+> tripped React StrictMode. The rest of this section describes what actually shipped.
 
-- Walks the HAST, splits each text node into words, wraps each in
-  `<span class="cx-tok">word</span>`; whitespace stays as bare text nodes (preserves
-  wrap/justification). **Skips `code`/`pre`/`svg`/`math` subtrees.**
-- **Skip-guard:** the plugin receives `seenChars` — the block's length at the *previous*
-  render (a `useRef` in `Markdown`, read then updated to `source.length` each render). Words
-  whose start offset `< seenChars` get `data-seen` and no animation; only newly-arrived words
-  animate. This is what makes rAF-batched bursts smooth instead of re-animating the paragraph
-  every frame. Robust regardless of React reconciliation (old words carry `animation: none`).
-- CSS (globals.css): `.cx-tok:not([data-seen])` runs the variant keyframe
-  (`blurIn`/`fadeIn`/`slideUp`) at `var(--reveal-dur)`. GPU-only.
+A dedicated `StreamingMarkdown` component (`packages/console-ui/src/dense/StreamingMarkdown.tsx`),
+mounted by the caller **only while `streaming === true`** (settled/reloaded blocks stay plain
+`<Markdown>`, D85), fed by a pure splitter `splitStreamingMarkdown`
+(`packages/console-ui/src/dense/markdownBlocks.ts`) that segments the accumulating text into
+`{ completed: string[]; trailing: string; trailingIsOpenCode }`, fenced-code-aware and **append-only**
+(an earlier `completed[]` block never changes as text grows, so it can be memoized and index-keyed).
 
-When `streaming` is false the plugin is absent → the settled/reloaded block is plain markdown
-with **zero reveal spans** (sheds on settle; historical reload never animates). Because the
-last live frame already painted every word opaque, the swap is pixel-identical.
+- **Agent output (`perWord` absent):** render only the `completed[]` blocks — each a memoized
+  formatted `<Markdown>` (parsed **once** per block; this is the perf fix — per-frame cost never
+  includes re-parsing settled blocks) inside a one-shot `.cx-block-enter` whole-block entrance. The
+  in-progress trailing block is **held** (not rendered) until it completes and joins `completed[]`.
+  Nothing streams per-word; markdown arrives a whole block at a time.
+- **Reasoning (`perWord` true):** render the whole `source` as plain-text word tokens
+  (`splitWords`), each a `<span key={i} class="cx-word">`. **Stable keys** are load-bearing: React
+  reuses each already-revealed word's DOM node, so its one-shot CSS blur (`--reveal-dur`, GPU-only)
+  completes instead of restarting, and the growing last word only updates its text content. No
+  react-markdown on this path (it would remount every frame); the container collapses whitespace like
+  `Markdown` so the trace wraps identically once it settles.
 
-The `streaming` flag is threaded: `reads.ts` view frame (already has it) →
-`TranscriptFrame` (add `streaming?` to the `text` and `thinking` kinds) →
-`toGovernedFrame` maps it → `TranscriptRow` passes `streaming` to `Markdown` (and
-`ThinkingCard`). Raw mode never sets it (D85).
+The split is a pure `useMemo(() => splitStreamingMarkdown(source), [source])` — no render-phase ref
+mutation (StrictMode-safe). The `streaming` flag is threaded end-to-end (already present): `reads.ts`
+→ `TranscriptFrame` text/thinking kinds → `toGovernedFrame` → `TranscriptRow` chooses
+`StreamingMarkdown` (output) / `StreamingMarkdown perWord` (reasoning) while streaming, plain
+`<Markdown>` when settled. Raw mode never sets `streaming` (D85). Keyframes (`.cx-word`,
+`.cx-block-enter`) live in `apps/desktop/src/renderer/globals.css`; reduced motion is free via the
+global `[data-motion='reduce']` rule (no per-effect guard, no WAAPI path).
 
 ### 3. Reasoning — `ThinkingCard` auto-expand + smooth collapse
 

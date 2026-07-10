@@ -835,3 +835,32 @@ describe('ThinkingCard auto-expand', () => {
     expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
   });
 });
+
+describe('TranscriptRow streaming reveal', () => {
+  it('reveals a streaming agent text frame as whole markdown blocks (not per-word)', () => {
+    const frame = {
+      id: 'a',
+      role: 'agent',
+      kind: 'text',
+      text: 'para one\n\npara two',
+      streaming: true,
+    } as const;
+    const { container } = render(<TranscriptRow frame={frame} />);
+    // output never streams per-word: a completed block appears whole + formatted, the still-forming
+    // trailing block is held until it completes
+    expect(container.querySelectorAll('span.cx-word').length).toBe(0);
+    expect(container.querySelector('.cx-block-enter p')?.textContent).toBe('para one');
+  });
+
+  it('renders a settled agent text frame as plain markdown (no reveal spans)', () => {
+    const frame = { id: 'a', role: 'agent', kind: 'text', text: 'hello world' } as const;
+    const { container } = render(<TranscriptRow frame={frame} />);
+    expect(container.querySelectorAll('span.cx-word').length).toBe(0);
+  });
+
+  it('reveals streaming reasoning per word (auto-expanded)', () => {
+    const frame = { id: 't', role: 'agent', kind: 'thinking', text: 'weighing options', streaming: true } as const;
+    const { container } = render(<TranscriptRow frame={frame} />);
+    expect(container.querySelectorAll('span.cx-word').length).toBe(2);
+  });
+});

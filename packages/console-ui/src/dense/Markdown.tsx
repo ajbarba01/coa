@@ -8,12 +8,6 @@ import { CodeBlock } from './CodeBlock.js';
 export interface MarkdownProps {
   source: string;
   className?: string;
-  /** Accepted for forward-compatibility with the streaming transcript. The live per-word
-   *  reveal is being reworked into a block-split `StreamingMarkdown` (see the handoff:
-   *  react-markdown re-parses the whole block every frame, which remounted the per-word spans
-   *  → invisible + laggy), so this is currently a no-op: a streaming block renders as plain
-   *  markdown — visible and smooth. A settled/reloaded block is byte-identical (D85). */
-  streaming?: boolean | undefined;
   /** Render in the muted foreground instead of the default — for secondary prose like the
    *  reasoning trace, which reads as a quiet aside, not primary answer text. */
   muted?: boolean | undefined;

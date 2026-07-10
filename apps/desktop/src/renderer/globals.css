@@ -257,3 +257,41 @@ code,
   overflow: hidden;
   min-height: 0;
 }
+
+/* Streaming per-word reveal (docs/superpowers/plans/2026-07-09-streaming-reveal-block-split.md).
+   The trailing in-progress block renders each word as a `.cx-word` span with a STABLE React key,
+   so an already-revealed word is never remounted — each word's one-shot blur runs exactly once as
+   it arrives (the fix for the react-markdown per-frame remount that made words invisible). GPU-only
+   (opacity/filter/transform). `[data-motion='reduce'] *` above already zeroes the duration. */
+.cx-word {
+  display: inline-block;
+  animation-name: cx-word-fade-in;
+  animation-duration: var(--reveal-dur, 190ms);
+  animation-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
+  animation-fill-mode: both;
+}
+[data-reveal='blurIn'] .cx-word { animation-name: cx-word-blur-in; }
+[data-reveal='fadeIn'] .cx-word { animation-name: cx-word-fade-in; }
+[data-reveal='slideUp'] .cx-word { animation-name: cx-word-slide-up; }
+[data-reveal='none'] .cx-word { animation: none; }
+@keyframes cx-word-blur-in { from { opacity: 0; filter: blur(5px); } to { opacity: 1; filter: blur(0); } }
+@keyframes cx-word-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cx-word-slide-up { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+/* Whole-block entrance for a completed streamed block as it "arrives" (blocks come in as whole
+   blocks; prose flows per-word above). One-shot on mount; memoized blocks never re-run it. Variant
+   + duration come from `defaultReveal.block`. `[data-motion='reduce']` zeroes it. */
+.cx-block-enter {
+  animation-duration: var(--enter-dur, 500ms);
+  animation-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
+  animation-fill-mode: both;
+}
+.cx-block-enter[data-enter='blurRise'] { animation-name: cx-block-blur-rise; }
+.cx-block-enter[data-enter='fadeRise'] { animation-name: cx-block-fade-rise; }
+.cx-block-enter[data-enter='fade'] { animation-name: cx-block-fade; }
+.cx-block-enter[data-enter='scale'] { animation-name: cx-block-scale; }
+.cx-block-enter[data-enter='none'] { animation: none; }
+@keyframes cx-block-blur-rise { from { opacity: 0; filter: blur(6px); transform: translateY(4px); } to { opacity: 1; filter: blur(0); transform: none; } }
+@keyframes cx-block-fade-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes cx-block-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cx-block-scale { from { opacity: 0; transform: scale(0.985) translateY(3px); } to { opacity: 1; transform: none; } }

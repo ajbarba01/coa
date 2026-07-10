@@ -1,5 +1,13 @@
 # Streaming Reveal Effect Implementation Plan
 
+> **SUPERSEDED (2026-07-09).** The per-word reveal via a `rehype` plugin on `Markdown` (Tasks 2–3
+> here) was reverted — react-markdown re-parses the whole block every frame, remounting the word
+> spans (invisible) and re-reconciling hundreds of spans (laggy), and the `seenChars` skip-guard
+> mutated a ref during render (StrictMode). The reveal was reworked as a block-split
+> `StreamingMarkdown`; see `docs/superpowers/plans/2026-07-09-streaming-reveal-block-split.md`.
+> Tasks 1, 4, 5, 6, 7 of this plan (the config seam, the streaming-flag threading, `ThinkingCard`
+> auto-expand/collapse, the `MemoRow` whole-block entrance, and the spine guard) landed and still hold.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a tunable per-word streaming reveal (blur-in) for agent text/thinking, an auto-expand/smooth-collapse reasoning block, and a cascaded block-entrance for non-streamed blocks — all console-only, behind one config seam.

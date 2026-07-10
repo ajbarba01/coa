@@ -54,7 +54,7 @@ describe('Markdown', () => {
   });
 });
 
-describe('Markdown streaming', () => {
+describe('Markdown appearance', () => {
   it('renders in the muted color when muted, and the primary fg otherwise', () => {
     const { container: m } = render(<Markdown source="hi" muted />);
     expect(m.firstElementChild?.className).toMatch(/text-muted/);
@@ -63,16 +63,11 @@ describe('Markdown streaming', () => {
     expect(d.firstElementChild?.className).toMatch(/text-fg/);
   });
 
-  // The per-word reveal is being reworked into a block-split StreamingMarkdown (see handoff);
-  // for now `streaming` is a no-op and the block renders as plain, visible markdown.
-  it('renders plain markdown while streaming (per-word reveal reworked out)', () => {
-    const { container } = render(<Markdown source="hello world" streaming />);
-    expect(container.querySelectorAll('span.cx-tok').length).toBe(0);
-    expect(container.textContent).toContain('hello world');
-  });
-
-  it('renders plain when not streaming too', () => {
+  // Markdown is now the settled-only renderer (no `streaming` prop) — the live per-word
+  // reveal lives entirely in StreamingMarkdown (see Markdown.tsx / StreamingMarkdown.tsx).
+  it('renders plain markdown with no reveal spans', () => {
     const { container } = render(<Markdown source="hello world" />);
     expect(container.querySelectorAll('span.cx-tok').length).toBe(0);
+    expect(container.textContent).toContain('hello world');
   });
 });

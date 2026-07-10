@@ -77,6 +77,7 @@ export {
 } from './dense/Transcript.js';
 export { CodeBlock, type CodeBlockProps } from './dense/CodeBlock.js';
 export { Markdown, type MarkdownProps } from './dense/Markdown.js';
+export { StreamingMarkdown, type StreamingMarkdownProps } from './dense/StreamingMarkdown.js';
 export {
   defaultReveal,
   type RevealConfig,

@@ -10,6 +10,7 @@ import { findMatches } from './find.js';
 import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
 import { defaultReveal, type BlockVariant } from './reveal.js';
+import { StreamingMarkdown } from './StreamingMarkdown.js';
 import { ToolCard } from './ToolCard.js';
 import { nearBottom, previousPromptIndex } from './scrollState.js';
 import { cx } from '../lib/cx.js';
@@ -266,7 +267,11 @@ function ThinkingCard({
           {/* `italic` cascades into the Markdown prose; `muted` keeps the reasoning trace in
               the quiet secondary color (Markdown otherwise renders in the primary fg). */}
           <div className="py-0.5 text-label italic">
-            <Markdown source={text} muted {...(streaming === true ? { streaming: true } : {})} />
+            {streaming === true ? (
+              <StreamingMarkdown source={text} muted perWord />
+            ) : (
+              <Markdown source={text} muted />
+            )}
           </div>
         </div>
       </div>
@@ -616,10 +621,11 @@ export function TranscriptRow({
                 <CopyButton text={frame.text} />
               </div>
             )}
-            <Markdown
-              source={frame.text}
-              {...(frame.streaming !== undefined ? { streaming: frame.streaming } : {})}
-            />
+            {frame.streaming === true ? (
+              <StreamingMarkdown source={frame.text} />
+            ) : (
+              <Markdown source={frame.text} />
+            )}
           </div>
         )}
         {frame.kind === 'tool' && (
