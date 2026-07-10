@@ -1,8 +1,8 @@
 // apps/desktop/src/renderer/panels/showcase/toolblocks/samples.ts
 
-/** A single tool call, shaped like the live merged `tool` transcript frame so the
- *  specimens are portable to Phase 3. No `output`/`ok` ⇒ still running; `ok:false` ⇒
- *  failed. Bytes in `input`/`output` are verbatim (D128). */
+/** A single tool call, shaped like the live merged `tool` transcript frame so these
+ *  showcase specimens render identically to the real transcript. No `output`/`ok` ⇒
+ *  still running; `ok:false` ⇒ failed. Bytes in `input`/`output` are verbatim (D128). */
 export interface ToolCall {
   id: string;
   tool: string;

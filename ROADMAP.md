@@ -161,15 +161,15 @@ the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**;
 
 ## In flight
 
-- **The de-drift refactor** (this arc) — docs/comments/junk cleanup, the ADR system, and this
-  ROADMAP itself. See
-  `docs/superpowers/specs/2026-07-05-coa-dedrift-refactor-design.md` for the design and
-  `docs/adr/` for durable decisions as they graduate out of it. **Next and final step: Claude authors
-  the remaining Phase-1 graduation artifacts (the extraction manifest, the ADR seed set, and the
-  tri-backend per-module SPEC split), then executes the Phase-3 docs/comments extraction itself** — no
-  longer handed to coa agents, so it no longer waits on agent capability-enforcement; the
-  graduate-before-delete gate on the `docs/superpowers/` graveyard still holds. Completing this
-  **closes the de-drift arc**; the remaining agent-hardening items move to "Someday / ideas" below.
+_Nothing currently in flight._
+
+The **de-drift refactor arc is closed** (2026-07-10). Project truth now lives on the
+[`AGENTS.md`](AGENTS.md) router + [`docs/adr/`](docs/adr/) (the durable *why*) + this ROADMAP (status),
+with a thin README per package. Every durable decision was graduated out of the transient
+`docs/superpowers/` corpus — into an ADR, the per-module SPEC split, or this file — which was then
+deleted (git history is its archive). The rationale is
+[`docs/adr/0001`](docs/adr/0001-consolidate-docs-into-router-adr-roadmap.md); the deferred
+agent-hardening items are under "Someday / ideas" below.
 
 ## Someday / ideas (not scheduled)
 
@@ -193,6 +193,12 @@ Captured from prior scratch notes; none of these are planned or sized yet:
   beyond the current structural (M1/M2) graph.
 - **Prompt-engineering surface** — a dedicated surface for iterating on and testing prompts/roles.
 - **Agent tools** — summarization and judgement-filtering tools for agents to call mid-session.
+- **Open design sub-questions** (surfaced during graduation; unsettled, each sits within an accepted ADR):
+  where the baseline Piece set physically lives — a built-in package vs. a seeded `.coa/` bundle (the
+  general built-in∪user merge mechanism is settled in `docs/adr/0003`; only this placement call is open);
+  MCP reference level — role-level vs. agent/project-level references (within `docs/adr/0003`'s third
+  capability type); and tool-description minimalism — how far to lean on a prior-rich backend's training
+  vs. shipping full descriptions that also serve prior-free backends (within `docs/adr/0005`).
 
 ## Known issues / next-phase
 
@@ -205,6 +211,15 @@ Surfaced during this refactor; not fixed here — flagged for the later architec
   visible state and the test cannot actually assert that the pushed row renders. The test's own
   comment acknowledges this. Fix by pushing under the active session id and asserting the row
   appears.
+- **Console startup/render performance (deferred to the architecture/quality phase).** Still-open
+  items from an earlier console-perf audit, each verified against current code: no
+  `optimizeDeps.include` in the dev Vite config (cold-start regression); Tailwind `@source` scans the
+  whole `console-ui` tree including tests; the ~2s poll replaces the entire state with no
+  shallow-equality guard; `React.memo`/`useCallback` are applied only to `Transcript`/`ChatPanel`, not
+  the broader kit; layout persistence (`onLayout`) fires on every drag pixel with no debounce; no Vite
+  CSS `devSourcemap` tuning; ~7 sequential IPC round-trips on startup. The transcript-grouping
+  `useMemo` gap is already fixed. Note: the audit predated the deliberate removal of transcript
+  virtualization (full-text selection + Ctrl-F), so its windowing-related framings are moot by design.
 
 ## Do not build for v1
 

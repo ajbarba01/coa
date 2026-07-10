@@ -31,11 +31,12 @@ coa/
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
     desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer composes the AppShell chrome + the StaticEngine (console-layout) + concrete panels (nav rail, conversation placeholder, live cost) in `src/renderer/panels/`; the IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); layout is persisted per-user by the main process (`src/main/persistence.ts`). The nav rail drives the main region (Cost/Flags/Timeline/Settings) while a persistent right dock holds chat/agent placeholders + the live account selector; console settings (theme/density/motion) persist per-user in `settings.json` beside `layout.json`. Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated).
   docs/
-    design/handoff/          SPEC.md (now a per-module index over spec/M0..M10.md) · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
-    superpowers/specs/       per-topic design specs (decision records)
-    superpowers/plans/       implementation plans (+ archive/)
+    design/handoff/          SPEC.md (a per-module index over spec/M0..M10.md) · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
+    adr/                     architecture decision records — immutable, the durable "why" (README is the index)
+    superpowers/             transient in-flight specs/ + plans/; graduated to adr/ + ROADMAP, then deleted (reappears as new work needs it)
     *.md                     the engineering framework (this doc, ENGINEERING, CODE_STYLE, WORKFLOW, DESIGN, UI)
   AGENTS.md  CLAUDE.md       how work is done (router + Claude shim)
+  ROADMAP.md                 project status + path forward (the in-repo status authority)
   LICENSE                    Apache-2.0
   package.json               workspace root (private; scripts + devDeps only)
   pnpm-workspace.yaml        workspace globs
@@ -174,10 +175,14 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 ## Where non-code things live
 
 - **Product source of truth** → `docs/design/handoff/` (SPEC / IMPL-SPEC-BRIEF / OPEN). Amended in place.
-- **Specs** (decision records) → `docs/superpowers/specs/` (+ `archive/`).
-- **Plans** → `docs/superpowers/plans/` (+ `archive/`).
+- **Durable decisions (the why)** → `docs/adr/` — immutable ADRs; see the doc-lifecycle rule in
+  [WORKFLOW.md](WORKFLOW.md).
+- **Project status / path forward** → [`ROADMAP.md`](../ROADMAP.md).
+- **In-flight specs & plans** → `docs/superpowers/{specs,plans}/` — **transient**: they exist to get a change
+  built, graduate their durable decisions to ADRs + ROADMAP, then are deleted (git history is the archive). The
+  directory reappears when the next plan is written.
 - **Throwaway scripts / scratch output** → the session scratchpad, **never committed**.
 
 ---
 
-_Last reviewed: 2026-07-06_
+_Last reviewed: 2026-07-10_
