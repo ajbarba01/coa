@@ -14,6 +14,10 @@ export interface PersistedEvent {
 /** The synthetic body a repaired (interrupted / stranded) tool call gets. */
 const INTERRUPTED = '[Tool execution was interrupted]';
 
+/** The notice a user interrupt (bare stop) folds into, so the model's next turn reads that its
+ *  previous response was cut off rather than completed. Mirrors the coding-agent convention. */
+export const INTERRUPTED_BY_USER = '[Request interrupted by user]';
+
 /**
  * Fold the append-only event log into the provider-neutral transcript (system omitted)
  * — the read-time projection that replaces the whole-rewrite `messages.json`
@@ -68,6 +72,12 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
         break;
       case 'turn-boundary':
         closeAssistant();
+        break;
+      case 'interrupted':
+        // A user stop: close whatever partial the model got out, then record the notice so the
+        // next turn's context shows it was interrupted (SC-1 — a user action, never an error).
+        closeAssistant();
+        out.push({ role: 'user', content: INTERRUPTED_BY_USER });
         break;
       case 'thinking':
       case 'error':

@@ -89,6 +89,16 @@ const subscribeParams = z.object({ id: z.string() });
  *  clean boundary with no bare-interrupt signal to counteract. */
 const FRAME_BARGE_IN = '[The user interrupted to steer you] ';
 
+/** Gated barge-in tracing (off by default). Set `COA_DEBUG_STEER=1` to log the interrupt
+ *  window's boundary/`pendingTurns` transitions on a live Claude run — the one piece of the
+ *  interrupt lifecycle that only the real SDK can reveal (does an interrupted turn boundary,
+ *  and in what order relative to the interrupt ack). Written to stderr so it never pollutes
+ *  the NDJSON RPC channel on stdout. */
+const DEBUG_STEER = process.env['COA_DEBUG_STEER'] === '1';
+function dbgSteer(event: string, detail: Record<string, unknown>): void {
+  if (DEBUG_STEER) console.error(`[coa steer] ${event}`, JSON.stringify(detail));
+}
+
 /**
  * The per-turn bookkeeping `TurnRequest` (live-session.ts) has no room for:
  * the legacy singular `role` field (superseded by `roles` but still read by
@@ -189,6 +199,17 @@ interface HeldQuery {
    *  suppressed from surfacing as an error frame (SC-1). Decremented as those results
    *  arrive. Finalized against the live smoke (Task 5). */
   barging: number;
+  /** True from the moment a barge-in issues its interrupt until the redirect turn is fed.
+   *  Any `turn-boundary` that arrives in this window belongs to the ABANDONED turn and must
+   *  not resolve the driver's latch — the redirect turn owns the single pending slot. This
+   *  is what makes completion robust whether or not the SDK emits a boundary for an
+   *  interrupted turn (it emits none — sdk `interrupt()` is a bare control request), instead
+   *  of predicting a boundary count that strands the pill in 'running' (docs/adr/0012 I3). */
+  awaitingRedirect: boolean;
+  /** True once a bare stop has closed the in-flight turn: the driver was already released, so
+   *  any residual frame the abandoned turn emits must not re-resolve it or surface as an error.
+   *  Cleared when the next turn is fed (the query stays alive across a turn-level interrupt). */
+  stopped: boolean;
   terminated: boolean;
   close: () => void;
   done: Promise<void>;
@@ -207,6 +228,74 @@ function deferred(): Deferred {
     resolve = r;
   });
   return { promise, resolve };
+}
+
+/**
+ * Tracks the in-flight turn's streamed-but-unsettled blocks, so the daemon can (a) stamp a
+ * settled `thinking` frame with the wall-clock the model spent reasoning (first→last delta) and
+ * (b) SETTLE a partial block itself when a turn is interrupted.
+ *
+ * Both exist because streaming deltas are delivery-only (docs/adr/0013): only settled frames are
+ * persisted. An interrupted turn never emits its settled frame, so without (b) the partial would
+ * render live but vanish on reload, and its reasoning block would stream forever. Doing this in
+ * M8 — not per backend — keeps the closure backend-agnostic (ADR 0002/0004): every adapter
+ * already streams the same delta frames. The token count the reveal shows is derived from the
+ * frame text, so it needs no stamping. One per turn / held query; resets after each settled block.
+ */
+interface StreamAccumulator {
+  /** Observe every frame before it is emitted: accumulate deltas, clear a channel the backend settles. */
+  observe: (frame: TurnFrame) => void;
+  /** Stamp a settled `thinking` frame with its reasoning wall-clock. */
+  stamp: (frame: TurnFrame) => TurnFrame;
+  /** Take the still-open partial blocks as settled frames (thinking first, then text), clearing them. */
+  drainPartials: () => TurnFrame[];
+}
+
+function makeStreamAccumulator(): StreamAccumulator {
+  let thinking = '';
+  let text = '';
+  let startMs: number | undefined;
+  let endMs: number | undefined;
+  const resetClock = (): void => {
+    startMs = undefined;
+    endMs = undefined;
+  };
+  return {
+    observe: (frame) => {
+      if (frame.t === 'thinking-delta') {
+        const now = Date.now();
+        startMs ??= now;
+        endMs = now;
+        thinking += frame.text;
+      } else if (frame.t === 'text-delta') {
+        text += frame.text;
+      } else if (frame.t === 'thinking') {
+        thinking = ''; // the backend settled this block itself
+      } else if (frame.t === 'text') {
+        text = '';
+      }
+    },
+    stamp: (frame) => {
+      if (frame.t !== 'thinking' || frame.durationMs !== undefined || startMs === undefined) return frame;
+      const durationMs = (endMs ?? startMs) - startMs;
+      resetClock();
+      return { ...frame, durationMs };
+    },
+    drainPartials: () => {
+      const out: TurnFrame[] = [];
+      if (thinking !== '') {
+        const durationMs = startMs !== undefined ? (endMs ?? startMs) - startMs : undefined;
+        out.push({ t: 'thinking', text: thinking, ...(durationMs !== undefined ? { durationMs } : {}) });
+        thinking = '';
+      }
+      if (text !== '') {
+        out.push({ t: 'text', text });
+        text = '';
+      }
+      resetClock();
+      return out;
+    },
+  };
 }
 
 /**
@@ -412,8 +501,10 @@ export function buildSessionHandlers(
     let started: { id: string; worktree: string } | undefined;
     // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
     // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
+    const acc = makeStreamAccumulator();
     const record = (frame: TurnFrame, full?: string): void => {
       if (started === undefined) return;
+      acc.observe(frame);
       // Streaming deltas are delivery-only (docs/adr/0013): push for live render, but
       // NEVER persist — the append-only log (docs/adr/0010) holds only settled frames,
       // so the read-time fold and cross-turn memory are unchanged (opencode #11329).
@@ -422,11 +513,14 @@ export function buildSessionHandlers(
         session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
         return;
       }
+      // A settled `thinking` frame is stamped with the reasoning wall-clock (persisted so a
+      // reload shows "Thought for Ns" identically); every other frame passes through unchanged.
+      const settled = acc.stamp(frame);
       const s = seqBox.value++;
-      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame: settled });
       if (prep.persistIn !== undefined) {
         prep.persistIn.store.append(prep.persistIn.convId, [
-          { seq: s, frame, ...(full !== undefined ? { full } : {}) },
+          { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
         ]);
       }
     };
@@ -452,6 +546,16 @@ export function buildSessionHandlers(
           onStart: (s) => {
             started = s;
             session.control = { controller, steer, queueSteer, interrupted: false, mode: 'per-turn' };
+            // A user stop settles whatever the model streamed (so it persists and a reload reads
+            // the same transcript), records the interrupt marker, THEN aborts the loop. Flushing
+            // before the abort is what keeps the partial from being lost — deltas are never
+            // persisted (docs/adr/0013), so only this settled frame reaches the durable log.
+            session.setInterruptClosure(() => {
+              for (const partial of acc.drainPartials()) record(partial);
+              record({ t: 'interrupted' });
+              controller.abort();
+              return true;
+            });
             session.setState('running', s.worktree);
             // Turn activity resets the idle-eviction clock (FIX #1) — belt-and-braces
             // alongside the running-aware idle timer in live-registry.ts.
@@ -468,6 +572,7 @@ export function buildSessionHandlers(
       // cleanly (no throw) — so a completed interrupt is seen here, not in `catch`.
       const interrupted = session.control?.interrupted === true;
       session.control = undefined;
+      session.setInterruptClosure(undefined);
       // SC-1: `interruptSession` already emitted `'interrupted'` synchronously — this
       // clean-break settle must not emit it again. Only a genuine completion emits `'done'`.
       if (interrupted) return;
@@ -480,6 +585,7 @@ export function buildSessionHandlers(
       if (prep.persistIn !== undefined) prep.persistIn.store.clearBackendSession(prep.persistIn.convId);
       const interrupted = session.control?.interrupted === true;
       session.control = undefined;
+      session.setInterruptClosure(undefined);
       // SC-1: an interrupt is a user stop, not a governance block; `interruptSession`
       // already emitted `'interrupted'`. Nothing further to surface.
       if (interrupted) return;
@@ -583,6 +689,8 @@ export function buildSessionHandlers(
       pendingTurns: 0,
       turnInterrupt: undefined,
       barging: 0,
+      awaitingRedirect: false,
+      stopped: false,
       terminated: false,
       close: () => channel.close(),
       done: Promise.resolve(),
@@ -591,9 +699,16 @@ export function buildSessionHandlers(
 
     // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
     // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
+    const acc = makeStreamAccumulator();
     const record = (frame: TurnFrame, full?: string): void => {
       const started = startedRef.current;
       if (started === undefined) return;
+      // After a bare stop, everything the abandoned turn still emits is inert: its partial was
+      // already settled, its marker recorded, and its driver released. Dropping the stragglers
+      // keeps content from appearing BELOW the interrupt marker (SC-1: never an error either).
+      // Cleared when the next turn is fed (`continueHeldQuery`).
+      if (query.stopped) return;
+      acc.observe(frame);
       // Streaming deltas are delivery-only (docs/adr/0013): push for live render, but
       // NEVER persist, and never touch the barging/boundary accounting below — the
       // append-only log (docs/adr/0010) holds only settled frames (opencode #11329).
@@ -608,15 +723,27 @@ export function buildSessionHandlers(
         query.barging -= 1;
         return;
       }
+      // A settled `thinking` frame is stamped with the reasoning wall-clock (persisted so a
+      // reload shows "Thought for Ns" identically); every other frame passes through unchanged.
+      const settled = acc.stamp(frame);
       const s = seqBox.value++;
-      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame: settled });
       if (prep.persistIn !== undefined) {
         prep.persistIn.store.append(prep.persistIn.convId, [
-          { seq: s, frame, ...(full !== undefined ? { full } : {}) },
+          { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
         ]);
       }
       if (frame.t === 'turn-boundary') {
+        // A barge-in's abandoned turn may still emit a residual boundary; it is recorded
+        // (above) but must NOT resolve the driver — the redirect turn owns the pending slot
+        // and drives completion (docs/adr/0012 I3). Robust whether or not the SDK boundaries
+        // an interrupted turn: no boundary ⇒ nothing to swallow, the redirect still resolves.
+        if (query.awaitingRedirect) {
+          dbgSteer('boundary swallowed (abandoned turn)', { pendingTurns: query.pendingTurns });
+          return;
+        }
         query.pendingTurns -= 1;
+        dbgSteer('boundary counted', { pendingTurns: query.pendingTurns });
         // Resolve the driver only when every outstanding turn (incl. a barge-in-injected
         // steer) has boundaried — otherwise the redirect is still running (docs/adr/0012 I3).
         if (query.pendingTurns <= 0) {
@@ -632,14 +759,19 @@ export function buildSessionHandlers(
       }
     };
 
-    // Persist the steer as a user turn in the single log (the SoT — docs/adr/0010), so it
-    // reaches canonical memory + reload. Append-only (not pushed): like the founding user
-    // turn, a steer is shown optimistically by the console. Restores what the retired
-    // streaming tap recorded. Records the text AS FED to the model (framed, for barge-in).
+    // Record the steer as a user turn in the single log (the SoT — docs/adr/0010) AND push
+    // it live. Pushing it (rather than leaving the console to render it optimistically) is
+    // the single source of truth: the console shows the steer the instant it is sent, in the
+    // exact form the model saw (framed, for a barge-in), and a later reload folds the same
+    // persisted frame into the same place — so the steer never double-renders as the raw
+    // typed text live and the framed text on reload (docs/adr/0012). Records the text AS FED
+    // to the model (framed, for barge-in).
     const recordSteerTurn = (steerText: string): void => {
-      if (startedRef.current === undefined) return;
+      const started = startedRef.current;
+      if (started === undefined) return;
       const s = seqBox.value++;
       const frame: TurnFrame = { t: 'text', text: steerText, role: 'user' };
+      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
       if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
     };
 
@@ -670,24 +802,82 @@ export function buildSessionHandlers(
           // the current turn (the SDK ceiling).
           session.setSteerSink((text, mode) => {
             const running = query.pendingTurns > 0;
-            // Any steer pushed while a turn runs becomes its OWN SDK turn (its own boundary),
-            // so the awaiting driver must count it or a later turn's latch resolves early
-            // (docs/adr/0012 I3). A steer while idle has no awaiting driver — it runs as a
-            // plain next turn, uncounted (not reachable from a current client; steer is only
-            // offered mid-turn). `control` stays set between turns, hence the runtime guard.
-            if (running) query.pendingTurns += 1;
             if (mode === 'barge-in' && running) {
-              query.barging += 1;
+              // Redirect: abandon the running turn and run the framed steer in its place. Do
+              // NOT pre-count a boundary for the abandoned turn — the SDK `interrupt()` emits
+              // none, so predicting one strands the pill in 'running' forever (the reported
+              // bug). The single pending slot carries over to the redirect; `awaitingRedirect`
+              // swallows any residual boundary the abandoned turn does emit, so completion is
+              // robust either way (docs/adr/0012 I3).
+              query.barging += 1; // suppress the abandoned turn's error frame (SC-1)
+              dbgSteer('barge-in issued', { pendingTurns: query.pendingTurns, barging: query.barging });
+              // Settle what the abandoned turn streamed BEFORE the redirect's user turn, so it
+              // persists (deltas never do) and its reasoning block closes instead of streaming
+              // forever. Drained before `awaitingRedirect` so these settled frames still record.
+              for (const partial of acc.drainPartials()) record(partial);
+              query.awaitingRedirect = true;
               const framed = FRAME_BARGE_IN + text;
               recordSteerTurn(framed);
               void (async () => {
-                await query.turnInterrupt?.();
+                // Redirect the running turn, THEN inject the framed steer. If the SDK
+                // interrupt rejects (or has no handle), the steer is STILL fed — it degrades
+                // to a queued follow-up — so completion can't hang (SC-1: a failed interrupt
+                // is a user action, never fatal).
+                try {
+                  await query.turnInterrupt?.();
+                } catch {
+                  // non-fatal; fall through to feed the steer so the turn still redirects.
+                }
+                query.awaitingRedirect = false;
+                dbgSteer('redirect fed', { pendingTurns: query.pendingTurns });
                 channel.push(framed);
               })();
             } else {
+              // A queue-mode steer (or a barge-in while idle) is its OWN SDK turn with its own
+              // boundary; count it while running so a later turn's latch rides its own
+              // boundary, not this one (docs/adr/0012 I3). Idle ⇒ a plain next turn, uncounted.
+              if (running) query.pendingTurns += 1;
               recordSteerTurn(text);
               channel.push(text);
             }
+          });
+          // A user stop (bare, no redirect). Settle whatever the model streamed so it PERSISTS
+          // (deltas never do — docs/adr/0013 — so without this the partial renders live and
+          // vanishes on reload) and record the interrupt marker, which also makes the model aware
+          // next turn. Then stop the TURN via the backend's turn-level interrupt, keeping the
+          // query alive for the next send: a whole-query abort does not reliably stop an
+          // in-flight streaming response (the reported "stop does nothing"). A backend with no
+          // turn-level interrupt falls back to the abort, which kills the query (re-established
+          // on the next turn). Finally release the driver deterministically — an interrupted turn
+          // emits no boundary, so nothing else ever would (SC-1: a user stop, never an error).
+          session.setInterruptClosure(() => {
+            if (query.pendingTurns === 0 && !query.awaitingRedirect) return false;
+            for (const partial of acc.drainPartials()) record(partial);
+            record({ t: 'interrupted' });
+            query.stopped = true;
+            dbgSteer('bare stop issued', {
+              pendingTurns: query.pendingTurns,
+              turnLevel: query.turnInterrupt !== undefined,
+            });
+            if (query.turnInterrupt !== undefined) {
+              void (async () => {
+                try {
+                  await query.turnInterrupt?.();
+                } catch {
+                  // non-fatal: the turn is already closed for the user; the query settles or is
+                  // re-established on the next send.
+                }
+              })();
+            } else {
+              controller.abort();
+            }
+            query.pendingTurns = 0;
+            query.awaitingRedirect = false;
+            query.barging = 0;
+            const pending = query.boundary;
+            query.boundary = undefined;
+            pending?.resolve();
+            return true;
           });
           session.setState('running', s.worktree);
           registry.touch(session.id);
@@ -725,6 +915,11 @@ export function buildSessionHandlers(
     startedRef: { current: { id: string; worktree: string } | undefined },
   ): Promise<void> {
     const meta = turnMeta.get(turn);
+    // A bare stop closed the PREVIOUS turn but kept this query alive (turn-level interrupt).
+    // Re-arm it: frames flow again, and the stale `interrupted` flag must not make this turn's
+    // settlement look like a user stop.
+    query.stopped = false;
+    if (session.control !== undefined) session.control.interrupted = false;
     if (query.persistIn !== undefined) {
       query.persistIn.store.append(query.persistIn.convId, [
         { seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } },
@@ -838,15 +1033,21 @@ export function buildSessionHandlers(
       return { closed: true };
     }),
 
-    // A user-initiated stop (CHAT-10) — SC-1: never a governance block. Aborts the
-    // in-flight turn's neutral signal (both backends honor it); `makeRunTurn`'s
-    // settlement above suppresses the resulting throw/settle from ever rendering as
-    // an error.
+    // A user-initiated stop (CHAT-10) — SC-1: never a governance block. Strategy-agnostic: the
+    // in-flight turn's registered closure settles the partial the model streamed, records the
+    // `interrupted` marker (persisted, so a reload reads the same transcript AND the model's
+    // next turn knows it was cut off), and stops the backend the way that drive strategy must.
+    // `makeRunTurn`'s settlement suppresses the resulting throw/settle from rendering as an error.
     interruptSession: rpcMethod(interruptParams, (params) => {
       const session = registry.get(params.id);
       if (session?.control === undefined) return { interrupted: false };
       session.control.interrupted = true;
-      session.control.controller.abort();
+      // A held-open query keeps `control` between turns, so the closure is the authority on
+      // whether a turn was actually in flight.
+      if (!session.closeInterrupted()) {
+        session.control.interrupted = false;
+        return { interrupted: false };
+      }
       emitStatus(session, session.worktree ?? '', 'interrupted');
       return { interrupted: true };
     }),

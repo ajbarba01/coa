@@ -127,6 +127,7 @@ export type MethodName =
   | 'deleteSession'
   | 'recompilePrompt'
   | 'interruptSession'
+  | 'steerSession'
   | 'subscribeSession'
   | 'listModels'
   | 'listRoles'
@@ -168,6 +169,13 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   interruptSession: {
     params: z.object({ id: z.string() }),
     result: z.object({ interrupted: z.boolean() }),
+  },
+  /** Send a message to a running turn — proxies the daemon's `steerSession` (CHAT-10). `barge-in`
+   *  interrupts + redirects the in-flight turn; `queue` runs it as a follow-up. SC-1: steering is a
+   *  user redirect, never a governance block. */
+  steerSession: {
+    params: z.object({ id: z.string(), text: z.string(), mode: z.enum(['queue', 'barge-in']) }),
+    result: z.object({ steered: z.boolean() }),
   },
   /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes the active one; the daemon immediately hydrates this

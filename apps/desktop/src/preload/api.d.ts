@@ -44,6 +44,13 @@ declare global {
       /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
        *  Advisory (SC-1 — a user stop, never a governance block). */
       interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
+      /** Send a message to a running turn — proxies the daemon's `steerSession`. `barge-in`
+       *  redirects the in-flight turn; `queue` runs it as a follow-up (SC-1 — never a block). */
+      steerSession(params: {
+        id: string;
+        text: string;
+        mode: 'queue' | 'barge-in';
+      }): Promise<{ steered: boolean }>;
       /** Console reattach (G4) — proxies the daemon's `subscribeSession`, which
        *  immediately hydrates this connection with the session's CURRENT run-status. */
       subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;

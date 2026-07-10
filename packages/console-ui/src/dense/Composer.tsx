@@ -1,11 +1,20 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Paperclip, Mic, Square } from 'lucide-react';
+import { Button } from '../actions/Button.js';
 import { IconButton } from '../actions/IconButton.js';
 import { Divider } from '../layout/Divider.js';
 import { cx } from '../lib/cx.js';
 
+/** How a message typed while the agent is running should be delivered. `barge-in` interrupts the
+ *  in-flight turn and redirects it now (the Enter default); `queue` holds it to run after the
+ *  current turn. */
+export type SteerMode = 'queue' | 'barge-in';
+
 export interface ComposerProps {
   onSend: (text: string) => void;
+  /** Send a message while a turn is running — as a mid-turn redirect (`barge-in`) or a follow-up
+   *  (`queue`). When absent, the running state falls back to the bare Stop affordance. */
+  onSteer?: (text: string, mode: SteerMode) => void;
   onInterrupt?: () => void;
   running?: boolean;
   disabled?: boolean;
@@ -29,6 +38,7 @@ export interface ComposerProps {
  *  a future rebindable global keymap would wrap this handler, not replace it. */
 export function Composer({
   onSend,
+  onSteer,
   onInterrupt,
   running,
   disabled,
@@ -62,6 +72,15 @@ export function Composer({
     setText('');
   };
 
+  /** Deliver the typed message to a running turn (queue = follow-up, barge-in = redirect now). */
+  const steer = (mode: SteerMode): void => {
+    const body = text.trim();
+    if (body === '' || onSteer === undefined) return;
+    onSteer(body, mode);
+    setText('');
+  };
+
+
   return (
     <div className="mx-auto w-full max-w-3xl p-2.5">
       <div
@@ -78,7 +97,10 @@ export function Composer({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              send();
+              // While running, Enter steers (barge-in) with the typed message; an empty box is
+              // a no-op (steer() self-guards) — the dedicated Stop control / Esc bare-stops.
+              if (running === true) steer('barge-in');
+              else send();
             } else if (e.key === 'Escape' && running === true) {
               e.preventDefault();
               onInterrupt?.();
@@ -118,14 +140,35 @@ export function Composer({
             disabled={onMic === undefined}
           />
           {running === true ? (
-            <IconButton
-              icon={Square}
-              label="Stop"
-              variant="secondary"
-              size="sm"
-              onClick={() => onInterrupt?.()}
-              disabled={onInterrupt === undefined}
-            />
+            // Three actions while a turn runs: Queue (hold to run after) and Steer (redirect
+            // now, the Enter default) — both disabled with an empty box so neither sends a
+            // blank turn — plus a dedicated, always-on Stop that cleanly interrupts (SC-1: a
+            // user stop, never a block).
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => steer('queue')}
+                disabled={onSteer === undefined || text.trim() === ''}
+              >
+                Queue
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => steer('barge-in')}
+                disabled={onSteer === undefined || text.trim() === ''}
+              >
+                Steer
+              </Button>
+              <IconButton
+                icon={Square}
+                label="Stop"
+                variant="secondary"
+                size="sm"
+                onClick={() => onInterrupt?.()}
+              />
+            </>
           ) : (
             <IconButton
               icon={ArrowUp}

@@ -36,6 +36,12 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     });
   });
 
+  it('carries the thinking durationMs through so the reveal shows "Thought for Ns" live and on reload', () => {
+    expect(pushToViewFrames(turn({ t: 'thinking', text: 'hmm', durationMs: 4200 }))[0]).toMatchObject({
+      kind: 'thinking', text: 'hmm', durationMs: 4200,
+    });
+  });
+
   it('maps a text-delta to a streaming agent text frame', () => {
     expect(pushToViewFrames(turn({ t: 'text-delta', text: 'Hel' }, 3))).toEqual([
       { id: 's:3', role: 'agent', kind: 'text', text: 'Hel', streaming: true },
@@ -46,6 +52,10 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     expect(pushToViewFrames(turn({ t: 'thinking-delta', text: 'po' }, 4))).toEqual([
       { id: 's:4', role: 'agent', kind: 'thinking', text: 'po', streaming: true },
     ]);
+  });
+
+  it('maps the interrupted marker to its own view frame (so live and reload render the same line)', () => {
+    expect(pushToViewFrames(turn({ t: 'interrupted' }, 9))).toEqual([{ id: 's:9', kind: 'interrupted' }]);
   });
 
   it('drops empty-text thinking frames', () => {

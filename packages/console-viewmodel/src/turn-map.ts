@@ -75,7 +75,14 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
       // so drop the frame entirely rather than render nothing to expand.
       return frame.text.trim().length === 0
         ? undefined
-        : { id, role: 'agent', kind: 'thinking', text: frame.text, ...d };
+        : {
+            id,
+            role: 'agent',
+            kind: 'thinking',
+            text: frame.text,
+            ...(frame.durationMs !== undefined ? { durationMs: frame.durationMs } : {}),
+            ...d,
+          };
     case 'error':
       return { id, role: 'agent', kind: 'error', message: frame.message, origin: frame.origin, ...d };
     case 'tool_use':
@@ -85,6 +92,8 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
       return { id, role: 'agent', kind: 'tool-result', tool: '', output: frame.pointer, ok: frame.ok, handle: frame.handle, ...d };
     case 'subagent':
       return { id, kind: 'subagent', childWorktree: frame.childWorktree, event: frame.event, ...d };
+    case 'interrupted':
+      return { id, kind: 'interrupted' };
     default:
       return undefined; // turn-boundary, reconcile, permission — deferred/handled elsewhere
   }

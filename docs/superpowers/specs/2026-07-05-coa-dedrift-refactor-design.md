@@ -4,6 +4,15 @@
 **Owner of this arc:** maintainer + Claude (planning); execution split by phase (§5).
 **This doc is transient.** Its one durable output — the doc-system convention — graduates to an ADR (`docs/adr/`) and this file is deleted with the rest of the `superpowers/` corpus in Phase 3.
 
+> **Amendment (2026-07-10) — re-sequenced.** Phase 3 (the docs/comments extraction) is **now executed
+> by Claude, not coa agents**, and runs **next** — right after the remaining Phase-1 graduation
+> artifacts — with **no dependency on Phase-2 hardening**. Completing Phase-1-remainder + Phase 3
+> **closes this arc**. The Phase-2 agent-hardening that shipped (H1/H2 interrupt + error resilience,
+> steer, barge-in) is recorded in `ROADMAP.md`; the rest (role/capability enforcement, the P1/P2
+> packages, P3 CC-mirroring) is **deferred to `ROADMAP.md` "Someday / ideas"** and is not part of
+> closing this arc. This supersedes **D8** and the Phase-2→Phase-3 gating in §5. `ROADMAP.md` is the
+> authority; this note keeps the historical design intact.
+
 ---
 
 ## 1. Problem — the drift is structural, not cosmetic

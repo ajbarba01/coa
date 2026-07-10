@@ -87,6 +87,9 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     denyKind: z.enum(['close-gate', 'cost-cap']),
     reason: z.string(),
   }),
+  // A user stop, recorded in the append-only log — rendered as a quiet system line (never a
+  // chat bubble, never an error). Mapped from the persisted frame, so live and reload match.
+  z.object({ id: z.string(), kind: z.literal('interrupted') }),
   z.object({
     id: z.string(),
     role: TurnRoleSchema,
@@ -96,6 +99,10 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     // Piece B: an in-progress streaming thinking block (fed by `thinking-delta`),
     // replaced by the settled `thinking` frame that follows (docs/adr/0013).
     streaming: z.boolean().optional(),
+    // Persisted wall-clock (ms) the model spent reasoning — the reveal renders "Thought
+    // for Ns" from it identically live and on reload (a token estimate is derived from
+    // `text`, so it carries no field). Absent while streaming or on a non-streamed backend.
+    durationMs: z.number().optional(),
   }),
   z.object({
     id: z.string(),

@@ -19,9 +19,9 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M5 Config Compiler | Done (interface) | Public interface complete: `compile`, `versionGate`, `importBundle`. | — |
 | M6 Workbench | Partial | Governed tools, base tools, and the M6↔M9 bridge (the rented loop is genuinely governed) are live. | AST-ops (rename/rewrite), fork, and the diff engine are not built. |
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
-| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`): it holds one `query()` open across turns, selected by the abstract `sessionStrategy(provider)` verdict (never a backend branch), and a **live smoke** (`streaming-smoke.live.test.ts`, `COA_LIVE`-gated) verified held-open multi-turn + cross-turn memory + graceful termination against the real SDK. A pushed steer is **queued** as the next turn (the SDK has no mid-turn inject). **Barge-in (true mid-turn redirect) now ships** (`docs/adr/0012`): `steerSession` carries a `mode` (`queue | barge-in`) realized per strategy — Claude via the SDK's turn-level `query.interrupt()` (keeps the query alive) + a framed push, pure-API via a two-buffer drain (`drainSteer` at the round-trip boundary, `drainQueuedSteer` at the close-gate) — with a `pendingTurns` boundary count (the I3 fix) and SC-1 suppression of the interrupt's `error_during_execution` result, all live-verified in `barge-in-smoke.live.test.ts`. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; the console steer affordance (the barge-in daemon seam is ready); role/capability enforcement (see "Coa-agent hardening"). |
+| M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`): it holds one `query()` open across turns, selected by the abstract `sessionStrategy(provider)` verdict (never a backend branch), and a **live smoke** (`streaming-smoke.live.test.ts`, `COA_LIVE`-gated) verified held-open multi-turn + cross-turn memory + graceful termination against the real SDK. A pushed steer is **queued** as the next turn (the SDK has no mid-turn inject). **Barge-in (true mid-turn redirect) now ships** (`docs/adr/0012`): `steerSession` carries a `mode` (`queue | barge-in`) realized per strategy — Claude via the SDK's turn-level `query.interrupt()` (keeps the query alive) + a framed push, pure-API via a two-buffer drain (`drainSteer` at the round-trip boundary, `drainQueuedSteer` at the close-gate) — with a `pendingTurns` boundary count (the I3 fix) and SC-1 suppression of the interrupt's `error_during_execution` result, all live-verified in `barge-in-smoke.live.test.ts`. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; role/capability enforcement (deferred — see "Someday / ideas"). |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
-| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam. | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer; console steer affordance (deferred, see "Coa-agent hardening"). | 
+| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue/Steer buttons + Enter-to-barge-in, wired to `steerSession`). | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
 
 **Cross-cutting workstreams**
 
@@ -62,8 +62,8 @@ For **what each module is** (public interface, owned decisions), see the handoff
   redirect. **Barge-in now closes that path** (`docs/adr/0012`): a neutral queue-vs-barge-in `mode` on
   `steerSession` for both backends — Claude via the SDK's turn-level `query.interrupt()` (keeps the query alive)
   + a framed push, pure-API via `drainSteer`/`drainQueuedSteer` — with the I3 boundary-latch fix (`pendingTurns`
-  counting) and SC-1 suppression of the interrupt's result, live-verified. Remaining on that path: only the
-  **console steer affordance** (typing a redirect while a turn is running; the daemon seam is ready).
+  counting) and SC-1 suppression of the interrupt's result, live-verified. **The console steer affordance now ships too** — the Composer's Queue/Steer buttons
+  + Enter-to-barge-in are wired to `steerSession`, closing that path.
   **Streaming output (G7) now ships for all backends** (`docs/adr/0013`): the pure-API `complete()` primitive is
   an `AsyncGenerator<CompletionDelta, CompletionResult>` streaming text/reasoning deltas over SSE
   (DeepSeek/LongCat) and the Claude SDK enables `includePartialMessages` — both mapped to two delivery-only
@@ -72,9 +72,8 @@ For **what each module is** (public interface, owned decisions), see the handoff
   console accumulates deltas into a live block and the settled frame replaces it, and an interrupt mid-stream
   keeps + marks the partial (`[interrupted]`) as one settled frame (A1). A `COA_LIVE` smoke
   (`streaming-output-smoke.live.test.ts`) verifies real partial-message streaming against the SDK.
-  Also remaining:
-  role/capability enforcement, the system-prompt viewer, and the apply-as-update injection spike —
-  see "Coa-agent hardening" below and item G.
+  Also remaining: the system-prompt viewer and the apply-as-update injection spike
+  (item G). Role/capability enforcement is now deferred — see "Someday / ideas".
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.
@@ -125,11 +124,14 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
 - **J. M1 graph hardening (GRF-*)** — calls/inherits/weight edges, an SCC model, temporal
   projection [L]; underpins M3 staleness and M4 health scoring.
 
-### Coa-agent hardening (gates running real work through coa agents)
+### Agent-hardening increment (phase dissolved; what shipped)
 
-This is the intermediate phase between "docs refactor done" and "coa agents execute work
-unsupervised" (Phase 2 of the de-drift refactor arc, see "In flight" below). It doubles as the
-first genuine increment of coa's Pieces/packages/skills system, not throwaway plumbing:
+The interrupt / steer / barge-in / error-resilience hardening below **shipped** (also captured in the
+Session hardening workstream above). The phase's original framing — "gate running real work through
+coa agents before they execute the docs refactor" — no longer applies: the de-drift Phase 3 docs work
+is now **Claude-run** (see "In flight"), so it needs no agent capability-enforcement. The unshipped
+items (role/capability enforcement, the P1/P2 packages, P3 CC-mirroring) are therefore **deferred to
+"Someday / ideas"** and are not part of closing the de-drift arc.
 
 - **H1 Interrupt** — done: `interruptSession`/`steerSession` RPC verbs over a per-session
   `AbortController` + steer queue (M8), threaded to both backends via a neutral `signal`/`drainSteer`
@@ -147,33 +149,42 @@ first genuine increment of coa's Pieces/packages/skills system, not throwaway pl
   `query.interrupt()` (keeps the query alive) + a framed push, pure-API via `drainSteer` (round-trip boundary)
   and a new `drainQueuedSteer` (close-gate) — with the I3 boundary-latch fix (`pendingTurns` counting) and SC-1
   suppression of the interrupt's `error_during_execution` result, live-verified in `barge-in-smoke.live.test.ts`.
-  What remains: only the **console's own steer affordance** (typing a redirect mid-turn; the daemon seam is ready).
+  This path is now complete: the console's own steer affordance ships — the Composer's Queue/Steer
+  buttons + Enter-to-barge-in are wired to `steerSession`.
 - **H2 Error resilience** — done. Both governed loops now flush the completed transcript on every
   exit path before the resume token is cleared, so completed blocks survive a mid-turn error instead
   of stranding in-turn edits on disk while dropping them from the conversation (proven by a
-  session-level reconciliation test). Interrupt (H1) + steering remain.
-- **Role/capability enforcement** — wire the already-computed capability frame into the governed
-  loop so, e.g., a "docs-writer" role physically cannot touch code files (`permission.ts` +
-  `driver.ts`/`session.ts`).
-- **P1 — AGENTS.md-into-context package** — agents auto-load the router the way Claude Code
-  auto-loads `CLAUDE.md`.
-- **P2 — caveman-skill package** — the first skill delivered *as a package*, proving the packaging
-  machinery before the full skills system is built out.
-- **P3 — Claude-Code behavior mirroring** *(deferred, maintainer-driven)* — the maintainer supplies
-  the specific CC leaked-prompt behaviors to mirror; scoped into its own later plan once supplied.
+  session-level reconciliation test).
+
+The remaining hardening items — role/capability enforcement, the P1 AGENTS.md-into-context package,
+the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**; see "Someday / ideas".
 
 ## In flight
 
 - **The de-drift refactor** (this arc) — docs/comments/junk cleanup, the ADR system, and this
   ROADMAP itself. See
   `docs/superpowers/specs/2026-07-05-coa-dedrift-refactor-design.md` for the design and
-  `docs/adr/` for durable decisions as they graduate out of it. Phase 3 (the graveyard extraction,
-  executed by coa agents) is gated behind the "Coa-agent hardening" work above.
+  `docs/adr/` for durable decisions as they graduate out of it. **Next and final step: Claude authors
+  the remaining Phase-1 graduation artifacts (the extraction manifest, the ADR seed set, and the
+  tri-backend per-module SPEC split), then executes the Phase-3 docs/comments extraction itself** — no
+  longer handed to coa agents, so it no longer waits on agent capability-enforcement; the
+  graduate-before-delete gate on the `docs/superpowers/` graveyard still holds. Completing this
+  **closes the de-drift arc**; the remaining agent-hardening items move to "Someday / ideas" below.
 
 ## Someday / ideas (not scheduled)
 
 Captured from prior scratch notes; none of these are planned or sized yet:
 
+- **Role/capability enforcement** *(deferred agent-hardening; was the load-bearing item)* — wire the
+  already-computed capability frame into the governed loop so a role (e.g. "docs-writer") physically
+  cannot touch code files (`permission.ts` + `driver.ts`/`session.ts`). Unscheduled now that the
+  de-drift docs refactor is Claude-run rather than agent-run.
+- **P1 — AGENTS.md-into-context package** *(deferred agent-hardening)* — agents auto-load the router
+  the way Claude Code auto-loads `CLAUDE.md`; the first real coa Piece/package.
+- **P2 — caveman-skill package** *(deferred agent-hardening)* — the first skill delivered as a
+  package, proving the packaging machinery ahead of the full skills system.
+- **P3 — Claude-Code behavior mirroring** *(deferred, maintainer-driven)* — the maintainer supplies
+  the specific CC leaked-prompt behaviors to mirror; scoped into its own later plan once supplied.
 - **Conversation naming** — auto-name conversations instead of leaving them titled by their first
   message.
 - **Constraint → flag authoring** — a lighter-weight authoring path for turning an observed
@@ -202,4 +213,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-07-09_
+_Last reviewed: 2026-07-10_

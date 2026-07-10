@@ -480,27 +480,53 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('pre')?.textContent).toBe(text);
   });
 
-  it('renders a settled thinking frame collapsed by default (label shown, body hidden)', () => {
+  it('renders a settled thinking frame as "Thought" (not "Thinking"), collapsed by default', () => {
     const { container } = render(
       <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'considering' }} />,
     );
-    expect(screen.getByText(/thinking/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    );
-    // The body stays mounted (so the collapse can animate its height) but the region is
-    // collapsed and hidden from the accessibility tree.
+    // A SETTLED block reads past-tense "Thought" — reload has no live stream, so it must not
+    // fall back to the present-tense "Thinking" (the reported live-vs-reload mismatch).
+    expect(screen.getByRole('button', { name: /thought/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/^thinking/i)).toBeNull();
     const collapse = container.querySelector('.cx-collapse');
     expect(collapse?.getAttribute('data-open')).toBe('false');
     expect(collapse?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('renders "Thought for Ns" from the persisted durationMs (identical live and on reload)', () => {
+    render(
+      <TranscriptRow
+        frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'considering', durationMs: 4200 }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /thought for 4s/i })).toBeInTheDocument();
+  });
+
+  it('shows a derived token estimate in the reasoning title', () => {
+    // ~4 chars/token: a 40-char reasoning trace → ~10 tokens, derived from text (no persistence).
+    render(
+      <TranscriptRow
+        frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'x'.repeat(40), durationMs: 1000 }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /10 tokens/i })).toBeInTheDocument();
+  });
+
+  it('shows a present-tense "Thinking" only while the block is still streaming', () => {
+    render(
+      <TranscriptRow
+        frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'considering', streaming: true }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /thinking/i })).toBeInTheDocument();
+    expect(screen.queryByText(/thought/i)).toBeNull();
   });
 
   it('expands a thinking frame on click to reveal the full text', async () => {
     render(
       <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'considering' }} />,
     );
-    const toggle = screen.getByRole('button', { name: /thinking/i });
+    const toggle = screen.getByRole('button', { name: /thought/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -509,14 +535,14 @@ describe('TranscriptRow', () => {
 
   it('does not render an expandable thinking block when the text is empty', () => {
     render(<TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: '   ' }} />);
-    expect(screen.queryByRole('button', { name: /thinking/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /thought|thinking/i })).toBeNull();
   });
 
-  it('tints the thinking label on hover', () => {
+  it('tints the reasoning label on hover', () => {
     render(
-      <TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning' }} />,
+      <TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning', streaming: true }} />,
     );
-    expect(screen.getByText('Thinking').className).toContain('group-hover:text-muted');
+    expect(screen.getByText(/thinking/i).className).toContain('group-hover:text-muted');
   });
 
   it('renders an error frame with a danger tone and its message', () => {
@@ -803,8 +829,8 @@ describe('nextBatchIndex', () => {
   });
 });
 
-describe('ThinkingCard auto-expand', () => {
-  it('auto-opens while streaming and collapses to a "Thought for Ns" label after the delay', () => {
+describe('ThinkingCard shimmer mode', () => {
+  it('stays collapsed with a shimmering label while streaming, then shows "Thought for Ns"', () => {
     vi.useFakeTimers();
     try {
       const frame = {
@@ -815,15 +841,19 @@ describe('ThinkingCard auto-expand', () => {
         streaming: true,
       } as const;
       const { rerender, container } = render(<TranscriptRow frame={frame} />);
-      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('true');
+      // shimmer default: collapsed while thinking (no auto-expand), the label shimmers
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
+      expect(container.querySelector('.cx-shimmer')).not.toBeNull();
 
-      // stream ends
-      rerender(<TranscriptRow frame={{ ...frame, streaming: false }} />);
+      // stream ends: the settled frame carries the daemon-stamped duration (2.3s), still
+      // collapsed, shimmer gone — the label reads it from the frame, not a live wall-clock.
+      rerender(<TranscriptRow frame={{ ...frame, streaming: false, durationMs: 2300 }} />);
       act(() => {
         vi.advanceTimersByTime(1000);
       });
       expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
-      expect(container.textContent).toMatch(/Thought for \d+s/);
+      expect(container.querySelector('.cx-shimmer')).toBeNull();
+      expect(container.textContent).toMatch(/Thought for 2s/);
     } finally {
       vi.useRealTimers();
     }
@@ -858,9 +888,10 @@ describe('TranscriptRow streaming reveal', () => {
     expect(container.querySelectorAll('span.cx-word').length).toBe(0);
   });
 
-  it('reveals streaming reasoning per word (auto-expanded)', () => {
+  it('reveals streaming reasoning per word (rendered in the collapsed body)', () => {
     const frame = { id: 't', role: 'agent', kind: 'thinking', text: 'weighing options', streaming: true } as const;
     const { container } = render(<TranscriptRow frame={frame} />);
+    // shimmer keeps the card collapsed, but the per-word reasoning is still mounted in the body
     expect(container.querySelectorAll('span.cx-word').length).toBe(2);
   });
 });

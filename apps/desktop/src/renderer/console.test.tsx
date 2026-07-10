@@ -41,6 +41,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
+    steerSession: vi.fn().mockResolvedValue({ steered: true }),
     subscribeSession: vi.fn().mockResolvedValue({ subscribed: true }),
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
@@ -533,7 +534,46 @@ describe('startConsole (inspector-first)', () => {
     );
   });
 
-  it('clicking Stop while a turn is running proxies interruptSession for the active session', async () => {
+  it('settles an interrupted reasoning block and shows the interrupt marker from the daemon frames (live == reload)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    });
+    // A reasoning block streams (open, shimmering).
+    await act(async () => {
+      emit?.({ kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 0, frame: { t: 'thinking-delta', text: 'weighing options' } });
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    });
+    expect(dock().textContent).toContain('Thinking');
+
+    // A bare stop: the DAEMON settles the partial (with its measured duration) and records the
+    // marker as real frames, then reports the terminal status. The console just renders them —
+    // it never synthesizes closure of its own, which is what made live differ from reload.
+    await act(async () => {
+      emit?.({
+        kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 1,
+        frame: { t: 'thinking', text: 'weighing options', durationMs: 3000 },
+      });
+      emit?.({ kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 2, frame: { t: 'interrupted' } });
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'interrupted' });
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    });
+    // The reasoning block settled from the daemon's frame — one block, not a duplicate.
+    expect(dock().textContent).toContain('Thought for 3s');
+    // …and the interrupt renders as the quiet system line (not a chat bubble, not an error).
+    expect(dock().textContent).toContain('Request interrupted by user');
+  });
+
+  it('a bare Stop while a turn is running proxies interruptSession for the active session', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -545,6 +585,7 @@ describe('startConsole (inspector-first)', () => {
     await act(async () => {
       emit?.({ kind: 'status', sessionId: 'c1', worktree: '/wt', state: 'running' });
     });
+    // While running the composer shows Queue + Steer + a dedicated always-on Stop.
     const stop = [...container.querySelectorAll('button')].find(
       (b) => b.getAttribute('aria-label') === 'Stop',
     );
@@ -553,6 +594,58 @@ describe('startConsole (inspector-first)', () => {
       stop!.click();
     });
     expect(bridge.interruptSession).toHaveBeenCalledExactlyOnceWith({ id: 'c1' });
+  });
+
+  it('a barge-in (typed message + Steer) proxies steerSession and does NOT render optimistically — the daemon pushes the framed steer live', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { container } = await mount(bridge);
+    await act(async () => {
+      emit?.({ kind: 'status', sessionId: 'c1', worktree: '/wt', state: 'running' });
+    });
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Message the agent"]',
+    );
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(textarea, 'go check the tests instead');
+      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const steer = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Steer');
+    await act(async () => {
+      steer!.click();
+    });
+    // Barge-in reaches the daemon as the raw text…
+    expect(bridge.steerSession).toHaveBeenCalledExactlyOnceWith({
+      id: 'c1',
+      text: 'go check the tests instead',
+      mode: 'barge-in',
+    });
+    // …but is NOT rendered optimistically: the daemon is the single source of truth and pushes
+    // the FRAMED steer live, so the console must not also show the raw typed text (which would
+    // double-render — raw live, framed on reload — the reported duplication).
+    await act(async () => {
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    });
+    expect(container.textContent).not.toContain('go check the tests instead');
+
+    // The daemon pushes the framed steer as a live user turn → THAT is what renders, once.
+    await act(async () => {
+      emit?.({
+        kind: 'turn',
+        sessionId: 'c1',
+        worktree: '/wt',
+        seq: 7,
+        frame: { t: 'text', text: '[The user interrupted to steer you] go check the tests instead', role: 'user' },
+      });
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    });
+    expect(container.textContent).toContain('[The user interrupted to steer you] go check the tests instead');
   });
 
   it('sends the agent selected role list to the daemon', async () => {

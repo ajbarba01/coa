@@ -91,6 +91,9 @@ export type TranscriptFrame =
       /** True while the reasoning is still streaming (fed by `thinking-delta`) — drives the
        *  auto-expand + per-word reveal; on settle it collapses. Absent on reload. */
       streaming?: boolean | undefined;
+      /** Persisted wall-clock (ms) the reasoning took — renders "Thought for Ns" identically
+       *  live and on reload (a token count is derived from `text`). Absent while streaming. */
+      durationMs?: number | undefined;
     }
   | {
       id: string;
@@ -192,43 +195,57 @@ export function toolQuickInfo(tool: string, input: string): string | undefined {
   }
 }
 
+/** A rough token estimate from text (≈4 chars/token) for the reasoning title. Derived from
+ *  the persisted `text`, so it is identical live and on reload with no separate persisted
+ *  field. An estimate, not a tokenizer count. Exported for unit testing. */
+export function estimateTokens(text: string): number {
+  const t = text.trim();
+  return t === '' ? 0 : Math.max(1, Math.round(t.length / 4));
+}
+
 /** A collapse-by-default reasoning block: never boxed (no bg, no click surface) —
- *  just a caret + `Thinking` label, expanding on click to reveal the full text
+ *  just a caret + `Thinking`/`Thought` label, expanding on click to reveal the full text
  *  underneath (also unboxed). Deliberately plainer than {@link ToolCard} — the
  *  reasoning trace is a quiet aside, not a distinct unit. */
 function ThinkingCard({
   text,
   streaming,
+  durationMs,
 }: {
   text: string;
   streaming?: boolean | undefined;
+  durationMs?: number | undefined;
 }): React.JSX.Element {
   const cfg = defaultReveal.reasoning;
   const auto = cfg.mode === 'auto-expand';
   const [open, setOpen] = useState(auto ? streaming === true : false);
   const [userTouched, setUserTouched] = useState(false);
-  const startedRef = useRef<number | undefined>(streaming === true ? Date.now() : undefined);
-  const [secs, setSecs] = useState<number | undefined>(undefined);
 
   useEffect(() => {
-    if (!auto || userTouched) return;
+    if (userTouched || !auto) return;
+    // auto-expand only: open while streaming, then melt closed after the delay so the answer
+    // eases up to meet it (the .cx-collapse height transition does the easing).
     if (streaming === true) {
-      // reasoning is (still) streaming: open it, mark the start, clear any prior duration.
-      startedRef.current ??= Date.now();
-      setSecs(undefined);
       setOpen(true);
       return;
-    }
-    // stream ended: record how long it thought, then melt closed after the delay so the
-    // answer eases up to meet it (the .cx-collapse height transition does the easing).
-    if (startedRef.current !== undefined) {
-      setSecs(Math.max(1, Math.round((Date.now() - startedRef.current) / 1000)));
     }
     const t = setTimeout(() => setOpen(false), cfg.collapseDelayMs);
     return () => clearTimeout(t);
   }, [streaming, auto, userTouched, cfg.collapseDelayMs]);
 
-  const label = secs !== undefined ? `Thought for ${secs}s` : 'Thinking';
+  const tokens = estimateTokens(text);
+  const tokenSuffix = tokens > 0 ? ` · ${tokens} toks` : '';
+  // The duration is read from the PERSISTED frame (M8 stamps it from the delta→settle timing),
+  // never measured live here — a reloaded block never streamed, so a live wall-clock could not
+  // reproduce it, which was the "reverts to Thinking on reload" mismatch. A settled block is
+  // past-tense regardless ("Thought"), with the seconds only when the duration is known.
+  const secs = durationMs !== undefined ? Math.max(1, Math.round(durationMs / 1000)) : undefined;
+  const label =
+    streaming === true
+      ? `Thinking${tokenSuffix}`
+      : `${secs !== undefined ? `Thought for ${secs}s` : 'Thought'}${tokenSuffix}`;
+  // `shimmer` mode: the collapsed label shimmers while the trace streams (no auto-expand).
+  const shimmering = streaming === true && cfg.mode === 'shimmer';
   return (
     <div className="flex flex-col gap-1">
       <button
@@ -250,8 +267,9 @@ function ThinkingCard({
         />
         <span
           className={cx(
-            'text-eyebrow uppercase tracking-[0.06em] text-faint transition-colors group-hover:text-muted',
-            streaming === true && 'animate-pulse',
+            'text-eyebrow uppercase tracking-[0.06em] transition-colors group-hover:text-muted',
+            shimmering ? 'cx-shimmer' : 'text-faint',
+            streaming === true && !shimmering && 'animate-pulse',
           )}
         >
           {label}
@@ -534,6 +552,7 @@ export function TranscriptRow({
         <ThinkingCard
           text={frame.text}
           {...(frame.streaming !== undefined ? { streaming: frame.streaming } : {})}
+          {...(frame.durationMs !== undefined ? { durationMs: frame.durationMs } : {})}
         />
       </RowShell>
     );
@@ -783,7 +802,8 @@ export function WorkingFooter({
  *  note) gets the entrance. Exported for unit testing. */
 export function revealSuppressed(frame: TranscriptFrame): boolean {
   if (frame.kind === 'raw') return true;
-  if (frame.kind === 'text' || frame.kind === 'thinking') return 'role' in frame && frame.role !== 'you';
+  if (frame.kind === 'text' || frame.kind === 'thinking')
+    return 'role' in frame && frame.role !== 'you';
   return false;
 }
 
@@ -1122,9 +1142,7 @@ export function Transcript({
         className="overflow-y-auto"
         style={{
           height:
-            bottomInset !== undefined && bottomInset > 0
-              ? `calc(100% - ${bottomInset}px)`
-              : '100%',
+            bottomInset !== undefined && bottomInset > 0 ? `calc(100% - ${bottomInset}px)` : '100%',
         }}
       >
         <div className="flex flex-col">

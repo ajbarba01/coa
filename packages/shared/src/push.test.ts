@@ -80,6 +80,17 @@ describe('turnFrameSchema', () => {
       false,
     );
   });
+
+  it('accepts the interrupted marker frame (a persisted user stop, not an error)', () => {
+    expect(turnFrameSchema.parse({ t: 'interrupted' })).toEqual({ t: 'interrupted' });
+  });
+
+  it('carries an optional thinking durationMs (persisted so reload shows "Thought for Ns" identically)', () => {
+    const withDuration = turnFrameSchema.parse({ t: 'thinking', text: 'hmm', durationMs: 4200 });
+    expect(withDuration).toEqual({ t: 'thinking', text: 'hmm', durationMs: 4200 });
+    // Still optional — a non-streamed backend (or the floor) omits it.
+    expect(turnFrameSchema.parse({ t: 'thinking', text: 'hmm' })).toEqual({ t: 'thinking', text: 'hmm' });
+  });
 });
 
 describe('turnFrameSchema delta kinds', () => {

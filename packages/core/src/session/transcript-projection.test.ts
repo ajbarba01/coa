@@ -23,6 +23,21 @@ describe('foldEventsToTranscript', () => {
     ]);
   });
 
+  it('folds an interrupted marker into a user-visible notice so the model knows it was cut off', () => {
+    const events: PersistedEvent[] = [
+      ev(0, { t: 'text', text: 'write a poem', role: 'user' }),
+      ev(1, { t: 'text', text: 'The clockmaker' }), // the partial the model got out
+      ev(2, { t: 'interrupted' }),
+    ];
+    // The interrupt closes the partial assistant turn and lands as an explicit notice, so the
+    // NEXT turn's context shows the model its response was stopped (not that it completed).
+    expect(foldEventsToTranscript(events)).toEqual([
+      { role: 'user', content: 'write a poem' },
+      { role: 'assistant', content: 'The clockmaker' },
+      { role: 'user', content: '[Request interrupted by user]' },
+    ]);
+  });
+
   it('drops thinking/error/reconcile/permission/subagent frames (not in the transcript)', () => {
     const events: PersistedEvent[] = [
       ev(0, { t: 'text', text: 'hi', role: 'user' }),

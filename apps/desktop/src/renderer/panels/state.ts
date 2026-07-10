@@ -127,6 +127,10 @@ export interface ConsoleActions {
    *  (SC-1 — a user stop, never a governance block). Fire-and-forget; the running
    *  pill clears from the daemon's own `'interrupted'` status Push. */
   interruptSession: (sessionId: string) => void;
+  /** Barge-in: send a message to redirect a session's running turn (SC-1 — a user redirect,
+   *  never a block). Fire-and-forget; the transcript updates from the daemon's own turn Push.
+   *  Queue-mode follow-ups are held console-side by the panel, so this is barge-in only. */
+  steerSession: (sessionId: string, text: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,

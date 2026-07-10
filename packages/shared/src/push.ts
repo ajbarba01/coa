@@ -9,7 +9,11 @@ import { flagRecordSchema } from './flag.js';
 
 /** The discriminated turn-event union (CHAT-5). */
 export const turnFrameSchema = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('thinking'), text: z.string() }),
+  // `durationMs` (optional): wall-clock the model spent on this reasoning block, stamped by
+  // M8 from the delta→settle timing so a reload renders "Thought for Ns" identically to the
+  // live stream (a token estimate is derived from `text`, so it needs no field). Omitted by a
+  // non-streamed backend or the floor.
+  z.object({ t: z.literal('thinking'), text: z.string(), durationMs: z.number().optional() }),
   // Delivery-only streaming deltas (Piece B / G7): pushed over R-12 for live render,
   // NEVER store.append-ed — the durable log holds only settled frames (docs/adr/0010,
   // docs/adr/0013). The console appends a delta to the in-progress block; the settled
@@ -39,6 +43,11 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     origin: z.enum(['tool', 'loop', 'daemon']),
   }),
   z.object({ t: z.literal('permission'), requestId: z.string() }),
+  // A user interrupt (bare stop) recorded into the append-only log: it settles the turn, makes
+  // the model aware next turn (the fold surfaces it as a "[Request interrupted by user]" notice),
+  // and renders as a quiet system line — persisted so live and reload read identically (SC-1: a
+  // user stop, never a governance block / error).
+  z.object({ t: z.literal('interrupted') }),
   z.object({
     t: z.literal('subagent'),
     childWorktree: z.string(),

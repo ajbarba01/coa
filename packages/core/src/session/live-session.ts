@@ -74,6 +74,7 @@ export class LiveSession {
   #waiter: ((turn: TurnRequest | undefined) => void) | undefined;
   #closed = false;
   #steerSink: ((text: string, mode: SteerMode) => void) | undefined = undefined;
+  #interruptClosure: (() => boolean) | undefined = undefined;
   #onClose: Array<() => void> = [];
 
   constructor(id: string) {
@@ -97,6 +98,23 @@ export class LiveSession {
     if (this.#steerSink === undefined) return false;
     this.#steerSink(text, mode);
     return true;
+  }
+
+  /**
+   * Register how a user stop closes the in-flight turn (set by the driver when a turn starts,
+   * cleared when it ends). The closure settles the turn's streamed-but-unsettled blocks, records
+   * the interrupt marker, and stops the backend the way THAT drive strategy must (a held-open
+   * query takes a turn-level interrupt and stays alive; a per-turn loop aborts). Keeping it here
+   * lets `interruptSession` stay strategy-agnostic (ADR 0002/0004).
+   */
+  setInterruptClosure(fn: (() => boolean) | undefined): void {
+    this.#interruptClosure = fn;
+  }
+
+  /** Close the in-flight turn on a user stop. Returns `false` when no turn is in flight
+   *  (a held-open query keeps its control state between turns, so the closure decides). */
+  closeInterrupted(): boolean {
+    return this.#interruptClosure?.() ?? false;
   }
 
   /** Register a finalizer run once from {@link close} — where the held-open driver

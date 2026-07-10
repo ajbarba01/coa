@@ -77,3 +77,22 @@ describe('appendStreamingFrame', () => {
     expect(next[0]).toMatchObject({ text: 'Hello' });
   });
 });
+
+describe('an interrupted turn settles from the daemon, not a console-side seal', () => {
+  it('replaces the live block with the daemon-settled frame instead of appending a duplicate', () => {
+    // The daemon settles the partial it streamed (deltas are never persisted) and pushes it as a
+    // settled frame. Reconciliation must REPLACE the live block — appending would show the same
+    // partial twice (the reported duplicated-poem bug).
+    const live = reconcileStreaming([], [textDelta('a', 'The clock'), textDelta('b', 'maker')]);
+    const settled = reconcileStreaming(live, [settledText('c', 'The clockmaker')]);
+    expect(settled).toEqual([{ id: 'a', role: 'agent', kind: 'text', text: 'The clockmaker' }]);
+  });
+
+  it('settles an open reasoning block from the daemon frame, so the next turn opens a fresh one', () => {
+    const live = reconcileStreaming([], [thinkingDelta('t', 'half a thought')]);
+    const settled = reconcileStreaming(live, [settledThinking('ts', 'half a thought')]);
+    expect(settled).toEqual([{ id: 't', role: 'agent', kind: 'thinking', text: 'half a thought' }]);
+    const next = reconcileStreaming(settled, [thinkingDelta('t2', 'new thought')]);
+    expect(next).toHaveLength(2);
+  });
+});

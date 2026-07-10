@@ -34,7 +34,7 @@ import type {
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
-import { ChevronDown, MessageSquare, MessageSquarePlus } from 'lucide-react';
+import { ChevronDown, MessageSquare, MessageSquarePlus, X } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
 // Frame identity caches: the wire `TurnFrame` objects in `state.data.turns.value` are
@@ -74,6 +74,9 @@ export type ChatVm =
        *  changes). A no-op with no active session (Composer only surfaces Stop while
        *  running, which implies one). */
       onInterrupt: () => void;
+      /** Barge-in: redirect the running turn with a message (the composer's Enter/Interrupt
+       *  default while running). A no-op with no active session. */
+      onBargeIn: (text: string) => void;
       /** Reveal a tool card's touched file in the editor/OS at an optional line. Stable
        *  action identity (from `state.actions`) so it can be threaded into the memoized
        *  transcript rows; resolves an advisory result the view toasts on failure. */
@@ -157,6 +160,10 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
       };
     case 'deny':
       return { id: f.id, kind: 'deny', denyKind: f.denyKind, reason: f.reason };
+    case 'interrupted':
+      // A user stop renders as the quiet centered system line (the `note` presentation) — never
+      // a chat bubble (the user didn't type it) and never an error tone (SC-1).
+      return { id: f.id, kind: 'note', text: 'Request interrupted by user' };
     case 'thinking':
       return {
         id: f.id,
@@ -165,6 +172,7 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
         text: f.text,
         depth: f.depth,
         ...(f.streaming !== undefined ? { streaming: f.streaming } : {}),
+        ...(f.durationMs !== undefined ? { durationMs: f.durationMs } : {}),
       };
     case 'error':
       return { id: f.id, role: f.role, kind: 'error', message: f.message, origin: f.origin, depth: f.depth };
@@ -196,6 +204,8 @@ export function frameToRawLine(f: TurnFrame): string {
       return `> control: approval_request ${f.tool} (${f.requestId})`;
     case 'deny':
       return `> control: deny ${f.denyKind} ${f.reason}`;
+    case 'interrupted':
+      return `> control: interrupted`;
     case 'thinking':
       return `> ${f.role}: thinking ${f.text}`;
     case 'error':
@@ -422,6 +432,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     onInterrupt: () => {
       if (activeSessionId !== undefined) state.actions.interruptSession(activeSessionId);
     },
+    onBargeIn: (text: string) => {
+      if (activeSessionId !== undefined) state.actions.steerSession(activeSessionId, text);
+    },
     openPath: state.actions.openPath,
     openExternal: state.actions.openExternal,
     toggleRaw: state.actions.toggleRaw,
@@ -557,6 +570,50 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
   const composerRoRef = useRef<ResizeObserver | null>(null);
   // A failed reveal-in-editor surfaces as a toast (SC-1 — surface, never block).
   const [revealError, setRevealError] = useState<string | null>(null);
+
+  // Queued follow-up messages (the composer's Queue action while a turn runs), held per active
+  // session and released one at a time (FIFO) as a normal send when that session's turn ends. Kept
+  // console-side so they stay visibly PINNED above the composer until they run; barge-in messages
+  // skip the queue and redirect the running turn immediately (via `onBargeIn`).
+  const [queuedBySession, setQueuedBySession] = useState<Record<string, string[]>>({});
+  const vmRef = useRef(vm);
+  vmRef.current = vm;
+  const activeId = vm.status === 'ready' ? vm.activeSessionId : undefined;
+  const running = vm.status === 'ready' && vm.sessionStatus === 'running';
+  const activeQueue = activeId !== undefined ? (queuedBySession[activeId] ?? []) : [];
+
+  // Release the oldest queued message when the active session goes running → idle. Sending it
+  // flips the session back to running, so any remaining queued messages wait for the next boundary.
+  const prevRunningRef = useRef(running);
+  useEffect(() => {
+    if (prevRunningRef.current && !running && activeId !== undefined) {
+      const next = (queuedBySession[activeId] ?? [])[0];
+      if (next !== undefined) {
+        setQueuedBySession((m) => ({ ...m, [activeId]: (m[activeId] ?? []).slice(1) }));
+        const cur = vmRef.current;
+        if (cur.status === 'ready') cur.onSend(next);
+      }
+    }
+    prevRunningRef.current = running;
+  }, [running, activeId, queuedBySession]);
+
+  const handleSteer = useCallback((text: string, steerMode: 'queue' | 'barge-in'): void => {
+    const cur = vmRef.current;
+    if (cur.status !== 'ready' || cur.activeSessionId === undefined) return;
+    if (steerMode === 'barge-in') {
+      cur.onBargeIn(text);
+      return;
+    }
+    const id = cur.activeSessionId;
+    setQueuedBySession((m) => ({ ...m, [id]: [...(m[id] ?? []), text] }));
+  }, []);
+
+  const dequeue = useCallback((index: number): void => {
+    const cur = vmRef.current;
+    const id = cur.status === 'ready' ? cur.activeSessionId : undefined;
+    if (id === undefined) return;
+    setQueuedBySession((m) => ({ ...m, [id]: (m[id] ?? []).filter((_, i) => i !== index) }));
+  }, []);
 
   // Read the reveal action + active session through refs so the `onOpenPath` handed to
   // the memoized transcript rows keeps a STABLE identity across renders (the vm — hence
@@ -711,6 +768,12 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
               />
             ) : (
               <Transcript
+                // Keyed per conversation so switching sessions REMOUNTS the transcript: the
+                // block-entrance gate (`liveMountReady`) only suppresses history on a fresh
+                // mount, so a persisted instance would replay the blur-in for every already-
+                // seen block of the session you switch into. Remounting re-runs that
+                // suppression for the incoming history; only genuinely live arrivals animate.
+                key={vm.activeSessionId ?? 'none'}
                 frames={vm.frames}
                 onRespond={vm.onRespond}
                 onOpenPath={onOpenPath}
@@ -724,8 +787,31 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
             )}
           </PaneOverlayProvider>
           <div ref={composerRef} className="absolute bottom-0 left-0 right-0">
+          {activeQueue.length > 0 && (
+            <div className="mx-auto w-full max-w-3xl px-2.5 pb-1">
+              <ul className="flex flex-col gap-1">
+                {activeQueue.map((q, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2.5 py-1.5 text-label shadow-sm"
+                  >
+                    <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">queued</span>
+                    <span className="min-w-0 flex-1 truncate text-muted">{q}</span>
+                    <IconButton
+                      icon={X}
+                      label="Remove queued message"
+                      variant="tertiary"
+                      size="sm"
+                      onClick={() => dequeue(i)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <Composer
             onSend={vm.onSend}
+            onSteer={handleSteer}
             onInterrupt={vm.onInterrupt}
             running={vm.sessionStatus === 'running'}
             disabled={vm.activeSessionId === undefined}

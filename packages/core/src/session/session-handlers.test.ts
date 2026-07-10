@@ -249,6 +249,31 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     await conn.settled;
   });
 
+  it('stamps a settled thinking frame with a reasoning duration (persisted so reload shows "Thought for Ns")', async () => {
+    const conn = connection();
+    const frames: TurnFrame[] = [
+      { t: 'thinking-delta', text: 'wei' },
+      { t: 'thinking-delta', text: 'ghing' },
+      { t: 'thinking', text: 'weighing' },
+      { t: 'text', text: 'answer' },
+    ];
+    const handlers = buildSessionHandlers(deps(frames), conn, undefined, new LiveSessionRegistry());
+    await handlers['createSession']!.handle({ input: 'go' });
+    await conn.settled;
+    await flush();
+
+    const pushes = pushesOf(conn.pushes);
+    const thinking = pushes.find((p) => p.kind === 'turn' && p.frame.t === 'thinking');
+    // The settled thinking frame carries a numeric duration (measured from its delta span).
+    expect(thinking?.kind === 'turn' && thinking.frame.t === 'thinking').toBe(true);
+    if (thinking?.kind === 'turn' && thinking.frame.t === 'thinking') {
+      expect(typeof thinking.frame.durationMs).toBe('number');
+    }
+    // The answer text frame is untouched — duration is a reasoning-only stamp.
+    const text = pushes.find((p) => p.kind === 'turn' && p.frame.t === 'text');
+    expect(text?.kind === 'turn' && text.frame.t === 'text' && 'durationMs' in text.frame).toBe(false);
+  });
+
   it('streams a running status, sequenced turn frames, then a done status', async () => {
     const conn = connection();
     const frames: TurnFrame[] = [
@@ -705,7 +730,60 @@ function depsSteerable(adapters: FrameAdapter[]): SessionDeps {
   };
 }
 
+/**
+ * The real shape of an interrupted turn: the model streams reasoning + answer as DELTAS (which
+ * are never persisted — docs/adr/0013) and is stopped before emitting any settled frame. Only
+ * M8's interrupt closure can settle what it streamed.
+ */
+class PartialStreamAdapter extends FrameAdapter {
+  override async runLoop(): Promise<void> {
+    this.init.onTurn?.({ t: 'thinking-delta', text: 'weigh' });
+    this.init.onTurn?.({ t: 'thinking-delta', text: 'ing' });
+    this.init.onTurn?.({ t: 'text-delta', text: 'The clock' });
+    this.init.onTurn?.({ t: 'text-delta', text: 'maker' });
+    await new Promise<void>((resolve) => {
+      this.init.signal?.addEventListener('abort', () => resolve(), { once: true });
+    });
+  }
+}
+
 describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', () => {
+  it("settles an interrupted turn's streamed partial into the log exactly once, and tells the model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-int-'));
+    try {
+      const store = createConversationStore(dir);
+      const conn = connection();
+      const customDeps: SessionDeps = { ...deps([]), createAdapter: (init) => new PartialStreamAdapter(init, []) };
+      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+      const { sessionId } = await handlers['createSession']!.handle({
+        input: 'write a poem',
+        conversationId: 'c1',
+      });
+      await flush();
+      expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({ interrupted: true });
+      await flush();
+      await flush();
+
+      // The streamed reasoning + answer land as ONE settled frame each (the deltas themselves are
+      // never persisted), then the marker — so a reload renders exactly what the live stream showed
+      // rather than losing the partial or double-rendering it.
+      expect(store.reload('c1').map((t) => t.frame)).toEqual([
+        { t: 'text', text: 'write a poem', role: 'user' },
+        { t: 'thinking', text: 'weighing', durationMs: expect.any(Number) },
+        { t: 'text', text: 'The clockmaker' },
+        { t: 'interrupted' },
+      ]);
+      // …and the model's NEXT turn reads that it was cut off, not that it finished.
+      expect(store.loadBackendMessages('c1')).toEqual([
+        { role: 'user', content: 'write a poem' },
+        { role: 'assistant', content: 'The clockmaker' },
+        { role: 'user', content: '[Request interrupted by user]' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('aborts the session and surfaces a clean interrupted stop — never an error (SC-1)', async () => {
     const conn = connection();
     const handlers = buildSessionHandlers(depsAbortable(), conn, undefined, new LiveSessionRegistry());
@@ -717,8 +795,11 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     await flush();
 
     const pushes = pushesOf(conn.pushes);
+    // The stop records an `interrupted` marker frame (persisted — so a reload reads the same
+    // transcript AND the model's next turn knows it was cut off) between running and interrupted.
     expect(pushes).toEqual([
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'running' },
+      { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 0, frame: { t: 'interrupted' } },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'interrupted' },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
@@ -1172,6 +1253,9 @@ class BargeInAdapter implements RuntimeAdapter {
     readonly interruptFrames: TurnFrame[] = [{ t: 'turn-boundary', role: 'assistant' }],
     /** A later turn index (in `consumed` order) that emits a genuine `error` + boundary. */
     readonly errorOnTurnIndex = -1,
+    /** Model a rejecting SDK `interrupt()`: after ending turn A, the reported handle throws.
+     *  The daemon must still feed the framed steer so the boundary latch can't hang. */
+    readonly interruptRejects = false,
   ) {}
   renderNative(): BackendConfig {
     return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
@@ -1186,6 +1270,7 @@ class BargeInAdapter implements RuntimeAdapter {
       this.interruptCalls += 1;
       for (const frame of this.interruptFrames) this.init.onTurn?.(frame);
       resolveTurnA?.();
+      if (this.interruptRejects) throw new Error('interrupt rejected');
     });
     const input = this.init.input;
     if (typeof input === 'string') throw new Error('BargeInAdapter expects a streamed held-open input');
@@ -1507,6 +1592,41 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(doneIndex).toBe(boundaryIndices[1]! + 1); // resolved immediately after B
   });
 
+  it('reaches a terminal done on a barge-in even when the interrupted turn emits NO boundary (real SDK interrupt)', async () => {
+    // Ground truth (SDK source): `query.interrupt()` stops the running turn WITHOUT the
+    // subprocess emitting a result/boundary for it — the abandoned turn simply ends. A
+    // scheme that PREDICTS the interrupted turn will boundary therefore waits forever and
+    // the pill sticks in 'running' (the reported bug). `interruptFrames: []` models the
+    // real interrupt: no boundary for turn A. The redirect turn B must still complete and
+    // drive the session to a terminal 'done'.
+    const adapters: BargeInAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new BargeInAdapter(init, []); // interrupt emits NO boundary for turn A
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+    await flush();
+    expect(
+      await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
+    ).toEqual({ steered: true });
+    await flush();
+    await flush();
+
+    // The framed steer (turn B) still ran…
+    expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
+    // …and the session reached a terminal 'done' rather than hanging in 'running' forever.
+    const pushes = pushesOf(conn.pushes);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
+  });
+
   it('suppresses the interrupted turn\'s own error frame — never emitted nor persisted (SC-1)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-bi-'));
     try {
@@ -1545,6 +1665,52 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       expect(store.reload('h1').some((t) => t.frame.t === 'error')).toBe(false);
       // The framed steer (turn B) still ran to completion, and the driver resolved on it.
       expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
+      expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('feeds the framed steer even when the SDK interrupt rejects, so the session never hangs in running', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-bi-'));
+    try {
+      const store = createConversationStore(dir);
+      const adapters: BargeInAdapter[] = [];
+      const conn = connection();
+      const customDeps: SessionDeps = {
+        ...deps([]),
+        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+        createAdapter: (init) => {
+          // The SDK interrupt REJECTS after ending turn A (a real-world failure mode the
+          // live GUI hit): the framed steer must still be fed or the latch hangs forever.
+          const adapter = new BargeInAdapter(
+            init,
+            [
+              { t: 'error', message: 'interrupted mid-flight', origin: 'loop' },
+              { t: 'turn-boundary', role: 'assistant' },
+            ],
+            -1,
+            true, // interruptRejects
+          );
+          adapters.push(adapter);
+          return adapter;
+        },
+      };
+      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+
+      const { sessionId } = await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+      await flush();
+      expect(
+        await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
+      ).toEqual({ steered: true });
+      await flush();
+      await flush();
+
+      // Despite the rejecting interrupt, the framed steer (turn B) was still fed and ran…
+      expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
+      // …so the boundary latch resolved and the session reached a terminal 'done' status,
+      // rather than hanging in 'running' forever (the #2 stuck-status bug).
+      const pushes = pushesOf(conn.pushes);
       expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

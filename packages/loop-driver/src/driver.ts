@@ -140,24 +140,21 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       // generator's return value. Delta frames are delivery-only (docs/adr/0013) —
       // M8's record policy pushes but never persists them.
       const it = deps.complete(messages, tools, deps.signal);
-      let partialText = '';
       let step: IteratorResult<CompletionDelta, CompletionResult>;
       try {
         step = await it.next();
         while (step.done !== true) {
           const delta = step.value;
-          if (delta.kind === 'text') {
-            partialText += delta.text;
-            emit({ t: 'text-delta', text: delta.text });
-          } else emit({ t: 'thinking-delta', text: delta.text });
+          if (delta.kind === 'text') emit({ t: 'text-delta', text: delta.text });
+          else emit({ t: 'thinking-delta', text: delta.text });
           step = await it.next();
         }
       } catch (err) {
-        // SC-1 + A1: a user interrupt mid-stream is not an error — keep the streamed partial
-        // and mark it, landing it as ONE settled `text` frame (docs/adr/0013) so the
-        // append-only log has the partial. Any other throw still propagates.
+        // SC-1 + A1: a user interrupt mid-stream is not an error. The partial is NOT re-emitted
+        // here — M8's interrupt closure already settled it from the streamed deltas and recorded
+        // the `interrupted` marker, so emitting it again would duplicate the block (once from the
+        // live stream, once from this settled frame). Any other throw still propagates.
         if (deps.signal?.aborted === true) {
-          if (partialText !== '') emit({ t: 'text', text: `${partialText}\n\n[interrupted]` });
           break; // settle via the outer finally; interrupted-status suppression is M8's job
         }
         throw err;

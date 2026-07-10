@@ -24,6 +24,7 @@ export const NOOP_ACTIONS: ConsoleActions = {
   openPath: () => Promise.resolve({ ok: false }),
   openExternal: () => Promise.resolve({ ok: false }),
   interruptSession: () => {},
+  steerSession: () => {},
 };
 
 export interface StateOverrides {

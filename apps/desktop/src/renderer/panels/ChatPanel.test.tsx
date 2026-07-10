@@ -634,7 +634,7 @@ describe('ChatView states-first', () => {
     expect(cacheCard?.querySelector('[aria-label="Dismiss"]')).toBeNull();
   });
 
-  it('shows a Stop control while running and wires it to interruptSession (not an error affordance)', async () => {
+  it('the dedicated Stop control while running wires to interruptSession (SC-1, not an error affordance)', async () => {
     const interruptSession = vi.fn();
     const vm = selectChatVm(
       stateWith(
@@ -645,17 +645,55 @@ describe('ChatView states-first', () => {
     );
     render(<ChatView vm={vm} host={host} />);
     const stop = screen.getByRole('button', { name: /stop/i });
-    // The Stop control is the running/secondary-toned affordance, not the danger tone
-    // an error surface would use (SC-1: a user stop, never a governance block).
+    // The Stop control is a clean-stop affordance, not the danger tone an error surface would
+    // use (SC-1: a user stop, never a governance block).
     expect(stop.className).not.toMatch(/danger/);
     await userEvent.click(stop);
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
-  it('does not show the Stop control while idle', () => {
+  it('the Steer button barges in via steerSession for the active session', async () => {
+    const steerSession = vi.fn();
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        { runStatus: { 's-audit-auth': { since: 1000 } } },
+        { steerSession },
+      ),
+    );
+    render(<ChatView vm={vm} host={host} />);
+    await userEvent.type(screen.getByLabelText('Message the agent'), 'go check the tests instead');
+    await userEvent.click(screen.getByRole('button', { name: /steer/i }));
+    expect(steerSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'go check the tests instead');
+  });
+
+  it('Queue pins the message (no daemon steer) and releases it as a send when the turn ends', async () => {
+    const steerSession = vi.fn();
+    const sendMessage = vi.fn();
+    const running = stateWith(
+      { status: 'ok', value: [] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession, sendMessage },
+    );
+    const { rerender } = render(<ChatView vm={selectChatVm(running)} host={host} />);
+    await userEvent.type(screen.getByLabelText('Message the agent'), 'also add a test');
+    await userEvent.click(screen.getByRole('button', { name: /queue/i }));
+    // queued: pinned in the UI, not sent to the daemon yet
+    expect(steerSession).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.getByText('also add a test')).toBeInTheDocument();
+    // the turn ends → the session goes idle → the queued message is released as a normal send
+    const idle = stateWith({ status: 'ok', value: [] }, {}, { steerSession, sendMessage });
+    rerender(<ChatView vm={selectChatVm(idle)} host={host} />);
+    expect(sendMessage).toHaveBeenCalledWith('also add a test');
+  });
+
+  it('shows Send (not Queue/Steer/Stop) while idle', () => {
     render(<ChatView vm={readyVm([])} host={host} />);
-    expect(screen.queryByRole('button', { name: /stop/i })).toBeNull();
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /queue/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /steer/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^stop$/i })).toBeNull();
   });
 
   it('Esc interrupts the active session while a turn is running', async () => {

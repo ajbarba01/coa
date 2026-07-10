@@ -5,7 +5,7 @@ describe('defaultReveal', () => {
   it('ships the maintainer-approved feel', () => {
     expect(defaultReveal.text.variant).toBe('blurIn');
     expect(defaultReveal.caret).toBe(false);
-    expect(defaultReveal.reasoning.mode).toBe('auto-expand');
+    expect(defaultReveal.reasoning.mode).toBe('shimmer');
     expect(defaultReveal.block.variant).toBe('blurRise');
     expect(defaultReveal.block.durationMs).toBe(500);
   });

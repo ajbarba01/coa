@@ -81,6 +81,13 @@ export interface ConsoleBridge {
    *  Advisory (SC-1 — a user stop, never a governance block): the pill clears via the
    *  daemon's own `'interrupted'` status Push, not this call's result. */
   interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
+  /** Send a message to a running turn — proxies the daemon's `steerSession`. `barge-in` redirects
+   *  the in-flight turn; `queue` runs it as a follow-up (SC-1 — a user redirect, never a block). */
+  steerSession(params: {
+    id: string;
+    text: string;
+    mode: 'queue' | 'barge-in';
+  }): Promise<{ steered: boolean }>;
   /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes active; the daemon immediately hydrates this connection with
    *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
@@ -172,6 +179,7 @@ export async function startConsole(
     openPath: () => Promise.resolve({ ok: false }),
     openExternal: () => Promise.resolve({ ok: false }),
     interruptSession: () => {},
+    steerSession: () => {},
   });
   // Seed the nav selection from the restored layout so the highlighted tab matches
   // the panel actually shown (a persisted layout may open on a non-default surface).
@@ -490,11 +498,27 @@ export async function startConsole(
       reason: e instanceof Error ? e.message : String(e),
     }));
 
+  // Monotonic id for locally-rendered `you` turns (a send AND an optimistically-shown steer),
+  // so their React keys never collide.
+  let youSeq = 0;
+
   /** The Stop/Esc affordance — a user-initiated stop (SC-1: never a governance block).
    *  Fire-and-forget: the running pill clears from the daemon's own `'interrupted'`
    *  status Push (the existing `onPush` handler above), not from this call's result. */
   const interruptSession = (sessionId: string): void => {
     void bridge.interruptSession({ id: sessionId }).catch(() => {});
+  };
+
+  /** Barge-in: redirect the running turn with a message (SC-1: a user redirect, never a block).
+   *  Does NOT render optimistically — the daemon is the single source of truth and pushes the
+   *  FRAMED steer (the exact text the model saw) as a live user turn, which a later reload folds
+   *  from the same append-only frame (docs/adr/0010, docs/adr/0012). Rendering it here too would
+   *  double it (raw typed text live, framed text on reload). Queue-mode follow-ups are held
+   *  console-side by `ChatPanel` until the turn ends, so only `barge-in` reaches the daemon here. */
+  const steerSession = (sessionId: string, text: string): void => {
+    const body = text.trim();
+    if (body === '') return;
+    void bridge.steerSession({ id: sessionId, text: body, mode: 'barge-in' }).catch(() => {});
   };
 
   /** Set a session's in-chat model override; the next send routes there (and the
@@ -532,6 +556,10 @@ export async function startConsole(
       const runStatus = { ...state.ui.runStatus };
       if (data.state === 'running') runStatus[data.sessionId] ??= { since: Date.now() };
       else delete runStatus[data.sessionId];
+      // A terminal status carries NO transcript content: the daemon settles the in-flight turn's
+      // partial blocks and records the `interrupted` marker as real, persisted frames, which
+      // arrive on this same push stream. Closing blocks or synthesizing a marker here would
+      // diverge from what a reload folds out of the log — the live-vs-reload mismatch.
       state = { ...state, ui: { ...state.ui, runStatus } };
       if (data.state === 'done') void refreshSessionList();
       push();
@@ -540,7 +568,6 @@ export async function startConsole(
     if ('sessionId' in data) appendTurns(data.sessionId, pushToViewFrames(data));
   });
 
-  let youSeq = 0;
   const sendMessage = (text: string): void => {
     const body = text.trim();
     const id = state.ui.activeSessionId;
@@ -683,6 +710,7 @@ export async function startConsole(
       openPath,
       openExternal,
       interruptSession,
+      steerSession,
     },
   };
   push();

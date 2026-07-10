@@ -165,7 +165,7 @@ describe('runGovernedLoop', () => {
     ]);
   });
 
-  it('on interrupt mid-stream, keeps the streamed partial as one settled text frame marked interrupted', async () => {
+  it('on interrupt mid-stream, streams the partial as deltas and settles NOTHING (M8 owns the closure)', async () => {
     const controller = new AbortController();
     const frames: TurnFrame[] = [];
     // eslint-disable-next-line @typescript-eslint/require-await
@@ -185,9 +185,10 @@ describe('runGovernedLoop', () => {
     });
     expect(frames).toContainEqual({ t: 'text-delta', text: 'Par' });
     expect(frames).toContainEqual({ t: 'text-delta', text: 'tial' });
-    // exactly one settled text frame — the partial, marked — and no full-output settled text
-    expect(frames).toContainEqual({ t: 'text', text: 'Partial\n\n[interrupted]' });
-    expect(frames.filter((f) => f.t === 'text')).toHaveLength(1);
+    // The driver re-emits NOTHING on abort: M8's interrupt closure settles the partial from these
+    // same deltas and records the marker. Re-emitting it here duplicated the block (once live,
+    // once settled) — the reported doubled-output bug.
+    expect(frames.filter((f) => f.t === 'text')).toHaveLength(0);
   });
 
   it('emits no thinking frame when a completion has no reasoning', async () => {
