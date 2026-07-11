@@ -38,6 +38,21 @@ describe('StreamingMarkdown — output (whole blocks only)', () => {
     const { container } = render(<StreamingMarkdown source={'```js\nconst x = 1\n```'} />);
     expect(container.querySelector('.cx-block-enter code')?.textContent).toContain('const x = 1');
   });
+
+  it('keeps the heading padding-top treatment when a heading is its own gapped block (each completed block is rendered as its own Markdown instance, so a heading is always the first-child of that instance)', () => {
+    const { container } = render(<StreamingMarkdown source={'# Title\n\npara'} />);
+    const h1 = container.querySelector('.cx-block-enter h1');
+    expect(h1?.className).toMatch(/pt-2\.5/);
+    expect(h1?.className).not.toMatch(/mt-4/);
+  });
+
+  it('wraps completed blocks in the same flex-gap column the settled single-instance path uses (the ONE spacing mechanism, shared across both render paths)', () => {
+    const { container } = render(<StreamingMarkdown source={'para one\n\npara two'} />);
+    const col = container.querySelector(':scope > div');
+    expect(col?.className).toMatch(/\bflex\b/);
+    expect(col?.className).toMatch(/flex-col/);
+    expect(col?.className).toMatch(/gap-2\.5/);
+  });
 });
 
 describe('StreamingMarkdown — reasoning (perWord)', () => {

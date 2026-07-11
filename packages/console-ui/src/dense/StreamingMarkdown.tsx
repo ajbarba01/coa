@@ -55,7 +55,7 @@ function PerWordText({
   const tokens = splitWords(text);
   return (
     <div
-      className={cx('wrap-break-word text-body leading-[1.5]', muted ? 'text-muted' : 'text-fg')}
+      className={cx('wrap-break-word text-body leading-[1.5]', muted ? 'text-s10' : 'text-s11')}
       data-reveal={defaultReveal.text.variant}
       style={{ '--reveal-dur': `${defaultReveal.text.durationMs}ms` } as React.CSSProperties}
     >
@@ -85,7 +85,7 @@ function OutputBlocks({
 }): React.JSX.Element {
   const { completed } = useMemo(() => splitStreamingMarkdown(source), [source]);
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-2.5">
       {completed.map((block, i) => (
         <CompletedBlock key={i} content={block} muted={muted} />
       ))}

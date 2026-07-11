@@ -27,18 +27,20 @@ for (const [name, mod] of Object.entries(LANGUAGES)) {
  *  on-theme in both themes. The highlighter applies these as inline styles (byte-faithful
  *  spans, no innerHTML); token class names are stripped. */
 export const HLJS_TOKEN_STYLE: Record<string, React.CSSProperties> = {
-  hljs: { color: 'var(--color-fg)', background: 'transparent' },
-  'hljs-keyword': { color: 'var(--color-accent)' },
-  'hljs-built_in': { color: 'var(--color-info-text)' },
-  'hljs-type': { color: 'var(--color-info-text)' },
-  'hljs-string': { color: 'var(--color-success-text)' },
-  'hljs-number': { color: 'var(--color-warning-text)' },
-  'hljs-comment': { color: 'var(--color-faint)', fontStyle: 'italic' },
-  'hljs-function': { color: 'var(--color-fg)' },
-  'hljs-title': { color: 'var(--color-accent-hover)' },
-  'hljs-params': { color: 'var(--color-fg)' },
-  'hljs-attr': { color: 'var(--color-fg)' },
-  'hljs-literal': { color: 'var(--color-warning-text)' },
+  hljs: { color: 'var(--color-s11)', background: 'transparent' },
+  'hljs-keyword': { color: 'var(--color-syn-key)' },
+  'hljs-built_in': { color: 'var(--color-syn-type)' },
+  'hljs-type': { color: 'var(--color-syn-type)' },
+  'hljs-string': { color: 'var(--color-syn-str)' },
+  'hljs-number': { color: 'var(--color-syn-num)' },
+  'hljs-comment': { color: 'var(--color-syn-comment)', fontStyle: 'italic' },
+  'hljs-function': { color: 'var(--color-syn-fn)' },
+  'hljs-title': { color: 'var(--color-syn-fn)' },
+  'hljs-params': { color: 'var(--color-s11)' },
+  'hljs-attr': { color: 'var(--color-s11)' },
+  'hljs-literal': { color: 'var(--color-syn-num)' },
+  'hljs-punctuation': { color: 'var(--color-syn-punct)' },
+  'hljs-operator': { color: 'var(--color-syn-punct)' },
 };
 
 export interface SyntaxTextProps {
