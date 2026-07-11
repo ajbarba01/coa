@@ -1,18 +1,12 @@
 import {
   Banner as BannerCard,
   Button,
-  Combobox,
-  Composer,
-  EmptyState,
-  IconButton,
   InlineMessage,
   PaneOverlayProvider,
-  Select,
   Skeleton,
   Toast,
   ToastProvider,
   Transcript,
-  cx,
 } from '@coa/console-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RespondFn, TranscriptFrame } from '@coa/console-ui';
@@ -20,7 +14,7 @@ import type { Banner, ModelDescriptor, TurnFrame } from '@coa/console-viewmodel'
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
-import { MessageSquare, X } from 'lucide-react';
+import { Composer } from './Composer.js';
 import type { ConsoleState } from './state.js';
 
 // Frame identity caches: the wire `TurnFrame` objects in `state.data.turns.value` are
@@ -39,6 +33,12 @@ export type ChatVm =
       status: 'ready';
       rawMode: boolean;
       frames: TranscriptFrame[];
+      /** The newest unresolved approval, docked to the composer instead of the
+       *  transcript (it blocks the input, so it belongs at the input). `frames`
+       *  omits it (governed mode only — raw stays untouched); a resolved approval
+       *  stays in `frames` as the one-line receipt. Undefined when nothing is
+       *  pending. */
+      approval?: { id: string; tool: string; summary: string; diffStat?: string | undefined } | undefined;
       /** System banners (drift/cache notices) for the active session — surfaced above
        *  the transcript, never sent to the agent. */
       banners: Banner[];
@@ -81,6 +81,9 @@ export type ChatVm =
        *  lives in the shell now (title-bar tabs + the ⌕ browser) — this vm carries only
        *  the transcript/composer concern. */
       activeSessionId?: string | undefined;
+      /** The active session's agent name — feeds the empty state's "`{agent}` is
+       *  ready" line. Undefined with no active session/agent. */
+      agentName?: string | undefined;
       /** Phase-1 status floor — `running` while a send is in flight, cleared on the next
        *  appended turn. The full 6-state `status` Push (Phase 2) replaces this. */
       sessionStatus: 'idle' | 'running';
@@ -258,6 +261,17 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     }
     return base;
   });
+  // The pending approval — the newest governed approval frame still unresolved — is
+  // lifted out of the transcript and docked to the composer instead (it blocks the
+  // input, so it belongs at the input). Raw mode stays the untouched, verbatim
+  // projection: an approval never surfaces there at all (D85).
+  const pendingApproval = rawMode
+    ? undefined
+    : [...governedFrames]
+        .reverse()
+        .find((f): f is Extract<TranscriptFrame, { kind: 'approval' }> =>
+          f.kind === 'approval' && f.resolved === undefined,
+        );
   const frames: TranscriptFrame[] = rawMode
     ? r.value.map((f) => {
         let raw = rawFrameCache.get(f);
@@ -268,7 +282,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
         return raw;
       })
     : interleaveNotes(
-        governedFrames,
+        pendingApproval !== undefined
+          ? governedFrames.filter((f) => f.id !== pendingApproval.id)
+          : governedFrames,
         activeSessionId !== undefined ? (state.ui.notesBySession[activeSessionId] ?? []) : [],
         activeSessionId ?? '',
       );
@@ -311,6 +327,16 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     status: 'ready',
     rawMode,
     frames,
+    ...(pendingApproval !== undefined
+      ? {
+          approval: {
+            id: pendingApproval.requestId,
+            tool: pendingApproval.tool,
+            summary: pendingApproval.summary,
+            ...(pendingApproval.diffStat !== undefined ? { diffStat: pendingApproval.diffStat } : {}),
+          },
+        }
+      : {}),
     banners,
     onBannerAction: (bannerId, actionId) => {
       if (activeSessionId !== undefined)
@@ -345,6 +371,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     openExternal: state.actions.openExternal,
     toggleRaw: state.actions.toggleRaw,
     activeSessionId,
+    ...(activeAgent?.name !== undefined ? { agentName: activeAgent.name } : {}),
     sessionStatus: active ? 'running' : 'idle',
     ...(active ? { runningSince: active.since } : {}),
     sendNonce: activeSessionId !== undefined ? (state.ui.sendNonce[activeSessionId] ?? 0) : 0,
@@ -400,26 +427,44 @@ function BannerStrip({
   );
 }
 
-/** Inert permission-mode selector shown alongside model/effort in the composer's
- *  `slotStart`. Not wired to the daemon — a future permission-gate module (SPEC
- *  M3) owns the real enforcement; this is a presentational placeholder only. */
-const PERMISSION_MODE_OPTIONS = [
-  { value: 'default', label: 'SDK default' },
-  { value: 'auto-accept-edits', label: 'Auto-accept edits' },
-  { value: 'plan', label: 'Plan' },
-];
-
-function PermissionModeSlot(): React.JSX.Element {
-  const [mode, setMode] = useState('default');
+/** A fresh session: teach the register in three quiet lines — who is ready, on
+ *  what, and how to speak. Sits above center so the composer's floor doesn't
+ *  crowd it. Ported from the proto's `EmptyConversation` (apps/workbench-proto/
+ *  src/chat/Transcript.tsx). Permission is a presentational placeholder (SC-1 —
+ *  a future M3 permission gate owns real enforcement), matching the composer's
+ *  own default. */
+function EmptyConversation({
+  agent,
+  model,
+  effort,
+}: {
+  agent: string;
+  model: string;
+  effort: string;
+}): React.JSX.Element {
   return (
-    <Select
-      label="Permission"
-      hideLabel
-      className="max-w-[9rem]"
-      options={PERMISSION_MODE_OPTIONS}
-      value={mode}
-      onValueChange={setMode}
-    />
+    <div className="flex h-full flex-col items-center justify-center gap-2 pb-32">
+      <span aria-hidden className="font-mono text-[26px] text-s5">
+        ❯
+      </span>
+      <div className="text-body text-s9">
+        <b className="font-[550] text-s10">{agent}</b> is ready
+      </div>
+      <div className="font-mono text-meta text-s6">
+        {model} · {effort} · ask edits
+      </div>
+      <div className="mt-3 flex items-center gap-4 font-mono text-meta text-s6">
+        <span>
+          <kbd className="rounded-r1 border border-s4 px-1 py-px text-s7">⏎</kbd> send
+        </span>
+        <span>
+          <kbd className="rounded-r1 border border-s4 px-1 py-px text-s7">⇧⏎</kbd> newline
+        </span>
+        <span>
+          <kbd className="rounded-r1 border border-s4 px-1 py-px text-s7">⌘K</kbd> commands
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -455,13 +500,11 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     prevRunningRef.current = running;
   }, [running, activeId, queuedBySession]);
 
-  const handleSteer = useCallback((text: string, steerMode: 'queue' | 'barge-in'): void => {
+  // The composer's Queue action while a turn runs: append to the active session's
+  // queue (barge-in skips the queue entirely — it routes straight to `vm.onBargeIn`).
+  const handleQueue = useCallback((text: string): void => {
     const cur = vmRef.current;
     if (cur.status !== 'ready' || cur.activeSessionId === undefined) return;
-    if (steerMode === 'barge-in') {
-      cur.onBargeIn(text);
-      return;
-    }
     const id = cur.activeSessionId;
     setQueuedBySession((m) => ({ ...m, [id]: [...(m[id] ?? []), text] }));
   }, []);
@@ -510,21 +553,27 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   // render — a `useLayoutEffect([])` would run while the node is still absent and,
   // with empty deps, never re-attach, leaving the height stuck at 0 (so nothing
   // reserves space for the composer). A callback ref runs exactly on mount/unmount.
+  //
+  // The composer self-positions (`absolute`), so THIS wrapper is a plain,
+  // non-positioning box that never grows to its child's size — observe the
+  // composer's own rendered root element (the wrapper's first child) instead.
   const composerRef = useCallback((el: HTMLDivElement | null): void => {
     composerRoRef.current?.disconnect();
     composerRoRef.current = null;
     if (el === null) return;
+    const target = el.firstElementChild;
+    if (target === null) return;
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry !== undefined) setComposerHeight(entry.contentRect.height);
     });
-    ro.observe(el);
+    ro.observe(target);
     composerRoRef.current = ro;
   }, []);
 
   if (vm.status !== 'ready') {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-surface p-3.5">
+      <div className="flex h-full min-h-0 flex-col bg-s1 p-3.5">
         {vm.status === 'loading' && (
           <div className="flex flex-col gap-2">
             <Skeleton className="w-2/3" />
@@ -535,18 +584,19 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
       </div>
     );
   }
+  const queuedMessages = activeQueue.map((text, i) => ({ id: String(i), text }));
+  const currentModelDesc = vm.models.find((m) => m.id === vm.currentModelId);
+  const currentModelLabel =
+    currentModelDesc !== undefined ? modelPickerLabel(currentModelDesc) : (vm.currentModelId ?? 'model');
+  const currentEffortLabel =
+    vm.effortOptions.find((e) => e.value === vm.effortValue)?.label ?? vm.effortValue;
   return (
     <ToastProvider>
       {/* Session-switching chrome (title bar, session switcher, agent rail) is retired here —
           the shell's title-bar tabs + ⌕ browser own switching now (docs/design plan A1). This
-          is a plain layout container, not a re-styled Pane; the running-status indicator moves
-          to the composer edge in a later phase. */}
-      <div
-        className={cx(
-          'flex h-full min-h-0 flex-col bg-surface',
-          vm.sessionStatus === 'running' && 'relative z-10 ring-2 ring-info ring-offset-0',
-        )}
-      >
+          is a plain layout container, not a re-styled Pane — the running/needs-you state now
+          lives on the composer's own edge (its status-outline shimmer). */}
+      <div className="flex h-full min-h-0 flex-col bg-s1">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
           {/* The transcript fills the pane; the composer floats over its bottom edge
@@ -558,12 +608,12 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               transcript box (`absolute inset-0` within its own `relative` container) — so
               expanding a deeply-scrolled row covers the transcript region only, never the
               window, and the floating composer stays over its bottom edge. */}
-          <PaneOverlayProvider className="flex-1 bg-surface p-3.5">
+          <PaneOverlayProvider className="flex-1 bg-s1 p-3.5">
             {vm.frames.length === 0 ? (
-              <EmptyState
-                icon={MessageSquare}
-                title="No conversation yet"
-                description="Message the agent below to start a governed session."
+              <EmptyConversation
+                agent={vm.agentName ?? 'agent'}
+                model={currentModelLabel}
+                effort={currentEffortLabel}
               />
             ) : (
               <Transcript
@@ -585,67 +635,43 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               />
             )}
           </PaneOverlayProvider>
-          <div ref={composerRef} className="absolute bottom-0 left-0 right-0">
-            {activeQueue.length > 0 && (
-              <div className="mx-auto w-full max-w-3xl px-2.5 pb-1">
-                <ul className="flex flex-col gap-1">
-                  {activeQueue.map((q, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2.5 py-1.5 text-label shadow-sm"
-                    >
-                      <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">
-                        queued
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-muted">{q}</span>
-                      <IconButton
-                        icon={X}
-                        label="Remove queued message"
-                        variant="tertiary"
-                        size="sm"
-                        onClick={() => dequeue(i)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+          {/* A plain, non-positioning wrapper — the composer self-positions
+              (`absolute bottom-4 left-1/2 …`) against this pane's own `relative`
+              container above, not against this wrapper. It exists only to host
+              the height-measuring ResizeObserver (see `composerRef`) and to
+              give the composer's focused Escape a place to fall through to the
+              Stop affordance (SC-1: a user stop, never a governance block). */}
+          <div
+            ref={composerRef}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && vm.sessionStatus === 'running') {
+                e.preventDefault();
+                vm.onInterrupt();
+              }
+            }}
+          >
             <Composer
-              onSend={vm.onSend}
-              onSteer={handleSteer}
-              onInterrupt={vm.onInterrupt}
               running={vm.sessionStatus === 'running'}
               disabled={vm.activeSessionId === undefined}
-              slotStart={
-                <>
-                  <Combobox
-                    label="Model"
-                    hideLabel
-                    className="max-w-[10rem]"
-                    options={
-                      vm.models.length > 0
-                        ? vm.models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
-                        : vm.currentModelId !== undefined
-                          ? [{ value: vm.currentModelId, label: vm.currentModelId }]
-                          : []
-                    }
-                    {...(vm.currentModelId !== undefined ? { value: vm.currentModelId } : {})}
-                    onValueChange={vm.onPickModel}
-                    placeholder="Default model"
-                  />
-                  {vm.effortOptions.length > 0 && (
-                    <Select
-                      label="Effort"
-                      hideLabel
-                      className="max-w-[8rem]"
-                      options={vm.effortOptions}
-                      value={vm.effortValue}
-                      onValueChange={vm.onPickEffort}
-                    />
-                  )}
-                  <PermissionModeSlot />
-                </>
-              }
+              queued={queuedMessages}
+              approval={vm.approval}
+              models={vm.models.map((m) => ({ id: m.id, label: modelPickerLabel(m) }))}
+              currentModelId={vm.currentModelId}
+              onPickModel={vm.onPickModel}
+              effortOptions={vm.effortOptions}
+              effortValue={vm.effortValue}
+              onPickEffort={vm.onPickEffort}
+              onSend={vm.onSend}
+              onQueue={handleQueue}
+              onBarge={vm.onBargeIn}
+              onStop={vm.onInterrupt}
+              onRemoveQueued={(id) => dequeue(Number(id))}
+              onApprove={(id) => vm.onRespond(id, 'approve')}
+              onDeny={(id) => vm.onRespond(id, 'deny')}
+              onRedirect={(id, text) => {
+                vm.onRespond(id, 'deny');
+                vm.onSend(text);
+              }}
             />
           </div>
         </div>

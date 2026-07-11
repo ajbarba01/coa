@@ -453,44 +453,6 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('[data-nested="true"]')).not.toBeNull();
   });
 
-  it('renders approval actions at a larger hit target', () => {
-    render(
-      <TranscriptRow
-        frame={{ id: '1', kind: 'approval', requestId: 'r', tool: 'write_file', summary: 's' }}
-        onRespond={() => {}}
-      />,
-    );
-    const approve = screen.getByRole('button', { name: /approve/i });
-    const deny = screen.getByRole('button', { name: /deny/i });
-    expect(approve).toBeInTheDocument();
-    expect(deny).toBeInTheDocument();
-    expect(approve.getAttribute('data-size')).toBe('md');
-    expect(deny.getAttribute('data-size')).toBe('md');
-  });
-
-  it('renders an approval card and fires onRespond on Approve/Deny', () => {
-    const onRespond = vi.fn();
-    render(
-      <TranscriptRow
-        frame={{
-          id: 't5',
-          kind: 'approval',
-          requestId: 'r1',
-          tool: 'write_file',
-          summary: 'src/auth.ts',
-          diffStat: '+42 -18',
-        }}
-        onRespond={onRespond}
-      />,
-    );
-    expect(screen.getByText('write_file')).toBeTruthy();
-    expect(screen.getByText('+42 -18')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-    fireEvent.click(screen.getByRole('button', { name: /deny/i }));
-    expect(onRespond).toHaveBeenNthCalledWith(1, 'r1', 'approve');
-    expect(onRespond).toHaveBeenNthCalledWith(2, 'r1', 'deny');
-  });
-
   it('shows a resolved approval as an unboxed one-line receipt without live buttons', () => {
     const { container } = render(
       <TranscriptRow
@@ -528,16 +490,16 @@ describe('TranscriptRow', () => {
     expect(screen.getByText(/denied/i)).toBeInTheDocument();
   });
 
-  it('still renders the existing pending approval card (unchanged — the composer will dock it later)', () => {
+  it('renders nothing for a pending (unresolved) approval — the composer docks it instead', () => {
     const { container } = render(
       <TranscriptRow
         frame={{ id: 't6c', kind: 'approval', requestId: 'r4', tool: 'write_file', summary: 's' }}
         onRespond={() => {}}
       />,
     );
-    expect(container.querySelector('.rounded-surface')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /deny/i })).toBeInTheDocument();
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /deny/i })).toBeNull();
   });
 
   it('renders a deny frame through the SC-1 DenyNotice (it gates nothing)', () => {
@@ -595,7 +557,7 @@ describe('TranscriptRow', () => {
         frame={{ id: '1', role: 'agent', kind: 'thinking', text: 'x'.repeat(40), durationMs: 1000 }}
       />,
     );
-    expect(screen.getByRole('button', { name: /10 tokens/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /10 toks/i })).toBeInTheDocument();
   });
 
   it('shows a present-tense "Thinking" only while the block is still streaming', () => {

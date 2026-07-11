@@ -1,11 +1,14 @@
 @import 'tailwindcss';
-/* The workbench shell's token substrate (sand-dark scale, Slipstream, type/z scales). */
-@import '@coa/console-kit/tokens.css';
-/* The legacy content tokens — the conversation + not-yet-redrawn surfaces still render
-   on console-ui; it retires as the rebuild lands. Imported LAST so its --font-mono
-   (Fira Code) wins the one collision — the transcript's code face is the bigger
-   investment until the conversation re-skin. */
+/* The legacy content tokens — the not-yet-redrawn surfaces (drift/cache banners, the
+   W3/W4 surfaces, the retiring showcase composer) still render on console-ui's semantic
+   tokens; it retires as the rebuild lands. */
 @import '../../../../packages/console-ui/src/theme.css';
+/* The workbench shell's token substrate (sand-dark scale, Slipstream, type/z scales).
+   Imported LAST so kit wins the two token collisions (--font-mono and --text-body): now
+   that the conversation renders on the sand scale, the code face is kit's mono and body
+   text is the kit 13px step, matching the design prototype. console-ui's semantic tokens
+   (colors/spacing kit does not define) are unaffected. */
+@import '@coa/console-kit/tokens.css';
 
 /* Utilities used inside both kits must be visible to the scanner. */
 @source '../../../../packages/console-kit/src';
@@ -201,6 +204,69 @@ pre,
 code,
 [role='log'] {
   cursor: auto;
+}
+
+/* ---------- status outline shimmer (ported from apps/workbench-proto/src/index.css) ---------- */
+/* Every status outline carries the same quiet shimmer: two soft comets
+ * traveling the WHOLE border path at constant speed (an SVG rect stroke with
+ * pathLength=100 — dash-offset IS distance-along-path, so corners don't
+ * change the speed). The Hann-style falloff is approximated by layering a
+ * bright, short, round-capped core dash over a wider, fainter halo dash
+ * centered on it. The static tinted border stays underneath — the shimmer is
+ * the border lighting up, never a second outline. Reduced motion: the comets
+ * vanish; the tinted border alone carries the state. */
+.status-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.status-outline rect {
+  x: 0.5px;
+  y: 0.5px;
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  rx: 4.5px;
+  fill: none;
+  stroke: var(--outline-color);
+  stroke-linecap: round;
+}
+/* Both layers stroke at exactly the border's 1px — the comet is NEVER
+ * thicker than the outline, only more intense (opacity carries the falloff:
+ * a long faint tail under a short bright head). */
+.status-outline .comet-halo {
+  stroke-width: 1px;
+  opacity: 0.25;
+  stroke-dasharray: 11 39 11 39; /* two comets, 180° apart */
+  animation: outline-comet-halo 4.2s linear infinite;
+}
+.status-outline .comet-core {
+  stroke-width: 1px;
+  opacity: 0.9;
+  stroke-dasharray: 4.5 45.5 4.5 45.5;
+  animation: outline-comet-core 4.2s linear infinite;
+}
+@keyframes outline-comet-core {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+/* The halo starts offset by half its extra length so it stays CENTERED on
+ * the core as both travel. */
+@keyframes outline-comet-halo {
+  from {
+    stroke-dashoffset: 3.25;
+  }
+  to {
+    stroke-dashoffset: -96.75;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-outline {
+    display: none;
+  }
 }
 
 /* ---------- legacy content motion (console-ui surfaces; retires with them) ---------- */

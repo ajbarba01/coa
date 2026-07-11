@@ -325,6 +325,46 @@ describe('raw + approval projection', () => {
     }
   });
 
+  it('surfaces an unresolved approval as vm.approval and omits it from vm.frames', () => {
+    const vm = selectChatVm(stateWith({ status: 'ok', value: stream }));
+    if (vm.status === 'ready') {
+      expect(vm.approval).toMatchObject({ id: 'r1', tool: 'write_file', summary: 's' });
+      expect(vm.frames.some((f) => f.kind === 'approval')).toBe(false);
+      // The text frame that isn't the approval is untouched.
+      expect(vm.frames).toHaveLength(1);
+    }
+  });
+
+  it('leaves vm.approval undefined and keeps the frame when the approval is resolved', () => {
+    const vm = selectChatVm(
+      stateWith({ status: 'ok', value: stream }, { resolvedApprovals: { r1: 'approved' } }),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toBeUndefined();
+      expect(vm.frames.some((f) => f.kind === 'approval')).toBe(true);
+    }
+  });
+
+  it('surfaces the newest unresolved approval when more than one is pending', () => {
+    const twoApprovals: TurnFrame[] = [
+      { id: '1', kind: 'approval', requestId: 'r1', tool: 'write_file', summary: 'first' },
+      { id: '2', role: 'agent', kind: 'text', text: 'hi' },
+      { id: '3', kind: 'approval', requestId: 'r2', tool: 'bash', summary: 'second' },
+    ];
+    const vm = selectChatVm(stateWith({ status: 'ok', value: twoApprovals }));
+    if (vm.status === 'ready') {
+      expect(vm.approval).toMatchObject({ id: 'r2', tool: 'bash', summary: 'second' });
+    }
+  });
+
+  it('does not surface vm.approval in raw mode (raw stays untouched)', () => {
+    const vm = selectChatVm(stateWith({ status: 'ok', value: stream }, { rawMode: true }));
+    if (vm.status === 'ready') {
+      expect(vm.approval).toBeUndefined();
+      expect(vm.frames).toHaveLength(2);
+    }
+  });
+
   it('derives the drift banner from a config mismatch and routes its action to the active session', () => {
     const onBannerAction = vi.fn();
     const agent = {
@@ -438,9 +478,17 @@ describe('ChatSurface states-first', () => {
     expect(screen.getByText('daemon down')).toBeTruthy();
   });
 
-  it('empty state when the stream is empty', () => {
+  it('empty state teaches the register: agent, model/effort/permission, and the key hints', () => {
     render(<ChatSurface state={readyState([])} />);
-    expect(screen.getByText(/no conversation/i)).toBeTruthy();
+    // "{agent} is ready" — the reviewer session's agent.
+    expect(screen.getByText(/is ready/i)).toBeTruthy();
+    expect(screen.getByText((_, el) => el?.tagName === 'B' && el.textContent === 'reviewer')).toBeTruthy();
+    // model · effort · permission line.
+    expect(screen.getByText(/sonnet.*ask edits/)).toBeTruthy();
+    // send / newline / commands hints.
+    expect(screen.getByText('send')).toBeTruthy();
+    expect(screen.getByText('newline')).toBeTruthy();
+    expect(screen.getByText('commands')).toBeTruthy();
   });
 
   it('renders the transcript log when there are frames', () => {
@@ -458,7 +506,14 @@ describe('ChatSurface states-first', () => {
     expect(screen.queryByRole('group', { name: 'Agents' })).toBeNull();
     // The transcript + composer still render.
     expect(screen.getByRole('log')).toBeTruthy();
-    expect(screen.getByLabelText('Message the agent')).toBeTruthy();
+    expect(screen.getByRole('textbox')).toBeTruthy();
+  });
+
+  it('renders the new composer (its model chip), not the old console-ui Combobox', () => {
+    render(<ChatSurface state={readyState([])} />);
+    // The new composer's model chip — a plain button, not a native combobox.
+    expect(screen.getByRole('button', { name: 'sonnet' })).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   // A session + agent whose configs diverge, so the derived drift banner shows.
@@ -509,11 +564,29 @@ describe('ChatSurface states-first', () => {
     expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'dismiss');
   });
 
-  it('renders the in-chat model picker seeded with the current model', () => {
-    render(<ChatSurface state={readyState([])} />);
-    expect(screen.getByText('Model')).toBeTruthy();
-    // The reviewer session's agent default (sonnet) seeds the picker.
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
+  it('picks a model through the composer model chip, re-pinning the session', async () => {
+    const setSessionModel = vi.fn();
+    const state = makeState({
+      data: {
+        turns: { status: 'ok', value: [] },
+        agents: { status: 'ok', value: MOCK_AGENTS },
+        sessions: { status: 'ok', value: MOCK_SESSIONS },
+        models: {
+          status: 'ok',
+          value: [
+            { id: 'sonnet', provider: 'claude' },
+            { id: 'opus', provider: 'claude' },
+          ],
+        },
+      },
+      ui: { activeSessionId: 's-audit-auth' },
+      actions: { setSessionModel },
+    });
+    render(<ChatSurface state={state} />);
+    // The reviewer session's agent default (sonnet) seeds the chip.
+    await userEvent.click(screen.getByRole('button', { name: 'Claude · sonnet' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Claude · opus' }));
+    expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', { model: 'opus', provider: 'claude' });
   });
 
   it('derives a passive cache banner on a staged switch (no dismiss control)', () => {
@@ -551,7 +624,7 @@ describe('ChatSurface states-first', () => {
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
-  it('the Steer button barges in via steerSession for the active session', async () => {
+  it('the barge-in button redirects the running turn via steerSession', async () => {
     const steerSession = vi.fn();
     const state = stateWith(
       { status: 'ok', value: [] },
@@ -559,8 +632,8 @@ describe('ChatSurface states-first', () => {
       { steerSession },
     );
     render(<ChatSurface state={state} />);
-    await userEvent.type(screen.getByLabelText('Message the agent'), 'go check the tests instead');
-    await userEvent.click(screen.getByRole('button', { name: /steer/i }));
+    await userEvent.type(screen.getByRole('textbox'), 'go check the tests instead');
+    await userEvent.click(screen.getByRole('button', { name: /barge in/i }));
     expect(steerSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'go check the tests instead');
   });
 
@@ -573,7 +646,7 @@ describe('ChatSurface states-first', () => {
       { steerSession, sendMessage },
     );
     const { rerender } = render(<ChatSurface state={running} />);
-    await userEvent.type(screen.getByLabelText('Message the agent'), 'also add a test');
+    await userEvent.type(screen.getByRole('textbox'), 'also add a test');
     await userEvent.click(screen.getByRole('button', { name: /queue/i }));
     // queued: pinned in the UI, not sent to the daemon yet
     expect(steerSession).not.toHaveBeenCalled();
@@ -585,12 +658,12 @@ describe('ChatSurface states-first', () => {
     expect(sendMessage).toHaveBeenCalledWith('also add a test');
   });
 
-  it('shows Send (not Queue/Steer/Stop) while idle', () => {
+  it('shows Send (not Queue/Barge/Stop) while idle', () => {
     render(<ChatSurface state={readyState([])} />);
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /queue/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /steer/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^stop$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /barge in/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /stop the running turn/i })).toBeNull();
   });
 
   it('Esc interrupts the active session while a turn is running', async () => {
@@ -601,10 +674,56 @@ describe('ChatSurface states-first', () => {
       { interruptSession },
     );
     render(<ChatSurface state={state} />);
-    await userEvent.type(screen.getByLabelText('Message the agent'), '{Escape}');
+    await userEvent.type(screen.getByRole('textbox'), '{Escape}');
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
+  describe('the docked pending approval', () => {
+    const approvalStream: TurnFrame[] = [
+      { id: '1', role: 'agent', kind: 'text', text: 'about to write' },
+      { id: '2', kind: 'approval', requestId: 'r1', tool: 'write_file', summary: 'src/auth.ts' },
+    ];
+
+    it('never renders a pending-approval card in the transcript — the composer owns it', () => {
+      render(<ChatSurface state={stateWith({ status: 'ok', value: approvalStream })} />);
+      // The old transcript card used capitalized "Approve"/"Deny" buttons; those are gone.
+      expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
+      // The composer's merged gate is what's showing instead.
+      expect(screen.getByRole('button', { name: /^approve:/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^deny:/ })).toBeTruthy();
+    });
+
+    it('approving via the composer calls onRespond(requestId, "approve")', async () => {
+      const respondApproval = vi.fn();
+      const state = stateWith({ status: 'ok', value: approvalStream }, {}, { respondApproval });
+      render(<ChatSurface state={state} />);
+      await userEvent.click(screen.getByRole('button', { name: /^approve:/ }));
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'approve');
+    });
+
+    it('denying via the composer calls onRespond(requestId, "deny")', async () => {
+      const respondApproval = vi.fn();
+      const state = stateWith({ status: 'ok', value: approvalStream }, {}, { respondApproval });
+      render(<ChatSurface state={state} />);
+      await userEvent.click(screen.getByRole('button', { name: /^deny:/ }));
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'deny');
+    });
+
+    it('redirecting denies the request then sends the typed instruction in its place', async () => {
+      const respondApproval = vi.fn();
+      const sendMessage = vi.fn();
+      const state = stateWith(
+        { status: 'ok', value: approvalStream },
+        {},
+        { respondApproval, sendMessage },
+      );
+      render(<ChatSurface state={state} />);
+      await userEvent.type(screen.getByRole('textbox'), 'do this instead{Enter}');
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'deny');
+      expect(sendMessage).toHaveBeenCalledExactlyOnceWith('do this instead');
+    });
+  });
 });
 
 describe('toGovernedFrame streaming', () => {

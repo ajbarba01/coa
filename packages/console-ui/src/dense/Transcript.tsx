@@ -461,7 +461,11 @@ function RowShell({
  *  between user turns without any group math. */
 export function TranscriptRow({
   frame,
-  onRespond,
+  // No frame kind actions through this anymore — a pending approval renders nothing
+  // here (docked to the composer instead) and a resolved one is a plain receipt.
+  // Kept on the signature as a forward-compatible seam for a future frame kind that
+  // does need it, so callers threading it through `MemoRow` (below) don't break.
+  onRespond: _onRespond,
   onOpenPath,
   onOpenUrl,
   spineTop = true,
@@ -481,79 +485,32 @@ export function TranscriptRow({
   const indent = depth ? { paddingLeft: depth * 16 } : undefined;
 
   if (frame.kind === 'approval') {
+    // A pending (unresolved) approval renders NOTHING here — it blocks the input, so it's
+    // docked to the composer instead (matches the proto's `FrameView`). Only the resolved
+    // receipt takes a place in history, once there's a decision to show.
+    if (frame.resolved === undefined) return <></>;
     return (
-      frame.resolved !== undefined ? (
-        // The resolved receipt (proto ApprovalRow) — an answered question earns no card,
-        // just one quiet line taking the request's place in history.
-        <RowShell
-          frame={frame}
-          spineTop={spineTop}
-          spineBottom={spineBottom}
-          indent={indent}
-          className="py-0.5"
-        >
-          <div className="slip-enter flex items-center gap-2 font-mono text-code">
-            <span
-              aria-hidden
-              className={cx(
-                'w-3 text-center',
-                frame.resolved === 'approved' ? 'text-ok/70' : 'text-s7',
-              )}
-            >
-              {frame.resolved === 'approved' ? '✓' : '—'}
-            </span>
-            <span className="text-s7">{frame.resolved}</span>
-            <span className="text-s8">{frame.tool}</span>
-            <span className="truncate text-s7">{frame.summary}</span>
-          </div>
-        </RowShell>
-      ) : (
-        // PENDING — unchanged for now. The final design docks this to the composer
-        // (it blocks the input, so it belongs at the input); until that composer exists,
-        // removing this card would leave a pending approval rendering nowhere.
-        //
-        // DEFERRED LEGACY ISLAND: the card body below is the one place in this file that
-        // still wears the pre-sand semantic tokens (rounded-surface/border-border-default/
-        // bg-raised/text-fg/text-muted/text-faint/text-label/text-eyebrow/text-caption).
-        // It is left alone deliberately — the composer takes ownership of pending
-        // approvals in a later task, so re-skinning this card now would be thrown away.
-        <RowShell
-          frame={frame}
-          spineTop={spineTop}
-          spineBottom={spineBottom}
-          indent={indent}
-          className="py-2"
-        >
-          <div className="rounded-surface border border-border-default bg-raised p-2">
-            <div className="flex items-center gap-2 text-label">
-              <span className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
-                approval
-              </span>
-              <span className="font-medium text-fg">{frame.tool}</span>
-              <span className="min-w-0 flex-1 truncate text-muted">{frame.summary}</span>
-              {frame.diffStat !== undefined && (
-                <span className="text-caption text-faint">{frame.diffStat}</span>
-              )}
-            </div>
-            <div className="mt-1.5 flex justify-end gap-2">
-              <Button
-                variant="tertiary"
-                size="md"
-                onClick={() => onRespond?.(frame.requestId, 'deny')}
-              >
-                Deny
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => onRespond?.(frame.requestId, 'approve')}
-              >
-                Approve
-              </Button>
-            </div>
-          </div>
-        </RowShell>
-      )
+      // The resolved receipt (proto ApprovalRow) — an answered question earns no card,
+      // just one quiet line taking the request's place in history.
+      <RowShell
+        frame={frame}
+        spineTop={spineTop}
+        spineBottom={spineBottom}
+        indent={indent}
+        className="py-0.5"
+      >
+        <div className="slip-enter flex items-center gap-2 font-mono text-code">
+          <span
+            aria-hidden
+            className={cx('w-3 text-center', frame.resolved === 'approved' ? 'text-ok/70' : 'text-s7')}
+          >
+            {frame.resolved === 'approved' ? '✓' : '—'}
+          </span>
+          <span className="text-s7">{frame.resolved}</span>
+          <span className="text-s8">{frame.tool}</span>
+          <span className="truncate text-s7">{frame.summary}</span>
+        </div>
+      </RowShell>
     );
   }
 
