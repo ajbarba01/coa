@@ -14,6 +14,7 @@ import {
   WorkingFooter,
   type TranscriptFrame,
 } from './Transcript.js';
+import { defaultReveal } from './reveal.js';
 
 // jsdom has no real layout, so scrollIntoView is unimplemented — stub it so the
 // pin/jump effects (which call it) don't throw, and so tests can assert it fired.
@@ -377,30 +378,70 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('[data-dot]')?.className).toMatch(/bg-danger/);
   });
 
-  it('indents a nested subagent frame', () => {
+  it('indents a nested subagent frame with a left hairline rail (per row, since Virtuoso rows render independently)', () => {
     const { container } = render(
       <TranscriptRow
         frame={{ id: 't4', role: 'subagent', kind: 'text', text: 'reviewing', depth: 1 }}
       />,
     );
     const row = container.firstElementChild as HTMLElement;
-    expect(row.style.marginLeft).not.toBe('');
+    expect(row.style.paddingLeft).not.toBe('');
+    expect(row.className).toMatch(/border-l/);
+    expect(row.className).toMatch(/border-s3/);
   });
 
-  it('renders a subagent rollup chip with its stats', () => {
+  it('renders a subagent rollup as an unboxed receipt: name, cost stats, status', () => {
     render(
       <TranscriptRow
         frame={{
           id: '1',
           kind: 'subagent',
-          childWorktree: 'wt',
+          childWorktree: 'nested/worktrees/wt',
           event: 'rollup',
-          rollup: { tools: 3, cost: 0.25, status: 'done' },
+          rollup: { tools: 3, tokens: 1234, cost: 0.25, status: 'done' },
         }}
       />,
     );
-    expect(screen.getByText(/subagent/i)).toBeInTheDocument();
-    expect(screen.getByText(/3/)).toBeInTheDocument();
+    // The display name is the tail segment of the worktree path.
+    expect(screen.getByText('wt')).toBeInTheDocument();
+    // Stats join into one meta line: "3 tools · 1.2k tok · $0.25" — compact `1.2k`-style
+    // token formatting.
+    expect(screen.getByText(/3 tools · 1\.2k tok · \$0\.25/)).toBeInTheDocument();
+  });
+
+  it('shows the running dot for a live "running" subagent event', () => {
+    const { container } = render(
+      <TranscriptRow frame={{ id: '2', kind: 'subagent', childWorktree: 'wt', event: 'running' }} />,
+    );
+    expect(container.querySelector('.bg-run')).not.toBeNull();
+    expect(screen.getByText('running')).toBeInTheDocument();
+  });
+
+  it('shows the critical dot for a failed subagent rollup', () => {
+    const { container } = render(
+      <TranscriptRow
+        frame={{
+          id: '3',
+          kind: 'subagent',
+          childWorktree: 'wt',
+          event: 'rollup',
+          rollup: { status: 'failed' },
+        }}
+      />,
+    );
+    expect(container.querySelector('.bg-crit')).not.toBeNull();
+    expect(container.querySelector('.bg-ok')).toBeNull();
+  });
+
+  it('reveals watch/stop actions on hover for a running subagent, not for a settled one', () => {
+    const { rerender } = render(
+      <TranscriptRow frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'running' }} />,
+    );
+    expect(screen.getByRole('button', { name: /watch/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+
+    rerender(<TranscriptRow frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'idle' }} />);
+    expect(screen.queryByRole('button', { name: /watch/i })).toBeNull();
   });
 
   it('indents a depth-1 child frame with a nesting spine', () => {
@@ -450,8 +491,8 @@ describe('TranscriptRow', () => {
     expect(onRespond).toHaveBeenNthCalledWith(2, 'r1', 'deny');
   });
 
-  it('shows a resolved approval without live buttons', () => {
-    render(
+  it('shows a resolved approval as an unboxed one-line receipt without live buttons', () => {
+    const { container } = render(
       <TranscriptRow
         frame={{
           id: 't6',
@@ -464,7 +505,39 @@ describe('TranscriptRow', () => {
       />,
     );
     expect(screen.getByText(/approved/i)).toBeTruthy();
+    expect(screen.getByText('write_file')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+    // An answered question earns no card.
+    expect(container.querySelector('.rounded-surface')).toBeNull();
+  });
+
+  it('marks a denied resolved approval with the dash glyph, not the checkmark', () => {
+    render(
+      <TranscriptRow
+        frame={{
+          id: 't6b',
+          kind: 'approval',
+          requestId: 'r3',
+          tool: 'write_file',
+          summary: 's',
+          resolved: 'denied',
+        }}
+      />,
+    );
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getByText(/denied/i)).toBeInTheDocument();
+  });
+
+  it('still renders the existing pending approval card (unchanged — the composer will dock it later)', () => {
+    const { container } = render(
+      <TranscriptRow
+        frame={{ id: 't6c', kind: 'approval', requestId: 'r4', tool: 'write_file', summary: 's' }}
+        onRespond={() => {}}
+      />,
+    );
+    expect(container.querySelector('.rounded-surface')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /deny/i })).toBeInTheDocument();
   });
 
   it('renders a deny frame through the SC-1 DenyNotice (it gates nothing)', () => {
@@ -477,10 +550,20 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('cap reached')).toBeTruthy();
   });
 
-  it('renders a raw frame verbatim in a monospace block', () => {
+  it('renders a raw frame verbatim, plain mono with no chrome — D85, the mask comes off', () => {
     const text = '> assistant: hello\n> tool_use read_file {"path":"a"}';
     const { container } = render(<TranscriptRow frame={{ id: 't8', kind: 'raw', text }} />);
-    expect(container.querySelector('pre')?.textContent).toBe(text);
+    expect(container.textContent).toBe(text);
+    const el = container.querySelector('.whitespace-pre-wrap');
+    expect(el?.className).toMatch(/font-mono/);
+  });
+
+  it('never animates a raw row (D85 — the loop is byte-faithful, not styled)', () => {
+    const text = 'verbatim';
+    render(<TranscriptRow frame={{ id: 't8b', kind: 'raw', text }} />);
+    const el = screen.getByText(text);
+    expect(el.className).not.toMatch(/slip-enter|cx-word|cx-block-enter/);
+    expect(revealSuppressed({ id: 't8b', kind: 'raw', text })).toBe(true);
   });
 
   it('renders a settled thinking frame as "Thought" (not "Thinking"), collapsed by default', () => {
@@ -541,21 +624,55 @@ describe('TranscriptRow', () => {
     expect(screen.queryByRole('button', { name: /thought|thinking/i })).toBeNull();
   });
 
-  it('tints the reasoning label on hover', () => {
+  it('tints the reasoning toggle on hover', () => {
     render(
       <TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning', streaming: true }} />,
     );
-    expect(screen.getByText(/thinking/i).className).toContain('group-hover:text-muted');
+    expect(screen.getByRole('button', { name: /thinking/i }).className).toContain('hover:text-s10');
   });
 
-  it('renders an error frame with a danger tone and its message', () => {
-    render(
+  it('renders an error as one information line — a mark, the message, no origin chip by default', () => {
+    const { container } = render(
       <TranscriptRow frame={{ id: '2', role: 'agent', kind: 'error', message: 'it broke' }} />,
     );
     expect(screen.getByRole('alert')).toHaveTextContent('it broke');
+    expect(container.querySelector('[data-origin-chip]')).toBeNull();
   });
 
-  it('renders a plan frame as a checklist with per-item status', () => {
+  it('renders the origin chip only when origin is present', () => {
+    render(
+      <TranscriptRow
+        frame={{ id: '2b', role: 'agent', kind: 'error', message: 'it broke', origin: 'tool' }}
+      />,
+    );
+    expect(screen.getByText('tool')).toBeInTheDocument();
+  });
+
+  it('renders a plan frame as an unboxed checklist with a done/total header', () => {
+    const { container } = render(
+      <TranscriptRow
+        frame={{
+          id: '1',
+          role: 'agent',
+          kind: 'plan',
+          items: [
+            { text: 'done thing', status: 'done' },
+            { text: 'active thing', status: 'in-progress' },
+            { text: 'later thing', status: 'pending' },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText('done thing')).toBeInTheDocument();
+    expect(screen.getByText('active thing')).toBeInTheDocument();
+    expect(screen.getByText('later thing')).toBeInTheDocument();
+    // "plan" + "· 1/3" — working memory, not a boxed unit of output.
+    expect(screen.getByText(/plan/i)).toBeInTheDocument();
+    expect(screen.getByText(/1\/3/)).toBeInTheDocument();
+    expect(container.querySelector('.rounded-surface, .bg-subtle')).toBeNull();
+  });
+
+  it('exposes each plan item\'s status to the a11y tree without visible clutter', () => {
     render(
       <TranscriptRow
         frame={{
@@ -565,26 +682,51 @@ describe('TranscriptRow', () => {
           items: [
             { text: 'done thing', status: 'done' },
             { text: 'active thing', status: 'in-progress' },
+            { text: 'later thing', status: 'pending' },
           ],
         }}
       />,
     );
-    expect(screen.getByText('done thing')).toBeInTheDocument();
-    expect(screen.getByText('active thing')).toBeInTheDocument();
-    expect(screen.getByText(/in progress/i)).toBeInTheDocument();
+    const statuses = Array.from(document.querySelectorAll('.sr-only')).map((n) => n.textContent);
+    expect(statuses).toEqual(['done', 'in-progress', 'pending']);
   });
 
-  it('renders a user text frame via markdown, same as any other role', () => {
+  it('makes the in-progress plan item the only element carrying the run/blue token; done is never struck through', () => {
+    const { container } = render(
+      <TranscriptRow
+        frame={{
+          id: '1',
+          role: 'agent',
+          kind: 'plan',
+          items: [
+            { text: 'done thing', status: 'done' },
+            { text: 'active thing', status: 'in-progress' },
+            { text: 'later thing', status: 'pending' },
+          ],
+        }}
+      />,
+    );
+    // Only the in-progress glyph carries the run/blue token — item text is toned by
+    // weight (text-s12), not color, so blue never doubles up.
+    const runEls = container.querySelectorAll('.text-run');
+    expect(runEls).toHaveLength(1);
+    expect(screen.getByText('done thing').className).not.toContain('line-through');
+  });
+
+  it('renders a user turn as plain text, never markdown-interpreted (D85 — the mask stays off the user\'s own words)', () => {
     render(<TranscriptRow frame={{ id: 'u1', role: 'you', kind: 'text', text: 'run `ls` now' }} />);
-    expect(screen.getByText('ls').tagName).toBe('CODE');
+    // The literal backtick survives — no <code> element is produced for a user turn.
+    expect(screen.getByText('run `ls` now')).toBeInTheDocument();
+    expect(screen.queryByText('ls')).toBeNull();
   });
 
-  it('renders a user turn as a tinted, lightly bordered block without a bottom rule', () => {
+  it('renders a user turn as a right-aligned bubble with the sand-scale surface and an asymmetric corner', () => {
     render(<TranscriptRow frame={{ id: 'u', role: 'you', kind: 'text', text: 'hello' }} />);
     const block = screen.getByText('hello').closest('[data-role="you"]');
-    expect(block?.className).toContain('bg-raised');
-    expect(block?.className).toContain('border-hairline-lighter');
-    expect(block?.className).not.toContain('border-b');
+    expect(block?.className).toContain('bg-s3');
+    expect(block?.className).toContain('ml-auto');
+    expect(block?.className).toContain('rounded-[6px_6px_2px_6px]');
+    expect(block?.className).not.toMatch(/bg-raised|border-hairline|rounded-surface/);
   });
 
   it('renders a centered system note', () => {
@@ -634,7 +776,7 @@ describe('Transcript container', () => {
     expect(screen.getByRole('button', { name: /latest/i })).toBeInTheDocument();
   });
 
-  it('gives the jump-to-latest control the composer surface background', () => {
+  it('gives the jump-to-latest control the sand raised-surface background', () => {
     const frames = Array.from({ length: 30 }, (_, i) => ({
       id: String(i),
       role: 'agent' as const,
@@ -642,7 +784,9 @@ describe('Transcript container', () => {
       text: `m${i}`,
     }));
     render(<Transcript frames={frames} showJumpToLatest />);
-    expect(screen.getByRole('button', { name: /latest/i }).className).toMatch(/bg-raised/);
+    const btn = screen.getByRole('button', { name: /latest/i });
+    expect(btn.className).toMatch(/bg-s2/);
+    expect(btn.className).not.toMatch(/bg-raised|border-hairline/);
   });
 
   it('breaks the spine at the user turn (no connector line on the row)', () => {
@@ -662,12 +806,12 @@ describe('Transcript container', () => {
 
   it('renders the working footer while busy', () => {
     render(<Transcript frames={frames} busy />);
-    expect(screen.getByText(/working…/i)).toBeInTheDocument();
+    expect(screen.getByText('working')).toBeInTheDocument();
   });
 
   it('renders no footer when not busy', () => {
     render(<Transcript frames={frames} />);
-    expect(screen.queryByText(/working…/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('working')).not.toBeInTheDocument();
   });
 
   it('re-pins to bottom when jumpNonce changes', () => {
@@ -749,18 +893,32 @@ describe('Transcript find-in-conversation', () => {
     await userEvent.type(screen.getByRole('textbox', { name: /find/i }), 'hello');
     expect(container.querySelector('[data-find-active="true"]')).not.toBeNull();
   });
+
+  it('wears a quiet amber wash on the active match, not a ring (a highlight, not a focus/error affordance)', async () => {
+    const { container } = render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    await userEvent.type(screen.getByRole('textbox', { name: /find/i }), 'hello');
+    const active = container.querySelector('[data-find-active="true"]');
+    expect(active?.className).toMatch(/bg-warn\/8/);
+    expect(active?.className).not.toMatch(/ring-info|bg-info-tint|rounded-surface/);
+  });
 });
 
 describe('WorkingFooter', () => {
-  it('renders a spinner and the working label', () => {
-    render(<WorkingFooter />);
-    expect(screen.getByText(/working…/i)).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+  it('renders a pulsing running dot and the working label, announced as a live status', () => {
+    const { container } = render(<WorkingFooter />);
+    expect(screen.getByText('working')).toBeInTheDocument();
+    const status = screen.getByRole('status');
+    expect(status).toBeInTheDocument();
+    expect(container.querySelector('.motion-safe\\:animate-pulse')).not.toBeNull();
   });
 
-  it('renders the working footer at body size', () => {
+  it('renders the working label in the meta/mono status tone (not the legacy body/muted pair)', () => {
     render(<WorkingFooter busySince={Date.now()} />);
-    expect(screen.getByText(/working/i).closest('div')?.className).toContain('text-body');
+    const status = screen.getByRole('status');
+    expect(status.className).toContain('text-meta');
+    expect(status.className).toContain('font-mono');
+    expect(status.className).not.toMatch(/text-body|text-muted/);
   });
 
   it('shows no elapsed counter without a busySince', () => {
@@ -773,17 +931,18 @@ describe('WorkingFooter', () => {
     try {
       const since = Date.now();
       const { unmount } = render(<WorkingFooter busySince={since} />);
-      expect(screen.getByText(/working… 0s/i)).toBeInTheDocument();
+      expect(screen.getByText('working')).toBeInTheDocument();
+      expect(screen.getByText('0s')).toBeInTheDocument();
 
       act(() => {
         vi.advanceTimersByTime(1000);
       });
-      expect(screen.getByText(/working… 1s/i)).toBeInTheDocument();
+      expect(screen.getByText('1s')).toBeInTheDocument();
 
       act(() => {
         vi.advanceTimersByTime(2000);
       });
-      expect(screen.getByText(/working… 3s/i)).toBeInTheDocument();
+      expect(screen.getByText('3s')).toBeInTheDocument();
 
       unmount();
       // No interval firing after unmount should throw or leave a dangling timer;
@@ -810,6 +969,37 @@ describe('spine continuity', () => {
   });
 });
 
+describe('Transcript container motion (block entrance)', () => {
+  it('gives a live-arriving row the shared kit .cx-block-enter entrance (not a bespoke WAAPI call)', () => {
+    const frames: TranscriptFrame[] = [
+      { id: 'a', role: 'agent', kind: 'tool', tool: 'Bash', input: '{}', ok: true },
+    ];
+    const { rerender, container } = render(<Transcript frames={frames} />);
+    // History mounted on open never animates.
+    expect(container.querySelector('[data-row-index="0"]')?.className ?? '').not.toMatch(
+      /cx-block-enter/,
+    );
+
+    const frames2: TranscriptFrame[] = [
+      ...frames,
+      { id: 'b', role: 'agent', kind: 'tool', tool: 'Bash', input: '{}', ok: true },
+    ];
+    rerender(<Transcript frames={frames2} />);
+    const liveRow = container.querySelector('[data-row-index="1"]');
+    expect(liveRow?.className).toMatch(/cx-block-enter/);
+    expect(liveRow?.getAttribute('data-enter')).toBe('blurRise');
+  });
+
+  it('never gives a live raw row the block entrance (D85 — the loop is byte-faithful, never styled)', () => {
+    const frames: TranscriptFrame[] = [{ id: 'a', role: 'agent', kind: 'text', text: 'hi' }];
+    const { rerender, container } = render(<Transcript frames={frames} />);
+    const frames2: TranscriptFrame[] = [...frames, { id: 'raw1', kind: 'raw', text: 'verbatim' }];
+    rerender(<Transcript frames={frames2} />);
+    const rawRow = container.querySelector('[data-row-index="1"]');
+    expect(rawRow?.className ?? '').not.toMatch(/cx-block-enter|slip-enter/);
+  });
+});
+
 describe('revealSuppressed', () => {
   it('suppresses the block entrance for agent text/thinking (the per-word reveal channel) and raw', () => {
     expect(revealSuppressed({ id: '1', role: 'agent', kind: 'text', text: 'x' } as TranscriptFrame)).toBe(true);
@@ -832,8 +1022,21 @@ describe('nextBatchIndex', () => {
   });
 });
 
-describe('ThinkingCard shimmer mode', () => {
-  it('stays collapsed with a shimmering label while streaming, then shows "Thought for Ns"', () => {
+describe('ThinkingCard reasoning modes', () => {
+  it('auto-expand (the design default): streaming renders expanded under the live "thinking" label', () => {
+    const frame = {
+      id: 't',
+      role: 'agent',
+      kind: 'thinking',
+      text: 'reasoning…',
+      streaming: true,
+    } as const;
+    const { container } = render(<TranscriptRow frame={frame} />);
+    expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('true');
+    expect(screen.getByRole('button', { name: /thinking/i })).toBeInTheDocument();
+  });
+
+  it('auto-expand: on settle the body melts closed and the resting line reads "thought for Ns"', () => {
     vi.useFakeTimers();
     try {
       const frame = {
@@ -844,21 +1047,66 @@ describe('ThinkingCard shimmer mode', () => {
         streaming: true,
       } as const;
       const { rerender, container } = render(<TranscriptRow frame={frame} />);
-      // shimmer default: collapsed while thinking (no auto-expand), the label shimmers
-      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
-      expect(container.querySelector('.cx-shimmer')).not.toBeNull();
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('true');
 
-      // stream ends: the settled frame carries the daemon-stamped duration (2.3s), still
-      // collapsed, shimmer gone — the label reads it from the frame, not a live wall-clock.
+      // stream ends: the settled frame carries the daemon-stamped duration (2.3s); after the
+      // hold, the body melts closed and the label reads it from the frame, not a live clock.
       rerender(<TranscriptRow frame={{ ...frame, streaming: false, durationMs: 2300 }} />);
       act(() => {
         vi.advanceTimersByTime(1000);
       });
       expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
-      expect(container.querySelector('.cx-shimmer')).toBeNull();
-      expect(container.textContent).toMatch(/Thought for 2s/);
+      expect(screen.getByRole('button', { name: /thought for 2s/i })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('auto-expand: a user click always wins, re-expanding the melted-closed body', () => {
+    vi.useFakeTimers();
+    try {
+      const frame = {
+        id: 't',
+        role: 'agent',
+        kind: 'thinking',
+        text: 'reasoning…',
+        streaming: true,
+      } as const;
+      const { rerender, container } = render(<TranscriptRow frame={frame} />);
+      rerender(<TranscriptRow frame={{ ...frame, streaming: false, durationMs: 2300 }} />);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
+
+      fireEvent.click(screen.getByRole('button', { name: /thought for 2s/i }));
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the shimmer mode reachable via the config seam (no auto-expand; the collapsed label shimmers)', () => {
+    defaultReveal.reasoning.mode = 'shimmer';
+    try {
+      const frame = {
+        id: 't',
+        role: 'agent',
+        kind: 'thinking',
+        text: 'reasoning…',
+        streaming: true,
+      } as const;
+      const { rerender, container } = render(<TranscriptRow frame={frame} />);
+      // shimmer: collapsed while thinking (no auto-expand), the label shimmers
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
+      expect(container.querySelector('.cx-shimmer')).not.toBeNull();
+
+      rerender(<TranscriptRow frame={{ ...frame, streaming: false, durationMs: 2300 }} />);
+      expect(container.querySelector('.cx-collapse')?.getAttribute('data-open')).toBe('false');
+      expect(container.querySelector('.cx-shimmer')).toBeNull();
+      expect(container.textContent).toMatch(/thought for 2s/i);
+    } finally {
+      defaultReveal.reasoning.mode = 'auto-expand';
     }
   });
 
@@ -891,10 +1139,10 @@ describe('TranscriptRow streaming reveal', () => {
     expect(container.querySelectorAll('span.cx-word').length).toBe(0);
   });
 
-  it('reveals streaming reasoning per word (rendered in the collapsed body)', () => {
+  it('reveals streaming reasoning per word (mounted in the reveal body)', () => {
     const frame = { id: 't', role: 'agent', kind: 'thinking', text: 'weighing options', streaming: true } as const;
     const { container } = render(<TranscriptRow frame={frame} />);
-    // shimmer keeps the card collapsed, but the per-word reasoning is still mounted in the body
+    // auto-expand: the body is open while streaming, and the per-word reasoning is mounted in it
     expect(container.querySelectorAll('span.cx-word').length).toBe(2);
   });
 });

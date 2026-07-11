@@ -225,9 +225,9 @@ Surfaces a denial the daemon already issued — the close-gate or the cost-cap.
 
 - **Use it when:** Rendering a deny returned by the single deny channel (the only two real blocks).
 - **Don't use it when:** You are tempted to block or gate an action in the UI — the console never denies; only the daemon does. The message is a non-blocking warning — use Banner.
-- **Anatomy:** Deny-kind eyebrow, the verbatim reason, optional next-step detail.
+- **Anatomy:** Critical dot + caps deny-kind label, the verbatim reason, an optional detail, a ways-forward footer of two presentational actions per kind.
 - **Variants & states:** close-gate, cost-cap
-- **Accessibility:** role=alert; the kind is named in text, not color alone.
+- **Accessibility:** role=status (informational, not an interruption); the kind is named in text, not color alone.
 - **Related:** Banner, InlineMessage
 
 ### EmptyState

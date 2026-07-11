@@ -22,6 +22,6 @@ export interface RevealConfig {
 export const defaultReveal: RevealConfig = {
   text: { variant: 'blurIn', durationMs: 190 },
   caret: false,
-  reasoning: { mode: 'shimmer', collapseDelayMs: 900, collapseDurationMs: 320 },
+  reasoning: { mode: 'auto-expand', collapseDelayMs: 900, collapseDurationMs: 320 },
   block: { variant: 'blurRise', durationMs: 500, staggerMs: 65, staggerCap: 6 },
 };

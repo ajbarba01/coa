@@ -1,7 +1,4 @@
-import { Ban, CircleDollarSign } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { cx } from '../lib/cx.js';
-import { Icon } from '../icon/Icon.js';
 
 /** The only two real blocks in the system: the close-gate and the cost-cap. */
 export type DenyKind = 'close-gate' | 'cost-cap';
@@ -15,35 +12,68 @@ export interface DenyNoticeProps {
   className?: string;
 }
 
-const kindIcon: Record<DenyKind, LucideIcon> = { 'close-gate': Ban, 'cost-cap': CircleDollarSign };
-const kindSource: Record<DenyKind, string> = {
-  'close-gate': 'Blocked at close',
-  'cost-cap': 'Cost cap',
+/** Caps label + the two presentational ways-forward per deny kind. Wired to no
+ *  navigation here (console-ui has no router seam) — the surfaces they name
+ *  (settings/budget, cost, flags, timeline) are a later task's concern. */
+const DENY_COPY: Record<DenyKind, { label: string; ways: { act: string; hint: string }[] }> = {
+  'cost-cap': {
+    label: 'cost cap',
+    ways: [
+      { act: 'raise the cap', hint: 'settings · budget' },
+      { act: 'review spend', hint: 'cost surface' },
+    ],
+  },
+  'close-gate': {
+    label: 'close gate',
+    ways: [
+      { act: 'review the flags', hint: 'flags surface' },
+      { act: 'see the record', hint: 'timeline' },
+    ],
+  },
 };
 
-/** Surfaces a deny the daemon already issued. It gates nothing itself. */
+/** Surfaces a deny the daemon already issued. It gates nothing itself.
+ *
+ *  One of the only two blocks in the whole system (SC-1 — help, never cage): it must
+ *  read as a firm, legible stop with a reason and a way forward, not an alarm — no
+ *  fill, no modal, no scold. The critical dot is the only red; the reason is the
+ *  daemon's, verbatim. `role="status"` (not "alert") — it is informational, not an
+ *  interruption. */
 export function DenyNotice({
   kind,
   reason,
   detail,
   className,
 }: DenyNoticeProps): React.JSX.Element {
+  const copy = DENY_COPY[kind];
   return (
     <div
-      role="alert"
+      role="status"
       data-deny-kind={kind}
-      className={cx(
-        'flex items-start gap-2 rounded-surface border border-danger/50 bg-danger-tint px-3 py-2 text-label text-danger-text',
-        className,
-      )}
+      className={cx('rounded-r2 border border-s4 bg-s2 px-3.5 py-3', className)}
     >
-      <Icon name={kindIcon[kind]} size={16} className="mt-0.5 shrink-0" />
-      <div className="flex-1">
-        <div className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
-          {kindSource[kind]}
-        </div>
-        <div className="font-medium text-fg">{reason}</div>
-        {detail !== undefined && <div className="text-muted">{detail}</div>}
+      <div className="flex items-center gap-2">
+        <span aria-hidden className="inline-block size-2 flex-none rounded-full bg-crit" />
+        <span className="font-mono text-caps tracking-[0.07em] text-s9 uppercase">
+          {copy.label}
+        </span>
+        <span className="ml-auto font-mono text-caps text-s6">stopped by the daemon</span>
+      </div>
+      <div className="mt-1.5 text-body leading-[1.5] text-s11">{reason}</div>
+      {detail !== undefined && <div className="mt-1 text-meta text-s7">{detail}</div>}
+      <div className="mt-2.5 flex items-center gap-4 border-t border-s3 pt-2">
+        {copy.ways.map((w) => (
+          <button
+            key={w.act}
+            type="button"
+            className="slip group flex cursor-pointer items-baseline gap-1.5 font-mono text-meta text-s9 hover:text-s11"
+          >
+            <span className="underline decoration-s6 decoration-dotted underline-offset-[3px] group-hover:decoration-s8">
+              {w.act}
+            </span>
+            <span className="text-s6">{w.hint}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

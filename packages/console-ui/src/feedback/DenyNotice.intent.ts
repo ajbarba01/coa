@@ -9,8 +9,9 @@ export const denyNoticeIntent: ComponentIntent = assertIntent({
     'You are tempted to block or gate an action in the UI — the console never denies; only the daemon does.',
     'The message is a non-blocking warning — use Banner.',
   ],
-  anatomy: 'Deny-kind eyebrow, the verbatim reason, optional next-step detail.',
+  anatomy:
+    'Critical dot + caps deny-kind label, the verbatim reason, an optional detail, a ways-forward footer of two presentational actions per kind.',
   variantsStates: ['close-gate', 'cost-cap'],
-  accessibility: 'role=alert; the kind is named in text, not color alone.',
+  accessibility: 'role=status (informational, not an interruption); the kind is named in text, not color alone.',
   related: ['Banner', 'InlineMessage'],
 });

@@ -1,16 +1,15 @@
-import { ArrowUp, ChevronRight, Circle, CircleCheck, CircleDot } from 'lucide-react';
+import { ArrowUp } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../actions/Button.js';
 import { CopyButton } from '../actions/CopyButton.js';
 import { IconButton } from '../actions/IconButton.js';
-import { Code } from '../data/Code.js';
 import { DenyNotice } from '../feedback/DenyNotice.js';
-import { Spinner } from '../feedback/Spinner.js';
 import { findMatches } from './find.js';
 import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
-import { defaultReveal, type BlockVariant } from './reveal.js';
+import { defaultReveal } from './reveal.js';
 import { StreamingMarkdown } from './StreamingMarkdown.js';
+import { formatTokens } from './tokenEstimate.js';
 import { ToolCard } from './ToolCard.js';
 import { nearBottom, previousPromptIndex } from './scrollState.js';
 import { cx } from '../lib/cx.js';
@@ -238,45 +237,42 @@ function ThinkingCard({
   // The duration is read from the PERSISTED frame (M8 stamps it from the delta→settle timing),
   // never measured live here — a reloaded block never streamed, so a live wall-clock could not
   // reproduce it, which was the "reverts to Thinking on reload" mismatch. A settled block is
-  // past-tense regardless ("Thought"), with the seconds only when the duration is known.
+  // past-tense regardless ("thought"), with the seconds only when the duration is known.
   const secs = durationMs !== undefined ? Math.max(1, Math.round(durationMs / 1000)) : undefined;
   const label =
     streaming === true
-      ? `Thinking${tokenSuffix}`
-      : `${secs !== undefined ? `Thought for ${secs}s` : 'Thought'}${tokenSuffix}`;
+      ? `thinking${tokenSuffix}`
+      : `${secs !== undefined ? `thought for ${secs}s` : 'thought'}${tokenSuffix}`;
   // `shimmer` mode: the collapsed label shimmers while the trace streams (no auto-expand).
   const shimmering = streaming === true && cfg.mode === 'shimmer';
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col">
       <button
         type="button"
         onClick={() => {
           setUserTouched(true);
           setOpen((v) => !v);
         }}
-        className="group flex items-center gap-1.5 text-left motion-reduce:transition-none"
         aria-expanded={open}
+        className="slip group flex cursor-pointer items-center gap-1.5 self-start py-px font-mono text-meta text-s8 hover:text-s10"
       >
-        <ChevronRight
+        <span
           aria-hidden
-          size={12}
-          className={cx(
-            'shrink-0 transition-transform motion-reduce:transition-none',
-            open && 'rotate-90',
-          )}
-        />
+          className={cx('slip-move inline-block text-[9px] text-s6', open && 'rotate-90')}
+        >
+          ▸
+        </span>
         <span
           className={cx(
-            'text-eyebrow uppercase tracking-[0.06em] transition-colors group-hover:text-muted',
-            shimmering ? 'cx-shimmer' : 'text-faint',
-            streaming === true && !shimmering && 'animate-pulse',
+            shimmering && 'cx-shimmer',
+            streaming === true && !shimmering && 'motion-safe:animate-pulse',
           )}
         >
           {label}
         </span>
       </button>
       <div
-        className="cx-collapse pl-4.5"
+        className="cx-collapse pl-4"
         data-open={open ? 'true' : 'false'}
         aria-hidden={open ? undefined : true}
         style={{ '--collapse-dur': `${cfg.collapseDurationMs}ms` } as React.CSSProperties}
@@ -284,7 +280,7 @@ function ThinkingCard({
         <div className="cx-collapse-inner">
           {/* `italic` cascades into the Markdown prose; `muted` keeps the reasoning trace in
               the quiet secondary color (Markdown otherwise renders in the primary fg). */}
-          <div className="py-0.5 text-label italic">
+          <div className="pt-1 text-code leading-[1.6] text-s9 italic">
             {streaming === true ? (
               <StreamingMarkdown source={text} muted perWord />
             ) : (
@@ -294,6 +290,44 @@ function ThinkingCard({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Maps a live subagent event to the indicator law's state vocabulary (a dot is state,
+ *  never a word). `rollup` is handled separately by its own success/failure check. */
+const SUB_STATUS: Record<
+  Exclude<Extract<TranscriptFrame, { kind: 'subagent' }>['event'], 'rollup'>,
+  'running' | 'needs-you' | 'idle' | 'done'
+> = {
+  'spawn-proposal': 'needs-you',
+  spawn: 'running',
+  running: 'running',
+  idle: 'idle',
+  done: 'done',
+};
+
+const SUBAGENT_DOT_COLOR: Record<'running' | 'needs-you' | 'idle' | 'done' | 'critical', string> = {
+  running: 'bg-run',
+  'needs-you': 'bg-warn',
+  idle: 'bg-s5',
+  done: 'bg-ok',
+  critical: 'bg-crit',
+};
+
+/** A small decorative status dot for the subagent row, matching the sand-scale state
+ *  vocabulary used elsewhere in the kit (blue = running, amber = needs-you, red =
+ *  critical, green = done, grey = idle). Adjacent text always carries the meaning, so
+ *  the dot itself is `aria-hidden`. */
+function SubagentDot({
+  status,
+}: {
+  status: 'running' | 'needs-you' | 'idle' | 'done' | 'critical';
+}): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      className={cx('inline-block size-[5px] flex-none rounded-full', SUBAGENT_DOT_COLOR[status])}
+    />
   );
 }
 
@@ -397,8 +431,17 @@ function RowShell({
   // `self-stretch` gutter spans the full item height (padding included) and consecutive
   // rows' lines abut into one unbroken spine. Putting the padding on the row instead
   // leaves the line covering only the content box, so every gap between rows shows.
+  //
+  // A depth>0 row wears a left hairline rail (`indent` is only set when nested — see
+  // TranscriptRow). Virtuoso renders each row independently, so a run of nested rows
+  // can't share one wrapping rail the way the non-virtualized proto does (that would
+  // require de-virtualizing); giving every nested row its OWN border at the same left
+  // offset reads as one continuous line across the run instead.
   return (
-    <div style={indent} className="flex gap-3 px-2">
+    <div
+      style={indent}
+      className={cx('flex gap-3 px-2', indent !== undefined && 'border-l border-s3')}
+    >
       <SpineGutter
         tone={tone}
         lineTop={!isUser && spineTop}
@@ -432,31 +475,66 @@ export function TranscriptRow({
   spineBottom?: boolean | undefined;
 }): React.JSX.Element {
   const depth = 'depth' in frame ? frame.depth : undefined;
-  const indent = depth ? { marginLeft: depth * 16 } : undefined;
+  // Left padding scaled by depth doubles as the nesting indent AND the space between
+  // the hairline rail (drawn by RowShell's `border-l`, keyed off this same `indent`
+  // object) and the row's own content.
+  const indent = depth ? { paddingLeft: depth * 16 } : undefined;
 
   if (frame.kind === 'approval') {
     return (
-      <RowShell
-        frame={frame}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-        indent={indent}
-        className="py-2"
-      >
-        <div className="rounded-surface border border-border-default bg-raised p-2">
-          <div className="flex items-center gap-2 text-label">
-            <span className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
-              approval
+      frame.resolved !== undefined ? (
+        // The resolved receipt (proto ApprovalRow) — an answered question earns no card,
+        // just one quiet line taking the request's place in history.
+        <RowShell
+          frame={frame}
+          spineTop={spineTop}
+          spineBottom={spineBottom}
+          indent={indent}
+          className="py-0.5"
+        >
+          <div className="slip-enter flex items-center gap-2 font-mono text-code">
+            <span
+              aria-hidden
+              className={cx(
+                'w-3 text-center',
+                frame.resolved === 'approved' ? 'text-ok/70' : 'text-s7',
+              )}
+            >
+              {frame.resolved === 'approved' ? '✓' : '—'}
             </span>
-            <span className="font-medium text-fg">{frame.tool}</span>
-            <span className="min-w-0 flex-1 truncate text-muted">{frame.summary}</span>
-            {frame.diffStat !== undefined && (
-              <span className="text-caption text-faint">{frame.diffStat}</span>
-            )}
+            <span className="text-s7">{frame.resolved}</span>
+            <span className="text-s8">{frame.tool}</span>
+            <span className="truncate text-s7">{frame.summary}</span>
           </div>
-          {frame.resolved !== undefined ? (
-            <div className="mt-1.5 text-caption text-muted">Request {frame.resolved}.</div>
-          ) : (
+        </RowShell>
+      ) : (
+        // PENDING — unchanged for now. The final design docks this to the composer
+        // (it blocks the input, so it belongs at the input); until that composer exists,
+        // removing this card would leave a pending approval rendering nowhere.
+        //
+        // DEFERRED LEGACY ISLAND: the card body below is the one place in this file that
+        // still wears the pre-sand semantic tokens (rounded-surface/border-border-default/
+        // bg-raised/text-fg/text-muted/text-faint/text-label/text-eyebrow/text-caption).
+        // It is left alone deliberately — the composer takes ownership of pending
+        // approvals in a later task, so re-skinning this card now would be thrown away.
+        <RowShell
+          frame={frame}
+          spineTop={spineTop}
+          spineBottom={spineBottom}
+          indent={indent}
+          className="py-2"
+        >
+          <div className="rounded-surface border border-border-default bg-raised p-2">
+            <div className="flex items-center gap-2 text-label">
+              <span className="text-eyebrow font-medium uppercase tracking-[0.06em] text-faint">
+                approval
+              </span>
+              <span className="font-medium text-fg">{frame.tool}</span>
+              <span className="min-w-0 flex-1 truncate text-muted">{frame.summary}</span>
+              {frame.diffStat !== undefined && (
+                <span className="text-caption text-faint">{frame.diffStat}</span>
+              )}
+            </div>
             <div className="mt-1.5 flex justify-end gap-2">
               <Button
                 variant="tertiary"
@@ -473,9 +551,9 @@ export function TranscriptRow({
                 Approve
               </Button>
             </div>
-          )}
-        </div>
-      </RowShell>
+          </div>
+        </RowShell>
+      )
     );
   }
 
@@ -488,9 +566,13 @@ export function TranscriptRow({
   }
 
   if (frame.kind === 'raw') {
+    // D85 — the mask comes off: plain mono, no chrome, no reveal, no interpretation.
+    // Never animated (see `revealSuppressed`), so no entrance/reveal class lands here.
     return (
       <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} className="py-0.5">
-        <Code block>{frame.text}</Code>
+        <div className="px-0.5 font-mono text-code leading-[1.7] whitespace-pre-wrap text-s9">
+          {frame.text}
+        </div>
       </RowShell>
     );
   }
@@ -498,35 +580,77 @@ export function TranscriptRow({
   if (frame.kind === 'note') {
     // A console-local synthetic system note (e.g. a mid-session model switch) — never
     // sent to the agent, so it renders as a quiet centered rule rather than a turn: no
-    // spine dot emphasis, no gutter, just a flanked caption.
+    // spine dot emphasis, no gutter, just a flanked caption. Neither the user's voice nor
+    // the agent's, so it reads as neither.
     return (
-      <div className="flex items-center gap-2 px-3 py-2 text-caption text-faint">
-        <span className="h-px flex-1 bg-hairline" />
-        <span>{frame.text}</span>
-        <span className="h-px flex-1 bg-hairline" />
+      <div className="flex items-center gap-3 py-1 font-mono text-meta text-s7">
+        <span aria-hidden className="h-px flex-1 bg-s3" />
+        <span className="max-w-[70%] text-center">{frame.text}</span>
+        <span aria-hidden className="h-px flex-1 bg-s3" />
       </div>
     );
   }
 
   if (frame.kind === 'subagent') {
+    const name = frame.childWorktree.split('/').at(-1) ?? frame.childWorktree;
     const r = frame.rollup;
+    if (frame.event === 'rollup') {
+      // The receipt a finished child leaves behind — unboxed: name, its costs, status.
+      const bits: string[] = [];
+      if (r?.tools !== undefined) bits.push(`${r.tools} tools`);
+      if (r?.tokens !== undefined) bits.push(`${formatTokens(r.tokens)} tok`);
+      if (r?.cost !== undefined) bits.push(`$${r.cost.toFixed(2)}`);
+      return (
+        <RowShell
+          frame={frame}
+          spineTop={spineTop}
+          spineBottom={spineBottom}
+          indent={indent}
+          className="py-0.5"
+        >
+          <div className="flex items-center gap-2 font-mono text-code">
+            <span aria-hidden className="w-3 text-center font-mono text-s7">
+              ⎇
+            </span>
+            <b className="font-[550] text-s9">{name}</b>
+            <SubagentDot status={r?.status === 'failed' ? 'critical' : 'done'} />
+            <span className="font-mono text-meta text-s6">{bits.join(' · ')}</span>
+            {r?.status !== undefined && (
+              <span className="font-mono text-meta text-s7">{r.status}</span>
+            )}
+          </div>
+        </RowShell>
+      );
+    }
     return (
       <RowShell
         frame={frame}
         spineTop={spineTop}
         spineBottom={spineBottom}
         indent={indent}
-        className="py-2"
+        className="py-0.5"
       >
-        <div className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2 py-1 text-caption">
-          <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">subagent</span>
-          <span className="text-muted">{frame.event}</span>
-          {r !== undefined && (
-            <span className="flex items-center gap-2 text-muted">
-              {r.tools !== undefined && <span>{r.tools} tools</span>}
-              {r.tokens !== undefined && <span>{r.tokens} tok</span>}
-              {r.cost !== undefined && <span>${r.cost.toFixed(2)}</span>}
-              {r.status !== undefined && <span>{r.status}</span>}
+        <div className="group flex items-center gap-2 font-mono text-code">
+          <span aria-hidden className="w-3 text-center font-mono text-s7">
+            ⎇
+          </span>
+          <b className="font-[550] text-s9">{name}</b>
+          <SubagentDot status={SUB_STATUS[frame.event]} />
+          <span className="font-mono text-meta text-s6">
+            {frame.event === 'spawn-proposal'
+              ? 'proposed'
+              : frame.event === 'spawn'
+                ? 'spawned'
+                : frame.event}
+          </span>
+          {(frame.event === 'running' || frame.event === 'spawn') && (
+            <span className="hidden gap-2 font-mono text-meta text-s8 group-hover:flex">
+              <button type="button" className="slip cursor-pointer hover:text-s10">
+                watch
+              </button>
+              <button type="button" className="slip cursor-pointer hover:text-s10">
+                stop
+              </button>
             </span>
           )}
         </div>
@@ -559,8 +683,9 @@ export function TranscriptRow({
   }
 
   if (frame.kind === 'plan') {
-    const glyph = { pending: Circle, 'in-progress': CircleDot, done: CircleCheck } as const;
-    const label = { pending: 'pending', 'in-progress': 'in progress', done: 'done' } as const;
+    // Working memory, not output — no box. The in-progress marker is the transcript's
+    // one blue element; done recedes (never struck through), pending waits.
+    const done = frame.items.filter((it) => it.status === 'done').length;
     return (
       <RowShell
         frame={frame}
@@ -569,21 +694,40 @@ export function TranscriptRow({
         indent={indent}
         className="py-2"
       >
-        <div className="rounded-surface border border-hairline bg-subtle p-2">
-          <div className="text-eyebrow uppercase tracking-[0.06em] text-faint">plan</div>
-          <ul className="mt-1 flex flex-col gap-1">
-            {frame.items.map((it, i) => {
-              const Glyph = glyph[it.status];
-              return (
-                <li key={i} className="flex items-center gap-2 text-label text-fg">
-                  <Glyph aria-hidden size={14} className="shrink-0 text-muted" />
-                  <span className="sr-only">{label[it.status]}</span>
-                  <span className={cx(it.status === 'done' && 'text-muted line-through')}>
-                    {it.text}
-                  </span>
-                </li>
-              );
-            })}
+        <div className="flex flex-col gap-1">
+          <div className="font-mono text-caps tracking-[0.07em] text-s7 uppercase">
+            plan{' '}
+            <span className="tracking-normal text-s6">
+              · {done}/{frame.items.length}
+            </span>
+          </div>
+          <ul className="flex flex-col gap-[3px]">
+            {frame.items.map((it, i) => (
+              <li key={i} className="flex items-baseline gap-2 text-sec leading-[1.45]">
+                <span
+                  aria-hidden
+                  className={cx(
+                    'slip w-3 flex-none text-center font-mono text-[11px]',
+                    it.status === 'done' && 'text-s6',
+                    it.status === 'in-progress' && 'font-[550] text-run',
+                    it.status === 'pending' && 'text-s6',
+                  )}
+                >
+                  {it.status === 'done' ? '✓' : it.status === 'in-progress' ? '›' : '○'}
+                </span>
+                <span className="sr-only">{it.status}</span>
+                <span
+                  className={cx(
+                    'slip',
+                    it.status === 'done' && 'text-s7',
+                    it.status === 'in-progress' && 'text-s12',
+                    it.status === 'pending' && 'text-s9',
+                  )}
+                >
+                  {it.text}
+                </span>
+              </li>
+            ))}
           </ul>
         </div>
       </RowShell>
@@ -591,19 +735,32 @@ export function TranscriptRow({
   }
 
   if (frame.kind === 'error') {
+    // Information, not an alarm: one line, the mark and the origin chip carry the
+    // classification, the message stays ink.
     return (
       <RowShell
         frame={frame}
         spineTop={spineTop}
         spineBottom={spineBottom}
         indent={indent}
-        className="py-2"
+        className="py-0.5"
       >
-        <div
-          role="alert"
-          className="rounded-surface border border-danger/40 bg-danger-tint px-2 py-1.5 text-label text-danger-text"
-        >
-          {frame.message}
+        <div role="alert" className="flex items-baseline gap-2">
+          <span
+            aria-hidden
+            className="w-3 flex-none text-center font-mono text-code font-[550] text-crit"
+          >
+            ✕
+          </span>
+          <span className="min-w-0 text-sec leading-[1.5] text-s10">{frame.message}</span>
+          {frame.origin !== undefined && (
+            <span
+              data-origin-chip
+              className="flex-none rounded-r1 border border-s3 px-1 py-px font-mono text-caps text-s6"
+            >
+              {frame.origin}
+            </span>
+          )}
         </div>
       </RowShell>
     );
@@ -629,17 +786,17 @@ export function TranscriptRow({
         data-nested={nested}
         className={cx(
           'min-w-0',
-          isUser &&
-            'my-1 rounded-surface border border-hairline-lighter bg-raised px-3 py-2 shadow-sm',
+          isUser && 'ml-auto max-w-[70%] rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
         )}
       >
-        {frame.kind === 'text' && (
+        {frame.kind === 'text' && isUser && (
+          <div className="whitespace-pre-wrap text-body">{frame.text}</div>
+        )}
+        {frame.kind === 'text' && !isUser && (
           <div className="group relative">
-            {!isUser && (
-              <div className="absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100">
-                <CopyButton text={frame.text} />
-              </div>
-            )}
+            <div className="absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100">
+              <CopyButton text={frame.text} />
+            </div>
             {frame.streaming === true ? (
               <StreamingMarkdown source={frame.text} />
             ) : (
@@ -768,11 +925,14 @@ function formatWorkingElapsed(sinceMs: number, nowMs: number): string {
   return `${Math.floor((nowMs - sinceMs) / 1000)}s`;
 }
 
-/** The Virtuoso `Footer` slot rendered while a turn is in flight: a small spinner + a
- *  `working…` label, plus a live elapsed counter once `busySince` is known. Owns its
- *  own 1s interval (mirrors `RunningPill`'s pattern), cleaned up on unmount. Exported so
- *  it is unit-testable directly — a Virtuoso `components.Footer` slot cannot be reached
- *  through the jsdom-free container tests. */
+/** The Virtuoso `Footer` slot rendered while a turn is in flight: the running dot +
+ *  `working` + a live elapsed counter once `busySince` is known, quiet meta/mono chrome
+ *  matching the design reference's `WorkingRow` — it states that the loop is working, it
+ *  does not perform it (no boxed spinner). Owns its own 1s interval (mirrors
+ *  `RunningPill`'s pattern), cleaned up on unmount. `role="status"`/`aria-live="polite"`
+ *  carry the announcement now that the text itself is the content (the previous `Spinner`
+ *  supplied that pairing). Exported so it is unit-testable directly — a Virtuoso
+ *  `components.Footer` slot cannot be reached through the jsdom-free container tests. */
 export function WorkingFooter({
   busySince,
 }: {
@@ -788,9 +948,19 @@ export function WorkingFooter({
     return () => clearInterval(t);
   }, [busySince]);
   return (
-    <div className="flex items-center justify-center gap-2 px-2 py-1.5 text-body text-muted">
-      <Spinner label="working" size={14} />
-      <span>working…{busySince !== undefined && ` ${formatWorkingElapsed(busySince, now)}`}</span>
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-center justify-center gap-2 px-2 py-1.5 font-mono text-meta text-s7"
+    >
+      <span
+        aria-hidden
+        className="motion-safe:animate-pulse inline-block size-[5px] flex-none rounded-full bg-run"
+      />
+      <span>working</span>
+      {busySince !== undefined && (
+        <span className="text-s6">{formatWorkingElapsed(busySince, now)}</span>
+      )}
     </div>
   );
 }
@@ -829,29 +999,6 @@ export function nextBatchIndex(): number {
 // enter. Child mount effects run before the parent's, so initial rows read `false`.
 let liveMountReady = false;
 
-/** The WAAPI keyframes for each block-entrance variant (GPU-only). */
-function blockKeyframes(v: Exclude<BlockVariant, 'none'>): Keyframe[] {
-  switch (v) {
-    case 'blurRise':
-      return [
-        { opacity: 0, filter: 'blur(6px)', transform: 'translateY(4px)' },
-        { opacity: 1, filter: 'blur(0px)', transform: 'none' },
-      ];
-    case 'fadeRise':
-      return [
-        { opacity: 0, transform: 'translateY(6px)' },
-        { opacity: 1, transform: 'none' },
-      ];
-    case 'fade':
-      return [{ opacity: 0 }, { opacity: 1 }];
-    case 'scale':
-      return [
-        { opacity: 0, transform: 'scale(0.985) translateY(3px)' },
-        { opacity: 1, transform: 'none' },
-      ];
-  }
-}
-
 /** Memoized so a streamed frame re-renders only the appended row, and `content-visibility`
  *  lets the browser skip layout/paint for off-screen rows while keeping them in the DOM
  *  (full-transcript selection + Ctrl-F). `contain-intrinsic-size` is a height estimate that
@@ -871,37 +1018,50 @@ const MemoRow = memo(function MemoRow({
   onOpenPath?: OpenPathFn | undefined;
   onOpenUrl?: OpenUrlFn | undefined;
   index: number;
-  /** True when this row is the active find-in-conversation match — rings the row so
+  /** True when this row is the active find-in-conversation match — washes the row so
    *  prev/next navigation has a visible landing target. */
   findActive?: boolean | undefined;
   spineTop?: boolean | undefined;
   spineBottom?: boolean | undefined;
 }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
-  // Whole-block entrance on live arrival, via the Web Animations API (guarded — jsdom stubs
-  // `animate` inconsistently). Skipped for the per-word-reveal channels + raw (revealSuppressed),
-  // for history on session-open (liveMountReady), for `variant: 'none'`, and under
-  // prefers-reduced-motion. A coalesced batch cascades via nextBatchIndex.
-  useLayoutEffect(() => {
-    const cfg = defaultReveal.block;
-    if (cfg.variant === 'none' || revealSuppressed(frame) || !liveMountReady) return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const delay = Math.min(nextBatchIndex(), cfg.staggerCap) * cfg.staggerMs;
-    ref.current?.animate?.(blockKeyframes(cfg.variant), {
-      duration: cfg.durationMs,
-      delay,
-      easing: 'cubic-bezier(0.2, 0.65, 0.3, 1)',
-      fill: 'both',
-    });
-  }, []);
+  const cfg = defaultReveal.block;
+  // Whole-row entrance on live arrival, via the SAME `.cx-block-enter` mount keyframe
+  // `StreamingMarkdown`'s `CompletedBlock` uses for a completed prose block — not a
+  // parallel WAAPI implementation. The previous approach called `ref.current.animate()`
+  // directly: a raw `Element.animate()` times its own independent `Animation` object and
+  // never reads the `animation-duration` CSS property, so it silently kept animating
+  // (at a hardcoded, non-kit easing) under the in-app `[data-motion='reduce']` toggle —
+  // only the OS-level `prefers-reduced-motion` media query was ever honored. The CSS
+  // class is covered by that global rule for free, same as every other kit animation.
+  // Skipped for the per-word-reveal channels + raw (revealSuppressed), for history on
+  // session-open (liveMountReady), and for `variant: 'none'`. The `useState` lazy
+  // initializer runs exactly once per mount (mirroring the old effect's `[]` deps), so a
+  // coalesced batch still cascades via `nextBatchIndex` — now applied as an
+  // `animation-delay` instead of a WAAPI start delay.
+  const [entranceDelayMs] = useState<number | undefined>(() =>
+    cfg.variant !== 'none' && !revealSuppressed(frame) && liveMountReady
+      ? Math.min(nextBatchIndex(), cfg.staggerCap) * cfg.staggerMs
+      : undefined,
+  );
+  const entering = entranceDelayMs !== undefined;
   return (
     <div
-      ref={ref}
       data-row-index={index}
       data-find-active={findActive || undefined}
-      className={cx(findActive && 'rounded-surface ring-1 ring-info bg-info-tint')}
+      data-enter={entering ? cfg.variant : undefined}
+      className={cx(
+        entering && 'cx-block-enter',
+        // A quiet amber wash, not a ring — a highlight, not a focus/error affordance.
+        findActive && '-mx-2 rounded-r1 bg-warn/8 px-2',
+      )}
       style={
-        { contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties
+        {
+          contentVisibility: 'auto',
+          containIntrinsicSize: 'auto 60px',
+          ...(entering
+            ? { '--enter-dur': `${cfg.durationMs}ms`, animationDelay: `${entranceDelayMs}ms` }
+            : {}),
+        } as React.CSSProperties
       }
     >
       <TranscriptRow
@@ -1187,7 +1347,7 @@ export function Transcript({
           label="Previous prompt"
           variant="secondary"
           size="sm"
-          className="pointer-events-auto border-hairline-lighter bg-raised"
+          className="pointer-events-auto border-s4 bg-s2"
           onClick={jumpToPrompt}
         />
       </div>
@@ -1205,7 +1365,7 @@ export function Transcript({
           <Button
             variant="secondary"
             size="sm"
-            className="pointer-events-auto border-hairline-lighter bg-raised"
+            className="pointer-events-auto border-s4 bg-s2"
             onClick={jumpToLatest}
           >
             Jump to latest

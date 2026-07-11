@@ -127,16 +127,16 @@ function PaneOverlayHost({ state, onClose }: { state: OverlayState; onClose: () 
       />
       <div
         ref={panelRef}
-        className="relative m-3 flex max-h-[calc(100%-1.5rem)] w-full flex-col overflow-hidden rounded-overlay border border-border-default bg-raised shadow-xl"
+        className="relative m-3 flex max-h-[calc(100%-1.5rem)] w-full flex-col overflow-hidden rounded-r3 border border-s5 bg-s2 shadow-xl"
       >
-        <div className="flex items-center justify-between border-b border-hairline px-3 py-2">
-          <span className="text-label font-medium text-fg">{title}</span>
+        <div className="flex items-center justify-between border-b border-s4 px-3 py-2">
+          <span className="truncate font-mono text-sec text-s11">{title}</span>
           <button
             ref={closeRef}
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className={cx('rounded-control p-0.5 text-muted hover:bg-element-hover', focusRing)}
+            className={cx('rounded-r1 p-0.5 text-s7 hover:bg-s4 hover:text-s10', focusRing)}
           >
             <X aria-hidden size={16} />
           </button>

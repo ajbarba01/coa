@@ -74,4 +74,17 @@ describe('PaneOverlay', () => {
     render(<NullProbe />);
     expect(screen.getByText('no-provider')).toBeInTheDocument();
   });
+
+  it('wears the sand scale, not the legacy semantic tokens', async () => {
+    render(
+      <PaneOverlayProvider>
+        <Opener />
+      </PaneOverlayProvider>,
+    );
+    await userEvent.click(screen.getByText('open'));
+    const panel = screen.getByRole('dialog').querySelector('.relative.m-3');
+    expect(panel?.className).toMatch(/border-s5/);
+    expect(panel?.className).toMatch(/bg-s2/);
+    expect(panel?.className).not.toMatch(/border-border-default|bg-raised|rounded-overlay/);
+  });
 });
