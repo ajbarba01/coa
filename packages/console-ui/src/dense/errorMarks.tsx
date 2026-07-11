@@ -7,7 +7,7 @@ import { Fragment, type ReactNode } from 'react';
 const MARKERS = /error TS\d+|Exit code: \d+|^error:/gmu;
 
 /** Wrap error markers (`error TS\d+`, `Exit code: \d+`, a leading `error:`) in a strong
- *  `danger` token span, layered over whatever tint the surrounding body already applies.
+ *  `crit` token span, layered over whatever tint the surrounding body already applies.
  *  Byte-faithful (D128): the returned fragments' combined textContent equals the input —
  *  markers are span-wrapped, never rewritten. Pure; never throws. */
 export function markErrors(text: string): ReactNode {
@@ -19,7 +19,7 @@ export function markErrors(text: string): ReactNode {
   while ((m = MARKERS.exec(text)) !== null) {
     if (m.index > last) out.push(<Fragment key={key++}>{text.slice(last, m.index)}</Fragment>);
     out.push(
-      <span key={key++} className="text-danger font-medium">
+      <span key={key++} className="font-[550] text-crit">
         {m[0]}
       </span>,
     );

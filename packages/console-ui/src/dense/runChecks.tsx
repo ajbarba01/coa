@@ -1,10 +1,11 @@
-import { Check, X } from 'lucide-react';
-import { cx } from '../lib/cx.js';
+/** One parsed check result: its name, pass/fail, and an optional duration when the
+ *  digestion can extract one. */
+import { markErrors } from './errorMarks.js';
 
-/** One parsed check result: its name and pass/fail. */
 export interface CheckResult {
   name: string;
   ok: boolean;
+  ms?: number;
 }
 
 /** A parsed `run_checks` summary: the per-check results plus an optional flag count. */
@@ -36,47 +37,67 @@ export function parseChecks(output: string): ChecksSummary | undefined {
 
 export interface RunChecksProps {
   output: string;
+  /** Whether the `run_checks` call failed (`ok === false`). Only matters for the
+   *  unparseable-output fallback below: a parsed summary already surfaces failure through
+   *  its own per-check ✗ marks, but a crash before any check reported (no `name ✓/✗`
+   *  tokens at all) has nothing else to mark it failed — without this the fallback would
+   *  render error output in the same neutral tone as a success. */
+  failed?: boolean | undefined;
 }
 
-/** The structured `run_checks` body: a status chip per check (success/danger token) plus a
- *  flags chip. Defensive — an unparseable output degrades to a plain verbatim preview. */
-export function RunChecks({ output }: RunChecksProps): React.JSX.Element {
+/** The verdict body: a mark (✓/✕) + name per check, an optional right-aligned duration,
+ *  then a footer reading `N passed` and, when any failed, `· M failed`. Defensive — an
+ *  unparseable output degrades to a plain verbatim preview, in the failed treatment (crit
+ *  tint + `markErrors` highlighting, matching the `out` body kind) when the call failed. */
+export function RunChecks({ output, failed = false }: RunChecksProps): React.JSX.Element {
   const parsed = parseChecks(output);
   if (parsed === undefined) {
+    if (failed) {
+      return (
+        <div className="overflow-x-auto whitespace-pre px-3 py-1.5 font-mono text-[11px] leading-[1.65] text-s10">
+          {output.split('\n').map((ln, i) => (
+            <div key={i}>{markErrors(ln)}</div>
+          ))}
+        </div>
+      );
+    }
     return (
-      <div className="overflow-x-auto whitespace-pre px-2.5 py-2 font-mono text-label leading-[1.55] text-muted">
+      <div className="overflow-x-auto whitespace-pre px-3 py-1.5 font-mono text-[11px] leading-[1.65] text-s8">
         {output}
       </div>
     );
   }
+  const failedCount = parsed.checks.filter((c) => !c.ok).length;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2">
-      {parsed.checks.map((c) => (
-        <span
-          key={c.name}
-          className={cx(
-            'inline-flex items-center gap-1 rounded-surface border px-1.5 py-0.5 text-caption',
-            c.ok
-              ? 'border-success/40 bg-success-tint text-success-text'
-              : 'border-danger/40 bg-danger-tint text-danger-text',
+    <div className="py-1.5">
+      {parsed.checks.map((c, i) => (
+        <div key={i} className="flex items-center gap-2.5 px-3 py-[3px] font-mono text-code">
+          {c.ok ? (
+            <span aria-label="passed" className="w-3 text-center text-ok/70">
+              ✓
+            </span>
+          ) : (
+            <span aria-label="failed" className="w-3 text-center font-[550] text-crit">
+              ✕
+            </span>
           )}
-        >
-          {c.ok ? <Check aria-hidden size={11} /> : <X aria-hidden size={11} />}
-          {c.name}
-        </span>
+          <span className={c.ok ? 'text-s9' : 'text-s11'}>{c.name}</span>
+          {c.ms !== undefined && (
+            <span className="ml-auto text-meta text-s6">
+              {c.ms >= 1000 ? `${(c.ms / 1000).toFixed(1)}s` : `${c.ms}ms`}
+            </span>
+          )}
+        </div>
       ))}
-      {parsed.flags !== undefined && (
-        <span
-          className={cx(
-            'inline-flex items-center rounded-surface border px-1.5 py-0.5 text-caption',
-            parsed.flags === 0
-              ? 'border-hairline text-faint'
-              : 'border-warning/40 bg-warning-tint text-warning-text',
-          )}
-        >
-          {parsed.flags} {parsed.flags === 1 ? 'flag' : 'flags'}
-        </span>
-      )}
+      <div className="mt-1 border-t border-s3 px-3 pt-1.5 pb-0.5 font-mono text-meta text-s7">
+        {parsed.checks.length - failedCount} passed
+        {failedCount > 0 && (
+          <>
+            {' · '}
+            <span className="text-crit">{failedCount} failed</span>
+          </>
+        )}
+      </div>
     </div>
   );
 }

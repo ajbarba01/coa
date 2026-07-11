@@ -1,16 +1,15 @@
 // packages/console-ui/src/dense/ToolCard.tsx
-import { Check, Loader2, X } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { cx } from '../lib/cx.js';
 import { usePaneOverlay } from '../layout/PaneOverlay.js';
 import { describeTool, toolTarget } from './toolRegistry.js';
-import { diffLines } from './toolDiff.js';
+import { diffLines, type DiffLine } from './toolDiff.js';
 import { estimateTokens, formatTokens } from './tokenEstimate.js';
 import { languageForPath } from './pathLanguage.js';
 import { clampLines } from './clampLines.js';
 import { markErrors } from './errorMarks.js';
 import { parseMatchLine } from './matchLines.js';
-import { RunChecks } from './runChecks.js';
+import { parseChecks, RunChecks } from './runChecks.js';
 import { ToolDiffView } from './ToolDiffView.js';
 import { SyntaxText } from './syntaxTheme.js';
 
@@ -25,26 +24,144 @@ export interface ToolCardProps {
   /** Open a web URL (WebSearch result links, a WebFetch source) in the default browser.
    *  URLs are plain text when omitted. */
   onOpenUrl?: ((url: string) => void) | undefined;
-  /** Max body lines before truncation + Expand. Default 14. */
+  /** Body lines shown inline before the clamp hands off to the overlay. Default 8. */
   maxLines?: number | undefined;
 }
-
-/** The egress tools whose bodies/headers carry clickable web links (not file paths). */
-const WEB_TOOLS = new Set(['WebSearch', 'WebFetch']);
 
 /** Tools whose output is source we highlight in the preview body (like `Read`): the
  *  symbol/piece/spec fetchers, keyed on the language of their ref path. */
 const PREVIEW_LANG_TOOLS = new Set(['Read', 'get_symbol', 'get_piece', 'get_spec']);
 
-/** Read/search/fetch tools whose body is collapsed by default — the card shows only its
- *  header + an Expand control, and the (often long, rarely-needed) output opens on demand
- *  in the overlay. Edits/writes/commands still show their diff/output inline. */
-const COLLAPSED_TOOLS = new Set(['Read', 'Grep', 'Glob', 'get_symbol', 'get_piece']);
+/** Reads/searches rest closed; edits, writes, commands, checks and every failure rest
+ *  open. OVERRIDE: unions the proto's set with the real card's coa-specific collapsed
+ *  tools (`get_symbol`, `get_piece`) so nothing regresses. */
+const RESTS_COLLAPSED = new Set(['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'get_symbol', 'get_piece']);
 
-/** The rich tool card: a titled header (icon · verb · clickable path · summary · ≈tok ·
- *  status) over a body that leads with a highlighted byte-faithful diff (edits/writes), a
- *  highlighted read preview, or a plain command-output tail — clamped to maxLines, with
- *  Expand opening the full body in the pane overlay (or inline when no provider). */
+/** Body lines shown inline before the clamp hands off to the overlay. */
+const CLAMP = 8;
+
+/** Mono glyph per tool family — the transcript's terminal shorthand. OVERRIDE: coa's own
+ *  read-like fetchers (`get_symbol`/`get_piece`/`get_spec`) share the `Read` glyph — they
+ *  return source/spec text the same way a read does. */
+function toolGlyph(tool: string): string {
+  switch (tool) {
+    case 'Read':
+    case 'get_symbol':
+    case 'get_piece':
+    case 'get_spec':
+      return 'R';
+    case 'Edit':
+      return 'E';
+    case 'Write':
+      return 'W';
+    case 'Bash':
+      return '$';
+    case 'Grep':
+    case 'Glob':
+      return '⌕';
+    case 'WebSearch':
+    case 'WebFetch':
+      return '◍';
+    case 'run_checks':
+      return '✓';
+    default:
+      return '·';
+  }
+}
+
+/** A parsed body, ready to render — the digested shape the real registry/diff/clamp
+ *  helpers produce, mapped onto the design's five body treatments. Not the proto's
+ *  `ToolBody`: the real card keeps deriving its body from `tool`/`input`/`output`/`ok`. */
+type Body =
+  | { kind: 'diff'; lines: DiffLine[]; lang: string | undefined }
+  | { kind: 'code'; text: string; lang: string | undefined }
+  | { kind: 'out'; text: string; fromEnd: boolean }
+  | { kind: 'matches'; tool: string; text: string }
+  | { kind: 'web'; text: string }
+  | { kind: 'checks'; output: string };
+
+/** Resolve a tool call's body. `run_checks` always gets the structured checks body (even
+ *  failed — the per-check ✗ marks already surface the failure; `RunChecks` itself falls
+ *  back to a plain preview, in the failed treatment when `ok === false`, when its output
+ *  doesn't parse). Otherwise a failure takes PRIORITY over every other branch: its output
+ *  renders as the plain error body, always visible (SC-1). A successful WebFetch keeps its
+ *  fetched/digested output in the plain `out` treatment below (see the MAINTAINER OVERRIDE
+ *  comment) — it stays in `RESTS_COLLAPSED` so at rest it's still a quiet one-line receipt. */
+function resolveBody(
+  tool: string,
+  input: string,
+  output: string | undefined,
+  failed: boolean,
+  language: string | undefined,
+): Body | undefined {
+  if (tool === 'run_checks' && output !== undefined && output.length > 0) {
+    return { kind: 'checks', output };
+  }
+  if (failed) {
+    return output !== undefined && output.length > 0 ? { kind: 'out', text: output, fromEnd: true } : undefined;
+  }
+  // MAINTAINER OVERRIDE (deliberate — do not "fix" this back to no-body): the proto's
+  // Gallery caption reads "the row is the receipt" and renders NO body for a successful
+  // WebFetch. The maintainer ruled against that: dropping the fetched/digested extract is
+  // irreversible information loss — it's what the agent actually saw, and re-opening the
+  // URL later can show something different (auth walls, JS rendering, prompt-targeted
+  // summarization). The product's thesis is an honest record, so WebFetch falls through to
+  // the same plain `out` treatment as any other tool's output below — but as a DOCUMENT
+  // (fromEnd: false), not command output: see the `fromEnd` note on the `'out'` case.
+  const edit = parseEdit(tool, input);
+  if (edit !== undefined) {
+    return { kind: 'diff', lines: diffLines(edit.before, edit.after).lines, lang: language };
+  }
+  if (output === undefined || output.length === 0) return undefined;
+  if (tool === 'WebSearch') return { kind: 'web', text: output };
+  if (tool === 'Grep' || tool === 'Glob') return { kind: 'matches', tool, text: output };
+  if (PREVIEW_LANG_TOOLS.has(tool)) return { kind: 'code', text: output, lang: language };
+  return { kind: 'out', text: output, fromEnd: tool !== 'WebFetch' };
+}
+
+/** The header's target-adjacent detail and (right-aligned) meta, derived from the
+ *  registry's `summary` without re-deriving its per-tool composition rules: calling
+ *  `describeTool` with and without `output` isolates the result hint (`resultHint`) from
+ *  the target's own text, the same split the registry already encodes. */
+function deriveHeaderText(
+  tool: string,
+  input: string,
+  output: string | undefined,
+  ok: boolean | undefined,
+  path: string | undefined,
+  line: number | undefined,
+): { targetBare: string; meta: string | undefined } {
+  const bare = describeTool(tool, input).summary;
+  const full = output !== undefined ? describeTool(tool, input, output, ok).summary : bare;
+  let metaText = '';
+  if (path !== undefined) {
+    if (bare.startsWith(path)) {
+      const tail = bare.slice(path.length);
+      const suppressed = line !== undefined && tail.startsWith(':');
+      metaText = suppressed ? '' : tail;
+    } else if (bare.length > 0) {
+      metaText = bare;
+    }
+  }
+  metaText = metaText.replace(/^\s*·\s*/, '').trim();
+  if (metaText.length === 0 && full.length > bare.length) {
+    metaText = full.slice(bare.length).replace(/^\s*·\s*/, '').trim();
+  }
+  if (tool === 'run_checks' && output !== undefined) {
+    const parsed = parseChecks(output);
+    if (parsed !== undefined) {
+      metaText = `${parsed.checks.length} check${parsed.checks.length === 1 ? '' : 's'}`;
+    }
+  }
+  return { targetBare: path === undefined ? bare : '', meta: metaText.length > 0 ? metaText : undefined };
+}
+
+/** The rich tool call: ONE container for both states. The header row is byte-identical
+ *  closed and open — glyph, running dot, verb, linked target, then meta, fail dot, and a
+ *  chevron on the right. Expanding fades the card chrome in and slides the body open
+ *  beneath it, so the change reads as "the result appears", never as a different
+ *  component. Indicator law: RUNNING earns the blue dot; FAILURE earns the red dot and its
+ *  output is always visible (SC-1); SUCCESS renders no dot at all. */
 export function ToolCard({
   tool,
   input,
@@ -52,212 +169,284 @@ export function ToolCard({
   ok,
   onOpenPath,
   onOpenUrl,
-  maxLines = 14,
+  maxLines = CLAMP,
 }: ToolCardProps): React.JSX.Element {
   const overlay = usePaneOverlay();
-  const [inlineExpanded, setInlineExpanded] = useState(false);
-  const { icon: Icon, verb, summary } = describeTool(tool, input, output, ok);
+  const running = output === undefined && ok === undefined;
+  const failed = ok === false;
+  const [open, setOpen] = useState(!RESTS_COLLAPSED.has(tool) || failed);
+  const [inlineFull, setInlineFull] = useState(false);
+
+  const { verb } = describeTool(tool, input, output, ok);
   const target = toolTarget(tool, input);
   const path = target?.path;
+  const line = target?.line;
   // WebFetch's source URL comes from its INPUT `url` — surfaced as a clickable header link
   // (the file-path slot has no meaning for an egress tool).
   const webUrl = tool === 'WebFetch' ? webUrlOf(input) : undefined;
-  const line = target?.line;
-  const linkLabel =
-    path !== undefined ? `${path}${line !== undefined ? `:${line}` : ''}` : undefined;
   const language = path !== undefined ? languageForPath(path) : undefined;
-  const running = output === undefined && ok === undefined;
-  // The detail shown after the path link. When the summary EXTENDS the path (file tools:
-  // a `:range` for reads, a `+N −M` stat for edits) it's the tail past the path — a bare
-  // `:line` restatement of the link's line is suppressed. When the summary is DISJOINT
-  // from the path (symbol/piece tools, whose summary is the ref/symbol name the file path
-  // doesn't contain) it's surfaced whole as a ` · spec`, so the title says more than the
-  // file alone.
-  let extra = '';
-  if (path !== undefined && summary.length > 0) {
-    if (summary.startsWith(path)) {
-      const tail = summary.slice(path.length);
-      extra = line !== undefined && tail.startsWith(':') ? '' : tail;
-    } else {
-      extra = ` · ${summary}`;
-    }
-  }
+
+  const body = running ? undefined : resolveBody(tool, input, output, failed, language);
+  const hasBody = body !== undefined;
+  const shown = open && hasBody;
+
+  const { targetBare, meta: derivedMeta } = deriveHeaderText(tool, input, output, ok, path, line);
+  const meta = derivedMeta ?? (output !== undefined ? `≈ ${formatTokens(estimateTokens(output))} tok` : undefined);
 
   const title = `${verb}${path !== undefined ? ` ${path}` : ''}`;
   const onExpand = (): void => {
-    if (overlay !== null) overlay.open(renderBody(true), title);
-    else setInlineExpanded(true);
+    if (body === undefined) return;
+    if (overlay !== null) {
+      overlay.open(
+        <div className="px-1 py-1">
+          <BodyView
+            body={body}
+            failed={failed}
+            full
+            maxLines={maxLines}
+            onOpenPath={onOpenPath}
+            onOpenUrl={onOpenUrl}
+          />
+        </div>,
+        title,
+      );
+    } else setInlineFull(true);
   };
 
-  function renderBody(full: boolean): ReactNode {
-    if (running) {
-      return <div className="px-2.5 py-2 text-caption text-faint">running…</div>;
-    }
-    // A failure takes PRIORITY over collapse and the diff/preview branches: the output is
-    // shown as a red, always-visible error body (never hidden behind Expand), so a
-    // not-found/unapplied/failed call reads as a failure at a glance (SC-1 surfacing).
-    if (ok === false && output !== undefined && output.length > 0) {
-      return renderPlainBody(full, true);
-    }
-    // WebSearch: each result line ("title — url" + optional snippet) links its URL out.
-    if (tool === 'WebSearch' && output !== undefined && output.length > 0) {
-      const clamped = clampLines(output, maxLines);
-      const shown = full ? output : clamped.shown;
-      return (
-        <>
-          <div className="overflow-x-auto py-1 font-mono text-label leading-[1.55]">
-            {shown.split('\n').map((ln, i) => (
-              <WebRow key={i} line={ln} onOpenUrl={onOpenUrl} />
-            ))}
-          </div>
-          {!full && clamped.truncated && (
-            <ExpandRow hidden={clamped.hiddenCount} onExpand={onExpand} />
-          )}
-        </>
-      );
-    }
-    const edit = parseEdit(tool, input);
-    if (edit !== undefined) {
-      const all = diffLines(edit.before, edit.after).lines;
-      const truncated = all.length > maxLines;
-      const lines = full ? all : all.slice(0, maxLines);
-      return (
-        <>
-          <ToolDiffView lines={lines} language={language} />
-          {!full && truncated && <ExpandRow hidden={all.length - maxLines} onExpand={onExpand} />}
-        </>
-      );
-    }
-    if (output === undefined || output.length === 0) return null;
-    if (tool === 'run_checks') return <RunChecks output={output} />;
-    // Collapsed-by-default read/search tools: header + Expand only until opened; the full
-    // body renders when `full` (in the overlay, or inline without a provider).
-    if (COLLAPSED_TOOLS.has(tool) && !full) {
-      const total = output.split('\n').filter((ln) => ln.length > 0).length;
-      return <ExpandRow hidden={total} onExpand={onExpand} collapsed />;
-    }
-    if (tool === 'Grep' || tool === 'Glob') {
-      const clamped = clampLines(output, maxLines);
-      const shown = full ? output : clamped.shown;
-      return (
-        <>
-          <div className="overflow-x-auto py-1 font-mono text-label leading-[1.55]">
-            {shown.split('\n').map((ln, i) => (
-              <MatchRow key={i} tool={tool} line={ln} onOpenPath={onOpenPath} />
-            ))}
-          </div>
-          {!full && clamped.truncated && (
-            <ExpandRow hidden={clamped.hiddenCount} onExpand={onExpand} />
-          )}
-        </>
-      );
-    }
-    return renderPlainBody(full, false);
-  }
-
-  /** The plain/preview body: a syntax-highlighted preview for reads/symbol source, else a
-   *  markErrors-marked tail. `error` forces the plain, red (`text-danger-text`) treatment
-   *  from the start regardless of tool — the always-visible failure body. */
-  function renderPlainBody(full: boolean, error: boolean): ReactNode {
-    if (output === undefined || output.length === 0) return null;
-    const isTail = !error && tool === 'Bash';
-    // Reads and source-returning symbol tools get syntax highlighting from the file
-    // language; commands (and any error body) stay plain so error tokens mark red.
-    const previewLang = !error && PREVIEW_LANG_TOOLS.has(tool) ? language : undefined;
-    const clamped = clampLines(output, maxLines, isTail ? { fromEnd: true } : undefined);
-    const shown = full ? output : clamped.shown;
-    return (
-      <>
-        <div
-          className={cx(
-            'overflow-x-auto whitespace-pre px-2.5 py-2 font-mono text-label leading-[1.55]',
-            error || ok === false ? 'text-danger-text' : 'text-muted',
-          )}
-        >
-          {shown.split('\n').map((ln, i) => (
-            <div key={i}>
-              {previewLang !== undefined ? (
-                <SyntaxText code={ln} language={previewLang} />
-              ) : (
-                // Plain command/tool output: mark error tokens red over the body tint.
-                markErrors(ln)
-              )}
-            </div>
-          ))}
-        </div>
-        {!full && clamped.truncated && (
-          <ExpandRow hidden={clamped.hiddenCount} onExpand={onExpand} />
-        )}
-      </>
-    );
-  }
-
-  const showInline = inlineExpanded && overlay === null;
-
   return (
-    <div className="overflow-hidden rounded-surface border border-hairline bg-subtle">
-      <div className="flex items-center gap-2 px-2.5 py-1.5">
-        <Icon aria-hidden size={14} className="shrink-0 text-muted" />
-        <span className="shrink-0 text-label font-medium text-fg">{verb}</span>
+    <div
+      className={cx(
+        'slip -mx-2.5 min-w-0 overflow-hidden rounded-r2 border',
+        shown ? 'border-s3 bg-s2' : 'border-transparent',
+      )}
+    >
+      {/* the header — identical in both states; toggles when a body exists */}
+      <div
+        className={cx(
+          'group flex items-center gap-2 px-2.5 py-1.5 font-mono text-code',
+          hasBody && 'slip cursor-pointer hover:bg-s2',
+        )}
+        {...(hasBody
+          ? {
+              role: 'button' as const,
+              tabIndex: 0,
+              'aria-expanded': shown,
+              onClick: () => setOpen((v) => !v),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setOpen((v) => !v);
+                }
+              },
+            }
+          : {})}
+      >
+        <span className="w-3 flex-none text-center text-s7">{toolGlyph(tool)}</span>
+        {running && <span aria-label="running" className="size-[5px] flex-none rounded-full bg-run" />}
+        <span className="flex-none text-s8">{verb}</span>
         {path !== undefined ? (
-          <span className="flex min-w-0 items-center gap-1">
-            {onOpenPath !== undefined ? (
-              <button
-                type="button"
-                onClick={() => onOpenPath(path, line)}
-                className="min-w-0 truncate text-label text-info underline decoration-dotted underline-offset-2 hover:text-info-text"
-              >
-                {linkLabel}
-              </button>
-            ) : (
-              <span className="min-w-0 truncate text-label text-muted">{linkLabel}</span>
-            )}
-            {extra.length > 0 && <span className="shrink-0 text-label text-muted">{extra}</span>}
-          </span>
+          onOpenPath !== undefined ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPath(path, line);
+              }}
+              title="reveal in editor"
+              className="slip min-w-0 cursor-pointer truncate text-left text-s11 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
+            >
+              {path}
+              {line !== undefined && <span className="text-s8">:{line}</span>}
+            </button>
+          ) : (
+            <span className="min-w-0 truncate text-s11">
+              {path}
+              {line !== undefined && <span className="text-s8">:{line}</span>}
+            </span>
+          )
         ) : webUrl !== undefined ? (
           onOpenUrl !== undefined ? (
             <button
               type="button"
-              onClick={() => onOpenUrl(webUrl)}
-              className="min-w-0 truncate text-label text-info underline decoration-dotted underline-offset-2 hover:text-info-text"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenUrl(webUrl);
+              }}
+              title="open in browser"
+              className="slip min-w-0 cursor-pointer truncate text-left text-s11 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
             >
               {webUrl}
             </button>
           ) : (
-            <span className="min-w-0 truncate text-label text-muted">{webUrl}</span>
+            <span className="min-w-0 truncate text-s11">{webUrl}</span>
           )
         ) : (
-          summary.length > 0 && (
-            <span className="min-w-0 truncate text-label text-muted">{summary}</span>
-          )
+          targetBare.length > 0 && <span className="min-w-0 truncate text-s11">{targetBare}</span>
         )}
-        {output !== undefined && (
-          <span className="ml-auto shrink-0 pl-2 text-caption tabular-nums text-faint">
-            ≈ {formatTokens(estimateTokens(output))} tok
-          </span>
-        )}
-        <span className={cx('shrink-0 pl-2', output === undefined && 'ml-auto')}>
-          {running ? (
-            <Loader2
+        <span className="ml-auto flex flex-none items-center gap-2 pl-2">
+          {meta !== undefined && <MetaValue text={meta} />}
+          {failed && <span aria-label="failed" className="size-[5px] flex-none rounded-full bg-crit" />}
+          {hasBody && (
+            <span
               aria-hidden
-              size={13}
-              className="animate-spin text-info motion-reduce:animate-none"
-            />
-          ) : ok === false ? (
-            <X aria-label="failed" size={13} className="text-danger" />
-          ) : (
-            <Check aria-label="ok" size={13} className="text-success" />
+              className={cx(
+                'slip-move inline-block text-[9px] text-s6',
+                shown ? 'rotate-180' : 'opacity-0 group-hover:opacity-100',
+              )}
+            >
+              ⌄
+            </span>
           )}
         </span>
       </div>
-      <div className="border-t border-hairline">{renderBody(showInline)}</div>
+      {/* the body slides open under the header (the only thing that changes) */}
+      <div
+        className="grid transition-[grid-template-rows] duration-[var(--dur-move)] ease-[var(--ease-slip)] motion-reduce:transition-none"
+        style={{ gridTemplateRows: shown ? '1fr' : '0fr' }}
+        aria-hidden={shown ? undefined : true}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {body !== undefined && (
+            <div className="border-t border-s3">
+              <BodyView
+                body={body}
+                failed={failed}
+                full={inlineFull}
+                maxLines={maxLines}
+                onExpand={onExpand}
+                onOpenPath={onOpenPath}
+                onOpenUrl={onOpenUrl}
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
+/** `+N −M` metas split into diff tints; anything else renders quiet mono. */
+function MetaValue({ text }: { text: string }): React.JSX.Element {
+  const m = /^\+(\d+) −(\d+)$/.exec(text);
+  if (m === null) return <span className="whitespace-nowrap text-meta text-s7">{text}</span>;
+  return (
+    <span className="whitespace-nowrap text-meta">
+      <span className="text-diff-add">+{m[1]}</span> <span className="text-diff-del">−{m[2]}</span>
+    </span>
+  );
+}
+
+function BodyView({
+  body,
+  failed,
+  full,
+  maxLines,
+  onExpand,
+  onOpenPath,
+  onOpenUrl,
+}: {
+  body: Body;
+  failed: boolean;
+  full: boolean;
+  maxLines: number;
+  onExpand?: (() => void) | undefined;
+  onOpenPath?: ((path: string, line?: number) => void) | undefined;
+  onOpenUrl?: ((url: string) => void) | undefined;
+}): React.JSX.Element {
+  switch (body.kind) {
+    case 'diff': {
+      const lines = full ? body.lines : body.lines.slice(0, maxLines);
+      return (
+        <>
+          <ToolDiffView lines={lines} language={body.lang} />
+          {!full && body.lines.length > maxLines && (
+            <ClampRow hidden={body.lines.length - maxLines} onExpand={onExpand} />
+          )}
+        </>
+      );
+    }
+    case 'code': {
+      const clamped = clampLines(body.text, maxLines);
+      const lines = (full ? body.text : clamped.shown).split('\n');
+      return (
+        <>
+          <div className="overflow-x-auto px-3 py-1.5 font-mono text-[11px] leading-[1.65] whitespace-pre">
+            {lines.map((ln, i) => (
+              <div key={i}>
+                <SyntaxText code={ln} language={body.lang} />
+              </div>
+            ))}
+          </div>
+          {!full && clamped.truncated && <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />}
+        </>
+      );
+    }
+    case 'out': {
+      // Command output (and any plain error body) clamps FROM THE END — the tail is where
+      // the verdict lives; the clamp row sits ABOVE the body. Plain document output that
+      // isn't a command's (a successful WebFetch's digested page) clamps FROM THE START
+      // instead, like the other document bodies (`code`/`matches`/`web`) — the clamp row
+      // sits BELOW, and `body.fromEnd` (not the tool) drives both the slice direction and
+      // the row placement so they can't drift apart.
+      const clamped = clampLines(body.text, maxLines, { fromEnd: body.fromEnd });
+      const lines = (full ? body.text : clamped.shown).split('\n');
+      return (
+        <>
+          {!full && clamped.truncated && body.fromEnd && (
+            <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} leading />
+          )}
+          <div
+            className={cx(
+              'overflow-x-auto px-3 py-1.5 font-mono text-[11px] leading-[1.65] whitespace-pre',
+              failed ? 'text-s10' : 'text-s8',
+            )}
+          >
+            {lines.map((ln, i) => (
+              <div key={i}>{markErrors(ln)}</div>
+            ))}
+          </div>
+          {!full && clamped.truncated && !body.fromEnd && (
+            <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />
+          )}
+        </>
+      );
+    }
+    case 'matches': {
+      const clamped = clampLines(body.text, maxLines);
+      const lines = (full ? body.text : clamped.shown).split('\n');
+      return (
+        <>
+          <div className="overflow-x-auto py-1 font-mono text-[11px] leading-[1.65]">
+            {lines.map((ln, i) => (
+              <MatchRow key={i} tool={body.tool} line={ln} onOpenPath={onOpenPath} />
+            ))}
+          </div>
+          {!full && clamped.truncated && <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />}
+        </>
+      );
+    }
+    case 'web': {
+      const clamped = clampLines(body.text, maxLines);
+      const lines = (full ? body.text : clamped.shown).split('\n');
+      return (
+        <>
+          <div className="flex flex-col gap-1 px-3 py-2">
+            {lines.map((ln, i) => (
+              <WebRow key={i} line={ln} onOpenUrl={onOpenUrl} />
+            ))}
+          </div>
+          {!full && clamped.truncated && <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />}
+        </>
+      );
+    }
+    case 'checks':
+      return <RunChecks output={body.output} failed={failed} />;
+  }
+}
+
 /** One search-result line: a clickable `path:line` (revealing at the line) plus the
  *  verbatim trailing match text, or the plain verbatim line when it doesn't parse / isn't
- *  actionable. Byte-faithful — the row's textContent equals the source line. */
+ *  actionable. */
 function MatchRow({
   tool,
   line,
@@ -269,26 +458,29 @@ function MatchRow({
 }): React.JSX.Element {
   const match = parseMatchLine(tool, line);
   if (match === undefined || onOpenPath === undefined) {
-    return <div className="whitespace-pre px-2.5 text-muted">{line}</div>;
+    return (
+      <div className="flex gap-2 px-3 whitespace-pre">
+        <span className="text-s10">{line}</span>
+      </div>
+    );
   }
-  const rest = match.text !== undefined ? `:${match.text}` : '';
   return (
-    <div className="whitespace-pre px-2.5">
+    <div className="flex gap-2 px-3 whitespace-pre">
       <button
         type="button"
         onClick={() => onOpenPath(match.path, match.line)}
-        className="text-info underline decoration-dotted underline-offset-2 hover:text-info-text"
+        className="slip cursor-pointer text-s10 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
       >
-        {`${match.path}${match.line !== undefined ? `:${match.line}` : ''}`}
+        {match.path}
+        {match.line !== undefined && `:${match.line}`}
       </button>
-      {rest.length > 0 && <span className="text-muted">{rest}</span>}
+      {match.text !== undefined && <span className="truncate text-s7">{match.text}</span>}
     </div>
   );
 }
 
-/** One WebSearch output line. A `title — url` line renders the title as a link opening the
- *  URL out (the snippet/other lines render as plain muted text). Byte-faithful: the row's
- *  textContent equals the source line. Falls back to plain text when no URL parses. */
+/** One WebSearch output line: a `title — url` line renders the title as a link opening the
+ *  URL out, plus the bare host trailing faint; other/unparseable lines render verbatim. */
 function WebRow({
   line,
   onOpenUrl,
@@ -298,32 +490,38 @@ function WebRow({
 }): React.JSX.Element {
   const parsed = parseWebLine(line);
   if (parsed === undefined || onOpenUrl === undefined) {
-    return <div className="whitespace-pre px-2.5 text-muted">{line}</div>;
+    return (
+      <div className="flex min-w-0 items-baseline gap-2 text-[12px]">
+        <span className="min-w-0 truncate text-s11">{line}</span>
+      </div>
+    );
   }
+  const host = parsed.url.replace(/^https?:\/\//, '').split('/')[0];
   return (
-    <div className="whitespace-pre px-2.5">
+    <div className="flex min-w-0 items-baseline gap-2 text-[12px]">
       <button
         type="button"
         onClick={() => onOpenUrl(parsed.url)}
-        className="text-info underline decoration-dotted underline-offset-2 hover:text-info-text"
+        title={parsed.url}
+        className="slip cursor-pointer truncate text-left text-s11 underline decoration-s6 underline-offset-[3px] hover:text-s12 hover:decoration-s8"
       >
         {parsed.title}
       </button>
-      <span className="text-muted">{parsed.rest}</span>
+      <span className="min-w-0 flex-none truncate font-mono text-meta text-s6">{host}</span>
     </div>
   );
 }
 
-/** Parse a `title — url` WebSearch line into its clickable title + verbatim remainder
- *  (` — url`), so the row is byte-faithful. Only an `http(s)` URL is actionable. */
-function parseWebLine(line: string): { title: string; url: string; rest: string } | undefined {
+/** Parse a `title — url` WebSearch line into its clickable title + url. Only an `http(s)`
+ *  URL is actionable. */
+function parseWebLine(line: string): { title: string; url: string } | undefined {
   const sep = ' — ';
   const at = line.indexOf(sep);
   if (at <= 0) return undefined;
   const title = line.slice(0, at);
   const url = line.slice(at + sep.length);
   if (!/^https?:\/\//.test(url)) return undefined;
-  return { title, url, rest: line.slice(at) };
+  return { title, url };
 }
 
 /** The `url` from a WebFetch tool INPUT (JSON), or undefined for malformed input. Never throws. */
@@ -338,27 +536,31 @@ function webUrlOf(input: string): string | undefined {
   }
 }
 
-function ExpandRow({
+/** The clamp affordance: one quiet full-width row. `leading` sits it above a tail-clamped
+ *  body (command output hides its HEAD, not its tail). */
+function ClampRow({
   hidden,
   onExpand,
-  collapsed = false,
+  leading = false,
 }: {
   hidden: number;
-  onExpand: () => void;
-  /** True when the whole body is hidden (collapsed-by-default tool) — the label reads
-   *  "N lines" rather than "N more lines" since nothing is shown above it. */
-  collapsed?: boolean;
+  onExpand?: (() => void) | undefined;
+  leading?: boolean;
 }): React.JSX.Element {
   return (
     <button
       type="button"
-      onClick={onExpand}
-      aria-label="Expand"
-      className="flex w-full items-center gap-1 px-2.5 py-1 text-left text-caption text-info hover:bg-element motion-reduce:transition-none"
+      onClick={(e) => {
+        e.stopPropagation();
+        onExpand?.();
+      }}
+      className={cx(
+        'slip flex w-full cursor-pointer items-center gap-1.5 px-3 py-1 text-left font-mono text-meta text-s7 hover:bg-s3/60 hover:text-s10',
+        leading ? 'border-b border-s3' : 'border-t border-s3',
+      )}
     >
-      View · {hidden}
-      {collapsed ? ' ' : ' more '}
-      {hidden === 1 ? 'line' : 'lines'}
+      <span className="text-[9px]">{leading ? '⌃' : '⌄'}</span>
+      {hidden} more {hidden === 1 ? 'line' : 'lines'}
     </button>
   );
 }

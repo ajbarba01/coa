@@ -328,7 +328,9 @@ describe('TranscriptRow', () => {
         onOpenPath={onOpenPath}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'src/auth.ts:42' }));
+    // The `:line` tail is a separate low-emphasis span, so the computed accessible name
+    // joins it with a space even though the two sit flush together visually.
+    fireEvent.click(screen.getByRole('button', { name: /^src\/auth\.ts\s*:42$/ }));
     expect(onOpenPath).toHaveBeenCalledWith('src/auth.ts', 42);
   });
 
@@ -350,12 +352,13 @@ describe('TranscriptRow', () => {
   });
 
   it('renders a merged tool frame with no output as a pending call', () => {
-    render(
+    const { container } = render(
       <TranscriptRow
         frame={{ id: 'm4', role: 'agent', kind: 'tool', tool: 'Bash', input: '{"command":"ls"}' }}
       />,
     );
-    expect(screen.getByText(/running/i)).toBeInTheDocument();
+    // Running earns the blue dot and no body (the dot is the only live emphasis).
+    expect(container.querySelector('[aria-label="running"]')).toBeInTheDocument();
   });
 
   it('tones the gutter dot danger for a failed tool-result', () => {

@@ -43,15 +43,36 @@ describe('parseChecks', () => {
 });
 
 describe('RunChecks', () => {
-  it('renders a chip per check and a flags chip', () => {
+  it('renders a mark + name per check and a passed/failed footer', () => {
     const { container } = render(<RunChecks output="typecheck ✓  lint ✗  — 2 flags" />);
     expect(container.textContent).toContain('typecheck');
     expect(container.textContent).toContain('lint');
-    expect(container.textContent).toContain('2 flags');
+    expect(container.querySelector('[aria-label="passed"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="failed"]')).not.toBeNull();
+    expect(container.textContent).toContain('1 passed');
+    expect(container.textContent).toContain('1 failed');
+  });
+
+  it('renders only the passed count when nothing failed', () => {
+    const { container } = render(<RunChecks output="typecheck ✓  lint ✓" />);
+    expect(container.textContent).toContain('2 passed');
+    expect(container.querySelector('[aria-label="failed"]')).toBeNull();
   });
 
   it('falls back to a plain verbatim preview when the output does not parse', () => {
     const { container } = render(<RunChecks output="totally unstructured output" />);
     expect(container.textContent).toContain('totally unstructured output');
+    const body = container.querySelector('.text-s8');
+    expect(body).not.toBeNull();
+  });
+
+  it('falls back to the FAILED treatment (crit tint + markErrors) when a failed run has unparseable output', () => {
+    const output = 'Fatal error before any checks could run.\n\nExit code: 1';
+    const { container } = render(<RunChecks output={output} failed={true} />);
+    expect(container.textContent).toContain('Fatal error before any checks could run.');
+    const body = container.querySelector('.text-s10');
+    expect(body).not.toBeNull();
+    expect(body?.className).not.toMatch(/\btext-s8\b/);
+    expect(body?.querySelector('.text-crit')?.textContent).toBe('Exit code: 1');
   });
 });
