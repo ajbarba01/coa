@@ -8,35 +8,9 @@
  * CSS transitions own interruptible state; keyframes only for mount/unmount.
  */
 
+@import './themes/sand-dark.css';
+
 @theme {
-  /* Radix Sand dark — tier-1 scale. Steps 7–12 (the text/icon band) are nudged
-   * ~half a step brighter than stock Radix: a deliberate global contrast lift
-   * (maintainer call) while grounds/borders (1–6) stay stock so structure stays
-   * quiet. */
-  --color-s1: #111110;
-  --color-s2: #191918;
-  --color-s3: #222221;
-  --color-s4: #2a2a28;
-  --color-s5: #31312e;
-  --color-s6: #3b3a37;
-  --color-s7: #5d5c55;
-  --color-s8: #76746c;
-  --color-s9: #878477;
-  --color-s10: #99968b;
-  --color-s11: #ceccc4;
-  --color-s12: #f9f9f7;
-
-  /* State colors — the indicator law's vocabulary. Blue = running (decided v6);
-   * green = done/clean; amber = needs-you; red = critical. */
-  --color-run: #5b7fd0;
-  --color-ok: #5a9367;
-  --color-warn: #d8a03d;
-  --color-crit: #c65a54;
-
-  /* Diff tints (quiet register — tinted text, not filled rows). */
-  --color-diff-add: #8fb896;
-  --color-diff-del: #c68f8b;
-
   --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 
@@ -48,6 +22,15 @@
 
   /* Slipstream curve. */
   --ease-slip: cubic-bezier(0.19, 1, 0.22, 1);
+
+  /* The type scale (the showcase "type scale" section is the spec). Sizes only —
+   * weight/color are per-role, not per-size. */
+  --text-body: 13px;
+  --text-sec: 12.5px;
+  --text-code: 11.5px;
+  --text-meta: 10.5px;
+  --text-caps: 10px;
+  --text-icon: 17px;
 }
 
 :root {
@@ -60,6 +43,16 @@
 
   /* One title-bar height, shared with the Electron main process (TITLE_BAR_HEIGHT). */
   --titlebar-h: 44px;
+
+  /* Semantic z scale. Deviation from docs/UI.md's enumeration order, flagged:
+   * portaled dropdowns must paint above modals (a Select inside the settings
+   * dialog portals to <body>), so dropdown ranks above modal here. */
+  --z-sticky: 100;
+  --z-modal-backdrop: 200;
+  --z-modal: 300;
+  --z-dropdown: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
 }
 
 @media (prefers-reduced-motion: reduce) {
