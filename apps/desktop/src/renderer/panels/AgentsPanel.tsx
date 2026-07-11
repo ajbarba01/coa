@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import type {
   AgentSummary,
   ClaudeEffort,
@@ -533,7 +532,7 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
   );
 }
 
-function AgentsView({ vm }: { vm: AgentsVm; host: PanelHostApi }): React.JSX.Element {
+function AgentsView({ vm }: { vm: AgentsVm }): React.JSX.Element {
   return (
     <Pane title="Agents" scroll seam="left">
       {vm.status === 'loading' && (
@@ -588,9 +587,7 @@ function AgentsView({ vm }: { vm: AgentsVm; host: PanelHostApi }): React.JSX.Ele
   );
 }
 
-export const agentsPanel: PanelDefinition<AgentsVm, ConsoleState> = {
-  id: 'agents',
-  displayName: 'Agents',
-  render: AgentsView,
-  selectVm: selectAgentsVm,
-};
+/** State-fed surface: computes the vm from console state and renders the agents editor. */
+export function AgentsSurface({ state }: { state: ConsoleState }): React.JSX.Element {
+  return <AgentsView vm={selectAgentsVm(state)} />;
+}

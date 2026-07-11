@@ -1,4 +1,3 @@
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { Badge, EmptyState, InlineMessage, List, Pane, Skeleton } from '@coa/console-ui';
 import type { BadgeTone } from '@coa/console-ui';
 import type { FeedView } from '@coa/console-viewmodel';
@@ -21,7 +20,7 @@ const SEVERITY_TONE: Record<string, BadgeTone> = {
   low: 'neutral',
 };
 
-function FlagsView({ vm }: { vm: FlagsVm; host: PanelHostApi }): React.JSX.Element {
+function FlagsView({ vm }: { vm: FlagsVm }): React.JSX.Element {
   const empty =
     vm.status === 'ok' && vm.value.expanded.length === 0 && vm.value.collapsed.length === 0;
   return (
@@ -65,9 +64,7 @@ function FlagsView({ vm }: { vm: FlagsVm; host: PanelHostApi }): React.JSX.Eleme
   );
 }
 
-export const flagsPanel: PanelDefinition<FlagsVm, ConsoleState> = {
-  id: 'flags',
-  displayName: 'Flags',
-  render: FlagsView,
-  selectVm: selectFlagsVm,
-};
+/** State-fed surface: computes the vm from console state and renders the flags pane. */
+export function FlagsSurface({ state }: { state: ConsoleState }): React.JSX.Element {
+  return <FlagsView vm={selectFlagsVm(state)} />;
+}

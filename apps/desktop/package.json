@@ -10,17 +10,21 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@coa/console-kit": "workspace:*",
     "@coa/console-layout": "workspace:*",
     "@coa/console-ui": "workspace:*",
     "@coa/console-viewmodel": "workspace:*",
     "@coa/core": "workspace:*",
     "@coa/shared": "workspace:*",
     "@fontsource-variable/fira-code": "^5.2.7",
+    "cmdk": "^1.1.1",
     "lucide-react": "^0.400.0",
+    "motion": "^12.42.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-syntax-highlighter": "^16.1.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

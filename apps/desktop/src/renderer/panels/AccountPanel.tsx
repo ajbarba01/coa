@@ -1,4 +1,3 @@
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { InlineMessage, Pane, Select, Skeleton } from '@coa/console-ui';
 import type { AccountsInfo, ConsoleState } from './state.js';
 
@@ -32,7 +31,7 @@ export function selectAccountVm(state: ConsoleState): AccountVm {
   return r;
 }
 
-function AccountView({ vm }: { vm: AccountVm; host: PanelHostApi }): React.JSX.Element {
+function AccountView({ vm }: { vm: AccountVm }): React.JSX.Element {
   return (
     <Pane title="Accounts">
       {vm.status === 'loading' && <Skeleton className="w-32" />}
@@ -62,9 +61,7 @@ function AccountView({ vm }: { vm: AccountVm; host: PanelHostApi }): React.JSX.E
   );
 }
 
-export const accountPanel: PanelDefinition<AccountVm, ConsoleState> = {
-  id: 'account',
-  displayName: 'Account',
-  render: AccountView,
-  selectVm: selectAccountVm,
-};
+/** State-fed surface: computes the vm from console state and renders the accounts pane. */
+export function AccountSurface({ state }: { state: ConsoleState }): React.JSX.Element {
+  return <AccountView vm={selectAccountVm(state)} />;
+}

@@ -28,7 +28,7 @@ describe('TITLE_BAR_HEIGHT', () => {
 
 describe('windowBackground', () => {
   it('is the theme base surface, never white', () => {
-    expect(windowBackground('dark')).toBe('#14100d');
+    expect(windowBackground('dark')).toBe('#111110'); // sand-dark --color-s1
     expect(windowBackground('light')).toBe('#f6f1e9');
   });
 });

@@ -81,6 +81,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@coa/console-kit':
+        specifier: workspace:*
+        version: link:../../packages/console-kit
       '@coa/console-layout':
         specifier: workspace:*
         version: link:../../packages/console-layout
@@ -99,9 +102,15 @@ importers:
       '@fontsource-variable/fira-code':
         specifier: ^5.2.7
         version: 5.2.7
+      cmdk:
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@19.2.7)
+      motion:
+        specifier: ^12.42.2
+        version: 12.42.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react:
         specifier: ^19.0.0
         version: 19.2.7
@@ -114,6 +123,9 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+      zustand:
+        specifier: ^5.0.14
+        version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.0.0

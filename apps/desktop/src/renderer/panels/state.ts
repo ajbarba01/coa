@@ -46,8 +46,6 @@ export interface ConsoleData {
 
 /** Local view state (not daemon data). */
 export interface ConsoleUi {
-  /** Which surface panel currently fills the nav-driven main region. */
-  activeMainPanelId: string;
   settings: ConsoleSettings;
   /** When true the conversation renders the unfiltered loop (D85). */
   rawMode: boolean;
@@ -141,9 +139,6 @@ export interface ConsoleState {
   actions: ConsoleActions;
 }
 
-/** The default main surface when nothing is persisted. */
-export const DEFAULT_MAIN_PANEL_ID = 'cost';
-
 export function initialState(actions: ConsoleActions): ConsoleState {
   return {
     data: {
@@ -159,7 +154,6 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       packages: { status: 'loading' },
     },
     ui: {
-      activeMainPanelId: DEFAULT_MAIN_PANEL_ID,
       settings: DEFAULT_SETTINGS,
       rawMode: false,
       resolvedApprovals: {},

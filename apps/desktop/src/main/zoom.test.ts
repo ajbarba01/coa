@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BASE_ZOOM_LEVEL,
   MAX_ZOOM_LEVEL,
   MIN_ZOOM_LEVEL,
+  appliedLevel,
   clampLevel,
   keyToZoomAction,
   nextLevel,
@@ -41,6 +43,23 @@ describe('nextLevel', () => {
   it('resets to 100% (level 0) from anywhere', () => {
     expect(nextLevel(MAX_ZOOM_LEVEL, 'reset')).toBe(0);
     expect(nextLevel(MIN_ZOOM_LEVEL, 'reset')).toBe(0);
+  });
+});
+
+describe('appliedLevel', () => {
+  it('adds the workbench base scale (1 = 120%) on top of the user offset', () => {
+    expect(appliedLevel(0)).toBe(BASE_ZOOM_LEVEL);
+    expect(appliedLevel(1)).toBe(BASE_ZOOM_LEVEL + 1);
+    expect(appliedLevel(-1)).toBe(BASE_ZOOM_LEVEL - 1);
+  });
+
+  it('clamps the user offset before adding the base', () => {
+    expect(appliedLevel(MAX_ZOOM_LEVEL + 3)).toBe(BASE_ZOOM_LEVEL + MAX_ZOOM_LEVEL);
+    expect(appliedLevel(MIN_ZOOM_LEVEL - 3)).toBe(BASE_ZOOM_LEVEL + MIN_ZOOM_LEVEL);
+  });
+
+  it('a reset offset (0) applies as exactly the base (120%)', () => {
+    expect(appliedLevel(nextLevel(MAX_ZOOM_LEVEL, 'reset'))).toBe(BASE_ZOOM_LEVEL);
   });
 });
 

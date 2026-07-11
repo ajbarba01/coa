@@ -1,4 +1,3 @@
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { Badge, EmptyState, InlineMessage, List, Pane, Skeleton } from '@coa/console-ui';
 import type { Checkpoint } from '@coa/console-viewmodel';
 import { History } from 'lucide-react';
@@ -13,7 +12,7 @@ export function selectTimelineVm(state: ConsoleState): TimelineVm {
   return state.data.timeline;
 }
 
-function TimelineView({ vm }: { vm: TimelineVm; host: PanelHostApi }): React.JSX.Element {
+function TimelineView({ vm }: { vm: TimelineVm }): React.JSX.Element {
   const newestFirst = vm.status === 'ok' ? [...vm.value].reverse() : [];
   return (
     <Pane title="Timeline" scroll seam="left">
@@ -49,9 +48,7 @@ function TimelineView({ vm }: { vm: TimelineVm; host: PanelHostApi }): React.JSX
   );
 }
 
-export const timelinePanel: PanelDefinition<TimelineVm, ConsoleState> = {
-  id: 'timeline',
-  displayName: 'Timeline',
-  render: TimelineView,
-  selectVm: selectTimelineVm,
-};
+/** State-fed surface: computes the vm from console state and renders the timeline pane. */
+export function TimelineSurface({ state }: { state: ConsoleState }): React.JSX.Element {
+  return <TimelineView vm={selectTimelineVm(state)} />;
+}

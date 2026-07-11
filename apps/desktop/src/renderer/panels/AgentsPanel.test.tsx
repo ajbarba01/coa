@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  agentsPanel,
+  AgentsSurface,
   buildAgentPickerGroups,
   clampReasoning,
   includedPackageIds,
@@ -288,22 +288,19 @@ describe('togglePackage', () => {
   });
 });
 
-const AgentsView = agentsPanel.render;
-const host = {
-  title: 'Agents',
-  setTitle: () => {},
-  onVisibilityChange: () => () => {},
-  requestFocus: () => {},
-};
-
 const stateWith = (
   agents: ConsoleState['data']['agents'],
   ui: Partial<ConsoleState['ui']> = {},
   actions: StateOverrides['actions'] = {},
 ): ConsoleState => makeState({ data: { agents }, ui, actions });
 
+/** The console state a ready agents editor renders from — pass to `AgentsSurface`. */
+const readyState = (ui: Partial<ConsoleState['ui']> = {}, actions: StateOverrides['actions'] = {}) =>
+  stateWith({ status: 'ok', value: MOCK_AGENTS }, ui, actions);
+
+/** The derived vm — for assertions that inspect `selectAgentsVm`'s output directly. */
 const ready = (ui: Partial<ConsoleState['ui']> = {}, actions: StateOverrides['actions'] = {}) =>
-  selectAgentsVm(stateWith({ status: 'ok', value: MOCK_AGENTS }, ui, actions));
+  selectAgentsVm(readyState(ui, actions));
 
 describe('selectAgentsVm', () => {
   it('passes loading/error through and maps no agents to empty', () => {
@@ -339,29 +336,24 @@ describe('buildAgentPickerGroups', () => {
   });
 });
 
-describe('AgentsView', () => {
+describe('AgentsSurface', () => {
   it('skeletons while loading and shows errors inline', () => {
-    const { container } = render(<AgentsView vm={{ status: 'loading' }} host={host} />);
+    const { container } = render(<AgentsSurface state={stateWith({ status: 'loading' })} />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
-    render(<AgentsView vm={{ status: 'error', message: 'daemon down' }} host={host} />);
+    render(<AgentsSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
     expect(screen.getByText('daemon down')).toBeTruthy();
   });
 
   it('empty state offers creation', async () => {
     const createAgent = vi.fn();
-    render(
-      <AgentsView
-        vm={selectAgentsVm(stateWith({ status: 'ok', value: [] }, {}, { createAgent }))}
-        host={host}
-      />,
-    );
+    render(<AgentsSurface state={stateWith({ status: 'ok', value: [] }, {}, { createAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: 'New agent' }));
     expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
   });
 
   it('switches agents through the picker', async () => {
     const selectAgent = vi.fn();
-    render(<AgentsView vm={ready({}, { selectAgent })} host={host} />);
+    render(<AgentsSurface state={readyState({}, { selectAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Switch agent' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /tdd-implementer/ }));
     expect(selectAgent).toHaveBeenCalledExactlyOnceWith('roles/tdd-implementer');
@@ -369,7 +361,7 @@ describe('AgentsView', () => {
 
   it('renames in place through the identity header', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsView vm={ready({}, { updateAgent })} host={host} />);
+    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: /Rename Agent name/ }));
     const input = screen.getByRole('textbox', { name: 'Agent name' });
     await userEvent.clear(input);
@@ -381,21 +373,21 @@ describe('AgentsView', () => {
 
   it('changes the identity color through the chip popover', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsView vm={ready({}, { updateAgent })} host={host} />);
+    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: /change icon and color/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'coral' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', { color: 'coral' });
   });
 
   it('shows the scope badge and ref path', () => {
-    render(<AgentsView vm={ready()} host={host} />);
+    render(<AgentsSurface state={readyState()} />);
     expect(screen.getByText('Project')).toBeTruthy();
     expect(screen.getByText('roles/reviewer')).toBeTruthy();
   });
 
   it('deleting a project agent requires typing its name', async () => {
     const deleteAgent = vi.fn();
-    render(<AgentsView vm={ready({}, { deleteAgent })} host={host} />);
+    render(<AgentsSurface state={readyState({}, { deleteAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
     const confirm = await screen.findByRole('button', { name: 'Delete agent' });
@@ -408,29 +400,29 @@ describe('AgentsView', () => {
 
   it('pins from the overflow menu', async () => {
     const togglePinAgent = vi.fn();
-    render(<AgentsView vm={ready({}, { togglePinAgent })} host={host} />);
+    render(<AgentsSurface state={readyState({}, { togglePinAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Pin' }));
     expect(togglePinAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer');
   });
 
-  const withCatalogue = (
+  /** The console state a ready agents editor renders from, with the role/package
+   *  catalogue loaded — pass to `AgentsSurface`. */
+  const withCatalogueState = (
     agents: AgentSummary[],
     actions: StateOverrides['actions'] = {},
-  ): Extract<ReturnType<typeof selectAgentsVm>, { status: 'ready' }> =>
-    selectAgentsVm(
-      makeState({
-        data: {
-          agents: { status: 'ok', value: agents },
-          roles: { status: 'ok', value: ROLES },
-          packages: { status: 'ok', value: PACKAGES },
-        },
-        actions,
-      }),
-    ) as Extract<ReturnType<typeof selectAgentsVm>, { status: 'ready' }>;
+  ): ConsoleState =>
+    makeState({
+      data: {
+        agents: { status: 'ok', value: agents },
+        roles: { status: 'ok', value: ROLES },
+        packages: { status: 'ok', value: PACKAGES },
+      },
+      actions,
+    });
 
   it('renders the role multi-select with the agent’s roles checked and the package checkboxes', () => {
-    render(<AgentsView vm={withCatalogue(MOCK_AGENTS)} host={host} />);
+    render(<AgentsSurface state={withCatalogueState(MOCK_AGENTS)} />);
     expect(screen.getByText('Roles')).toBeTruthy();
     // reviewer runs as the researcher role — its checkbox is checked, swe is not.
     expect(screen.getByRole('checkbox', { name: 'Researcher' })).toBeChecked();
@@ -450,7 +442,7 @@ describe('AgentsView', () => {
       scope: 'project',
       roles: ['swe', 'researcher'],
     };
-    render(<AgentsView vm={withCatalogue([agent])} host={host} />);
+    render(<AgentsSurface state={withCatalogueState([agent])} />);
     expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Researcher' })).toBeChecked();
     // swe brings in coding+planning, researcher brings in research+planning — union of both.
@@ -468,7 +460,7 @@ describe('AgentsView', () => {
       scope: 'project',
       roles: ['swe'],
     };
-    render(<AgentsView vm={withCatalogue([agent], { updateAgent })} host={host} />);
+    render(<AgentsSurface state={withCatalogueState([agent], { updateAgent })} />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Researcher' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', {
       roles: ['swe', 'researcher'],
@@ -485,7 +477,7 @@ describe('AgentsView', () => {
       scope: 'project',
       roles: ['swe'],
     };
-    render(<AgentsView vm={withCatalogue([agent], { updateAgent })} host={host} />);
+    render(<AgentsSurface state={withCatalogueState([agent], { updateAgent })} />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Software Engineer' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', { roles: [] });
     expect(screen.queryByText(/None/i)).toBeNull();
@@ -494,7 +486,7 @@ describe('AgentsView', () => {
 
   it('toggles an off package on through updateAgent (adds a user opt-in)', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsView vm={withCatalogue(MOCK_AGENTS, { updateAgent })} host={host} />);
+    render(<AgentsSurface state={withCatalogueState(MOCK_AGENTS, { updateAgent })} />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Coding' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
       packageIds: ['coding'],
@@ -511,7 +503,7 @@ describe('AgentsView', () => {
       roles: ['researcher'],
       exclude: ['core'],
     };
-    const { container } = render(<AgentsView vm={withCatalogue([agent])} host={host} />);
+    const { container } = render(<AgentsSurface state={withCatalogueState([agent])} />);
     expect(container.textContent).toContain('Recommended: Core');
   });
 });

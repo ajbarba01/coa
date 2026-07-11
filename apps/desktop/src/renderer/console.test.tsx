@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
-import { act } from 'react';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { modelSwitchNoteText, startConsole, type ConsoleBridge } from './console.js';
 import type { AgentSummary } from '@coa/console-viewmodel';
-import { LAYOUT_EPOCH, makeDescriptor } from './panels/routing.js';
+import type { ConsoleState } from './panels/state.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
 import { deserializeAgents, serializeAgents } from '../main/agentsStore.js';
 
@@ -46,8 +45,6 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
-    getLayout: vi.fn().mockResolvedValue(undefined),
-    saveLayout: vi.fn().mockResolvedValue(undefined),
     getSettings: vi
       .fn()
       .mockResolvedValue({ theme: 'dark', density: 'compact', motion: 'full', pinnedAgents: [] }),
@@ -56,37 +53,28 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   };
 }
 
-// Mark this as a React act environment so userEvent's internal act() calls (used to
-// drive the Radix effort Select) don't warn about an unconfigured environment.
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+/** Wait one animation frame — the coalesced turn-flush (`flushTurns`) lands on the next
+ *  `requestAnimationFrame`, so a test asserting on buffered turn content must wait for it
+ *  (a subsequent `status` push flushes synchronously instead; see console.ts). */
+function flushRaf(): Promise<void> {
+  return new Promise((r) => requestAnimationFrame(() => r()));
+}
 
-// Radix Select (the effort control) drives a portal-rendered listbox via pointer
-// capture + scrollIntoView — neither implemented in jsdom. Stub them so the effort
-// dropdown can be opened and picked in tests.
-beforeAll(() => {
-  const proto = window.HTMLElement.prototype;
-  proto.hasPointerCapture ??= () => false;
-  proto.setPointerCapture ??= () => {};
-  proto.releasePointerCapture ??= () => {};
-  proto.scrollIntoView ??= () => {};
-});
-
-afterEach(() => {
-  document.body.innerHTML = '';
-});
-
+/** Mount the controller with a captured `publish` sink instead of the old engine
+ *  container — `last()` reads the most recently published `ConsoleState`, which is
+ *  what a real Workbench composition root would render from. */
 async function mount(bridge = fakeBridge()) {
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  let controller!: Awaited<ReturnType<typeof startConsole>>;
-  await act(async () => {
-    controller = await startConsole(container, bridge);
-  });
+  const publish = vi.fn<(s: ConsoleState) => void>();
+  const navigate = vi.fn<(surface: string) => void>();
+  const controller = await startConsole(bridge, { publish, navigate });
   // Flush the fire-and-forget initial loads (accounts / models / sessions+transcript).
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 0));
-  });
-  return { container, controller };
+  await new Promise((r) => setTimeout(r, 0));
+  const last = (): ConsoleState => {
+    const call = publish.mock.calls.at(-1);
+    if (!call) throw new Error('publish was never called');
+    return call[0];
+  };
+  return { controller, publish, navigate, last };
 }
 
 describe('modelSwitchNoteText', () => {
@@ -119,35 +107,28 @@ describe('modelSwitchNoteText', () => {
   });
 });
 
-describe('startConsole (inspector-first)', () => {
-  it('mounts the inspector layout: nav rail, cost main, chat dock', async () => {
-    const { container } = await mount();
-    expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="cost"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="conversation"]')).not.toBeNull();
-    // account + agent config are nav-routed main surfaces now, not dock panes
-    expect(container.querySelector('[data-panel-id="account"]')).toBeNull();
-    expect(container.querySelector('[data-panel-id="agent"]')).toBeNull();
+describe('startConsole (publishes ConsoleState through the injected sink)', () => {
+  it('shows cap loading then live after refresh', async () => {
+    const { last, controller } = await mount();
+    expect(last().data.cap).toEqual({ status: 'loading' });
+    await controller.refresh();
+    expect(last().data.cap).toEqual({ status: 'ok', value: { remaining: 2.5, capHit: false } });
   });
 
-  it('shows cost loading then live after refresh', async () => {
-    const { container, controller } = await mount();
-    expect(container.querySelector('.animate-pulse')).not.toBeNull();
-    await act(async () => {
-      await controller.refresh();
+  it('loads the reloaded (R-7) conversation transcript into state on mount', async () => {
+    const { last } = await mount();
+    expect(last().data.turns).toEqual({
+      status: 'ok',
+      value: [
+        { id: 't0', role: 'you', kind: 'text', text: 'Refactor the auth module' },
+        { id: 't1', role: 'agent', kind: 'text', text: 'on it' },
+      ],
     });
-    expect(container.textContent).toContain('$2.50 left');
   });
 
-  it('renders the reloaded conversation transcript in the dock', async () => {
-    const { container } = await mount();
-    const dock = container.querySelector('[data-panel-id="conversation"]');
-    expect(dock).not.toBeNull();
-    // The transcript log only renders when the reloaded (R-7) stream has frames, so its
-    // presence proves reloadConversation flowed state -> selectVm -> Transcript.
-    expect(dock?.querySelector('[role="log"]')).not.toBeNull();
-  });
-
+  // Known-weak pre-existing coverage (flagged, not redesigned here): a push for a
+  // session that isn't the mounted one ('s' vs 'c1') is recorded but never merged
+  // into visible state, so this only proves the handler doesn't throw.
   it('subscribes to the push stream and handles a live turn without throwing', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
@@ -156,23 +137,20 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
+    const { last } = await mount(bridge);
     expect(emit).toBeDefined();
 
-    // A valid turn push flows through pushToViewFrames into the active conversation
-    // (row text is not asserted here — this push's sessionId ('s') never matches the
-    // mounted session ('c1'), so it is recorded but not merged into visible state; the
-    // mapping itself is covered by pushToViewFrames' units).
-    await act(async () => {
+    expect(() =>
       emit?.({
         kind: 'turn',
         sessionId: 's',
         worktree: 'w',
         seq: 0,
         frame: { t: 'text', text: 'hi' },
-      });
-    });
-    expect(container.querySelector('[data-panel-id="conversation"] [role="log"]')).not.toBeNull();
+      }),
+    ).not.toThrow();
+    await flushRaf();
+    expect(last().data.turns.status).toBe('ok');
   });
 
   it('keeps the status pill running across a status running push and a following turn frame', async () => {
@@ -183,25 +161,21 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
-    });
-    expect(dock().textContent).toContain('running for');
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
 
     // A following turn frame must not clear the pill — only a status push does.
-    await act(async () => {
-      emit?.({
-        kind: 'turn',
-        sessionId: 'c1',
-        worktree: 'w',
-        seq: 0,
-        frame: { t: 'text', text: 'hi' },
-      });
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 0,
+      frame: { t: 'text', text: 'hi' },
     });
-    expect(dock().textContent).toContain('running for');
+    await flushRaf();
+    expect(last().ui.runStatus['c1']).toBeDefined();
   });
 
   it('clears the status pill on a status done push', async () => {
@@ -212,18 +186,13 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
-    });
-    expect(dock().textContent).toContain('running for');
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
 
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'done' });
-    });
-    expect(dock().textContent).toContain('idle');
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'done' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
   it('clears the status pill on a status error push', async () => {
@@ -234,18 +203,13 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
-    });
-    expect(dock().textContent).toContain('running for');
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
 
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'error' });
-    });
-    expect(dock().textContent).toContain('idle');
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'error' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
   it('hydrates the run-status pill from the daemon on connect (G4 reattach), not from local send-tracking', async () => {
@@ -256,20 +220,17 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
     // The active conversation ('c1', opened by the mount-time initSessions restore) must
     // have subscribed to the daemon's live session — the reattach that lets a fresh
-    // renderer (e.g. a reload mid-run) hydrate from the daemon's snapshot.
+    // controller (e.g. a reload mid-run) hydrate from the daemon's snapshot.
     expect(bridge.subscribeSession).toHaveBeenCalledWith({ id: 'c1' });
 
     // Simulate the daemon's subscribe-time hydration: a running status push arrives with
-    // no local send/startSession issued in this renderer instance.
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
-    });
-    expect(dock().textContent).toContain('running for');
+    // no local send/startSession issued in this instance.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
     expect(bridge.startSession).not.toHaveBeenCalled();
   });
 
@@ -277,110 +238,58 @@ describe('startConsole (inspector-first)', () => {
     const bridge = fakeBridge({
       startSession: vi.fn().mockRejectedValue(new Error('boom')),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    const textarea = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Message the agent"]',
-    );
-    const send = [...container.querySelectorAll('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Send',
-    );
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-    await act(async () => {
-      setValue.call(textarea, 'add tests');
-      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => {
-      send!.click();
-    });
+    last().actions.sendMessage('add tests');
+
     // The dispatch-failure catch clears the pill (a failed send never streams a status).
-    expect(dock().textContent).toContain('idle');
+    // (The optimistic "running" set only reaches a publish via the rAF-coalesced turn
+    // flush or this catch — there's no synchronous push to observe in between.)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
-  it('shows a predictive cache banner the moment a model is staged, and clears it on send', async () => {
-    const { fireEvent } = await import('@testing-library/react');
+  it('stages a deliberate model override and clears it once a send applies it (the cache-banner state)', async () => {
     const bridge = fakeBridge({
-      // A fresh updatedAt each call so the (unrelated) idle-staleness path never triggers.
-      listSessions: vi.fn(async () => [
-        { id: 'c1', agentRef: 'roles/reviewer', title: 't', updatedAt: new Date().toISOString(), provider: 'claude', model: 'opus' },
-      ]),
       listModels: vi.fn().mockResolvedValue([
         { id: 'deepseek-v4-pro', provider: 'deepseek' },
         { id: 'opus', provider: 'claude' },
       ]),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    // No banner before any change.
-    expect(dock().textContent).not.toContain('cold prompt cache');
+    expect(last().ui.modelOverride['c1']).toBeUndefined();
+    last().actions.setSessionModel('c1', { model: 'deepseek-v4-pro', provider: 'deepseek' });
+    expect(last().ui.modelOverride['c1']).toEqual({
+      model: 'deepseek-v4-pro',
+      provider: 'deepseek',
+    });
 
-    // Stage a DeepSeek pick → the cache banner appears immediately (before any send).
-    const combo = dock().querySelector('[role="combobox"]') as HTMLElement;
-    await act(async () => {
-      fireEvent.focus(combo);
-    });
-    // The dropdown renders through a portal to document.body, so query the document.
-    const option = [...document.querySelectorAll('[role="option"]')].find((o) =>
-      o.textContent?.includes('deepseek-v4-pro'),
-    ) as HTMLElement;
-    await act(async () => {
-      fireEvent.mouseDown(option);
-    });
-    expect(dock().textContent).toContain('cold prompt cache');
-
-    // Sending applies the pick → the informational banner clears.
-    const input = container.querySelector('[aria-label="Message the agent"]') as HTMLInputElement;
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'hi' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-    expect(dock().textContent).not.toContain('cold prompt cache');
+    last().actions.sendMessage('hi');
+    expect(last().ui.modelOverride['c1']).toBeUndefined();
   });
 
   it('an in-chat model switch routes the next send to the picked backend', async () => {
-    const { fireEvent } = await import('@testing-library/react');
     const bridge = fakeBridge({
       listModels: vi.fn().mockResolvedValue([
         { id: 'deepseek-v4-pro', provider: 'deepseek' },
         { id: 'opus', provider: 'claude' },
       ]),
     });
-    const { container } = await mount(bridge);
+    const { last } = await mount(bridge);
 
-    // Pick DeepSeek in the in-chat model bar (the conversation panel's combobox).
-    const dock = container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
-    const combo = dock.querySelector('[role="combobox"]') as HTMLElement;
-    expect(combo).not.toBeNull();
-    await act(async () => {
-      fireEvent.focus(combo);
-    });
-    // The dropdown renders through a portal to document.body, so query the document.
-    const option = [...document.querySelectorAll('[role="option"]')].find((o) =>
-      o.textContent?.includes('deepseek-v4-pro'),
-    ) as HTMLElement;
-    expect(option).toBeDefined();
-    await act(async () => {
-      fireEvent.mouseDown(option);
-    });
+    last().actions.setSessionModel('c1', { model: 'deepseek-v4-pro', provider: 'deepseek' });
+    last().actions.sendMessage('hi');
 
-    // Send a message — it must route to the picked backend as a coherent unit.
-    const input = container.querySelector('[aria-label="Message the agent"]') as HTMLInputElement;
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'hi' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ model: { model: 'deepseek-v4-pro', provider: 'deepseek' } }),
     );
   });
 
   it('merges a staged effort onto the staged model — a later effort pick never drops the model back to the agent default', async () => {
-    // The exact reported bug: pick a backend in the composer, then pick a reasoning
-    // effort, and the effort pick silently wiped the model out of the override so the
-    // send fell back to the agent's default model. The two picks must accumulate.
-    const { fireEvent, screen } = await import('@testing-library/react');
+    // The exact reported bug: pick a backend, then pick a reasoning effort, and the
+    // effort pick silently wiped the model out of the override so the send fell back
+    // to the agent's default model. The two picks must accumulate.
     const bridge = fakeBridge({
       listModels: vi.fn().mockResolvedValue([
         {
@@ -392,40 +301,12 @@ describe('startConsole (inspector-first)', () => {
         { id: 'opus', provider: 'claude' },
       ]),
     });
-    const { container } = await mount(bridge);
-    const dock = container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    // 1) Stage the DeepSeek model via the model combobox (portal-rendered options).
-    const modelCombo = dock.querySelector('[role="combobox"]') as HTMLElement;
-    await act(async () => {
-      fireEvent.focus(modelCombo);
-    });
-    const modelOption = [...document.querySelectorAll('[role="option"]')].find((o) =>
-      o.textContent?.includes('deepseek-v4-pro'),
-    ) as HTMLElement;
-    await act(async () => {
-      fireEvent.mouseDown(modelOption);
-    });
+    last().actions.setSessionModel('c1', { model: 'deepseek-v4-pro', provider: 'deepseek' });
+    last().actions.setSessionModel('c1', { reasoning: { mode: 'effort', effort: 'high' } });
+    last().actions.sendMessage('hi');
 
-    // 2) Now the effort control is available (DeepSeek supports effort) — stage "high"
-    // through the Radix Select. Open it with the keyboard and click the option: a
-    // pointer *move* (userEvent's default) trips react-resizable-panels' global
-    // pointermove handler in jsdom, so keep to keydown + click (no move).
-    const effortTrigger = screen.getByRole('combobox', { name: 'Effort' });
-    await act(async () => {
-      effortTrigger.focus();
-      fireEvent.keyDown(effortTrigger, { key: 'Enter' });
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('option', { name: 'high' }));
-    });
-
-    // 3) Send — the request must carry the merged selection, not just the effort.
-    const input = container.querySelector('[aria-label="Message the agent"]') as HTMLInputElement;
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'hi' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({
         model: {
@@ -451,28 +332,26 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
+    const { last } = await mount(bridge);
     expect(emit).toBeDefined();
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
     // The active session's reloaded transcript is genuinely empty (reloadConversation
     // resolves to []) — the empty state is real, not a rendering artifact. What this
     // test actually checks is that a push for a different session ('s-bg') does not
-    // leak into it: the empty state must persist and no [role="log"] must appear.
-    expect(dock().textContent).toContain('No conversation yet');
+    // leak into it.
+    expect(last().data.turns).toEqual({ status: 'ok', value: [] });
 
     // a turn for the NON-active session
-    await act(async () => {
-      emit?.({
-        kind: 'turn',
-        sessionId: 's-bg',
-        worktree: 'wt',
-        seq: 1,
-        frame: { t: 'text', text: 'background output' },
-      });
+    emit?.({
+      kind: 'turn',
+      sessionId: 's-bg',
+      worktree: 'wt',
+      seq: 1,
+      frame: { t: 'text', text: 'background output' },
     });
+    await flushRaf();
     // Must NOT have leaked into the active ('s-active') transcript.
-    expect(dock().textContent).toContain('No conversation yet');
-    expect(dock().querySelector('[role="log"]')).toBeNull();
+    expect(last().data.turns).toEqual({ status: 'ok', value: [] });
+    expect(last().ui.activeSessionId).toBe('s-active');
   });
 
   it('ignores a malformed push (validated at the edge, never throws)', async () => {
@@ -491,50 +370,33 @@ describe('startConsole (inspector-first)', () => {
     const unsubscribe = vi.fn();
     const bridge = fakeBridge({ onPush: vi.fn().mockReturnValue(unsubscribe) });
     const { controller } = await mount(bridge);
-    act(() => controller.dispose());
+    controller.dispose();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the newest session from the daemon and renders the agent rail', async () => {
+  it('opens the newest session from the daemon and hydrates its state', async () => {
     const bridge = fakeBridge();
-    const { container } = await mount(bridge);
-    const dock = container.querySelector('[data-panel-id="conversation"]');
+    const { last } = await mount(bridge);
     // the session list + the active session's transcript were loaded from the daemon
     expect(bridge.listSessions).toHaveBeenCalled();
     expect(bridge.reloadConversation).toHaveBeenCalledWith({ id: 'c1' });
-    // the session switcher shows the loaded session's title in the pane header
-    expect(dock?.textContent).toContain('refactor auth module');
-    // the agent drawer renders beside the transcript
-    expect(dock?.querySelector('[role="group"][aria-label="Agents"]')).not.toBeNull();
+    expect(last().ui.activeSessionId).toBe('c1');
+    expect(last().data.sessions).toEqual({ status: 'ok', value: FAKE_SESSIONS });
   });
 
   it('sends a composer message into the active session with its conversation id', async () => {
     const bridge = fakeBridge();
-    const { container } = await mount(bridge);
-    const textarea = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Message the agent"]',
-    );
-    const send = [...container.querySelectorAll('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Send',
-    );
-    expect(textarea).not.toBeNull();
-    expect(send).toBeDefined();
-    // React tracks the value internally, so set it via the native setter + input event.
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-    await act(async () => {
-      setValue.call(textarea, 'add tests');
-      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => {
-      send!.click();
-    });
+    const { last } = await mount(bridge);
+
+    last().actions.sendMessage('add tests');
+
     // The active session is the daemon's newest (c1); the send carries its conversation id.
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ input: 'add tests', conversationId: 'c1' }),
     );
   });
 
-  it('settles an interrupted reasoning block and shows the interrupt marker from the daemon frames (live == reload)', async () => {
+  it('settles an interrupted reasoning block and appends the interrupt marker from the daemon frames (live == reload)', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -542,61 +404,57 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
-    const dock = () => container.querySelector('[data-panel-id="conversation"]') as HTMLElement;
+    const { last } = await mount(bridge);
 
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    // A reasoning block streams (open).
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 0,
+      frame: { t: 'thinking-delta', text: 'weighing options' },
     });
-    // A reasoning block streams (open, shimmering).
-    await act(async () => {
-      emit?.({ kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 0, frame: { t: 'thinking-delta', text: 'weighing options' } });
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
-    });
-    expect(dock().textContent).toContain('Thinking');
+    await flushRaf();
+    const midTurns = last().data.turns;
+    expect(midTurns.status).toBe('ok');
+    if (midTurns.status === 'ok') {
+      expect(midTurns.value).toContainEqual(
+        expect.objectContaining({ kind: 'thinking', text: 'weighing options', streaming: true }),
+      );
+    }
 
     // A bare stop: the DAEMON settles the partial (with its measured duration) and records the
-    // marker as real frames, then reports the terminal status. The console just renders them —
-    // it never synthesizes closure of its own, which is what made live differ from reload.
-    await act(async () => {
-      emit?.({
-        kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 1,
-        frame: { t: 'thinking', text: 'weighing options', durationMs: 3000 },
-      });
-      emit?.({ kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 2, frame: { t: 'interrupted' } });
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'interrupted' });
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    // marker as real, persisted frames, then reports the terminal status. The console just
+    // renders them — it never synthesizes closure of its own, which is what made live differ
+    // from reload. The following status push flushes these turn frames synchronously.
+    emit?.({
+      kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 1,
+      frame: { t: 'thinking', text: 'weighing options', durationMs: 3000 },
     });
-    // The reasoning block settled from the daemon's frame — one block, not a duplicate.
-    expect(dock().textContent).toContain('Thought for 3s');
-    // …and the interrupt renders as the quiet system line (not a chat bubble, not an error).
-    expect(dock().textContent).toContain('Request interrupted by user');
+    emit?.({ kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 2, frame: { t: 'interrupted' } });
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'interrupted' });
+
+    const finalTurns = last().data.turns;
+    expect(finalTurns.status).toBe('ok');
+    if (finalTurns.status === 'ok') {
+      const thinkingBlocks = finalTurns.value.filter((t) => t.kind === 'thinking');
+      // The reasoning block settled from the daemon's frame — one block, not a duplicate.
+      expect(thinkingBlocks).toHaveLength(1);
+      expect(thinkingBlocks[0]).toMatchObject({ durationMs: 3000 });
+      // …and the interrupt renders as its own marker frame (not a chat bubble, not an error).
+      expect(finalTurns.value.some((t) => t.kind === 'interrupted')).toBe(true);
+    }
   });
 
-  it('a bare Stop while a turn is running proxies interruptSession for the active session', async () => {
-    let emit: ((payload: unknown) => void) | undefined;
-    const bridge = fakeBridge({
-      onPush: vi.fn((listener: (payload: unknown) => void) => {
-        emit = listener;
-        return () => {};
-      }),
-    });
-    const { container } = await mount(bridge);
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: '/wt', state: 'running' });
-    });
-    // While running the composer shows Queue + Steer + a dedicated always-on Stop.
-    const stop = [...container.querySelectorAll('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Stop',
-    );
-    expect(stop).toBeDefined();
-    await act(async () => {
-      stop!.click();
-    });
+  it('interruptSession proxies the Stop affordance to the bridge for the active session', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.interruptSession('c1');
     expect(bridge.interruptSession).toHaveBeenCalledExactlyOnceWith({ id: 'c1' });
   });
 
-  it('a barge-in (typed message + Steer) proxies steerSession and does NOT render optimistically — the daemon pushes the framed steer live', async () => {
+  it('steerSession proxies a barge-in to the bridge and does NOT render optimistically — the daemon pushes the framed steer live', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -604,22 +462,10 @@ describe('startConsole (inspector-first)', () => {
         return () => {};
       }),
     });
-    const { container } = await mount(bridge);
-    await act(async () => {
-      emit?.({ kind: 'status', sessionId: 'c1', worktree: '/wt', state: 'running' });
-    });
-    const textarea = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Message the agent"]',
-    );
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-    await act(async () => {
-      setValue.call(textarea, 'go check the tests instead');
-      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    const steer = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Steer');
-    await act(async () => {
-      steer!.click();
-    });
+    const { last } = await mount(bridge);
+    const before = last().data.turns;
+
+    last().actions.steerSession('c1', 'go check the tests instead');
     // Barge-in reaches the daemon as the raw text…
     expect(bridge.steerSession).toHaveBeenCalledExactlyOnceWith({
       id: 'c1',
@@ -627,76 +473,51 @@ describe('startConsole (inspector-first)', () => {
       mode: 'barge-in',
     });
     // …but is NOT rendered optimistically: the daemon is the single source of truth and pushes
-    // the FRAMED steer live, so the console must not also show the raw typed text (which would
-    // double-render — raw live, framed on reload — the reported duplication).
-    await act(async () => {
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
-    });
-    expect(container.textContent).not.toContain('go check the tests instead');
+    // the FRAMED steer live, so no local turn is appended (which would double it — raw typed
+    // text live, framed text on reload — the reported duplication).
+    expect(last().data.turns).toEqual(before);
 
-    // The daemon pushes the framed steer as a live user turn → THAT is what renders, once.
-    await act(async () => {
-      emit?.({
-        kind: 'turn',
-        sessionId: 'c1',
-        worktree: '/wt',
-        seq: 7,
-        frame: { t: 'text', text: '[The user interrupted to steer you] go check the tests instead', role: 'user' },
-      });
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    // The daemon pushes the framed steer as a live user turn → THAT is what lands, once.
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '/wt',
+      seq: 7,
+      frame: {
+        t: 'text',
+        text: '[The user interrupted to steer you] go check the tests instead',
+        role: 'user',
+      },
     });
-    expect(container.textContent).toContain('[The user interrupted to steer you] go check the tests instead');
+    await flushRaf();
+    const after = last().data.turns;
+    expect(after.status).toBe('ok');
+    if (after.status === 'ok') {
+      expect(after.value).toContainEqual(
+        expect.objectContaining({
+          text: '[The user interrupted to steer you] go check the tests instead',
+        }),
+      );
+    }
   });
 
   it('sends the agent selected role list to the daemon', async () => {
     // c1's agent (roles/reviewer, from MOCK_AGENTS) runs as the researcher role.
     const bridge = fakeBridge();
-    const { container } = await mount(bridge);
-    const textarea = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Message the agent"]',
-    );
-    const send = [...container.querySelectorAll('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Send',
-    );
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
-    await act(async () => {
-      setValue.call(textarea, 'audit the flow');
-      textarea!.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => {
-      send!.click();
-    });
+    const { last } = await mount(bridge);
+
+    last().actions.sendMessage('audit the flow');
+
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ roles: ['researcher'] }),
     );
   });
 
-  it('toggles the conversation into raw mode', async () => {
-    const { container, controller } = await mount();
-    const rawButton = (): Element | null =>
-      container.querySelector('[data-panel-id="conversation"] [aria-pressed]');
-    expect(rawButton()?.getAttribute('aria-pressed')).toBe('false');
-    await act(async () => {
-      controller.toggleRaw();
-    });
-    expect(rawButton()?.getAttribute('aria-pressed')).toBe('true');
-    // the pane region is renamed for assistive tech too
-    expect(
-      container.querySelector('[data-panel-id="conversation"] [aria-label="Chat · raw"]'),
-    ).not.toBeNull();
-  });
-
-  it('syncs the nav selection to the restored main panel (not the hard default)', async () => {
-    const persisted = { epoch: LAYOUT_EPOCH, descriptor: makeDescriptor('flags') };
-    const { container } = await mount(
-      fakeBridge({ getLayout: vi.fn().mockResolvedValue(persisted) }),
-    );
-    // The restored layout shows Flags in the main region…
-    expect(container.querySelector('[data-panel-id="flags"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="cost"]')).toBeNull();
-    // …and the nav rail marks Flags active, not the DEFAULT_MAIN_PANEL_ID (Cost).
-    const active = container.querySelector('nav [aria-current="page"]');
-    expect(active?.getAttribute('aria-label')).toBe('Flags');
+  it('toggles raw mode', async () => {
+    const { controller, last } = await mount();
+    expect(last().ui.rawMode).toBe(false);
+    controller.toggleRaw();
+    expect(last().ui.rawMode).toBe(true);
   });
 
   it('creates an agent, persists it through the bridge, and rehydrates it on a simulated reload', async () => {
@@ -717,62 +538,29 @@ describe('startConsole (inspector-first)', () => {
       listAgents: vi.fn().mockImplementation(readDisk),
       writeAgents: vi.fn().mockImplementation(writeDisk),
     });
-    const c1 = document.createElement('div');
-    document.body.appendChild(c1);
-    await act(async () => {
-      await startConsole(c1, bridge1);
-    });
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    // The nav rail's "Agents" route opens the full panel; click it to reveal the editor.
-    const navToAgents = [...c1.querySelectorAll('nav a, nav button')].find((el) =>
-      (el.getAttribute('aria-label') ?? el.textContent)?.trim().startsWith('Agents'),
-    ) as HTMLElement | undefined;
-    expect(navToAgents).toBeDefined();
-    await act(async () => {
-      navToAgents!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    // Empty file => the "No agents yet" empty state, with a creator button.
-    expect(c1.textContent).toContain('No agents yet');
-    const newButton = [...c1.querySelectorAll('button')].find(
-      (b) => b.textContent?.trim() === 'New agent',
-    ) as HTMLElement | undefined;
-    expect(newButton).toBeDefined();
-    await act(async () => {
-      newButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
+    const { last: last1 } = await mount(bridge1);
+    // Empty file => the "No agents yet" empty state's data (an empty ok list).
+    expect(last1().data.agents).toEqual({ status: 'ok', value: [] });
+
+    last1().actions.createAgent('personal');
     // The create mutates state now AND writes the new list through the bridge.
     expect(bridge1.writeAgents).toHaveBeenCalled();
+    expect(last1().data.agents.status).toBe('ok');
+    if (last1().data.agents.status === 'ok') {
+      expect(last1().data.agents.value).toHaveLength(1);
+      expect(last1().data.agents.value[0]?.ref).toBe('personal/untitled-agent');
+    }
 
     // --- Bridge 2 (reload): seed from what bridge1 wrote; the agent must rehydrate ---
     const bridge2 = fakeBridge({
       listAgents: vi.fn().mockImplementation(readDisk),
     });
-    const c2 = document.createElement('div');
-    document.body.appendChild(c2);
-    await act(async () => {
-      await startConsole(c2, bridge2);
-    });
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    const navToAgents2 = [...c2.querySelectorAll('nav a, nav button')].find((el) =>
-      (el.getAttribute('aria-label') ?? el.textContent)?.trim().startsWith('Agents'),
-    ) as HTMLElement | undefined;
-    expect(navToAgents2).toBeDefined();
-    await act(async () => {
-      navToAgents2!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    // No longer the empty state: the persisted agent's picker ("Switch agent") shows.
-    expect(c2.querySelector('[aria-label="Switch agent"]')).not.toBeNull();
-    expect(c2.textContent).not.toContain('No agents yet');
-  });
-
-  it('ignores a persisted layout from a different arrangement epoch', async () => {
-    const stale = { version: 1, root: { type: 'leaf', panelId: 'cost' } };
-    const { container } = await mount(fakeBridge({ getLayout: vi.fn().mockResolvedValue(stale) }));
-    expect(container.querySelector('[data-panel-id="conversation"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel-id="nav"]')).not.toBeNull();
+    const { last: last2 } = await mount(bridge2);
+    expect(last2().data.agents.status).toBe('ok');
+    if (last2().data.agents.status === 'ok') {
+      // No longer the empty state: the persisted agent rehydrated.
+      expect(last2().data.agents.value).toHaveLength(1);
+      expect(last2().data.agents.value[0]?.ref).toBe('personal/untitled-agent');
+    }
   });
 });

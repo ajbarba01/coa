@@ -1,4 +1,3 @@
-import { createStaticEngine, parseDescriptor } from '@coa/console-layout';
 import {
   parseAgents,
   pushSchema,
@@ -20,11 +19,9 @@ import {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
-import { buildPanelRegistry, DEFAULT_DESCRIPTOR } from './panels/registry.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { configKey } from './panels/banners.js';
-import { LAYOUT_EPOCH, getMainPanelId, setMainPanelId } from './panels/routing.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
 import { applySettings } from './theme.js';
 
@@ -105,8 +102,6 @@ export interface ConsoleBridge {
   openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
   /** Subscribe to the daemon push stream; returns an unsubscribe. */
   onPush(listener: (payload: unknown) => void): () => void;
-  getLayout(): Promise<unknown>;
-  saveLayout(descriptor: unknown): Promise<void>;
   getSettings(): Promise<ConsoleSettings>;
   saveSettings(settings: ConsoleSettings): Promise<void>;
 }
@@ -126,37 +121,14 @@ async function settle<T>(read: () => Promise<T>): Promise<Remote<T>> {
   }
 }
 
-/** Persisted layout is wrapped with the arrangement epoch so a stale arrangement
- *  (e.g. a pre-inspector layout) is ignored rather than pinning the old shape. */
-function readPersistedDescriptor(raw: unknown): unknown {
-  if (
-    raw !== null &&
-    typeof raw === 'object' &&
-    (raw as { epoch?: unknown }).epoch === LAYOUT_EPOCH
-  ) {
-    return (raw as { descriptor?: unknown }).descriptor;
-  }
-  return undefined;
-}
-
 export async function startConsole(
-  container: HTMLElement,
   bridge: ConsoleBridge,
+  sinks: { publish: (s: ConsoleState) => void; navigate: (surface: string) => void },
 ): Promise<ConsoleController> {
-  const registry = buildPanelRegistry();
-  const descriptor = parseDescriptor(
-    readPersistedDescriptor(await bridge.getLayout()),
-    registry,
-    DEFAULT_DESCRIPTOR,
-  );
   const settings = await bridge.getSettings();
   applySettings(settings);
 
-  const engine = createStaticEngine();
-  const persist = (d: unknown): void =>
-    void bridge.saveLayout({ epoch: LAYOUT_EPOCH, descriptor: d });
-
-  // Mount with placeholder actions; the real actions (which capture `handle`) are
+  // Mount with placeholder actions; the real actions (which capture the outer closure) are
   // installed just below and pushed before any interaction.
   let state: ConsoleState = initialState({
     setRoute: () => {},
@@ -181,12 +153,7 @@ export async function startConsole(
     interruptSession: () => {},
     steerSession: () => {},
   });
-  // Seed the nav selection from the restored layout so the highlighted tab matches
-  // the panel actually shown (a persisted layout may open on a non-default surface).
-  state = {
-    ...state,
-    ui: { ...state.ui, settings, activeMainPanelId: getMainPanelId(descriptor) },
-  };
+  state = { ...state, ui: { ...state.ui, settings } };
   // Agents are persisted. On bootstrap the in-memory copy is hydrated
   // from the per-user `agents.json` via listAgents; an empty/missing file degrades
   // to the "No agents yet" empty state — never to a mock. Sessions + their turns are
@@ -195,25 +162,10 @@ export async function startConsole(
   // via writeAgents.
   let agents: AgentSummary[] = [];
   let sessions: SessionSummary[] = [];
-  const handle = engine.mount({
-    container,
-    descriptor,
-    registry,
-    daemonState: state,
-    onChange: (d) => persist(d),
-  });
 
-  const push = (): void => handle.setDaemonState(state);
+  const push = (): void => sinks.publish(state);
 
-  const setRoute = (panelId: string): void => {
-    const next = setMainPanelId(handle.serialize(), panelId);
-    // A route only swaps one leaf's panelId — the tree shape is identical, so skip the
-    // group remount (which would tear down and rebuild the whole window → flicker).
-    handle.applyDescriptor(next, false); // sizes live in the descriptor, so they survive
-    persist(next);
-    state = { ...state, ui: { ...state.ui, activeMainPanelId: panelId } };
-    push();
-  };
+  const setRoute = (panelId: string): void => sinks.navigate(panelId);
 
   async function refresh(): Promise<void> {
     const [cap, flags, timeline] = await Promise.all([
@@ -725,7 +677,6 @@ export async function startConsole(
     toggleRaw,
     dispose: () => {
       unsubscribePush();
-      handle.dispose();
     },
   };
 }

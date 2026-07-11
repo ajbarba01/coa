@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppShell, DaemonStatus, WindowControls, type DaemonStatusProps } from '@coa/console-ui';
 import { startConsole, type ConsoleController } from './console.js';
+import { publishConsoleState } from './shell/consoleStore.js';
+import { useShell } from './shell/store.js';
 
 const POLL_MS = 2000;
 
@@ -30,12 +32,13 @@ export function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    const container = slotRef.current;
-    if (!container) return;
     let timer: ReturnType<typeof setInterval> | undefined;
     let disposed = false;
     void (async () => {
-      const controller = await startConsole(container, window.coa);
+      const controller = await startConsole(window.coa, {
+        publish: publishConsoleState,
+        navigate: (s) => useShell.getState().setSurface(s),
+      });
       if (disposed) {
         controller.dispose();
         return;

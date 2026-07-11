@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import {
   AgentChip,
   AgentRail,
@@ -61,7 +60,6 @@ import {
   Trash2,
   Wallet,
 } from 'lucide-react';
-import type { ConsoleState } from './state.js';
 import { Family, Row } from './showcase/Specimen.js';
 import { ChatMockupsSection } from './showcase/ChatMockups.js';
 
@@ -776,7 +774,9 @@ function AgentsSection(): React.JSX.Element {
   );
 }
 
-function ShowcaseView(_props: { vm: null; host: PanelHostApi }): React.JSX.Element {
+/** The component showcase: a static reference with no console state — every specimen
+ *  is inert (nothing here drives the daemon). */
+export function ShowcaseSurface(): React.JSX.Element {
   return (
     <Pane title="Components" scroll seam="left">
       <div className="mx-auto flex max-w-3xl flex-col gap-9 pb-10">
@@ -798,10 +798,3 @@ function ShowcaseView(_props: { vm: null; host: PanelHostApi }): React.JSX.Eleme
     </Pane>
   );
 }
-
-export const showcasePanel: PanelDefinition<null, ConsoleState> = {
-  id: 'showcase',
-  displayName: 'Components',
-  render: ShowcaseView,
-  selectVm: () => null,
-};

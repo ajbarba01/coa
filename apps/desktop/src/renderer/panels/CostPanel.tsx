@@ -1,4 +1,3 @@
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import { InlineMessage, Pane, Skeleton } from '@coa/console-ui';
 import { toCapViewModel, type CapViewModel } from '@coa/console-viewmodel';
 import type { ConsoleState } from './state.js';
@@ -15,7 +14,7 @@ export function selectCostVm(state: ConsoleState): CostVm {
   return r;
 }
 
-function CostView({ vm }: { vm: CostVm; host: PanelHostApi }): React.JSX.Element {
+function CostView({ vm }: { vm: CostVm }): React.JSX.Element {
   return (
     <Pane title="Cost" seam="left">
       {vm.status === 'loading' && (
@@ -43,9 +42,7 @@ function CostView({ vm }: { vm: CostVm; host: PanelHostApi }): React.JSX.Element
   );
 }
 
-export const costPanel: PanelDefinition<CostVm, ConsoleState> = {
-  id: 'cost',
-  displayName: 'Cost',
-  render: CostView,
-  selectVm: selectCostVm,
-};
+/** State-fed surface: computes the vm from console state and renders the cost pane. */
+export function CostSurface({ state }: { state: ConsoleState }): React.JSX.Element {
+  return <CostView vm={selectCostVm(state)} />;
+}

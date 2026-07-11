@@ -4,11 +4,22 @@
  * zoom level, so this is a content-zoom concern, not a chrome one. Kept free of any
  * Electron import so the clamp + key mapping are unit-testable in isolation; the wiring
  * (`before-input-event` → `setZoomLevel`) lives in `index.ts`.
+ *
+ * The persisted user level and the *applied* Electron zoom level are distinct: the
+ * workbench renders at a 120% base scale (Electron level 1), so `appliedLevel` shifts
+ * the user's 0-centered offset onto that base before it reaches `setZoomLevel`.
  */
 
-/** The zoom level bounds, matching VSCode's window-zoom feel: ≈51% (−3) … ≈249% (+5). */
+/** The zoom level bounds, matching VSCode's window-zoom feel: ≈51% (−3) … ≈249% (+5)
+ *  relative to the user's own 100% (0) — these bound the persisted offset, not the
+ *  applied Electron level (see {@link appliedLevel}). */
 export const MIN_ZOOM_LEVEL = -3;
 export const MAX_ZOOM_LEVEL = 5;
+
+/** The workbench's base Electron zoom level: level 1 = factor 1.2 (120%) exactly.
+ *  The persisted `settings.zoomLevel` stays the user's 0-centered offset from this
+ *  base (reset → offset 0 → applied level {@link BASE_ZOOM_LEVEL} → 120%). */
+export const BASE_ZOOM_LEVEL = 1;
 
 /** A single zoom intent decoded from a keystroke. */
 export type ZoomAction = 'in' | 'out' | 'reset';
@@ -23,6 +34,12 @@ export function clampLevel(level: number): number {
 export function nextLevel(current: number, action: ZoomAction): number {
   if (action === 'reset') return 0;
   return clampLevel(clampLevel(current) + (action === 'in' ? 1 : -1));
+}
+
+/** Translate a persisted user offset into the Electron zoom level actually applied,
+ *  by shifting it onto the workbench's 120% base ({@link BASE_ZOOM_LEVEL}). */
+export function appliedLevel(userLevel: number): number {
+  return BASE_ZOOM_LEVEL + clampLevel(userLevel);
 }
 
 /** The subset of an Electron `before-input-event` Input this decoder reads. */

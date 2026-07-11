@@ -1,4 +1,3 @@
-import type { PanelDefinition, PanelHostApi } from '@coa/console-layout';
 import {
   AgentChip,
   AgentRail,
@@ -462,16 +461,6 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   };
 }
 
-/** The `raw` escape lives on the always-visible chat pane (D85). It is a stateful
- *  toggle — brass/pressed when the unfiltered loop is showing (P5 feedback). */
-function RawToggle({ on, onToggle }: { on: boolean; onToggle: () => void }): React.JSX.Element {
-  return (
-    <Button variant={on ? 'primary' : 'tertiary'} size="sm" aria-pressed={on} onClick={onToggle}>
-      raw
-    </Button>
-  );
-}
-
 /** Phase-1 status floor: a `Badge` showing idle, or a live "running for Ns" elapsed
  *  counter while a send is in flight. Ticks client-side via a 1s interval — no wire
  *  change. Placeholder for the full 6-state `status` Push (Phase 2). */
@@ -565,7 +554,7 @@ function PermissionModeSlot(): React.JSX.Element {
   );
 }
 
-function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element {
+function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   const [composerHeight, setComposerHeight] = useState(0);
   const composerRoRef = useRef<ResizeObserver | null>(null);
   // A failed reveal-in-editor surfaces as a toast (SC-1 — surface, never block).
@@ -728,7 +717,6 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
       }
       actions={
         <div className="flex items-center gap-2">
-          <RawToggle on={vm.rawMode} onToggle={vm.toggleRaw} />
           <RunningPill {...(vm.sessionStatus === 'running' ? { since: vm.runningSince } : {})} />
         </div>
       }
@@ -864,9 +852,7 @@ function ChatView({ vm }: { vm: ChatVm; host: PanelHostApi }): React.JSX.Element
   );
 }
 
-export const chatPanel: PanelDefinition<ChatVm, ConsoleState> = {
-  id: 'conversation',
-  displayName: 'Chat',
-  render: ChatView,
-  selectVm: selectChatVm,
-};
+/** State-fed surface: computes the vm from console state and renders the chat pane. */
+export function ChatSurface({ state }: { state: ConsoleState }): React.JSX.Element {
+  return <ChatView vm={selectChatVm(state)} />;
+}

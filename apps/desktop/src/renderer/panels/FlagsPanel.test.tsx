@@ -1,20 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { flagsPanel, selectFlagsVm } from './FlagsPanel.js';
+import { FlagsSurface, selectFlagsVm } from './FlagsPanel.js';
 import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
 
-const FlagsView = flagsPanel.render;
-const host = {
-  title: 'Flags',
-  setTitle: () => {},
-  onVisibilityChange: () => () => {},
-  requestFocus: () => {},
-};
-
 const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState =>
-  makeState({ data: { flags }, ui: { activeMainPanelId: 'flags' } });
+  makeState({ data: { flags } });
 
 describe('selectFlagsVm', () => {
   it('passes loading/error through', () => {
@@ -22,14 +14,16 @@ describe('selectFlagsVm', () => {
   });
 });
 
-describe('FlagsView states-first', () => {
+describe('FlagsSurface states-first', () => {
   it('skeletons while loading', () => {
-    const { container } = render(<FlagsView vm={{ status: 'loading' }} host={host} />);
+    const { container } = render(<FlagsSurface state={stateWith({ status: 'loading' })} />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
   });
 
   it('empty state when there are no flags', () => {
-    render(<FlagsView vm={{ status: 'ok', value: { expanded: [], collapsed: [] } }} host={host} />);
+    render(
+      <FlagsSurface state={stateWith({ status: 'ok', value: { expanded: [], collapsed: [] } })} />,
+    );
     expect(screen.getByText(/no flags/i)).toBeTruthy();
   });
 
@@ -49,7 +43,7 @@ describe('FlagsView states-first', () => {
       ],
       collapsed: [{ concernKey: 'k2', count: 4, severity: 'low' }],
     };
-    render(<FlagsView vm={{ status: 'ok', value }} host={host} />);
+    render(<FlagsSurface state={stateWith({ status: 'ok', value })} />);
     expect(screen.getByText('generated stale')).toBeTruthy();
     expect(screen.getByText('pay.ts:10')).toBeTruthy();
     expect(screen.getByText(/4 more/i)).toBeTruthy();

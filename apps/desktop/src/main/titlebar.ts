@@ -9,9 +9,11 @@ export const TITLE_BAR_HEIGHT = 44;
 export type ResolvedTheme = 'dark' | 'light';
 
 /** The window background (shows on the pre-paint flash and at the frame edge) —
- *  the theme's base surface, not Electron's default white. */
+ *  the theme's base surface, not Electron's default white. Dark mirrors console-kit's
+ *  sand-dark `--color-s1` (the theme is pinned dark for now); light keeps the prior
+ *  paper hex until a light scale exists in the kit. */
 export function windowBackground(theme: ResolvedTheme): string {
-  return theme === 'light' ? '#f6f1e9' : '#14100d'; // paper0 / brown0
+  return theme === 'light' ? '#f6f1e9' : '#111110'; // paper0 / sand s1
 }
 
 /** Window chrome per platform (spec §9/§22.2). The custom AppShell title bar is the

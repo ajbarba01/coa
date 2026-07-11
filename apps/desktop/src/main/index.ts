@@ -5,7 +5,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from '
 import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
 import { titleBarConfig, windowBackground, type ResolvedTheme } from './titlebar.js';
-import { keyToZoomAction, nextLevel } from './zoom.js';
+import { appliedLevel, keyToZoomAction, nextLevel, BASE_ZOOM_LEVEL } from './zoom.js';
 import { type DaemonClient } from './daemon.js';
 import { createDaemonManager, type DaemonProcess } from './daemon-manager.js';
 import { readJson, writeJson } from './persistence.js';
@@ -87,13 +87,15 @@ function createWindow(): void {
     const action = keyToZoomAction(input);
     if (!action) return;
     event.preventDefault();
-    const level = nextLevel(win.webContents.getZoomLevel(), action);
-    win.webContents.setZoomLevel(level);
+    // The applied Electron level carries the 120% base on top of the user's offset;
+    // derive the offset back out before stepping it, then re-apply + persist the offset.
+    const userLevel = nextLevel(win.webContents.getZoomLevel() - BASE_ZOOM_LEVEL, action);
+    win.webContents.setZoomLevel(appliedLevel(userLevel));
     const settings = parseSettings(readJson(settingsFile()));
-    writeJson(settingsFile(), { ...settings, zoomLevel: level });
+    writeJson(settingsFile(), { ...settings, zoomLevel: userLevel });
   });
   win.webContents.on('did-finish-load', () => {
-    win.webContents.setZoomLevel(parseSettings(readJson(settingsFile())).zoomLevel);
+    win.webContents.setZoomLevel(appliedLevel(parseSettings(readJson(settingsFile())).zoomLevel));
     win.webContents.send(WINDOW_STATE_CHANNEL, win.isMaximized());
   });
   // Keep the DOM maximize/restore glyph in sync with the real window state.

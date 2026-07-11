@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptFrame } from '@coa/console-ui';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import {
   buildRailItems,
   buildSessionGroups,
-  chatPanel,
+  ChatSurface,
   formatElapsed,
   frameToRawLine,
   interleaveNotes,
@@ -18,14 +18,6 @@ import {
 import { makeState, type StateOverrides } from './fixtures.js';
 import { MOCK_AGENTS, MOCK_SESSIONS } from './mockAgents.js';
 import type { ConsoleState } from './state.js';
-
-const ChatView = chatPanel.render;
-const host = {
-  title: 'Chat',
-  setTitle: () => {},
-  onVisibilityChange: () => () => {},
-  requestFocus: () => {},
-};
 
 const NOW = '2026-07-01T16:00:00Z';
 
@@ -530,44 +522,32 @@ describe('raw + approval projection', () => {
   });
 });
 
-describe('ChatView states-first', () => {
-  const readyVm = (turns: TurnFrame[], ui: Partial<ConsoleState['ui']> = {}) =>
-    selectChatVm(stateWith({ status: 'ok', value: turns }, ui));
+describe('ChatSurface states-first', () => {
+  const readyState = (turns: TurnFrame[], ui: Partial<ConsoleState['ui']> = {}) =>
+    stateWith({ status: 'ok', value: turns }, ui);
 
   it('skeletons while loading', () => {
-    const { container } = render(<ChatView vm={{ status: 'loading' }} host={host} />);
+    const { container } = render(<ChatSurface state={stateWith({ status: 'loading' })} />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
   });
 
   it('shows an error inline', () => {
-    render(<ChatView vm={{ status: 'error', message: 'daemon down' }} host={host} />);
+    render(<ChatSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
     expect(screen.getByText('daemon down')).toBeTruthy();
   });
 
   it('empty state when the stream is empty', () => {
-    render(<ChatView vm={readyVm([])} host={host} />);
+    render(<ChatSurface state={readyState([])} />);
     expect(screen.getByText(/no conversation/i)).toBeTruthy();
   });
 
-  it('shows a stateful raw toggle in the header and fires it', () => {
-    const toggleRaw = vi.fn();
-    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, {}, { toggleRaw }));
-    render(<ChatView vm={vm} host={host} />);
-    const raw = screen.getByRole('button', { name: 'raw' });
-    expect(raw.getAttribute('aria-pressed')).toBe('false');
-    fireEvent.click(raw);
-    expect(toggleRaw).toHaveBeenCalledTimes(1);
-  });
-
   it('renders the transcript log when there are frames', () => {
-    render(
-      <ChatView vm={readyVm([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} host={host} />,
-    );
+    render(<ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />);
     expect(screen.getByRole('log')).toBeTruthy();
   });
 
   it('renders the agent rail beside the conversation', () => {
-    render(<ChatView vm={readyVm([])} host={host} />);
+    render(<ChatSurface state={readyState([])} />);
     expect(screen.getByRole('group', { name: 'Agents' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'reviewer' })).toHaveAttribute(
       'aria-current',
@@ -601,10 +581,22 @@ describe('ChatView states-first', () => {
       actions,
     });
 
+  // `ChatSurface` computes `now` internally (no seam by design), so the banner tests pin
+  // the wall clock to the fixture's `updatedAt` — otherwise the fixed timestamp drifts past
+  // the provider cache TTL and a spurious idle cache banner joins every scenario. Only
+  // `Date` is faked: userEvent awaits real setTimeout ticks.
+  const pinClock = (): void => void vi.useFakeTimers({ now: new Date(NOW), toFake: ['Date'] });
+  afterEach(() => vi.useRealTimers());
+
   it('derives the drift banner when the config diverges, offering recompile + dismiss', async () => {
+    pinClock();
     const onBannerAction = vi.fn();
-    render(<ChatView vm={selectChatVm(driftState({}, { onBannerAction }), NOW)} host={host} />);
+    const { container } = render(<ChatSurface state={driftState({}, { onBannerAction })} />);
     expect(screen.getByText(/agent configuration changed/i)).toBeTruthy();
+    // Drift-only scenario: the session ran on this config just now, so no cache banner —
+    // exactly one banner card renders.
+    expect(screen.queryByText(/cold prompt cache/i)).toBeNull();
+    expect(container.querySelectorAll('[data-tone="warning"]')).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
     expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'recompile');
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
@@ -612,38 +604,39 @@ describe('ChatView states-first', () => {
   });
 
   it('renders the in-chat model picker seeded with the current model', () => {
-    render(<ChatView vm={readyVm([])} host={host} />);
+    render(<ChatSurface state={readyState([])} />);
     expect(screen.getByText('Model')).toBeTruthy();
     // The reviewer session's agent default (sonnet) seeds the picker.
     expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
   });
 
   it('derives a passive cache banner on a staged switch (no dismiss control)', () => {
+    pinClock();
     render(
-      <ChatView
-        vm={selectChatVm(
-          driftState({ modelOverride: { s1: { provider: 'deepseek', model: 'deepseek-v4-pro' } } }),
-          NOW,
-        )}
-        host={host}
+      <ChatSurface
+        state={driftState({
+          modelOverride: { s1: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
+        })}
       />,
     );
-    expect(screen.getByText(/cold prompt cache/i)).toBeTruthy();
+    const cacheReason = screen.getByText(/cold prompt cache/i);
+    // Exactly the staged-switch reason — a pinned clock proves no idle-staleness reason
+    // rides along (the session "ran" at NOW).
+    expect(cacheReason.textContent).toContain('the backend changed');
+    expect(cacheReason.textContent).not.toContain('idle');
     // The cache notice is informational — it has no close control (auto-clears on send/revert).
-    const cacheCard = screen.getByText(/cold prompt cache/i).closest('[data-tone]');
+    const cacheCard = cacheReason.closest('[data-tone]');
     expect(cacheCard?.querySelector('[aria-label="Dismiss"]')).toBeNull();
   });
 
   it('the dedicated Stop control while running wires to interruptSession (SC-1, not an error affordance)', async () => {
     const interruptSession = vi.fn();
-    const vm = selectChatVm(
-      stateWith(
-        { status: 'ok', value: [] },
-        { runStatus: { 's-audit-auth': { since: 1000 } } },
-        { interruptSession },
-      ),
+    const state = stateWith(
+      { status: 'ok', value: [] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { interruptSession },
     );
-    render(<ChatView vm={vm} host={host} />);
+    render(<ChatSurface state={state} />);
     const stop = screen.getByRole('button', { name: /stop/i });
     // The Stop control is a clean-stop affordance, not the danger tone an error surface would
     // use (SC-1: a user stop, never a governance block).
@@ -654,14 +647,12 @@ describe('ChatView states-first', () => {
 
   it('the Steer button barges in via steerSession for the active session', async () => {
     const steerSession = vi.fn();
-    const vm = selectChatVm(
-      stateWith(
-        { status: 'ok', value: [] },
-        { runStatus: { 's-audit-auth': { since: 1000 } } },
-        { steerSession },
-      ),
+    const state = stateWith(
+      { status: 'ok', value: [] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
     );
-    render(<ChatView vm={vm} host={host} />);
+    render(<ChatSurface state={state} />);
     await userEvent.type(screen.getByLabelText('Message the agent'), 'go check the tests instead');
     await userEvent.click(screen.getByRole('button', { name: /steer/i }));
     expect(steerSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'go check the tests instead');
@@ -675,7 +666,7 @@ describe('ChatView states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession, sendMessage },
     );
-    const { rerender } = render(<ChatView vm={selectChatVm(running)} host={host} />);
+    const { rerender } = render(<ChatSurface state={running} />);
     await userEvent.type(screen.getByLabelText('Message the agent'), 'also add a test');
     await userEvent.click(screen.getByRole('button', { name: /queue/i }));
     // queued: pinned in the UI, not sent to the daemon yet
@@ -684,12 +675,12 @@ describe('ChatView states-first', () => {
     expect(screen.getByText('also add a test')).toBeInTheDocument();
     // the turn ends → the session goes idle → the queued message is released as a normal send
     const idle = stateWith({ status: 'ok', value: [] }, {}, { steerSession, sendMessage });
-    rerender(<ChatView vm={selectChatVm(idle)} host={host} />);
+    rerender(<ChatSurface state={idle} />);
     expect(sendMessage).toHaveBeenCalledWith('also add a test');
   });
 
   it('shows Send (not Queue/Steer/Stop) while idle', () => {
-    render(<ChatView vm={readyVm([])} host={host} />);
+    render(<ChatSurface state={readyState([])} />);
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /queue/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /steer/i })).toBeNull();
@@ -698,22 +689,20 @@ describe('ChatView states-first', () => {
 
   it('Esc interrupts the active session while a turn is running', async () => {
     const interruptSession = vi.fn();
-    const vm = selectChatVm(
-      stateWith(
-        { status: 'ok', value: [] },
-        { runStatus: { 's-audit-auth': { since: 1000 } } },
-        { interruptSession },
-      ),
+    const state = stateWith(
+      { status: 'ok', value: [] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { interruptSession },
     );
-    render(<ChatView vm={vm} host={host} />);
+    render(<ChatSurface state={state} />);
     await userEvent.type(screen.getByLabelText('Message the agent'), '{Escape}');
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
   it('opens the session switcher on hover and selects a session', async () => {
     const selectSession = vi.fn();
-    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, {}, { selectSession }));
-    render(<ChatView vm={vm} host={host} />);
+    const state = stateWith({ status: 'ok', value: [] }, {}, { selectSession });
+    render(<ChatSurface state={state} />);
     // The session switcher opens on hover (no click required).
     fireEvent.pointerEnter(screen.getByRole('button', { name: 'Switch session' }));
     await userEvent.click(

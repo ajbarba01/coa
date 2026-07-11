@@ -1,24 +1,21 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { timelinePanel } from './TimelinePanel.js';
+import { TimelineSurface } from './TimelinePanel.js';
+import { makeState } from './fixtures.js';
+import type { ConsoleState } from './state.js';
 
-const TimelineView = timelinePanel.render;
-const host = {
-  title: 'Timeline',
-  setTitle: () => {},
-  onVisibilityChange: () => () => {},
-  requestFocus: () => {},
-};
+const stateWith = (timeline: ConsoleState['data']['timeline']): ConsoleState =>
+  makeState({ data: { timeline } });
 
-describe('TimelineView states-first', () => {
+describe('TimelineSurface states-first', () => {
   it('skeletons while loading', () => {
-    const { container } = render(<TimelineView vm={{ status: 'loading' }} host={host} />);
+    const { container } = render(<TimelineSurface state={stateWith({ status: 'loading' })} />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
   });
 
   it('empty state with no checkpoints', () => {
-    render(<TimelineView vm={{ status: 'ok', value: [] }} host={host} />);
+    render(<TimelineSurface state={stateWith({ status: 'ok', value: [] })} />);
     expect(screen.getByText(/no checkpoints/i)).toBeTruthy();
   });
 
@@ -27,7 +24,7 @@ describe('TimelineView states-first', () => {
       { id: 'c1', seq: 1, ts: '2026-07-01T00:00:00Z', worktree: 'wt', pinned: false },
       { id: 'c2', seq: 2, ts: '2026-07-01T01:00:00Z', worktree: 'wt', pinned: true },
     ];
-    render(<TimelineView vm={{ status: 'ok', value }} host={host} />);
+    render(<TimelineSurface state={stateWith({ status: 'ok', value })} />);
     expect(screen.getByText(/pinned/i)).toBeTruthy();
     expect(screen.getAllByText(/seq/i).length).toBe(2);
   });

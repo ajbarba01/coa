@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { costPanel, selectCostVm, type CostVm } from './CostPanel.js';
+import { CostSurface, selectCostVm } from './CostPanel.js';
 import { makeState } from './fixtures.js';
 import type { ConsoleState } from './state.js';
-
-const CostView = costPanel.render;
 
 const stateWith = (cap: ConsoleState['data']['cap']): ConsoleState => makeState({ data: { cap } });
 
@@ -25,30 +23,23 @@ describe('selectCostVm', () => {
   });
 });
 
-const host = {
-  title: 'Cost',
-  setTitle: () => {},
-  onVisibilityChange: () => () => {},
-  requestFocus: () => {},
-};
-
-describe('CostView states-first', () => {
+describe('CostSurface states-first', () => {
   it('shows skeletons while loading', () => {
-    const { container } = render(<CostView vm={{ status: 'loading' }} host={host} />);
+    const { container } = render(<CostSurface state={stateWith({ status: 'loading' })} />);
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
   });
 
   it('shows an alert on error', () => {
-    render(<CostView vm={{ status: 'error', message: 'daemon down' }} host={host} />);
+    render(<CostSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
     expect(screen.getByRole('alert').textContent).toContain('daemon down');
   });
 
   it('shows the headline on success', () => {
-    const vm: CostVm = {
-      status: 'ok',
-      vm: { headline: '$2.50 left', sub: 'under cap', tone: 'neutral' },
-    };
-    render(<CostView vm={vm} host={host} />);
+    render(
+      <CostSurface
+        state={stateWith({ status: 'ok', value: { remaining: 2.5, capHit: false } })}
+      />
+    );
     expect(screen.getByText('$2.50 left')).toBeTruthy();
     expect(screen.getByText('under cap')).toBeTruthy();
   });
