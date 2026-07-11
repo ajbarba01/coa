@@ -21,7 +21,7 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
 | M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`): it holds one `query()` open across turns, selected by the abstract `sessionStrategy(provider)` verdict (never a backend branch), and a **live smoke** (`streaming-smoke.live.test.ts`, `COA_LIVE`-gated) verified held-open multi-turn + cross-turn memory + graceful termination against the real SDK. A pushed steer is **queued** as the next turn (the SDK has no mid-turn inject). **Barge-in (true mid-turn redirect) now ships** (`docs/adr/0012`): `steerSession` carries a `mode` (`queue | barge-in`) realized per strategy — Claude via the SDK's turn-level `query.interrupt()` (keeps the query alive) + a framed push, pure-API via a two-buffer drain (`drainSteer` at the round-trip boundary, `drainQueuedSteer` at the close-gate) — with a `pendingTurns` boundary count (the I3 fix) and SC-1 suppression of the interrupt's `error_during_execution` result, all live-verified in `barge-in-smoke.live.test.ts`. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; role/capability enforcement (deferred — see "Someday / ideas"). |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
-| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue/Steer buttons + Enter-to-barge-in, wired to `steerSession`). | Live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
+| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue/Steer buttons + Enter-to-barge-in, wired to `steerSession`). | The **workbench rebuild** (see "In flight" — the 2026-07 UX overhaul adopted a new design system at `docs/adr/0014`; the current shell/kit are legacy until that arc lands); live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
 
 **Cross-cutting workstreams**
 
@@ -112,8 +112,9 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
 - **G. System-prompt + injection surfacing** — the system-prompt viewer [M]; the
   apply-as-update injection spike [S]. (Interrupt/error-resilience/role-enforcement live under
   "Coa-agent hardening" below, not here.)
-- **H. Console mock→live** — Longform + graph (React Flow) views [M]; console add-account flow
-  [S]; **`apps/cli` has no `build` script** (only `typecheck` — verified in
+- **H. Console mock→live** — Longform + graph (React Flow) views [M] (build them *as workbench
+  surfaces* once the rebuild arc's W1 shell lands); console add-account flow [S] (fold into the
+  rebuild's W4 account home); **`apps/cli` has no `build` script** (only `typecheck` — verified in
   `apps/cli/package.json`) [S], needed so daemon auto-spawn works from a built CLI rather than a
   dev-mode run.
 - **I. M8 deferred** — the daemon-singleton `LiveSessionRegistry` (threaded into `apps/cli`'s daemon
@@ -161,7 +162,58 @@ the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**;
 
 ## In flight
 
-_Nothing currently in flight._
+### The console workbench rebuild (Gate 4 plan of the 2026-07 UX overhaul)
+
+**Authority:** [`docs/adr/0014`](docs/adr/0014-workbench-design-system.md) (the why) +
+[`docs/UI.md`](docs/UI.md) (the laws). **Reference implementation:** `apps/workbench-proto` (motion-true,
+mock-data; the design lab until it's superseded) + `packages/console-kit` (the token substrate). Work lives on
+branch `worktree-ux-overhaul` until the first phase merges. Every phase leaves the console **runnable and
+strictly no worse** than before it (D85 discipline applied to the migration itself), and every phase opens
+with its own execution-time implementation plan, designed through the impeccable skill per `docs/UI.md`.
+
+Standing rulings the phases encode (maintainer-resolved 2026-07-10): the streaming transcript renderer is
+**re-skinned, never rebuilt**; the agents editor keeps a first-class home; drift/cache banners keep their
+function in quiet indicator-law form; the forge/brass identity returns later as a re-tailored theme;
+everything else the new design overwrites.
+
+- **W0 — Kit graduation [M].** Graduate the hardened prototype primitives into `packages/console-kit` as
+  real components (props, all eight states, lint-enforced intent blocks): tokens/scale, StatusDot, menus
+  (floating card + `current` marker), select, boxy toggle, step slider, kbd chip, dismiss-layer/click-away
+  utilities (multi-ref + portal-aware), resize seam, settings-dialog frame, keybind registry. Add the
+  semantic z-scale and the theme seam (a theme = one full scale file). Acceptance: the prototype's showcase
+  renders entirely from kit imports; typecheck + unit tests green.
+- **W1 — The shell [L].** Rebuild `apps/desktop`'s frame as the three-column workbench: segmented title bar
+  (project ▣ · session tabs + ⌕ · agents header + native controls), app-scoped left nav (surfaces → HUD →
+  account/settings/daemon foot with the full-window daemon gate), collapsible right session column,
+  drag-resize seams with drag-through-collapse, ⌘K palette (raw toggle moves here; the chat `raw` button
+  dies), settings dialog with the keybinds section, 1.2 zoom via `webFrame.setZoomFactor`. Retire the
+  `console-layout` descriptor engine, `AppShell`, and Pane-card composition; daemon lifecycle controls move
+  from title bar to the nav foot (main-process auto-start survives untouched). Acceptance: existing live
+  wiring (sessions, push stream, interrupt/steer, accounts, settings persistence) still works inside the new
+  shell.
+- **W2 — Conversation re-skin [L].** Re-token the streaming transcript (StreamingMarkdown, reasoning block,
+  plan checklist, tool cards + openPath links, subagent roll-ups, approval cards, DenyNotice) onto the
+  sand scale with a Slipstream motion audit (durations/easing/fill-mode; reduced-motion). New composer:
+  attach chip, model picker + reasoning **step slider** off the real capabilities seam (degrading to the
+  on/off toggle for thinking-only models), steer Queue/Barge-in + Stop, permission chip (surfacing only —
+  the daemon owns the decision). Session tabs + the ⌕ session-browser morph run over the real session list
+  (sort/group; dividers floor). Acceptance: a live governed turn streams end-to-end in the new skin with
+  steer/interrupt intact.
+- **W3 — Surfaces in the new language [M].** Redraw flags / timeline / cost as center surfaces per the
+  design laws; wire the right column's session state to what the daemon already serves (agent tree with the
+  run-status it pushes, worktree/record floors honestly labeled); HUD content (usage/account/flags). The
+  flags nav item wears the app's only red count. Acceptance: every nav surface renders real reads
+  states-first (loading/error/empty included).
+- **W4 — Orphan homes [M].** The redesigned **agents editor** (role/package picker, thinking toggles,
+  scope, pin) lands as its designed home in the new IA; drift/cache **notices** ship in indicator-law form
+  (one quiet line docked to the composer: dot + name + inline action); per-provider **account management**
+  behind the ◐ foot button; the project-switch dialog at its floor. `apps/workbench-proto` retires once the
+  showcase surface lives in the real console. Acceptance: no audited feature of the old console lacks a
+  working home; the perf items under "Known issues" that the push-store architecture was meant to kill are
+  re-measured and closed or re-filed.
+
+Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
+graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).
 
 The **de-drift refactor arc is closed** (2026-07-10). Project truth now lives on the
 [`AGENTS.md`](AGENTS.md) router + [`docs/adr/`](docs/adr/) (the durable *why*) + this ROADMAP (status),
@@ -211,7 +263,9 @@ Surfaced during this refactor; not fixed here — flagged for the later architec
   visible state and the test cannot actually assert that the pushed row renders. The test's own
   comment acknowledges this. Fix by pushing under the active session id and asserting the row
   appears.
-- **Console startup/render performance (deferred to the architecture/quality phase).** Still-open
+- **Console startup/render performance (now owned by the workbench rebuild arc — W4 re-measures and
+  closes or re-files each item; the push-store architecture is that arc's cure for the poll-and-replace
+  root cause).** Still-open
   items from an earlier console-perf audit, each verified against current code: no
   `optimizeDeps.include` in the dev Vite config (cold-start regression); Tailwind `@source` scans the
   whole `console-ui` tree including tests; the ~2s poll replaces the entire state with no
