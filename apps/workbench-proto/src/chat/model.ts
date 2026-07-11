@@ -423,6 +423,85 @@ export function errorSpans(line: string): { err: boolean; text: string }[] {
   return out;
 }
 
+/** Flatten inline runs to plain text. */
+function inlineText(inline: Inline[]): string {
+  return inline.map((r) => r.text).join('');
+}
+
+/** Flatten prose blocks to searchable plain text. */
+export function blocksText(blocks: Block[]): string {
+  return blocks
+    .map((b) => {
+      switch (b.t) {
+        case 'h1':
+        case 'h2':
+        case 'h3':
+        case 'p':
+          return inlineText(b.inline);
+        case 'ul':
+        case 'ol':
+          return b.items
+            .map(
+              (it) =>
+                inlineText(it.inline) +
+                (it.sub !== undefined
+                  ? ' ' + it.sub.items.map((s) => inlineText(s.inline)).join(' ')
+                  : ''),
+            )
+            .join(' ');
+        case 'quote':
+          return blocksText(b.blocks);
+        case 'table':
+          return [b.head.join(' '), ...b.rows.map((r) => r.join(' '))].join(' ');
+        case 'hr':
+          return '';
+        case 'code':
+          return `${b.name ?? ''} ${b.code}`;
+      }
+    })
+    .join('\n');
+}
+
+/** Everything find-in-transcript can match against, per frame. */
+export function frameFindText(f: Frame): string {
+  switch (f.kind) {
+    case 'user':
+    case 'note':
+    case 'raw':
+      return f.text;
+    case 'text':
+      return blocksText(f.blocks);
+    case 'think':
+      return f.text;
+    case 'tool': {
+      const v = f.view;
+      const body =
+        v.body === undefined
+          ? ''
+          : v.body.t === 'diff'
+            ? v.body.lines.map((l) => l.text).join('\n')
+            : v.body.t === 'code' || v.body.t === 'out'
+              ? v.body.text
+              : v.body.t === 'matches'
+                ? v.body.hits.map((h) => `${h.path} ${h.text ?? ''}`).join('\n')
+                : v.body.t === 'web'
+                  ? v.body.hits.map((h) => `${h.title} ${h.url}`).join('\n')
+                  : v.body.checks.map((c) => c.name).join('\n');
+      return `${v.tool} ${v.verb} ${v.target ?? ''} ${v.meta ?? ''}\n${body}`;
+    }
+    case 'plan':
+      return f.items.map((i) => i.text).join('\n');
+    case 'subagent':
+      return `${f.childWorktree} ${f.event}`;
+    case 'approval':
+      return `${f.tool} ${f.summary}`;
+    case 'deny':
+      return f.reason;
+    case 'error':
+      return f.message;
+  }
+}
+
 let n = 0;
 /** Frame id source for mock/scripted content. */
 export const fid = (): string => `f${n++}`;

@@ -1,7 +1,4 @@
 import {
-  AgentChip,
-  AgentRail,
-  Badge,
   Banner as BannerCard,
   Button,
   Combobox,
@@ -10,30 +7,20 @@ import {
   IconButton,
   InlineMessage,
   PaneOverlayProvider,
-  Pane,
   Select,
   Skeleton,
-  SwitcherMenu,
   Toast,
   ToastProvider,
-  Tooltip,
-  TooltipProvider,
   Transcript,
   cx,
 } from '@coa/console-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentRailItem, RespondFn, SwitcherGroup, TranscriptFrame } from '@coa/console-ui';
-import type {
-  AgentSummary,
-  Banner,
-  ModelDescriptor,
-  SessionSummary,
-  TurnFrame,
-} from '@coa/console-viewmodel';
+import type { RespondFn, TranscriptFrame } from '@coa/console-ui';
+import type { Banner, ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
-import { ChevronDown, MessageSquare, MessageSquarePlus, X } from 'lucide-react';
+import { MessageSquare, X } from 'lucide-react';
 import type { ConsoleState } from './state.js';
 
 // Frame identity caches: the wire `TurnFrame` objects in `state.data.turns.value` are
@@ -90,19 +77,10 @@ export type ChatVm =
       openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
       toggleRaw: () => void;
       /** The active session id, if any — drives the composer's disabled/hint state
-       *  (no session means nothing to send a message into). */
+       *  (no session means nothing to send a message into). Session switching itself
+       *  lives in the shell now (title-bar tabs + the ⌕ browser) — this vm carries only
+       *  the transcript/composer concern. */
       activeSessionId?: string | undefined;
-      /** The agent drawer + one session switcher (selection follows the session). */
-      rail: AgentRailItem[];
-      activeAgentRef?: string | undefined;
-      sessionTitle: string;
-      sessionGroups: SwitcherGroup[];
-      onSelectRailAgent: (ref: string) => void;
-      onSelectSession: (id: string) => void;
-      onDeleteSession: (id: string) => void;
-      onNewSession: (ref: string) => void;
-      onTogglePin: (ref: string) => void;
-      onConfigure: (ref: string) => void;
       /** Phase-1 status floor — `running` while a send is in flight, cleared on the next
        *  appended turn. The full 6-state `status` Push (Phase 2) replaces this. */
       sessionStatus: 'idle' | 'running';
@@ -232,72 +210,6 @@ export function relativeTime(iso: string, nowIso: string): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-/** Pure: rail items — pinned agents first (in list order), then the rest. */
-export function buildRailItems(agents: AgentSummary[], pinned: string[]): AgentRailItem[] {
-  const item = (a: AgentSummary): AgentRailItem => ({
-    id: a.ref,
-    name: a.name,
-    icon: a.icon,
-    color: a.color,
-    pinned: pinned.includes(a.ref),
-  });
-  return [
-    ...agents.filter((a) => pinned.includes(a.ref)).map(item),
-    ...agents.filter((a) => !pinned.includes(a.ref)).map(item),
-  ];
-}
-
-const byNewest = (a: SessionSummary, b: SessionSummary): number =>
-  Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
-
-/** Pure: the one session switcher — the rail-selected agent's sessions first
- *  (newest-first, + New session), then the remaining agents' sessions (no row
- *  appears twice). Picking any row re-points the rail to that session's agent
- *  (selection follows session). */
-export function buildSessionGroups(
-  sessions: SessionSummary[],
-  agents: AgentSummary[],
-  activeSessionId: string | undefined,
-  agentRef: string | undefined,
-  nowIso: string,
-): SwitcherGroup[] {
-  const agent = agents.find((a) => a.ref === agentRef);
-  const chipOf = (ref: string): React.ReactNode => {
-    const a = agents.find((x) => x.ref === ref);
-    return a ? <AgentChip icon={a.icon} color={a.color} size="sm" /> : undefined;
-  };
-  const row = (s: SessionSummary, withChip: boolean) => ({
-    id: s.id,
-    label: s.title,
-    meta: relativeTime(s.updatedAt, nowIso),
-    leading: withChip ? chipOf(s.agentRef) : undefined,
-    selected: s.id === activeSessionId,
-  });
-  const groups: SwitcherGroup[] = [];
-  if (agent) {
-    groups.push({
-      id: 'agent',
-      label: agent.name,
-      labelLeading: <AgentChip icon={agent.icon} color={agent.color} size="sm" />,
-      options: sessions
-        .filter((s) => s.agentRef === agent.ref)
-        .sort(byNewest)
-        .map((s) => row(s, false)),
-      actions: [{ id: 'new-session', label: 'New session', icon: MessageSquarePlus }],
-    });
-  }
-  groups.push({
-    id: 'all',
-    label: agent ? 'Other agents' : 'All sessions',
-    options: sessions
-      .filter((s) => s.agentRef !== agent?.ref)
-      .sort(byNewest)
-      .slice(0, 10)
-      .map((s) => row(s, true)),
-  });
-  return groups;
-}
-
 /** Pure: splices console-local "switched model" notes into a governed frame list,
  *  positioned by each note's `afterCount` (the number of turn-derived frames already
  *  appended when the note was recorded) — so a note lands right after the send it
@@ -333,7 +245,6 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
   const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
   const { rawMode, resolvedApprovals, activeSessionId } = state.ui;
-  const { actions } = state;
   const governedFrames = r.value.map((f) => {
     let base = governedFrameCache.get(f);
     if (base === undefined) {
@@ -362,10 +273,6 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
         activeSessionId ?? '',
       );
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  // With no active session (a fresh store), default the rail selection to the first
-  // agent so "New session" is enabled — otherwise the first session can never be
-  // created (it needs an active agent, which only a session provides).
-  const activeAgentRef = activeSession?.agentRef ?? agents[0]?.ref;
   const models = state.data.models.status === 'ok' ? state.data.models.value : [];
   const activeAgent = agents.find((a) => a.ref === activeSession?.agentRef);
   const override = activeSessionId ? state.ui.modelOverride[activeSessionId] : undefined;
@@ -438,48 +345,10 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     openExternal: state.actions.openExternal,
     toggleRaw: state.actions.toggleRaw,
     activeSessionId,
-    rail: buildRailItems(agents, state.ui.settings.pinnedAgents),
-    activeAgentRef,
-    sessionTitle: activeSession?.title ?? 'No session',
-    sessionGroups: buildSessionGroups(sessions, agents, activeSessionId, activeAgentRef, nowIso),
-    onSelectRailAgent: (ref) => {
-      const newest = sessions.filter((s) => s.agentRef === ref).sort(byNewest)[0];
-      if (newest) actions.selectSession(newest.id);
-      else actions.newSession(ref);
-    },
-    onSelectSession: actions.selectSession,
-    onDeleteSession: actions.deleteSession,
-    onNewSession: actions.newSession,
-    onTogglePin: actions.togglePinAgent,
-    onConfigure: (ref) => {
-      actions.selectAgent(ref);
-      actions.setRoute('agents');
-    },
     sessionStatus: active ? 'running' : 'idle',
     ...(active ? { runningSince: active.since } : {}),
     sendNonce: activeSessionId !== undefined ? (state.ui.sendNonce[activeSessionId] ?? 0) : 0,
   };
-}
-
-/** Phase-1 status floor: a `Badge` showing idle, or a live "running for Ns" elapsed
- *  counter while a send is in flight. Ticks client-side via a 1s interval — no wire
- *  change. Placeholder for the full 6-state `status` Push (Phase 2). */
-function RunningPill({ since }: { since?: number }): React.JSX.Element {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (since === undefined) return;
-    // `now` may be stale from a previous run (state persists across mounts) — resync
-    // immediately, don't wait for the first 1s tick, or the counter briefly reads a
-    // bogus/negative elapsed value against the new `since`.
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [since]);
-  return since === undefined ? (
-    <Badge tone="neutral">idle</Badge>
-  ) : (
-    <Badge tone="info">running for {formatElapsed(since, now)}</Badge>
-  );
 }
 
 /** A short title per banner kind (the reason carries the detail). */
@@ -655,7 +524,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
 
   if (vm.status !== 'ready') {
     return (
-      <Pane title="Chat">
+      <div className="flex h-full min-h-0 flex-col bg-surface p-3.5">
         {vm.status === 'loading' && (
           <div className="flex flex-col gap-2">
             <Skeleton className="w-2/3" />
@@ -663,80 +532,22 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
           </div>
         )}
         {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
-      </Pane>
+      </div>
     );
   }
   return (
     <ToastProvider>
-    <Pane
-      title={vm.rawMode ? 'Chat · raw' : 'Chat'}
-      {...(vm.sessionStatus === 'running'
-        ? { className: 'relative z-10 ring-2 ring-info ring-offset-0' }
-        : {})}
-      titleSlot={
-        <TooltipProvider>
-          <div className="flex min-w-0 items-center gap-1">
-            <SwitcherMenu
-              label="Sessions"
-              searchable
-              openOnHover
-              trigger={
-                <Button
-                  variant="tertiary"
-                  size="sm"
-                  className="min-w-0 max-w-56"
-                  aria-label="Switch session"
-                  pressScale={false}
-                >
-                  <span className="truncate">{vm.sessionTitle}</span>
-                  <ChevronDown aria-hidden size={14} className="shrink-0 text-muted" />
-                </Button>
-              }
-              groups={vm.sessionGroups}
-              onSelect={vm.onSelectSession}
-              onDelete={vm.onDeleteSession}
-              onAction={(id) => {
-                if (id === 'new-session' && vm.activeAgentRef !== undefined)
-                  vm.onNewSession(vm.activeAgentRef);
-              }}
-            />
-            <Tooltip content="New session">
-              <IconButton
-                icon={MessageSquarePlus}
-                label="New session"
-                variant="tertiary"
-                size="sm"
-                disabled={vm.activeAgentRef === undefined}
-                onClick={() => {
-                  if (vm.activeAgentRef !== undefined) vm.onNewSession(vm.activeAgentRef);
-                }}
-              />
-            </Tooltip>
-          </div>
-        </TooltipProvider>
-      }
-      actions={
-        <div className="flex items-center gap-2">
-          <RunningPill {...(vm.sessionStatus === 'running' ? { since: vm.runningSince } : {})} />
-        </div>
-      }
-      flush
-    >
-      <div className="flex h-full min-h-0">
-        <AgentRail
-          items={vm.rail}
-          side="left"
-          {...(vm.activeAgentRef !== undefined ? { activeId: vm.activeAgentRef } : {})}
-          onSelect={vm.onSelectRailAgent}
-          onNewSession={vm.onNewSession}
-          onTogglePin={vm.onTogglePin}
-          onConfigure={vm.onConfigure}
-        />
-        <div
-          className={cx(
-            'relative flex min-h-0 min-w-0 flex-1 flex-col',
-          )}
-        >
+      {/* Session-switching chrome (title bar, session switcher, agent rail) is retired here —
+          the shell's title-bar tabs + ⌕ browser own switching now (docs/design plan A1). This
+          is a plain layout container, not a re-styled Pane; the running-status indicator moves
+          to the composer edge in a later phase. */}
+      <div
+        className={cx(
+          'flex h-full min-h-0 flex-col bg-surface',
+          vm.sessionStatus === 'running' && 'relative z-10 ring-2 ring-info ring-offset-0',
+        )}
+      >
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
           {/* The transcript fills the pane; the composer floats over its bottom edge
               (below) so the transcript stays visible around/behind it. The transcript's
@@ -775,79 +586,80 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
             )}
           </PaneOverlayProvider>
           <div ref={composerRef} className="absolute bottom-0 left-0 right-0">
-          {activeQueue.length > 0 && (
-            <div className="mx-auto w-full max-w-3xl px-2.5 pb-1">
-              <ul className="flex flex-col gap-1">
-                {activeQueue.map((q, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2.5 py-1.5 text-label shadow-sm"
-                  >
-                    <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">queued</span>
-                    <span className="min-w-0 flex-1 truncate text-muted">{q}</span>
-                    <IconButton
-                      icon={X}
-                      label="Remove queued message"
-                      variant="tertiary"
-                      size="sm"
-                      onClick={() => dequeue(i)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <Composer
-            onSend={vm.onSend}
-            onSteer={handleSteer}
-            onInterrupt={vm.onInterrupt}
-            running={vm.sessionStatus === 'running'}
-            disabled={vm.activeSessionId === undefined}
-            slotStart={
-              <>
-                <Combobox
-                  label="Model"
-                  hideLabel
-                  className="max-w-[10rem]"
-                  options={
-                    vm.models.length > 0
-                      ? vm.models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
-                      : vm.currentModelId !== undefined
-                        ? [{ value: vm.currentModelId, label: vm.currentModelId }]
-                        : []
-                  }
-                  {...(vm.currentModelId !== undefined ? { value: vm.currentModelId } : {})}
-                  onValueChange={vm.onPickModel}
-                  placeholder="Default model"
-                />
-                {vm.effortOptions.length > 0 && (
-                  <Select
-                    label="Effort"
+            {activeQueue.length > 0 && (
+              <div className="mx-auto w-full max-w-3xl px-2.5 pb-1">
+                <ul className="flex flex-col gap-1">
+                  {activeQueue.map((q, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-2 rounded-surface border border-hairline bg-raised px-2.5 py-1.5 text-label shadow-sm"
+                    >
+                      <span className="text-eyebrow uppercase tracking-[0.06em] text-faint">
+                        queued
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-muted">{q}</span>
+                      <IconButton
+                        icon={X}
+                        label="Remove queued message"
+                        variant="tertiary"
+                        size="sm"
+                        onClick={() => dequeue(i)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <Composer
+              onSend={vm.onSend}
+              onSteer={handleSteer}
+              onInterrupt={vm.onInterrupt}
+              running={vm.sessionStatus === 'running'}
+              disabled={vm.activeSessionId === undefined}
+              slotStart={
+                <>
+                  <Combobox
+                    label="Model"
                     hideLabel
-                    className="max-w-[8rem]"
-                    options={vm.effortOptions}
-                    value={vm.effortValue}
-                    onValueChange={vm.onPickEffort}
+                    className="max-w-[10rem]"
+                    options={
+                      vm.models.length > 0
+                        ? vm.models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
+                        : vm.currentModelId !== undefined
+                          ? [{ value: vm.currentModelId, label: vm.currentModelId }]
+                          : []
+                    }
+                    {...(vm.currentModelId !== undefined ? { value: vm.currentModelId } : {})}
+                    onValueChange={vm.onPickModel}
+                    placeholder="Default model"
                   />
-                )}
-                <PermissionModeSlot />
-              </>
-            }
-          />
+                  {vm.effortOptions.length > 0 && (
+                    <Select
+                      label="Effort"
+                      hideLabel
+                      className="max-w-[8rem]"
+                      options={vm.effortOptions}
+                      value={vm.effortValue}
+                      onValueChange={vm.onPickEffort}
+                    />
+                  )}
+                  <PermissionModeSlot />
+                </>
+              }
+            />
           </div>
         </div>
       </div>
-    </Pane>
-    <Toast
-      open={revealError !== null}
-      onOpenChange={(open) => {
-        if (!open) setRevealError(null);
-      }}
-      tone="danger"
-      title="Couldn't open"
-    >
-      {revealError}
-    </Toast>
+      <Toast
+        open={revealError !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevealError(null);
+        }}
+        tone="danger"
+        title="Couldn't open"
+      >
+        {revealError}
+      </Toast>
     </ToastProvider>
   );
 }

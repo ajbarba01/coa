@@ -45,6 +45,10 @@ export interface ComposerProps {
   /** "Tell the agent to do something else": denies the request and sends the
    *  typed instruction in its place. */
   onRedirect?: ((id: string, text: string) => void) | undefined;
+  /** Rendered above the whole composer stack (queued pins included) — the
+   *  transcript's jump-to-latest pill anchors here so it always clears
+   *  whatever the composer is showing. */
+  above?: React.ReactNode;
 }
 
 /** The composer: a floating shell over the transcript's floor, and the
@@ -77,12 +81,14 @@ export function Composer({
   onApprove,
   onDeny,
   onRedirect,
+  above,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState(defaultText ?? '');
   const [perm, setPerm] = useState<string>('ask edits');
   const [model, setModel] = useState<string>('fable-5');
   const [effort, setEffort] = useState<Effort>('high');
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [listening, setListening] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   // Multi-line growth: the field grows with its content to ~6 lines, then
@@ -124,6 +130,7 @@ export function Composer({
 
   return (
     <div className="absolute bottom-4 left-1/2 w-[calc(100%-64px)] max-w-[656px] -translate-x-1/2">
+      {above}
       {/* queued messages pin above the shell — removable, released FIFO */}
       {queued.length > 0 && (
         <div className="mb-1.5 flex flex-col gap-1">
@@ -271,11 +278,13 @@ export function Composer({
           placeholder={
             disabled
               ? 'no session — start one to talk to an agent'
-              : approval !== undefined
-                ? 'approve or deny above — or tell the agent what to do instead…'
-                : running
-                  ? 'queue a message… (⌥⏎ barges in · esc stops)'
-                  : 'Message builder…'
+              : listening
+                ? 'listening… (click the mic to stop)'
+                : approval !== undefined
+                  ? 'approve or deny above — or tell the agent what to do instead…'
+                  : running
+                    ? 'queue a message… (⌥⏎ barges in · esc stops)'
+                    : 'Message builder…'
           }
           className={cx(
             'block w-full resize-none bg-transparent px-3.5 py-2.5 text-body leading-[1.5] outline-none',
@@ -289,6 +298,11 @@ export function Composer({
           <AttachButton
             disabled={disabled}
             onAttach={(name) => setAttachments((a) => (a.includes(name) ? a : [...a, name]))}
+          />
+          <MicButton
+            disabled={disabled}
+            listening={listening}
+            onToggle={() => setListening((v) => !v)}
           />
           <div className="flex-1" />
           <PermissionChip value={perm} onPick={setPerm} disabled={disabled} />
@@ -418,6 +432,53 @@ function AttachButton({
         upload file…
       </MenuItem>
     </PopoverCard>
+  );
+}
+
+/** Voice-to-text. Idle it sits with the attach button; listening, it turns
+ *  record-red and breathes while the field shows the live state. The lab
+ *  mocks the toggle only — transcription is the desktop's. */
+function MicButton({
+  listening,
+  onToggle,
+  disabled = false,
+}: {
+  listening: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={listening ? 'stop voice input' : 'start voice input'}
+      aria-pressed={listening}
+      disabled={disabled}
+      onClick={onToggle}
+      className={cx(
+        'flex h-7 w-7 items-center justify-center rounded-r2 border',
+        disabled
+          ? 'cursor-default border-s4 bg-s3 text-s6'
+          : listening
+            ? 'slip slip-press cursor-pointer border-crit/50 bg-crit/10 text-crit motion-safe:animate-pulse active:scale-[0.95]'
+            : 'slip slip-press cursor-pointer border-s5 bg-s4 text-s10 hover:bg-s5 hover:text-s12 active:scale-[0.95]',
+      )}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" x2="12" y1="19" y2="22" />
+      </svg>
+    </button>
   );
 }
 

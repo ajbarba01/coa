@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptFrame } from '@coa/console-ui';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import {
-  buildRailItems,
-  buildSessionGroups,
   ChatSurface,
   formatElapsed,
   frameToRawLine,
@@ -99,56 +97,6 @@ describe('selectChatVm', () => {
     if (vm.status === 'ready') {
       expect(vm.rawMode).toBe(false);
       expect(vm.frames).toHaveLength(1);
-    }
-  });
-
-  it('derives the rail selection and session title from the active session', () => {
-    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
-    if (vm.status === 'ready') {
-      expect(vm.activeAgentRef).toBe('roles/reviewer');
-      expect(vm.sessionTitle).toBe('audit auth flow');
-    }
-  });
-
-  it('falls back to the first agent with no active session, so New session works on a fresh start', () => {
-    const vm = selectChatVm(
-      makeState({
-        data: {
-          turns: { status: 'ok', value: [] },
-          agents: { status: 'ok', value: MOCK_AGENTS },
-          sessions: { status: 'ok', value: [] },
-        },
-        ui: {}, // no activeSessionId — the fresh-store case
-      }),
-    );
-    if (vm.status === 'ready') {
-      expect(vm.activeAgentRef).toBe(MOCK_AGENTS[0]!.ref);
-      expect(vm.sessionTitle).toBe('No session');
-    }
-  });
-
-  it('rail click switches to the agent’s most recent session — or a new one if none', () => {
-    const selectSession = vi.fn();
-    const newSession = vi.fn();
-    const vm = selectChatVm(
-      stateWith({ status: 'ok', value: [] }, {}, { selectSession, newSession }),
-    );
-    if (vm.status === 'ready') {
-      vm.onSelectRailAgent('roles/reviewer');
-      expect(selectSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
-      vm.onSelectRailAgent('personal/scratch-helper'); // has no sessions
-      expect(newSession).toHaveBeenCalledExactlyOnceWith('personal/scratch-helper');
-    }
-  });
-
-  it('configure cross-links to the Agents surface with the agent selected', () => {
-    const selectAgent = vi.fn();
-    const setRoute = vi.fn();
-    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, {}, { selectAgent, setRoute }));
-    if (vm.status === 'ready') {
-      vm.onConfigure('roles/refactor-bot');
-      expect(selectAgent).toHaveBeenCalledExactlyOnceWith('roles/refactor-bot');
-      expect(setRoute).toHaveBeenCalledExactlyOnceWith('agents');
     }
   });
 
@@ -337,52 +285,6 @@ describe('formatElapsed', () => {
   });
 });
 
-describe('buildRailItems', () => {
-  it('orders pinned agents first and marks them', () => {
-    const items = buildRailItems(MOCK_AGENTS, ['personal/scratch-helper']);
-    expect(items[0]).toMatchObject({ id: 'personal/scratch-helper', pinned: true });
-    expect(items).toHaveLength(MOCK_AGENTS.length);
-  });
-});
-
-describe('buildSessionGroups (one switcher, selection follows session)', () => {
-  it('scopes the first group to the current agent, newest first, with a create row', () => {
-    const groups = buildSessionGroups(
-      MOCK_SESSIONS,
-      MOCK_AGENTS,
-      's-review-bridge',
-      'roles/reviewer',
-      NOW,
-    );
-    expect(groups[0]).toMatchObject({ id: 'agent', label: 'reviewer' });
-    expect(groups[0]?.options.map((o) => o.id)).toEqual(['s-audit-auth', 's-review-bridge']);
-    expect(groups[0]?.options[1]).toMatchObject({ selected: true });
-    expect(groups[0]?.actions?.[0]).toMatchObject({ id: 'new-session' });
-  });
-
-  it('offers every session when no agent is scoped', () => {
-    const groups = buildSessionGroups(MOCK_SESSIONS, MOCK_AGENTS, undefined, undefined, NOW);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({ id: 'all', label: 'All sessions' });
-    expect(groups[0]?.options).toHaveLength(MOCK_SESSIONS.length);
-  });
-
-  it('never lists a session twice — the scoped agent’s rows leave the other group', () => {
-    const groups = buildSessionGroups(
-      MOCK_SESSIONS,
-      MOCK_AGENTS,
-      's-audit-auth',
-      'roles/reviewer',
-      NOW,
-    );
-    expect(groups[1]).toMatchObject({ label: 'Other agents' });
-    const otherIds = groups[1]?.options.map((o) => o.id) ?? [];
-    expect(otherIds).not.toContain('s-audit-auth');
-    expect(otherIds).not.toContain('s-review-bridge');
-    expect(otherIds).toContain('s-auth-refactor');
-  });
-});
-
 describe('relativeTime', () => {
   it('renders compact ages', () => {
     expect(relativeTime('2026-07-01T15:59:40Z', NOW)).toBe('now');
@@ -546,13 +448,17 @@ describe('ChatSurface states-first', () => {
     expect(screen.getByRole('log')).toBeTruthy();
   });
 
-  it('renders the agent rail beside the conversation', () => {
-    render(<ChatSurface state={readyState([])} />);
-    expect(screen.getByRole('group', { name: 'Agents' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'reviewer' })).toHaveAttribute(
-      'aria-current',
-      'true',
-    );
+  it('carries no duplicate session-switching chrome — the shell owns that now', () => {
+    render(<ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />);
+    // No pane title bar naming the surface "Chat" (the shell's tab strip already does).
+    expect(screen.queryByText('Chat')).toBeNull();
+    // No in-pane session switcher trigger.
+    expect(screen.queryByRole('button', { name: 'Switch session' })).toBeNull();
+    // No agent rail.
+    expect(screen.queryByRole('group', { name: 'Agents' })).toBeNull();
+    // The transcript + composer still render.
+    expect(screen.getByRole('log')).toBeTruthy();
+    expect(screen.getByLabelText('Message the agent')).toBeTruthy();
   });
 
   // A session + agent whose configs diverge, so the derived drift banner shows.
@@ -699,17 +605,6 @@ describe('ChatSurface states-first', () => {
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
-  it('opens the session switcher on hover and selects a session', async () => {
-    const selectSession = vi.fn();
-    const state = stateWith({ status: 'ok', value: [] }, {}, { selectSession });
-    render(<ChatSurface state={state} />);
-    // The session switcher opens on hover (no click required).
-    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Switch session' }));
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: /review governed dispatch/ }),
-    );
-    expect(selectSession).toHaveBeenCalledExactlyOnceWith('s-review-bridge');
-  });
 });
 
 describe('toGovernedFrame streaming', () => {

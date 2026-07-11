@@ -31,6 +31,7 @@ export function Transcript({
   running = false,
   runningSince,
   wide = true,
+  activeFindId,
   callbacks = {},
 }: {
   frames: Frame[];
@@ -38,13 +39,15 @@ export function Transcript({
   runningSince?: number | undefined;
   /** Unbounded (full panel) vs the composer's reading measure. */
   wide?: boolean;
+  /** The find bar's current match — that row wears the quiet amber wash. */
+  activeFindId?: string | undefined;
   callbacks?: TranscriptCallbacks;
 }): React.JSX.Element {
   return (
     <div
       className={cx('flex w-full flex-col gap-3.5 px-8 pt-6 pb-56', !wide && 'mx-auto max-w-180')}
     >
-      <FrameList frames={frames} callbacks={callbacks} />
+      <FrameList frames={frames} callbacks={callbacks} activeFindId={activeFindId} />
       {running && <WorkingRow since={runningSince} />}
     </div>
   );
@@ -55,10 +58,12 @@ export function Transcript({
 function FrameList({
   frames,
   callbacks,
+  activeFindId,
   depth = 0,
 }: {
   frames: Frame[];
   callbacks: TranscriptCallbacks;
+  activeFindId?: string | undefined;
   depth?: number;
 }): React.JSX.Element {
   const out: React.ReactNode[] = [];
@@ -81,13 +86,26 @@ function FrameList({
           key={`nest-${f.id}`}
           className="ml-[5px] flex flex-col gap-2.5 border-l border-s3 pl-3.5"
         >
-          <FrameList frames={nest} callbacks={callbacks} depth={depth + 1} />
+          <FrameList
+            frames={nest}
+            callbacks={callbacks}
+            activeFindId={activeFindId}
+            depth={depth + 1}
+          />
         </div>,
       );
       i = j;
       continue;
     }
-    out.push(<FrameView key={f.id} frame={f} callbacks={callbacks} />);
+    out.push(
+      <div
+        key={f.id}
+        data-frame-id={f.id}
+        className={cx(f.id === activeFindId && '-mx-2 rounded-r1 bg-warn/8 px-2')}
+      >
+        <FrameView frame={f} callbacks={callbacks} />
+      </div>,
+    );
     i++;
   }
   return <>{out}</>;

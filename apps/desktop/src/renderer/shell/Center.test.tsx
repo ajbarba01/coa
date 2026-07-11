@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeState } from '../panels/fixtures.js';
-import { Center } from './Center.js';
+import { MOCK_AGENTS } from '../panels/mockAgents.js';
+import { buildRailItems, Center } from './Center.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
 
@@ -68,6 +70,30 @@ describe('Center tabs', () => {
   });
 });
 
+describe('Center tab-strip new-session menu', () => {
+  it('the + control opens a menu of agents and selecting one calls newSession(ref)', async () => {
+    const user = userEvent.setup();
+    const newSession = vi.fn();
+    publish({
+      data: {
+        agents: {
+          status: 'ok',
+          value: [
+            { ref: 'roles/dev', name: 'dev', icon: 'bot', color: 'slate', scope: 'project' },
+            { ref: 'roles/doc', name: 'docs', icon: 'bot', color: 'slate', scope: 'project' },
+          ],
+        },
+      },
+      actions: { newSession },
+    });
+    useShell.getState().openTab('c1');
+    render(<Center />);
+    await user.click(screen.getByRole('button', { name: 'new session' }));
+    await user.click(screen.getByText('docs'));
+    expect(newSession).toHaveBeenCalledExactlyOnceWith('roles/doc');
+  });
+});
+
 describe('Center search morph', () => {
   it('swaps the strip and canvas into search mode and restores on cancel', () => {
     publish();
@@ -77,5 +103,13 @@ describe('Center search morph', () => {
     expect(screen.getByPlaceholderText('search sessions…')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'cancel search' }));
     expect(useShell.getState().mode).toBe('work');
+  });
+});
+
+describe('buildRailItems', () => {
+  it('orders pinned agents first and marks them', () => {
+    const items = buildRailItems(MOCK_AGENTS, ['personal/scratch-helper']);
+    expect(items[0]).toMatchObject({ id: 'personal/scratch-helper', pinned: true });
+    expect(items).toHaveLength(MOCK_AGENTS.length);
   });
 });

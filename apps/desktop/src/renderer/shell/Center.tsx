@@ -1,4 +1,6 @@
 import { CapsLabel, MenuItem, PopoverCard, StatusDot, cx } from '@coa/console-kit';
+import type { AgentRailItem } from '@coa/console-ui';
+import type { AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { AccountSurface } from '../panels/AccountPanel.js';
@@ -13,6 +15,24 @@ import { Browser } from './Browser.js';
 import { useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
+
+/** Pure: rail items — pinned agents first (in list order), then the rest.
+ *  Moved here from ChatPanel (the rail itself is retired — the tab strip's
+ *  new-session menu owns agent selection now); kept intact + exported for a
+ *  later pinned-first ordering pass over that menu. */
+export function buildRailItems(agents: AgentSummary[], pinned: string[]): AgentRailItem[] {
+  const item = (a: AgentSummary): AgentRailItem => ({
+    id: a.ref,
+    name: a.name,
+    icon: a.icon,
+    color: a.color,
+    pinned: pinned.includes(a.ref),
+  });
+  return [
+    ...agents.filter((a) => pinned.includes(a.ref)).map(item),
+    ...agents.filter((a) => !pinned.includes(a.ref)).map(item),
+  ];
+}
 
 function EmptySurface({ name }: { name: string }): React.JSX.Element {
   return (
