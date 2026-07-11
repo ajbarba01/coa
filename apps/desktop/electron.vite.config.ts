@@ -31,9 +31,6 @@ export default defineConfig({
         '@coa/console-viewmodel': fileURLToPath(
           new URL('../../packages/console-viewmodel/src/index.ts', import.meta.url),
         ),
-        '@coa/console-layout': fileURLToPath(
-          new URL('../../packages/console-layout/src/index.ts', import.meta.url),
-        ),
       },
     },
   },

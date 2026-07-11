@@ -30,7 +30,6 @@ import { toolbarIntent } from './layout/Toolbar.intent.js';
 import { paneIntent } from './layout/Pane.intent.js';
 import { paneOverlayIntent } from './layout/PaneOverlay.intent.js';
 import { navListIntent } from './layout/NavList.intent.js';
-import { appShellIntent } from './layout/AppShell.intent.js';
 import { tableIntent } from './data/Table.intent.js';
 import { listIntent } from './data/List.intent.js';
 import { keyValueIntent } from './data/KeyValue.intent.js';
@@ -80,7 +79,6 @@ export const allIntents: ComponentIntent[] = [
   paneIntent,
   paneOverlayIntent,
   navListIntent,
-  appShellIntent,
   tableIntent,
   listIntent,
   keyValueIntent,

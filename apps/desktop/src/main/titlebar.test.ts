@@ -21,7 +21,7 @@ describe('titleBarConfig', () => {
 });
 
 describe('TITLE_BAR_HEIGHT', () => {
-  it('stays in lockstep with the AppShell bar height', () => {
+  it('stays in lockstep with the kit title-bar token', () => {
     expect(TITLE_BAR_HEIGHT).toBe(44);
   });
 });

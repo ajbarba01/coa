@@ -40,9 +40,6 @@ export { Divider, type DividerProps } from './layout/Divider.js';
 export { Toolbar, type ToolbarProps } from './layout/Toolbar.js';
 export { Pane, type PaneProps } from './layout/Pane.js';
 export { NavList, type NavListProps, type NavItem } from './layout/NavList.js';
-export { AppShell, type AppShellProps } from './layout/AppShell.js';
-export { WindowControls, type WindowControlsProps } from './layout/WindowControls.js';
-export { DaemonStatus, type DaemonStatusProps } from './layout/DaemonStatus.js';
 export {
   PaneOverlayProvider,
   usePaneOverlay,

@@ -1,6 +1,6 @@
 import type { BrowserWindowConstructorOptions } from 'electron';
 
-/** The full title-bar box height. Must stay in lockstep with AppShell's `h-[44px]`
+/** The full title-bar box height. Must stay in lockstep with the kit's `--titlebar-h`
  *  (border-box, so this includes the 1px bottom hairline). */
 export const TITLE_BAR_HEIGHT = 44;
 
@@ -16,7 +16,7 @@ export function windowBackground(theme: ResolvedTheme): string {
   return theme === 'light' ? '#f6f1e9' : '#111110'; // paper0 / sand s1
 }
 
-/** Window chrome per platform (spec §9/§22.2). The custom AppShell title bar is the
+/** Window chrome per platform. The custom DOM title bar (the workbench's segmented bar) is the
  *  only chrome, and the whole bar — including the window controls — is DOM so it scales
  *  with the Ctrl+/- content zoom. macOS hides the frame and keeps native traffic lights
  *  (inset to clear our wordmark, re-centered for the 44px bar); Windows hides the frame

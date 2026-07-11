@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the Ctrl+/- window zoom (VSCode-style). The whole DOM — including
- * the custom AppShell title bar and its window controls — scales with the Electron
+ * the custom DOM title bar and its window controls — scales with the Electron
  * zoom level, so this is a content-zoom concern, not a chrome one. Kept free of any
  * Electron import so the clamp + key mapping are unit-testable in isolation; the wiring
  * (`before-input-event` → `setZoomLevel`) lives in `index.ts`.

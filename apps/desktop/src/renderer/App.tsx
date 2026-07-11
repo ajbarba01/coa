@@ -75,6 +75,9 @@ export function App(): React.JSX.Element {
         navigate: (s) => useShell.getState().setSurface(s),
       });
       if (disposed) {
+        // The cleanup below already ran (StrictMode's dev double-mount) — the
+        // late-resolved bind + controller must tear down here or they leak.
+        unbindLayout?.();
         controller.dispose();
         return;
       }

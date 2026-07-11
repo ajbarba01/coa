@@ -12,7 +12,6 @@
     { "path": "packages/adapter-longcat" },
     { "path": "packages/console-viewmodel" },
     { "path": "packages/console-ui" },
-    { "path": "packages/console-layout" },
     { "path": "apps/cli" },
     { "path": "apps/desktop" }
   ]

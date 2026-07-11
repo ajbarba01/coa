@@ -485,7 +485,7 @@ function pushDaemonStatus(): void {
 
 function bootstrap(): void {
   app.whenReady().then(() => {
-    // The custom AppShell title bar is the only chrome — no File/Edit/View menu (§22.2).
+    // The custom DOM title bar is the only chrome — no File/Edit/View menu.
     Menu.setApplicationMenu(null);
     // Dev is served from `ELECTRON_RENDERER_URL` by Vite (HMR + Fast Refresh);
     // production loads from file. The CSP relaxes only in dev (see `csp.ts`).
