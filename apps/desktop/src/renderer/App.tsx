@@ -1,30 +1,54 @@
-import { useEffect, useRef, useState } from 'react';
-import { AppShell, DaemonStatus, WindowControls, type DaemonStatusProps } from '@coa/console-ui';
+import { useEffect, useRef } from 'react';
+import type { DaemonStatus } from '../shared/methods.js';
 import { startConsole, type ConsoleController } from './console.js';
-import { publishConsoleState } from './shell/consoleStore.js';
+import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
+import { DaemonGate } from './shell/DaemonGate.js';
+import { bindLayoutPersistence } from './shell/layoutPersistence.js';
 import { useShell } from './shell/store.js';
+import { Workbench } from './shell/Workbench.js';
 
 const POLL_MS = 2000;
 
+/** The composition root: owns the controller lifecycle, mirrors the daemon
+ *  status + window state into the shell store, and yields the whole window to
+ *  the gate while the daemon is down. */
 export function App(): React.JSX.Element {
-  const slotRef = useRef<HTMLDivElement>(null);
+  const daemon = useShell((s) => s.daemon);
   const controllerRef = useRef<ConsoleController | undefined>(undefined);
-  const statusRef = useRef<DaemonStatusProps['status']>('stopped');
-  const [daemonStatus, setDaemonStatus] = useState<DaemonStatusProps['status']>('stopped');
-  const [maximized, setMaximized] = useState(false);
 
-  // Track the window's maximized state so the custom maximize/restore glyph matches the
-  // real frame (main pushes it on every maximize/unmaximize and on load).
-  useEffect(() => window.coa.window.onMaximizeChange(setMaximized), []);
+  // Track the window's maximized state so the restore glyph matches the real
+  // frame (main pushes it on every maximize/unmaximize and on load).
+  useEffect(
+    () => window.coa.window.onMaximizeChange((m) => useShell.getState().setMaximized(m)),
+    [],
+  );
 
-  // Track daemon status for the title-bar control: seed from the current value, then
-  // follow the one-way status stream main pushes on every transition. A transition
-  // INTO `running` (launch/restart) triggers a refresh so the panels repopulate.
+  // The active session always has a tab: seed/append on every genuine change of
+  // the controller's activeSessionId (boot-time open, browser pick, new session).
   useEffect(() => {
-    const apply = (status: DaemonStatusProps['status']): void => {
-      const cameUp = status === 'running' && statusRef.current !== 'running';
-      statusRef.current = status;
-      setDaemonStatus(status);
+    let prev: string | undefined;
+    return useConsoleState.subscribe((s) => {
+      const id = s?.ui.activeSessionId;
+      if (id !== undefined && id !== prev) useShell.getState().openTab(id);
+      prev = id;
+    });
+  }, []);
+
+  // The open project, for the nav's title-bar segment (main derives it).
+  useEffect(() => {
+    void window.coa
+      .getWorkspace()
+      .then((w) => useShell.getState().setWorkspace(w))
+      .catch(() => {});
+  }, []);
+
+  // Daemon status drives the gate: seed from the current value, then follow the
+  // one-way status stream. A transition INTO `running` (launch/restart) triggers
+  // a refresh so the surfaces repopulate.
+  useEffect(() => {
+    const apply = (status: DaemonStatus): void => {
+      const cameUp = status === 'running' && useShell.getState().daemon !== 'running';
+      useShell.getState().setDaemon(status);
       if (cameUp) void controllerRef.current?.refresh();
     };
     void window.coa.daemon.status().then(apply);
@@ -33,8 +57,10 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
+    let unbindLayout: (() => void) | undefined;
     let disposed = false;
     void (async () => {
+      unbindLayout = await bindLayoutPersistence(window.coa);
       const controller = await startConsole(window.coa, {
         publish: publishConsoleState,
         navigate: (s) => useShell.getState().setSurface(s),
@@ -45,45 +71,20 @@ export function App(): React.JSX.Element {
       }
       controllerRef.current = controller;
       // Only read when the daemon is up — a stopped/starting daemon would just error
-      // (reads surface cleanly as empty/loading; the title-bar control drives recovery).
-      if (statusRef.current === 'running') void controller.refresh();
+      // (reads surface cleanly as empty/loading; the gate drives recovery).
+      if (useShell.getState().daemon === 'running') void controller.refresh();
       timer = setInterval(() => {
-        if (statusRef.current === 'running') void controllerRef.current?.refresh();
+        if (useShell.getState().daemon === 'running') void controllerRef.current?.refresh();
       }, POLL_MS);
     })();
     return () => {
       disposed = true;
       if (timer) clearInterval(timer);
+      unbindLayout?.();
       controllerRef.current?.dispose();
       controllerRef.current = undefined;
     };
   }, []);
 
-  return (
-    <AppShell
-      platform={window.coa.platform}
-      workspaceName="myproject"
-      statusSlot={
-        <DaemonStatus
-          status={daemonStatus}
-          onStart={() => void window.coa.daemon.start()}
-          onStop={() => void window.coa.daemon.stop()}
-          onRestart={() => void window.coa.daemon.restart()}
-        />
-      }
-      // macOS keeps native traffic lights (left); only Windows/Linux draw DOM controls.
-      windowControls={
-        window.coa.platform === 'darwin' ? undefined : (
-          <WindowControls
-            isMaximized={maximized}
-            onMinimize={() => void window.coa.window.minimize()}
-            onToggleMaximize={() => void window.coa.window.toggleMaximize()}
-            onClose={() => void window.coa.window.close()}
-          />
-        )
-      }
-    >
-      <div ref={slotRef} style={{ height: '100%' }} />
-    </AppShell>
-  );
+  return daemon === 'running' ? <Workbench /> : <DaemonGate />;
 }

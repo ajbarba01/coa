@@ -1,4 +1,5 @@
 export { Button, type ButtonProps, type ButtonVariant } from './actions/Button.js';
+export { WindowControls, type WindowControlsProps } from './chrome/WindowControls.js';
 export { cx } from './cx.js';
 export { DialogSearchHead, SettingRow, TocRail } from './frame/SettingsFrame.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';

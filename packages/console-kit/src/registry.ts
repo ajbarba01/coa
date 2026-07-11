@@ -1,4 +1,5 @@
 import { buttonIntent } from './actions/Button.intent.js';
+import { windowControlsIntent } from './chrome/WindowControls.intent.js';
 import { panelResizeIntent } from './layout/PanelResize.intent.js';
 import type { ComponentIntent } from './lib/intent.js';
 import { statusDotIntent } from './StatusDot.intent.js';
@@ -16,13 +17,16 @@ import { shortcutsOverlayIntent } from './keys/ShortcutsOverlay.intent.js';
 import { selectIntent } from './inputs/Select.intent.js';
 import { stepSliderIntent } from './inputs/StepSlider.intent.js';
 import { toggleIntent } from './inputs/Toggle.intent.js';
+import { zoomIntent } from './zoom.intent.js';
 
 /** Every kit member appends its intent here. Feeds COMPONENTS.md + the coverage test. */
 export const allIntents: ComponentIntent[] = [
   statusDotIntent,
   useDismissLayerIntent,
   useClickAwayIntent,
+  zoomIntent,
   buttonIntent,
+  windowControlsIntent,
   menuCardIntent,
   menuItemIntent,
   capsLabelIntent,

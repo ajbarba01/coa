@@ -16,6 +16,8 @@ export interface ShellState {
   query: string;
   /** The open tabs (working set) in order. */
   tabs: string[];
+  /** Session hovered in the browser — the dock previews it (search mode). */
+  previewId?: string | undefined;
   /** Right column (dock) visibility — the left nav never collapses; this one does. */
   workOpen: boolean;
   /** Drag-resizable column widths (layout px). */
@@ -27,12 +29,17 @@ export interface ShellState {
   projectOpen: boolean;
   /** The coa daemon itself — the console is a client; no daemon, no console. */
   daemon: DaemonStatus;
+  /** The REAL window maximize state (main pushes it) — drives the restore glyph. */
+  maximized: boolean;
+  /** The open project, read from main (which derives it from the daemon's cwd). */
+  workspace?: { name: string; root: string } | undefined;
 
   /** Also exits search mode (a surface switch is a work-mode navigation). */
   setSurface: (id: string) => void;
   /** Adds to `tabs` if absent, and switches to work mode. */
   openTab: (sessionId: string) => void;
   closeTab: (sessionId: string) => void;
+  setPreview: (id?: string) => void;
   setMode: (mode: 'work' | 'search') => void;
   openSearch: () => void;
   closeSearch: () => void;
@@ -46,6 +53,8 @@ export interface ShellState {
   setPaletteOpen: (open: boolean) => void;
   setProjectOpen: (open: boolean) => void;
   setDaemon: (daemon: DaemonStatus) => void;
+  setMaximized: (maximized: boolean) => void;
+  setWorkspace: (workspace: { name: string; root: string }) => void;
 }
 
 export const useShell = create<ShellState>((set) => ({
@@ -53,6 +62,7 @@ export const useShell = create<ShellState>((set) => ({
   mode: 'work',
   query: '',
   tabs: [],
+  previewId: undefined,
   workOpen: true,
   navWidth: 196,
   workWidth: 218,
@@ -61,6 +71,8 @@ export const useShell = create<ShellState>((set) => ({
   paletteOpen: false,
   projectOpen: false,
   daemon: 'stopped',
+  maximized: false,
+  workspace: undefined,
 
   setSurface: (surface) => set({ surface, mode: 'work' }),
   openTab: (sessionId) =>
@@ -69,6 +81,7 @@ export const useShell = create<ShellState>((set) => ({
       mode: 'work',
     })),
   closeTab: (sessionId) => set((s) => ({ tabs: s.tabs.filter((t) => t !== sessionId) })),
+  setPreview: (previewId) => set({ previewId }),
   setMode: (mode) => set({ mode }),
   openSearch: () => set({ mode: 'search', query: '' }),
   closeSearch: () => set({ mode: 'work', query: '' }),
@@ -82,4 +95,6 @@ export const useShell = create<ShellState>((set) => ({
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   setProjectOpen: (projectOpen) => set({ projectOpen }),
   setDaemon: (daemon) => set({ daemon }),
+  setMaximized: (maximized) => set({ maximized }),
+  setWorkspace: (workspace) => set({ workspace }),
 }));

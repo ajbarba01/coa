@@ -134,6 +134,7 @@ export type MethodName =
   | 'listPackages'
   | 'openPath'
   | 'openExternal'
+  | 'getWorkspace'
   | 'getLayout'
   | 'saveLayout'
   | 'getSettings'
@@ -190,6 +191,9 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   listPackages: { result: PackageSummaryListSchema },
   openPath: { params: OpenPathParamsSchema, result: OpenPathResultSchema },
   openExternal: { params: OpenExternalParamsSchema, result: OpenExternalResultSchema },
+  /** The open project (name + root), derived by main from the daemon's cwd —
+   *  the renderer never guesses a workspace. */
+  getWorkspace: { result: z.object({ name: z.string(), root: z.string() }) },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },
   getSettings: { result: ConsoleSettingsSchema },

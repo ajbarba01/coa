@@ -75,6 +75,8 @@ declare global {
       writeAgents(params: unknown): Promise<void>;
       /** Subscribe to the daemon push stream; returns an unsubscribe. */
       onPush(listener: (payload: unknown) => void): () => void;
+      /** The open project (name + root), derived by main from the daemon's cwd. */
+      getWorkspace(): Promise<{ name: string; root: string }>;
       getLayout(): Promise<unknown>;
       saveLayout(descriptor: unknown): Promise<void>;
       getSettings(): Promise<ConsoleSettings>;

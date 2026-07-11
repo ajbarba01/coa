@@ -26,7 +26,7 @@ export function PanelResize({
   };
 
   return (
-    <div className="relative z-20 w-0 flex-none">
+    <div className="relative z-(--z-seam) w-0 flex-none">
       <div
         role="separator"
         aria-orientation="vertical"

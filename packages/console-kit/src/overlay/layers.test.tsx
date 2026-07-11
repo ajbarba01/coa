@@ -65,10 +65,22 @@ describe('useClickAway', () => {
     expect(onAway).toHaveBeenCalledTimes(1);
   });
 
-  it('does nothing while no ref is mounted', () => {
+  it('still fires with only some refs mounted (an unopened portal is not "inside")', () => {
     const onAway = vi.fn();
     const { getByTestId } = render(<Away onAway={onAway} portal={false} />);
     fireEvent.pointerDown(getByTestId('outside'));
     expect(onAway).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing while NO ref is mounted (the empty guard)', () => {
+    const onAway = vi.fn();
+    function NoRefs(): React.JSX.Element {
+      const never = useRef<HTMLDivElement>(null);
+      useClickAway(never, onAway);
+      return <div data-testid="outside" />;
+    }
+    const { getByTestId } = render(<NoRefs />);
+    fireEvent.pointerDown(getByTestId('outside'));
+    expect(onAway).not.toHaveBeenCalled();
   });
 });

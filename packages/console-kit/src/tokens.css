@@ -53,6 +53,9 @@
   --z-dropdown: 400;
   --z-toast: 500;
   --z-tooltip: 600;
+  /* Sub-scale: in-flow chrome that must beat sibling content but stay under
+   * every floating surface (resize seams straddling a column border). */
+  --z-seam: 20;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
@@ -382,6 +382,10 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return revealPath(params as { path: string; line?: number; sessionId?: string });
     case 'openExternal':
       return openExternalUrl(params as { url: string });
+    case 'getWorkspace': {
+      const root = projectRoot();
+      return { name: basename(root), root };
+    }
     case 'getLayout':
       return readJson(layoutFile());
     case 'saveLayout':

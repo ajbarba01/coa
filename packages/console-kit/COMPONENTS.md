@@ -26,6 +26,19 @@ The option row: selection is an s4 tint plus the trailing mono `current` marker,
 - **Accessibility:** Native button semantics; disabled uses the real attribute; Escape/outside-press come from the hosting popup.
 - **Related:** MenuCard, PopoverCard, Select
 
+## Chrome
+
+### WindowControls
+
+The hidden-frame window’s min/max/close cluster, drawn in the DOM so it scales with the app zoom.
+
+- **Use it when:** The rightmost visible title-bar segment of a frameless window (and full-window gates that keep the chrome).
+- **Don't use it when:** macOS — native traffic lights own the frame there; render nothing. Anywhere that is not window chrome — these verbs act on the OS window, not the app.
+- **Anatomy:** Three self-stretching w-10 buttons ─ · ▢/❐ · ✕ in a no-drag flex row; the middle glyph tracks the real maximized state.
+- **Variants & states:** default (ink s8), hover (min/max: s3 ground + s10 ink), close hover (crit ground + s12 ink — the one red hover in the chrome), restore (maximized ⇒ ❐ glyph + aria-label "restore")
+- **Accessibility:** Each button carries its verb as aria-label; the maximize label flips to "restore" with the state.
+- **Related:** Button
+
 ## Foundations
 
 ### CapsLabel
@@ -209,3 +222,16 @@ The one Escape stack: every dismissible surface registers while open; Escape clo
 - **Variants & states:** active (registered while true), inactive (not registered)
 - **Accessibility:** Escape is the standard dismiss key; only the topmost layer ever intercepts it.
 - **Related:** useClickAway
+
+## Seams
+
+### ZoomProvider / useZoom
+
+The app-scale seam: pointer→layout math divides by the host's zoom factor instead of hardcoding it.
+
+- **Use it when:** A kit component converts viewport pointer coordinates into layout px (drag seams, sliders). A host whose zoom mechanism does NOT rescale pointer coordinates (the proto's CSS body zoom) wraps the app in ZoomProvider with its factor.
+- **Don't use it when:** Electron page zoom (`setZoomLevel`) — Chromium already reports pointer coords in layout px there; the default factor 1 is correct, wrap nothing. Styling — zoom is a coordinate-space concern, never a size token.
+- **Anatomy:** A React context defaulting to 1; ZoomProvider sets it, useZoom() reads it.
+- **Variants & states:** default 1 (tests, unzoomed or page-zoomed hosts), provided factor (CSS-zoom hosts)
+- **Accessibility:** None — an invisible coordinate seam.
+- **Related:** PanelResize, StepSlider
