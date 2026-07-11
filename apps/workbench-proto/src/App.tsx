@@ -1,7 +1,14 @@
-import { Button, cx, useDismissLayer } from '@coa/console-kit';
-import { useRef, useState } from 'react';
+import {
+  Button,
+  ShortcutsOverlay,
+  cx,
+  PanelResize,
+  resolveCollapse,
+  useDismissLayer,
+} from '@coa/console-kit';
+import { useState } from 'react';
 import { Center } from './Center.js';
-import { ShortcutsOverlay, useGlobalKeys } from './keys.js';
+import { KEYBINDS, useGlobalKeys } from './keys.js';
 import { Nav } from './Nav.js';
 import { Palette } from './Palette.js';
 import { SettingsDialog } from './Settings.js';
@@ -13,8 +20,6 @@ const NAV = { min: 160, max: 300, base: 196 };
 // controls need ~195 layout px. Hysteresis between collapse/reopen kills
 // boundary flapping while dragging.
 const WORK = { min: 200, max: 340, base: 218, collapseBelow: 112, reopenAt: 132 };
-
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 export function App(): React.JSX.Element {
   const closeSearch = useWorkbench((s) => s.closeSearch);
@@ -38,8 +43,8 @@ export function App(): React.JSX.Element {
     <div className="flex h-full" data-mode={mode}>
       <Nav />
       <PanelResize
-        onDrag={(clientX) => {
-          useWorkbench.getState().setNavWidth(clamp(clientX / ZOOM, NAV.min, NAV.max));
+        onDrag={(x) => {
+          useWorkbench.getState().setNavWidth(Math.min(NAV.max, Math.max(NAV.min, x)));
         }}
         onReset={() => useWorkbench.getState().setNavWidth(NAV.base)}
       />
@@ -49,15 +54,11 @@ export function App(): React.JSX.Element {
       {(workOpen || rightDragging) && (
         <PanelResize
           onActiveChange={setRightDragging}
-          onDrag={(clientX) => {
+          onDrag={(x) => {
             const st = useWorkbench.getState();
-            const desired = (window.innerWidth - clientX) / ZOOM;
-            if (desired < WORK.collapseBelow) {
-              if (st.workOpen) st.setWorkOpen(false);
-              return;
-            }
-            if (desired >= WORK.reopenAt && !st.workOpen) st.setWorkOpen(true);
-            if (desired >= WORK.reopenAt) st.setWorkWidth(clamp(desired, WORK.min, WORK.max));
+            const r = resolveCollapse(window.innerWidth / ZOOM - x, WORK, st.workOpen);
+            if (r.open !== st.workOpen) st.setWorkOpen(r.open);
+            if (r.width !== null) st.setWorkWidth(r.width);
           }}
           onReset={() => useWorkbench.getState().setWorkWidth(WORK.base)}
         />
@@ -65,57 +66,9 @@ export function App(): React.JSX.Element {
       {workOpen ? <Work /> : !rightDragging && <ReopenWork />}
       <Palette />
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
-      {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
-    </div>
-  );
-}
-
-/** A zero-width column seam: a 7px grab strip straddling the border, showing a
- *  brightened hairline on hover/drag. Double-click restores the default width.
- *  The drag runs until pointerup — collapse/reopen decisions live in onDrag. */
-function PanelResize({
-  onDrag,
-  onReset,
-  onActiveChange,
-}: {
-  onDrag: (clientX: number) => void;
-  onReset: () => void;
-  onActiveChange?: (active: boolean) => void;
-}): React.JSX.Element {
-  const [active, setActive] = useState(false);
-  const dragging = useRef(false);
-
-  const setDrag = (on: boolean): void => {
-    dragging.current = on;
-    setActive(on);
-    onActiveChange?.(on);
-  };
-
-  return (
-    <div className="relative z-20 w-0 flex-none">
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="resize panel"
-        onPointerDown={(e) => {
-          e.preventDefault();
-          setDrag(true);
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          if (dragging.current) onDrag(e.clientX);
-        }}
-        onPointerUp={() => setDrag(false)}
-        onDoubleClick={onReset}
-        className="group absolute inset-y-0 -left-[3px] w-[7px] cursor-col-resize"
-      >
-        <span
-          className={cx(
-            'slip absolute inset-y-0 left-[3px] w-px',
-            active ? 'bg-s7' : 'bg-transparent group-hover:bg-s6',
-          )}
-        />
-      </div>
+      {shortcutsOpen && (
+        <ShortcutsOverlay keybinds={KEYBINDS} onClose={() => setShortcutsOpen(false)} />
+      )}
     </div>
   );
 }

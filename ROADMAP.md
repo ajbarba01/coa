@@ -176,12 +176,15 @@ Standing rulings the phases encode (maintainer-resolved 2026-07-10): the streami
 function in quiet indicator-law form; the forge/brass identity returns later as a re-tailored theme;
 everything else the new design overwrites.
 
-- **W0 — Kit graduation [M].** Graduate the hardened prototype primitives into `packages/console-kit` as
-  real components (props, all eight states, lint-enforced intent blocks): tokens/scale, StatusDot, menus
-  (floating card + `current` marker), select, boxy toggle, step slider, kbd chip, dismiss-layer/click-away
-  utilities (multi-ref + portal-aware), resize seam, settings-dialog frame, keybind registry. Add the
-  semantic z-scale and the theme seam (a theme = one full scale file). Acceptance: the prototype's showcase
-  renders entirely from kit imports; typecheck + unit tests green.
+- **W0 — Kit graduation [M]. ✅ Done.** The hardened prototype primitives live in `packages/console-kit`
+  as real components (intent blocks + generated catalogue, all applicable states, jsdom tests): the theme
+  seam (`themes/sand-dark.css` — a theme is one full scale file), type/z/shadow token scales, StatusDot,
+  Button, the menu vocabulary (MenuCard · MenuItem `current` marker · CapsLabel · PopoverCard), select,
+  boxy toggle, step slider, kbd chip + shortcuts overlay, modal shell, dismiss-layer/click-away + zoom
+  seams, panel-resize + collapse hysteresis, and the settings-dialog frame. Interactive mechanics ride
+  Base UI per ADR-0014 (Popover/Select/Switch/Slider/Dialog — the focus trap and positioning came free);
+  the kit's dismiss-layer stack is the single Escape authority. The showcase renders from kit imports;
+  the proto keeps only composition + mock data.
 - **W1 — The shell [L].** Rebuild `apps/desktop`'s frame as the three-column workbench: segmented title bar
   (project ▣ · session tabs + ⌕ · agents header + native controls), app-scoped left nav (surfaces → HUD →
   account/settings/daemon foot with the full-window daemon gate), collapsible right session column,

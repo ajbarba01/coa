@@ -39,6 +39,17 @@ The tracked-caps section header — names a group of rows without stealing atten
 - **Accessibility:** Visual grouping; pair with aria-label/role=group on the container when the grouping is semantic.
 - **Related:** MenuCard, MenuItem
 
+### Kbd
+
+The kbd chip — one look for every shortcut the UI names.
+
+- **Use it when:** Rendering a key or chord anywhere: the shortcuts overlay, settings rows, inline hints.
+- **Don't use it when:** Describing an action without its key — plain text. A clickable control — Button; Kbd is inert.
+- **Anatomy:** One <kbd>: caps-scale mono text on an s3 chip with an s4 hairline.
+- **Variants & states:** default
+- **Accessibility:** Semantic <kbd> element; reads as the key name.
+- **Related:** ShortcutsOverlay, CapsLabel
+
 ### StatusDot
 
 The indicator law's state vocabulary: state is a dot, never a word.
@@ -49,6 +60,87 @@ The indicator law's state vocabulary: state is a dot, never a word.
 - **Variants & states:** running (blue), needs-you (amber), critical (red), done (green), idle (ground)
 - **Accessibility:** aria-hidden; the accompanying text names the thing, proximity carries the state.
 - **Related:** Kbd
+
+## Inputs
+
+### Select
+
+Pick one value from a flat list: a quiet mono chip that grows a positioned option popup.
+
+- **Use it when:** Settings rows and toolbars choosing one of a few named values (theme, density).
+- **Don't use it when:** Rich option rows with glyphs or descriptions — PopoverCard + MenuItem. Two states — Toggle. Free text — a text input.
+- **Anatomy:** Controlled Base UI Select (Root/Trigger/Value/Portal/Positioner/Popup/Item); the popup wears menuSurface below the trigger; the selected item carries the `current` marker.
+- **Variants & states:** closed, open (trigger border steps up), item hover/highlighted, item selected (tint + current), focus-visible (global interior ring)
+- **Accessibility:** Base UI combobox/listbox semantics with typeahead and keyboard selection; Escape runs through the kit dismiss-layer stack; selection mirrored by aria-selected.
+- **Related:** PopoverCard, MenuItem, Toggle
+
+### StepSlider
+
+A discrete slider over a small ordered set of named levels, with a boxy thumb and per-stop ticks.
+
+- **Use it when:** Choosing one of a few ordered named levels (reasoning effort, density).
+- **Don't use it when:** Two states — Toggle. Unordered choices — Select. Continuous numeric ranges — this is stops-only by design.
+- **Anatomy:** Base UI Slider (value = stop index) inside the kit rail: 4px-inset track, filled indicator, one tick per stop, 7×13 boxy thumb.
+- **Variants & states:** per-stop positions, drag/click (Base UI pointer mechanics), keyboard arrows/Home/End (native range input), focus-visible (global interior ring)
+- **Accessibility:** A native range input carries the slider semantics; aria-valuetext speaks the stop name, not the index.
+- **Related:** Toggle, Select
+
+### Toggle
+
+The boxy two-state switch: neutral fill when on — accent blue stays reserved for running.
+
+- **Use it when:** Settings rows and inline controls flipping one boolean (reduce motion, autosave).
+- **Don't use it when:** A momentary action — Button. More than two choices — Select or StepSlider.
+- **Anatomy:** Base UI Switch rendered as a real button (honest disabled + focus semantics) with a slip-move thumb.
+- **Variants & states:** off, on (neutral s6 fill), disabled off/on (inert, dimmed, no hover), focus-visible (global interior ring)
+- **Accessibility:** Native switch role via Base UI; space/enter toggle; disabled uses the real attribute.
+- **Related:** Select, StepSlider, Button
+
+## Layout
+
+### DialogSearchHead
+
+The dialog head where search owns the top row — typing filters the body live, VS Code style.
+
+- **Use it when:** The head of any settings-shaped dialog whose rows are searchable.
+- **Don't use it when:** A dialog with no filterable body — a plain caps header row. App-wide search — that is the session browser, not a dialog head.
+- **Anatomy:** Glyph + autofocused borderless input + ghost close Button over the s3 head hairline.
+- **Variants & states:** empty (placeholder), filtering (value drives the caller)
+- **Accessibility:** The input opts out of the focus ring per the law (its container border is the cue); close is a labelled ghost Button.
+- **Related:** ModalShell, TocRail, SettingRow
+
+### PanelResize
+
+A zero-width column seam: a 7px grab strip straddling a panel border, resizing it by drag.
+
+- **Use it when:** A resizable side panel (nav, work column) needs a draggable, double-click-resettable border.
+- **Don't use it when:** The panel has a fixed width — no seam needed. Collapse/reopen hysteresis math is wanted ready-made — combine with resolveCollapse in onDrag.
+- **Anatomy:** A zero-width flex-none wrapper holding an absolutely-positioned 7px separator strip with a slip hairline.
+- **Variants & states:** idle (transparent, hover brightens), active/dragging (bg-s7 hairline)
+- **Accessibility:** role="separator" aria-orientation="vertical" aria-label="resize panel"; pointer-driven, no keyboard resize.
+- **Related:** resolveCollapse
+
+### SettingRow
+
+One setting: name + one-line description + a trailing inline control.
+
+- **Use it when:** Every row of a settings-shaped dialog — controls slot in as children (Toggle, Select, Kbd chips).
+- **Don't use it when:** Menu options — MenuItem. Rows without a control — plain text needs no frame.
+- **Anatomy:** Flex row: name (sec scale) over description (quiet s7), control pinned right.
+- **Variants & states:** default (state lives in the slotted control)
+- **Accessibility:** The slotted control carries the interactive semantics; name/description sit adjacent for context.
+- **Related:** Toggle, Select, Kbd, TocRail
+
+### TocRail
+
+The dialog TOC rail: one row per section, jump on click, quiet active tint.
+
+- **Use it when:** Sectioned dialog bodies that deserve a jump list (settings).
+- **Don't use it when:** App navigation — that is the left nav, not a dialog rail. Search mode — pass activeId null so nothing claims the tint.
+- **Anatomy:** A fixed-width column of full-width rows against the s3 rail hairline.
+- **Variants & states:** default, hover, active (s3 tint + s12 ink), activeId null (search — no tint)
+- **Accessibility:** Native buttons; the active row is also the scrolled-to section for sighted parity.
+- **Related:** DialogSearchHead, SettingRow
 
 ## Overlays
 
@@ -63,6 +155,17 @@ The floating option surface: one skin (ground, edge, shadow, rise) for every pop
 - **Accessibility:** Purely presentational; interactive semantics come from the rows composed inside.
 - **Related:** PopoverCard, MenuItem, CapsLabel
 
+### ModalShell
+
+The modal ground: scrim + heavy-shadow centered card for the few moments that block the workbench.
+
+- **Use it when:** A blocking surface — settings, the shortcuts reference, a confirmation that must resolve before work continues.
+- **Don't use it when:** Anchored options or controls — PopoverCard. Anything a quiet inline notice can say — modals are the loudest ground and must stay rare.
+- **Anatomy:** Controlled Base UI Dialog: scrim backdrop at the modal-backdrop z, a pointer-transparent centering popup, and the animated card inside it sized by the caller.
+- **Variants & states:** closed (renders nothing), open (focus trapped, scroll locked, mount rise), reduced-motion (instant)
+- **Accessibility:** Base UI focus trap + labelled dialog role; scrim press dismisses; Escape runs through the kit dismiss-layer stack.
+- **Related:** PopoverCard, useDismissLayer, ShortcutsOverlay
+
 ### PopoverCard
 
 A trigger-anchored floating card on Base UI mechanics, wearing the shared menu-surface skin.
@@ -73,6 +176,17 @@ A trigger-anchored floating card on Base UI mechanics, wearing the shared menu-s
 - **Variants & states:** closed, open (positioned side/align, mount rise), reduced-motion (instant)
 - **Accessibility:** Base UI wires trigger aria + focus; outside-press is Base UI; Escape runs through the kit dismiss-layer stack so app-mode ordering holds.
 - **Related:** MenuCard, MenuItem, useDismissLayer
+
+### ShortcutsOverlay
+
+The quick shortcuts reference: the keybind registry rendered as a grouped modal card.
+
+- **Use it when:** The app-wide shortcut summon (ctrl+/) — pass the same registry table that drives dispatch.
+- **Don't use it when:** Editing binds — that is a settings section, not this read-only card. Naming one shortcut inline — Kbd.
+- **Anatomy:** A ModalShell card: caps header with a ghost close, one CapsLabel-style group header per bind group, label + Kbd chips per row.
+- **Variants & states:** open, closed (unmounted by the caller)
+- **Accessibility:** Labelled dialog via ModalShell; the registry prop guarantees no bind exists without appearing here.
+- **Related:** Kbd, ModalShell
 
 ### useClickAway
 

@@ -13,7 +13,8 @@ export const useDismissLayerIntent: ComponentIntent = assertIntent({
     'A bespoke keydown listener for Escape.',
     'A Base UI popup — it owns its own open/close and Escape handling.',
   ],
-  anatomy: 'A module-level stack of {id, close}; one shared window keydown listener closes only the top entry.',
+  anatomy:
+    'A module-level stack of {id, close}; one shared window keydown listener closes only the top entry.',
   variantsStates: ['active (registered while true)', 'inactive (not registered)'],
   accessibility: 'Escape is the standard dismiss key; only the topmost layer ever intercepts it.',
   related: ['useClickAway'],
@@ -32,8 +33,10 @@ export const useClickAwayIntent: ComponentIntent = assertIntent({
     'Base UI-backed popups — they own their own outside-press dismissal.',
     'No ref is ever mounted — there is nothing to be "outside" of.',
   ],
-  anatomy: 'A document pointerdown listener that checks the pointer target against one or more ref-bound elements.',
+  anatomy:
+    'A document pointerdown listener that checks the pointer target against one or more ref-bound elements.',
   variantsStates: ['mounted (ref bound, listens)', 'unmounted (ref null, ignored)'],
-  accessibility: 'Pointer-only dismissal; pairs with useDismissLayer for keyboard (Escape) dismissal.',
+  accessibility:
+    'Pointer-only dismissal; pairs with useDismissLayer for keyboard (Escape) dismissal.',
   related: ['useDismissLayer'],
 });

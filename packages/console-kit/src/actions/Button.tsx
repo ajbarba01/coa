@@ -50,9 +50,18 @@ const PRESS: Record<ButtonVariant, string> = {
 };
 
 const GEOM: Record<ButtonVariant, { text: string; icon: string }> = {
-  primary: { text: 'px-4 py-1.5 text-sec', icon: 'flex h-7 w-7 items-center justify-center text-body' },
-  quiet: { text: 'px-3 py-1 text-code', icon: 'flex h-7 w-7 items-center justify-center text-code' },
-  outline: { text: 'px-3 py-1 text-code', icon: 'flex h-7 w-7 items-center justify-center text-code' },
+  primary: {
+    text: 'px-4 py-1.5 text-sec',
+    icon: 'flex h-7 w-7 items-center justify-center text-body',
+  },
+  quiet: {
+    text: 'px-3 py-1 text-code',
+    icon: 'flex h-7 w-7 items-center justify-center text-code',
+  },
+  outline: {
+    text: 'px-3 py-1 text-code',
+    icon: 'flex h-7 w-7 items-center justify-center text-code',
+  },
   block: { text: 'px-3 py-1 text-code', icon: 'flex h-7 w-7 items-center justify-center' },
   ghost: { text: 'px-2 py-1 text-sec', icon: 'flex h-8 w-8 items-center justify-center text-icon' },
   text: { text: 'text-meta', icon: 'text-meta' },

@@ -47,8 +47,15 @@ export function PopoverCard({
     >
       <Popover.Trigger render={trigger} />
       <Popover.Portal>
-        <Popover.Positioner side={side} align={align} sideOffset={sideOffset} className="z-(--z-dropdown)">
-          <Popover.Popup className={cx('slip-enter', menuSurface, className)}>{children}</Popover.Popup>
+        <Popover.Positioner
+          side={side}
+          align={align}
+          sideOffset={sideOffset}
+          className="z-(--z-dropdown)"
+        >
+          <Popover.Popup className={cx('slip-enter', menuSurface, className)}>
+            {children}
+          </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>

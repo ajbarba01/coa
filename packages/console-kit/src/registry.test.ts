@@ -15,6 +15,13 @@ describe('console-kit component registry', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it('covers every built family', () => {
+    const families = new Set(allIntents.map((i) => i.family));
+    for (const f of ['Foundations', 'Actions', 'Inputs', 'Overlays', 'Layout']) {
+      expect(families.has(f)).toBe(true);
+    }
+  });
+
   it('COMPONENTS.md is regenerated from the current intents (run gen if this fails)', () => {
     const path = fileURLToPath(new URL('../COMPONENTS.md', import.meta.url));
     const onDisk = readFileSync(path, 'utf8');

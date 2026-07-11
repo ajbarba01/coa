@@ -55,9 +55,10 @@
 - **Focus.** Keyboard focus is a 2 px s8 ring drawn **inside** the element (`outline-offset: -2px`) so it
   never collides with neighbors or clips in scroll containers; pointer focus shows nothing
   (`:focus-visible`). Inputs opt out — their container's border step-up is the cue.
-- **Dismissal.** One Escape **layer stack** (topmost closes first); menus dismiss on outside *pointerdown*;
-  modal scrims guard `target === currentTarget`; a portaled menu counts as inside its trigger. Menus that
-  escape a clipping container do so via a portal + fixed position, and close on any scroll/resize.
+- **Dismissal.** One Escape **layer stack** — the kit's single Escape authority (topmost closes first; a
+  Base UI popup's own Escape close is swallowed so the stack issues it); menus dismiss on outside
+  *pointerdown*; modal scrims guard the backdrop; a portaled menu counts as inside its trigger. Menus that
+  escape a clipping container do so via a portal, and reposition to follow their trigger on scroll/resize.
 - **Selection marker.** A selected option row is an s4 tint + a trailing mono `current` — one vocabulary in
   every menu, picker, and select.
 - **Keybinds are a registry.** One table drives both the dispatch and the shortcuts UI (settings section +
@@ -94,8 +95,9 @@
 - **A theme is a scale swap at full quality.** New themes (light, the re-tailored brass identity) replace the
   whole s-scale + status set to the same bar as sand-dark — never a partial recolor. Density and motion are
   token axes, not per-component decisions.
-- **Semantic z-index scale.** dropdown → sticky → modal-backdrop → modal → toast → tooltip, as named tokens —
-  never arbitrary values.
+- **Semantic z-index scale.** sticky → modal-backdrop → modal → dropdown → toast → tooltip, as named tokens —
+  never arbitrary values. Dropdown ranks above modal deliberately: a select portaled from inside a dialog
+  must paint over it.
 - **Two Electron/Chromium gotchas.** Don't set the standard `scrollbar-width`/`scrollbar-color` in the
   Chromium path (it disables all `::-webkit-scrollbar` styling; the Firefox-only fallback is scoped with
   `@supports not selector(::-webkit-scrollbar)`); keep the title-bar height in px lockstep with
@@ -109,4 +111,4 @@
 
 ---
 
-_Last reviewed: 2026-07-10_
+_Last reviewed: 2026-07-11_

@@ -35,7 +35,9 @@ export function Work(): React.JSX.Element {
                 )}
                 style={{ paddingLeft: 14 + a.depth * 12 }}
               >
-                {a.depth > 0 && <span className="w-2.5 text-center font-mono text-[11px] text-s6">└</span>}
+                {a.depth > 0 && (
+                  <span className="w-2.5 text-center font-mono text-[11px] text-s6">└</span>
+                )}
                 <StatusDot status={a.status} />
                 <span className="overflow-hidden text-ellipsis whitespace-nowrap">{a.name}</span>
                 {a.depth === 0 ? (
@@ -46,8 +48,12 @@ export function Work(): React.JSX.Element {
                       {a.cost ?? ''}
                     </span>
                     <span className="ml-auto hidden gap-2 text-[10.5px] text-s8 group-hover:flex">
-                      <button type="button" className="cursor-pointer hover:text-s10">watch</button>
-                      <button type="button" className="cursor-pointer hover:text-s10">stop</button>
+                      <button type="button" className="cursor-pointer hover:text-s10">
+                        watch
+                      </button>
+                      <button type="button" className="cursor-pointer hover:text-s10">
+                        stop
+                      </button>
                     </span>
                   </>
                 )}
@@ -187,14 +193,29 @@ export function ReopenWork(): React.JSX.Element {
 
 export function WindowControls(): React.JSX.Element {
   return (
-    <div className="flex items-stretch" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-      <button type="button" aria-label="minimize" className="slip w-10 cursor-pointer text-[14px] text-s8 hover:bg-s3 hover:text-s10">
+    <div
+      className="flex items-stretch"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      <button
+        type="button"
+        aria-label="minimize"
+        className="slip w-10 cursor-pointer text-[14px] text-s8 hover:bg-s3 hover:text-s10"
+      >
         ─
       </button>
-      <button type="button" aria-label="maximize" className="slip w-10 cursor-pointer text-[14px] text-s8 hover:bg-s3 hover:text-s10">
+      <button
+        type="button"
+        aria-label="maximize"
+        className="slip w-10 cursor-pointer text-[14px] text-s8 hover:bg-s3 hover:text-s10"
+      >
         ▢
       </button>
-      <button type="button" aria-label="close" className="slip w-10 cursor-pointer text-[14px] text-s8 hover:bg-crit hover:text-s12">
+      <button
+        type="button"
+        aria-label="close"
+        className="slip w-10 cursor-pointer text-[14px] text-s8 hover:bg-crit hover:text-s12"
+      >
         ✕
       </button>
     </div>

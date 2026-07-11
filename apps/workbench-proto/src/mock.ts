@@ -1,4 +1,4 @@
-import type { Frame, Session, WorkbenchState } from './store.js';
+import type { Frame, Session } from './store.js';
 import { useWorkbench } from './store.js';
 
 let nextId = 0;
@@ -29,7 +29,11 @@ export function seedSessions(): void {
     flags: 0,
     recency: '2m',
     frames: [
-      { kind: 'user', id: id(), text: 'Sweep the docs corpus and retire everything the ADRs already cover.' },
+      {
+        kind: 'user',
+        id: id(),
+        text: 'Sweep the docs corpus and retire everything the ADRs already cover.',
+      },
       {
         kind: 'approval',
         id: id(),
@@ -166,7 +170,13 @@ export async function runScriptedTurn(sessionId: string, userText: string): Prom
   });
   await sleep(800);
 
-  push({ kind: 'subagent', id: id(), name: 'test-writer', status: 'running', tick: '4 tools · $0.12' });
+  push({
+    kind: 'subagent',
+    id: id(),
+    name: 'test-writer',
+    status: 'running',
+    tick: '4 tools · $0.12',
+  });
   useWorkbench.setState((st) => {
     const sess = st.sessions[sessionId];
     if (!sess) return st;

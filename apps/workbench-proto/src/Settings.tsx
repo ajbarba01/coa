@@ -1,8 +1,15 @@
-import { cx, useClickAway, useDismissLayer } from '@coa/console-kit';
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { KEYBINDS, Kbd } from './keys.js';
-import { ZOOM } from './store.js';
+import {
+  DialogSearchHead,
+  Kbd,
+  ModalShell,
+  Select,
+  SettingRow,
+  TocRail,
+  Toggle,
+  cx,
+} from '@coa/console-kit';
+import { useRef, useState } from 'react';
+import { KEYBINDS } from './keys.js';
 
 /** The settings dialog: VS Code's shape (search → TOC rail → setting rows,
  *  every row name + description + inline control) spoken in the quiet register.
@@ -35,7 +42,11 @@ const SECTIONS: SectionSpec[] = [
         id: 'theme',
         name: 'Theme',
         desc: 'Palette scale for the whole console.',
-        control: { kind: 'select', options: ['sand dark', 'sand light', 'system'], initial: 'sand dark' },
+        control: {
+          kind: 'select',
+          options: ['sand dark', 'sand light', 'system'],
+          initial: 'sand dark',
+        },
       },
       {
         id: 'density',
@@ -59,7 +70,11 @@ const SECTIONS: SectionSpec[] = [
         id: 'model',
         name: 'Default model',
         desc: 'New sessions start on this model.',
-        control: { kind: 'select', options: ['fable-5', 'opus-4.8', 'sonnet-5', 'haiku-4.5'], initial: 'fable-5' },
+        control: {
+          kind: 'select',
+          options: ['fable-5', 'opus-4.8', 'sonnet-5', 'haiku-4.5'],
+          initial: 'fable-5',
+        },
       },
       {
         id: 'enter',
@@ -123,7 +138,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
   const [q, setQ] = useState('');
   const [active, setActive] = useState(SECTIONS[0]?.id ?? '');
   const contentRef = useRef<HTMLDivElement>(null);
-  useDismissLayer(true, onClose);
 
   const query = q.trim().toLowerCase();
   const visible = SECTIONS.map((s) => ({
@@ -146,160 +160,85 @@ export function SettingsDialog({ onClose }: { onClose: () => void }): React.JSX.
 
   const jump = (id: string): void => {
     setActive(id);
-    contentRef.current
-      ?.querySelector(`[data-section="${id}"]`)
-      ?.scrollIntoView({ block: 'start' });
+    contentRef.current?.querySelector(`[data-section="${id}"]`)?.scrollIntoView({ block: 'start' });
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <ModalShell
+      open
+      onClose={onClose}
+      aria-label="settings"
+      className="flex h-[70%] w-[70%] flex-col"
     >
-      <div
-        role="dialog"
-        aria-label="settings"
-        className="slip-enter flex h-[70%] w-[70%] flex-col overflow-hidden rounded-r4 border border-s5 bg-s2 shadow-[0_24px_64px_rgba(0,0,0,0.6)]"
-      >
-        {/* search owns the head, like VS Code — it filters rows across sections */}
-        <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-2.5">
-          <span className="text-[14px] text-s7">⌕</span>
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="search settings…"
-            className="flex-1 bg-transparent text-[12.5px] text-s11 outline-none placeholder:text-s6"
-          />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="close settings"
-            className="slip -mr-1 flex h-6 w-6 cursor-pointer items-center justify-center text-[13px] text-s7 hover:text-s10"
-          >
-            ✕
-          </button>
-        </div>
+      <DialogSearchHead
+        value={q}
+        onChange={setQ}
+        onClose={onClose}
+        placeholder="search settings…"
+      />
 
-        <div className="flex min-h-0 flex-1">
-          {/* the TOC rail — while searching it reflects only sections that still match */}
-          <div className="w-[132px] flex-none border-r border-s3 py-2">
-            {railEntries.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => jump(s.id)}
-                className={cx(
-                  'slip flex w-full cursor-pointer items-center px-4 py-[5px] text-left text-[12px]',
-                  s.id === active && !query
-                    ? 'bg-s3 text-s12'
-                    : 'text-s10 hover:bg-s3 hover:text-s11',
-                )}
-              >
-                {s.title}
-              </button>
+      <div className="flex min-h-0 flex-1">
+        <TocRail entries={railEntries} activeId={query ? null : active} onJump={jump} />
+
+        <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+          {/* rows cap at a readable width even when the dialog runs wide */}
+          <div className="max-w-160">
+            {visible.map((s) => (
+              <div key={s.id} data-section={s.id} className="pt-4">
+                <div className="pb-1 text-caps tracking-[0.07em] text-s6 uppercase">{s.title}</div>
+                {s.rows.map((r) => (
+                  <SettingRow key={r.id} name={r.name} desc={r.desc}>
+                    <Control spec={r.control} />
+                  </SettingRow>
+                ))}
+              </div>
             ))}
-          </div>
-
-          <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
-            {/* rows cap at a readable width even when the dialog runs wide */}
-            <div className="max-w-[640px]">
-              {visible.map((s) => (
-                <div key={s.id} data-section={s.id} className="pt-4">
-                  <div className="pb-1 text-[10px] tracking-[0.07em] text-s6 uppercase">
-                    {s.title}
-                  </div>
-                  {s.rows.map((r) => (
-                    <SettingRow key={r.id} row={r} />
-                  ))}
+            {bindHits.length > 0 && (
+              <div data-section="keybinds" className="pt-4">
+                <div className="pb-1 text-caps tracking-[0.07em] text-s6 uppercase">keybinds</div>
+                {bindHits.map((k) => (
+                  <SettingRow key={k.label} name={k.label} desc={k.group}>
+                    <span className="flex flex-none gap-1">
+                      {k.keys.map((key) => (
+                        <Kbd key={key}>{key}</Kbd>
+                      ))}
+                    </span>
+                  </SettingRow>
+                ))}
+                <div className="pt-1 text-meta text-s6">
+                  rebinding arrives with the rebuild — these are the defaults
                 </div>
-              ))}
-              {bindHits.length > 0 && (
-                <div data-section="keybinds" className="pt-4">
-                  <div className="pb-1 text-[10px] tracking-[0.07em] text-s6 uppercase">
-                    keybinds
-                  </div>
-                  {bindHits.map((k) => (
-                    <div key={k.label} className="flex items-center gap-4 py-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12.5px] text-s11">{k.label}</div>
-                        <div className="mt-0.5 text-[11px] leading-[1.4] text-s7">{k.group}</div>
-                      </div>
-                      <span className="flex flex-none gap-1">
-                        {k.keys.map((key) => (
-                          <Kbd key={key}>{key}</Kbd>
-                        ))}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="pt-1 text-[10.5px] text-s6">
-                    rebinding arrives with the rebuild — these are the defaults
-                  </div>
-                </div>
-              )}
-              {visible.length === 0 && bindHits.length === 0 && (
-                <div className="pt-10 text-center text-[12px] text-s7">
-                  no settings match “{q.trim()}”
-                </div>
-              )}
-            </div>
+              </div>
+            )}
+            {visible.length === 0 && bindHits.length === 0 && (
+              <div className="pt-10 text-center text-[12px] text-s7">
+                no settings match “{q.trim()}”
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function SettingRow({ row }: { row: RowSpec }): React.JSX.Element {
-  return (
-    <div className="flex items-center gap-4 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="text-[12.5px] text-s11">{row.name}</div>
-        <div className="mt-0.5 text-[11px] leading-[1.4] text-s7">{row.desc}</div>
-      </div>
-      <Control spec={row.control} />
-    </div>
+    </ModalShell>
   );
 }
 
 function Control({ spec }: { spec: ControlSpec }): React.JSX.Element {
   switch (spec.kind) {
     case 'toggle':
-      return <Toggle initial={spec.initial} />;
+      return <ToggleControl initial={spec.initial} />;
     case 'select':
-      return <Select options={spec.options} initial={spec.initial} />;
+      return <SelectControl options={spec.options} initial={spec.initial} />;
     case 'text':
       return <TextControl initial={spec.initial} readonly={spec.readonly} />;
   }
 }
 
-/** Boxy switch: neutral fill when on — accent blue stays reserved for running. */
-function Toggle({ initial }: { initial: boolean }): React.JSX.Element {
+function ToggleControl({ initial }: { initial: boolean }): React.JSX.Element {
   const [on, setOn] = useState(initial);
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => setOn((v) => !v)}
-      className={cx(
-        'slip relative h-[16px] w-[28px] flex-none cursor-pointer rounded-[3px] border',
-        on ? 'border-s7 bg-s6' : 'border-s5 bg-s3',
-      )}
-    >
-      <span
-        className={cx(
-          'slip-move absolute top-[2px] h-[10px] w-[10px] rounded-[2px]',
-          on ? 'left-[14px] bg-s12' : 'left-[2px] bg-s8',
-        )}
-      />
-    </button>
-  );
+  return <Toggle on={on} onChange={setOn} />;
 }
 
-function Select({
+function SelectControl({
   options,
   initial,
 }: {
@@ -307,80 +246,7 @@ function Select({
   initial: string;
 }): React.JSX.Element {
   const [value, setValue] = useState(initial);
-  // The dialog body scrolls and clips, so the menu escapes through a portal to
-  // <body> — position:fixed alone isn't enough, because any transformed
-  // ancestor (e.g. a mount animation) would become its containing block.
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const open = anchor !== null;
-  useClickAway([ref, menuRef], () => setAnchor(null));
-  useDismissLayer(open, () => setAnchor(null));
-
-  // A fixed menu can't follow its trigger — close it the moment anything scrolls.
-  useEffect(() => {
-    if (!open) return;
-    const close = (): void => setAnchor(null);
-    window.addEventListener('scroll', close, { capture: true });
-    window.addEventListener('resize', close);
-    return () => {
-      window.removeEventListener('scroll', close, { capture: true });
-      window.removeEventListener('resize', close);
-    };
-  }, [open]);
-
-  const toggle = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    if (open) {
-      setAnchor(null);
-      return;
-    }
-    // rect coords are visual px; the portaled menu's styles get re-zoomed, so
-    // convert to layout px or it lands 20% off
-    const r = e.currentTarget.getBoundingClientRect();
-    setAnchor({ top: r.bottom / ZOOM + 4, right: (window.innerWidth - r.right) / ZOOM });
-  };
-
-  return (
-    <div ref={ref} className="flex-none">
-      <button
-        type="button"
-        onClick={toggle}
-        className={cx(
-          'slip cursor-pointer rounded-r1 border border-s4 px-2 py-[3px] font-mono text-[11px]',
-          open ? 'border-s5 text-s11' : 'text-s9 hover:border-s5 hover:text-s11',
-        )}
-      >
-        {value} ▾
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={menuRef}
-            className="slip-enter fixed z-[60] overflow-hidden rounded-r3 border border-s5 bg-s3 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.55)]"
-            style={{ top: anchor.top, right: anchor.right }}
-          >
-            {options.map((o) => (
-              <button
-                key={o}
-                type="button"
-                onClick={() => {
-                  setValue(o);
-                  setAnchor(null);
-                }}
-                className={cx(
-                  'slip flex w-full cursor-pointer items-center gap-4 px-3 py-1.5 text-left font-mono text-[11px] whitespace-nowrap',
-                  o === value ? 'bg-s4 text-s12' : 'text-s9 hover:bg-s4 hover:text-s11',
-                )}
-              >
-                {o}
-                {o === value && <span className="ml-auto text-[10px] text-s7">current</span>}
-              </button>
-            ))}
-          </div>,
-          document.body,
-        )}
-    </div>
-  );
+  return <Select options={options} value={value} onChange={setValue} />;
 }
 
 function TextControl({

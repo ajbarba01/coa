@@ -45,7 +45,9 @@ export function MenuItem({
       {...rest}
     >
       {children}
-      {selected && <span className="ml-auto pl-4 font-mono text-caps tracking-normal text-s7">current</span>}
+      {selected && (
+        <span className="ml-auto pl-4 font-mono text-caps tracking-normal text-s7">current</span>
+      )}
     </button>
   );
 }

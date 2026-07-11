@@ -1,0 +1,25 @@
+# @coa/console-kit
+
+The workbench design system's kit: the sand-dark theme seam (`src/themes/` — a theme is one full scale
+file), the structural tokens (`src/tokens.css`: type scale, radii, Slipstream motion, semantic z levels),
+and the component vocabulary. Interactive mechanics ride Base UI (`@base-ui/react`) where a part exists;
+the identity — geometry, ink, motion — is the kit's own.
+
+**Design authority:** [docs/UI.md](../../docs/UI.md) (the laws + authoring rules) and
+[docs/adr/0014](../../docs/adr/0014-workbench-design-system.md) (the why). The living spec is the
+`▦ showcase` surface in `apps/workbench-proto` — every member and every state renders there.
+
+## Adding a member
+
+Every component ships with an intent block (`<Name>.intent.ts`, registered in `src/registry.ts`) and all
+of its applicable states (see UI.md's graduation checklist). `COMPONENTS.md` is generated — never edit it
+by hand:
+
+```sh
+pnpm --filter @coa/console-kit gen     # regenerate the catalogue
+pnpm vitest run packages/console-kit   # tests enforce catalogue byte-equality + intent validity
+```
+
+---
+
+_Last reviewed: 2026-07-11_

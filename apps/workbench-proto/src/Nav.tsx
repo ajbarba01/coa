@@ -27,10 +27,7 @@ export function Nav(): React.JSX.Element {
   const navWidth = useWorkbench((s) => s.navWidth);
 
   return (
-    <div
-      className="flex flex-none flex-col border-r border-s4 bg-s2"
-      style={{ width: navWidth }}
-    >
+    <div className="flex flex-none flex-col border-r border-s4 bg-s2" style={{ width: navWidth }}>
       <ProjectButton />
 
       <nav className="pt-1">
@@ -44,7 +41,12 @@ export function Nav(): React.JSX.Element {
               s.id === surface ? 'bg-s3 text-s12' : 'text-s10 hover:bg-s3 hover:text-s11',
             )}
           >
-            <span className={cx('w-6 text-center font-mono text-[17px]', s.id === surface ? 'text-s11' : 'text-s9')}>
+            <span
+              className={cx(
+                'w-6 text-center font-mono text-[17px]',
+                s.id === surface ? 'text-s11' : 'text-s9',
+              )}
+            >
               {s.glyph}
             </span>
             {s.label}
@@ -275,10 +277,14 @@ function HudDash(): React.JSX.Element {
                   )}
                 >
                   {h}
-                  {h === hud && <span className="ml-auto font-mono text-[10px] text-s7">current</span>}
+                  {h === hud && (
+                    <span className="ml-auto font-mono text-[10px] text-s7">current</span>
+                  )}
                 </button>
               ))}
-              {hits.length === 0 && <div className="px-3.5 py-1.5 text-[11.5px] text-s7">no hud</div>}
+              {hits.length === 0 && (
+                <div className="px-3.5 py-1.5 text-[11.5px] text-s7">no hud</div>
+              )}
             </div>
             <div className="flex items-center gap-2 border-t border-s5 px-3 py-1.5">
               <span className="text-[13px] text-s7">⌕</span>
@@ -357,7 +363,6 @@ function FootButton({
     </button>
   );
 }
-
 
 function Kv({ k, v }: { k: string; v: string }): React.JSX.Element {
   return (

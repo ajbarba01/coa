@@ -9,11 +9,7 @@ import { PopoverCard } from './PopoverCard.js';
 function Host(): React.JSX.Element {
   const [open, setOpen] = useState(false);
   return (
-    <PopoverCard
-      open={open}
-      onOpenChange={setOpen}
-      trigger={<button type="button">chip</button>}
-    >
+    <PopoverCard open={open} onOpenChange={setOpen} trigger={<button type="button">chip</button>}>
       <MenuItem onClick={() => setOpen(false)}>option</MenuItem>
     </PopoverCard>
   );
@@ -59,7 +55,11 @@ describe('PopoverCard', () => {
       }, []);
       return (
         <>
-          <PopoverCard open={open} onOpenChange={setOpen} trigger={<button type="button">chip</button>}>
+          <PopoverCard
+            open={open}
+            onOpenChange={setOpen}
+            trigger={<button type="button">chip</button>}
+          >
             <MenuItem>option</MenuItem>
           </PopoverCard>
           {mode && (

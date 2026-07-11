@@ -1,8 +1,16 @@
-import { Button, CapsLabel, MenuItem, PopoverCard, StatusDot, cx } from '@coa/console-kit';
+import {
+  Button,
+  CapsLabel,
+  MenuItem,
+  PopoverCard,
+  StatusDot,
+  StepSlider,
+  cx,
+} from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import { runScriptedTurn } from './mock.js';
 import type { Frame } from './store.js';
-import { ZOOM, useWorkbench } from './store.js';
+import { useWorkbench } from './store.js';
 
 /** The conversation canvas: transcript + composer. */
 export function Chat(): React.JSX.Element {
@@ -145,7 +153,11 @@ function Approval({
   return (
     <div className="slip-enter max-w-[88%] rounded-r2 border border-s4 bg-s2 px-3 py-2.5">
       <div className="flex items-center gap-2 text-[12px] font-[550] text-s11">
-        <StatusDot status={frame.resolved ? (frame.resolved === 'approved' ? 'done' : 'critical') : 'needs-you'} />
+        <StatusDot
+          status={
+            frame.resolved ? (frame.resolved === 'approved' ? 'done' : 'critical') : 'needs-you'
+          }
+        />
         {frame.tool}
         {frame.resolved && (
           <span className="ml-auto font-mono text-[10px] text-s7">{frame.resolved}</span>
@@ -178,8 +190,13 @@ const MODELS = ['fable-5', 'opus-4.8', 'sonnet-5', 'haiku-4.5'] as const;
 const EFFORTS = ['low', 'medium', 'high', 'max'] as const;
 type Effort = (typeof EFFORTS)[number];
 
-
-function Composer({ sessionId, running }: { sessionId: string; running: boolean }): React.JSX.Element {
+function Composer({
+  sessionId,
+  running,
+}: {
+  sessionId: string;
+  running: boolean;
+}): React.JSX.Element {
   const [text, setText] = useState('');
   const [perm, setPerm] = useState<string>('ask edits');
   const [model, setModel] = useState<string>('fable-5');
@@ -235,13 +252,14 @@ function Composer({ sessionId, running }: { sessionId: string; running: boolean 
         <AttachButton onAttach={attach} />
         <div className="flex-1" />
         <PermissionChip value={perm} onPick={setPerm} />
-        <ModelChip
-          model={model}
-          effort={effort}
-          onPickModel={setModel}
-          onPickEffort={setEffort}
-        />
-        <Button variant="primary" icon aria-label="send" disabled={running || text.trim() === ''} onClick={send}>
+        <ModelChip model={model} effort={effort} onPickModel={setModel} onPickEffort={setEffort} />
+        <Button
+          variant="primary"
+          icon
+          aria-label="send"
+          disabled={running || text.trim() === ''}
+          onClick={send}
+        >
           ↑
         </Button>
       </div>
@@ -269,7 +287,17 @@ function AttachButton({ onAttach }: { onAttach: (name: string) => void }): React
             open ? 'border-s6 bg-s5 text-s12' : 'border-s5 bg-s4 hover:bg-s5 hover:text-s12',
           )}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
           </svg>
         </button>
@@ -410,7 +438,12 @@ function ModelChip({
             <span className="text-caps tracking-[0.07em] text-s6 uppercase">reasoning</span>
             <span className="ml-auto font-mono text-meta text-s9">{effort}</span>
           </div>
-          <EffortSlider value={effort} onChange={onPickEffort} />
+          <StepSlider
+            stops={EFFORTS}
+            value={effort}
+            onChange={onPickEffort}
+            aria-label="reasoning effort"
+          />
         </div>
       </div>
     </ChipMenu>
@@ -418,81 +451,3 @@ function ModelChip({
 }
 
 /** The reasoning-effort step slider: four stops, click/drag/arrow keys. */
-function EffortSlider({
-  value,
-  onChange,
-}: {
-  value: Effort;
-  onChange: (e: Effort) => void;
-}): React.JSX.Element {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const idx = EFFORTS.indexOf(value);
-
-  const pickFromX = (clientX: number): void => {
-    const el = trackRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    // the track is inset 4 layout px each side — rect coords are visual px
-    const inset = 4 * ZOOM;
-    const pct = Math.min(1, Math.max(0, (clientX - r.left - inset) / (r.width - inset * 2)));
-    const next = EFFORTS[Math.round(pct * (EFFORTS.length - 1))];
-    if (next && next !== value) onChange(next);
-  };
-
-  return (
-    <div
-      ref={trackRef}
-      role="slider"
-      tabIndex={0}
-      aria-label="reasoning effort"
-      aria-valuemin={0}
-      aria-valuemax={EFFORTS.length - 1}
-      aria-valuenow={idx}
-      aria-valuetext={value}
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        pickFromX(e.clientX);
-      }}
-      onPointerMove={(e) => {
-        if (e.buttons === 1) pickFromX(e.clientX);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-          const prev = EFFORTS[Math.max(0, idx - 1)];
-          if (prev) onChange(prev);
-        }
-        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-          const next = EFFORTS[Math.min(EFFORTS.length - 1, idx + 1)];
-          if (next) onChange(next);
-        }
-        if (e.key === 'Home') onChange(EFFORTS[0] as Effort);
-        if (e.key === 'End') onChange(EFFORTS[EFFORTS.length - 1] as Effort);
-      }}
-      className="relative h-5 cursor-pointer touch-none px-1"
-    >
-      {/* track + filled span up to the thumb */}
-      <div className="absolute top-1/2 right-1 left-1 h-[3px] -translate-y-1/2 bg-s5">
-        <div
-          className="slip-move absolute inset-y-0 left-0 bg-s8"
-          style={{ width: `${(idx / (EFFORTS.length - 1)) * 100}%` }}
-        />
-      </div>
-      {/* stops */}
-      {EFFORTS.map((e, i) => (
-        <span
-          key={e}
-          className={cx(
-            'absolute top-1/2 h-[9px] w-[3px] -translate-x-1/2 -translate-y-1/2',
-            i <= idx ? 'bg-s9' : 'bg-s6',
-          )}
-          style={{ left: `calc(4px + ${(i / (EFFORTS.length - 1)) * 100}% - ${(i / (EFFORTS.length - 1)) * 8}px)` }}
-        />
-      ))}
-      {/* thumb */}
-      <span
-        className="slip-move absolute top-1/2 h-[13px] w-[7px] -translate-x-1/2 -translate-y-1/2 bg-s11"
-        style={{ left: `calc(4px + ${(idx / (EFFORTS.length - 1)) * 100}% - ${(idx / (EFFORTS.length - 1)) * 8}px)` }}
-      />
-    </div>
-  );
-}
