@@ -3,7 +3,7 @@ import { fireEvent, render } from '@testing-library/react';
 import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { useClickAway, useDismissLayer } from './layers.js';
+import { hasOpenLayers, useClickAway, useDismissLayer } from './layers.js';
 
 function Layer({ name, onClose }: { name: string; onClose: () => void }): React.JSX.Element {
   useDismissLayer(true, onClose);
@@ -23,6 +23,13 @@ describe('useDismissLayer', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(second).toHaveBeenCalledTimes(1);
     expect(first).not.toHaveBeenCalled();
+  });
+
+  it('hasOpenLayers reflects the live stack', () => {
+    const { unmount } = render(<Layer name="only" onClose={vi.fn()} />);
+    expect(hasOpenLayers()).toBe(true);
+    unmount();
+    expect(hasOpenLayers()).toBe(false);
   });
 
   it('an unmounted layer no longer intercepts Escape', () => {

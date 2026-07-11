@@ -26,7 +26,10 @@ export function App(): React.JSX.Element {
   // The active session always has a tab: seed/append on every genuine change of
   // the controller's activeSessionId (boot-time open, browser pick, new session).
   useEffect(() => {
-    let prev: string | undefined;
+    // Seed from whatever is already active (a publish can precede this effect),
+    // then follow genuine changes.
+    let prev = useConsoleState.getState()?.ui.activeSessionId;
+    if (prev !== undefined) useShell.getState().openTab(prev);
     return useConsoleState.subscribe((s) => {
       const id = s?.ui.activeSessionId;
       if (id !== undefined && id !== prev) useShell.getState().openTab(id);
@@ -49,7 +52,13 @@ export function App(): React.JSX.Element {
     const apply = (status: DaemonStatus): void => {
       const cameUp = status === 'running' && useShell.getState().daemon !== 'running';
       useShell.getState().setDaemon(status);
-      if (cameUp) void controllerRef.current?.refresh();
+      if (cameUp) {
+        void controllerRef.current?.refresh();
+        // Recover the boot-time reads a cold start may have fired before the daemon
+        // existed (they'd have settled into error Remotes with nothing else to retry
+        // them) — see `ConsoleController.hydrate`'s doc for the restart-safety guard.
+        void controllerRef.current?.hydrate();
+      }
     };
     void window.coa.daemon.status().then(apply);
     return window.coa.daemon.onStatus(apply);

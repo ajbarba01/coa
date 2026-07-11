@@ -563,4 +563,70 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       expect(last2().data.agents.value[0]?.ref).toBe('personal/untitled-agent');
     }
   });
+
+  it('hydrate() recovers reads that failed at cold boot (daemon not up yet when startConsole fired them)', async () => {
+    // Cold boot with autostart: the daemon isn't listening yet, so every boot read fails
+    // into an error Remote on mount. Nothing else retries them — `hydrate()` (fired from
+    // App.tsx's `cameUp` handler once the daemon actually comes up) is the only recovery.
+    const bridge = fakeBridge({
+      listAccounts: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockResolvedValue({ accounts: [{ label: 'acct', provider: 'claude' }], active: {} }),
+      listSessions: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockResolvedValue(FAKE_SESSIONS),
+    });
+    const { last, controller } = await mount(bridge);
+
+    expect(last().data.accounts.status).toBe('error');
+    expect(last().data.sessions.status).toBe('error');
+    expect(last().ui.activeSessionId).toBeUndefined();
+
+    await controller.hydrate();
+
+    expect(last().data.accounts).toEqual({
+      status: 'ok',
+      value: { accounts: [{ label: 'acct', provider: 'claude' }], active: {} },
+    });
+    expect(last().data.sessions).toEqual({ status: 'ok', value: FAKE_SESSIONS });
+    // Sessions recovered from error ⇒ initSessions re-ran and opened the newest session.
+    expect(last().ui.activeSessionId).toBe('c1');
+  });
+
+  it('hydrate() fired immediately after startup dedupes against the in-flight boot loads (ordinary launch race)', async () => {
+    // On an ordinary launch (daemon already up) the daemon-status handler fires `cameUp`
+    // at startup too, so hydrate() can arrive BEFORE the boot-time initSessions settles.
+    // It must await the tracked boot loads and then see ok+active — not read the guard
+    // mid-boot and start a second, concurrent initSessions (double IPC on every launch).
+    const bridge = fakeBridge();
+    const publish = vi.fn<(s: ConsoleState) => void>();
+    const controller = await startConsole(bridge, { publish, navigate: vi.fn() });
+
+    // No boot-flush wait: hydrate races the fire-and-forget boot loads deliberately.
+    await controller.hydrate();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(bridge.listSessions).toHaveBeenCalledTimes(1);
+    expect(bridge.reloadConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrate() does not re-run initSessions when reads are already ok and a session is active (a mid-use daemon restart)', async () => {
+    // A daemon RESTART also fires `cameUp` while the console is mid-use with a perfectly
+    // healthy active session. Re-running initSessions unconditionally would yank the user
+    // to whatever session is newest — hydrate() must skip it when nothing is broken.
+    const bridge = fakeBridge();
+    const { last, controller } = await mount(bridge);
+    expect(last().ui.activeSessionId).toBe('c1');
+
+    vi.mocked(bridge.listSessions).mockClear();
+    vi.mocked(bridge.reloadConversation).mockClear();
+
+    await controller.hydrate();
+
+    expect(bridge.listSessions).not.toHaveBeenCalled();
+    expect(bridge.reloadConversation).not.toHaveBeenCalled();
+    expect(last().ui.activeSessionId).toBe('c1');
+  });
 });

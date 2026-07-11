@@ -47,4 +47,20 @@ describe('DaemonGate', () => {
     expect(screen.getByText('the coa daemon hit an error')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'close' })).toBeTruthy();
   });
+
+  it('retries start on an interval while the daemon stays down, and stops once it is up', () => {
+    vi.useFakeTimers();
+    try {
+      useShell.getState().setDaemon('stopped');
+      render(<DaemonGate />);
+      vi.advanceTimersByTime(5000);
+      expect(start).toHaveBeenCalledTimes(1);
+      // A daemon that came up out-of-band must not be re-started by a stale tick.
+      useShell.getState().setDaemon('running');
+      vi.advanceTimersByTime(5000);
+      expect(start).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

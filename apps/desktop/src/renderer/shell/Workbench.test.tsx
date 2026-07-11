@@ -41,4 +41,11 @@ describe('Workbench', () => {
     render(<Workbench />);
     expect(screen.queryByText(/graph isn't designed yet/)).toBeNull();
   });
+
+  it('routes the account surface (nav foot ◐) to the AccountSurface pane', () => {
+    publishConsoleState(makeState());
+    useShell.getState().setSurface('account');
+    render(<Workbench />);
+    expect(screen.getByText('Accounts')).toBeTruthy();
+  });
 });

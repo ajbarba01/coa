@@ -48,6 +48,14 @@ export function useClickAway(
   }, []);
 }
 
+/** Whether any dismiss layer is currently open. The host's global keymap reads
+ *  this so a fallback Escape action (e.g. stop-the-running-turn) fires only
+ *  when the stack has nothing left to dismiss — Escape's one authority stays
+ *  the stack; the fallback is what Escape means when the stack is empty. */
+export function hasOpenLayers(): boolean {
+  return stack.length > 0;
+}
+
 /** Register `onDismiss` as an Escape layer while `active` is true. Layers pop
  *  in reverse open order — a modal over search mode closes before the search. */
 export function useDismissLayer(active: boolean, onDismiss: () => void): void {

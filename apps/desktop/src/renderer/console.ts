@@ -108,6 +108,10 @@ export interface ConsoleBridge {
 
 export interface ConsoleController {
   refresh(): Promise<void>;
+  /** Re-run the one-shot boot loads. Recovers a cold boot where the daemon wasn't up yet
+   *  when `startConsole` fired them (they settled into error Remotes and nothing else
+   *  ever retries them) — call this when the daemon transitions to `running`. */
+  hydrate(): Promise<void>;
   toggleRaw(): void;
   dispose(): void;
 }
@@ -666,14 +670,45 @@ export async function startConsole(
     },
   };
   push();
-  void loadAccounts();
-  void loadModels();
-  void loadCatalogue();
-  void initAgents();
-  void initSessions();
+  // Fire-and-forget as a group, but TRACKED: on an ordinary launch (daemon already up)
+  // the daemon-status handler fires `cameUp` at startup too, so an untracked `hydrate()`
+  // could run its guard before the boot-time `initSessions()` settles and kick off a
+  // second, concurrent one (double listSessions/reloadConversation/subscribe on every
+  // normal launch). `allSettled` (not `all`) because a failed read must not short-circuit
+  // the others — each settles into its own error Remote for hydrate to recover.
+  const bootLoads = Promise.allSettled([
+    loadAccounts(),
+    loadModels(),
+    loadCatalogue(),
+    initAgents(),
+    initSessions(),
+  ]).then(() => undefined);
+
+  /** Recover the one-shot boot loads (cold-boot rehydrate gap): a `cameUp` daemon-status
+   *  transition fires on BOTH a cold boot (autostart racing the console mount — the initial
+   *  loads fired before the daemon existed and settled into error Remotes, never retried)
+   *  and a daemon RESTART mid-use. `loadAccounts`/`loadModels`/`loadCatalogue` are idempotent
+   *  reads, safe to re-run unconditionally either way. `initSessions` is NOT idempotent — it
+   *  jumps the view to the newest session — so it's guarded: only re-run it when the sessions
+   *  read isn't `ok` or nothing is active yet (the cold-boot case); a mid-use restart with a
+   *  healthy, already-active session must not yank the user to a different conversation.
+   *
+   *  Awaits `bootLoads` first: an ordinary launch (daemon already up) fires `cameUp` at
+   *  startup too, and reading the guard mid-boot would see not-yet-ok sessions and start a
+   *  second, concurrent `initSessions()`. Settled boot loads make the guard's read honest:
+   *  normal launch ⇒ ok+active ⇒ no re-run; cold boot ⇒ settled failures ⇒ recover.
+   */
+  async function hydrate(): Promise<void> {
+    await bootLoads;
+    await Promise.all([loadAccounts(), loadModels(), loadCatalogue()]);
+    if (state.data.sessions.status !== 'ok' || state.ui.activeSessionId === undefined) {
+      await initSessions();
+    }
+  }
 
   return {
     refresh,
+    hydrate,
     toggleRaw,
     dispose: () => {
       unsubscribePush();

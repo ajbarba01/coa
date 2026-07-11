@@ -3,7 +3,7 @@ export { WindowControls, type WindowControlsProps } from './chrome/WindowControl
 export { cx } from './cx.js';
 export { DialogSearchHead, SettingRow, TocRail } from './frame/SettingsFrame.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';
-export { useDismissLayer, useClickAway } from './overlay/layers.js';
+export { useDismissLayer, useClickAway, hasOpenLayers } from './overlay/layers.js';
 export { PanelResize } from './layout/PanelResize.js';
 export {
   resolveCollapse,

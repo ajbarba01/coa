@@ -1,5 +1,7 @@
 import type { Keybind } from '@coa/console-kit';
+import { hasOpenLayers } from '@coa/console-kit';
 import { useEffect } from 'react';
+import { useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
 
 /** One keybind registry: the dispatch table and the shortcuts overlay both
@@ -19,6 +21,30 @@ export const KEYBINDS: Keybind[] = [
 export function useGlobalKeys(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Escape's authority is the dismiss stack; only when the stack is EMPTY
+      // does Escape fall through to "stop the running turn" (SC-1: a user
+      // stop, advisory, fire-and-forget — the pill clears from the daemon's
+      // own status push). The composer's focused-Esc stop still fires first
+      // for typing users; this covers Esc from anywhere else in the frame.
+      // Bare Escape only: an IME-composition cancel, a handler that already
+      // claimed the key (the composer's focused stop — no double interrupt),
+      // and modifier chords all pass through.
+      if (e.key === 'Escape' && e.isComposing) return;
+      if (
+        e.key === 'Escape' &&
+        !e.defaultPrevented &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !hasOpenLayers()
+      ) {
+        const cs = useConsoleState.getState();
+        const id = cs?.ui.activeSessionId;
+        if (cs !== undefined && id !== undefined && cs.ui.runStatus[id] !== undefined) {
+          cs.actions.interruptSession(id);
+        }
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const st = useShell.getState();
       switch (e.key.toLowerCase()) {

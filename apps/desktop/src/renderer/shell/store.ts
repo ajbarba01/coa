@@ -83,7 +83,9 @@ export const useShell = create<ShellState>((set) => ({
   closeTab: (sessionId) => set((s) => ({ tabs: s.tabs.filter((t) => t !== sessionId) })),
   setPreview: (previewId) => set({ previewId }),
   setMode: (mode) => set({ mode }),
-  openSearch: () => set({ mode: 'search', query: '' }),
+  // Search lives on the chat surface (the strip morphs) — opening it from any
+  // other surface routes home first, so ctrl+p never strands an invisible mode.
+  openSearch: () => set({ surface: 'chat', mode: 'search', query: '' }),
   closeSearch: () => set({ mode: 'work', query: '' }),
   setQuery: (query) => set({ query }),
   toggleWork: () => set((s) => ({ workOpen: !s.workOpen })),
