@@ -1,5 +1,18 @@
 import { StatusDot, cx } from '@coa/console-kit';
+import type { Session } from './store.js';
 import { useWorkbench } from './store.js';
+
+/** The session's current plan — its LAST plan frame (the agent replaces the
+ *  checklist wholesale as it works). */
+function sessionPlan(
+  session: Session,
+): { text: string; status: 'pending' | 'in-progress' | 'done' }[] | undefined {
+  for (let i = session.frames.length - 1; i >= 0; i--) {
+    const f = session.frames[i];
+    if (f !== undefined && f.kind === 'plan') return f.items;
+  }
+  return undefined;
+}
 
 /** Right column: the session's working state, scoped by the agent tree.
  *  Title-bar segment carries the AGENTS header + window controls. */
@@ -60,6 +73,8 @@ export function Work(): React.JSX.Element {
               </div>
             ))}
           </div>
+
+          <PlanSection session={session} />
 
           {session.changes.length > 0 && (
             <Section
@@ -143,6 +158,49 @@ export function Work(): React.JSX.Element {
         <div className="px-3.5 pt-4 text-[11px] text-s7">no session</div>
       )}
     </div>
+  );
+}
+
+/** The agent's live checklist, always visible while it works — the same
+ *  glyph vocabulary as the transcript's plan block (✓ done · › in-progress,
+ *  the column's one blue mark · ○ pending), one row per item. */
+function PlanSection({ session }: { session: Session }): React.JSX.Element | null {
+  const items = sessionPlan(session);
+  if (items === undefined) return null;
+  const done = items.filter((i) => i.status === 'done').length;
+  return (
+    <Section
+      title="plan"
+      meta={
+        <span className="font-mono">
+          {done}/{items.length}
+        </span>
+      }
+    >
+      {items.map((it, i) => (
+        <div key={i} className="flex items-baseline gap-2 px-3.5 py-[3px]">
+          <span
+            aria-hidden
+            className={cx(
+              'slip w-3 flex-none text-center font-mono text-[10px]',
+              it.status === 'in-progress' ? 'font-[550] text-run' : 'text-s6',
+            )}
+          >
+            {it.status === 'done' ? '✓' : it.status === 'in-progress' ? '›' : '○'}
+          </span>
+          <span
+            className={cx(
+              'slip min-w-0 truncate text-[11px] leading-[1.4]',
+              it.status === 'done' && 'text-s7',
+              it.status === 'in-progress' && 'text-s11',
+              it.status === 'pending' && 'text-s9',
+            )}
+          >
+            {it.text}
+          </span>
+        </div>
+      ))}
+    </Section>
   );
 }
 

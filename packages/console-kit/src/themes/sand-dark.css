@@ -32,6 +32,20 @@
   --color-diff-add: #8fb896;
   --color-diff-del: #c68f8b;
 
+  /* Syntax palette — code on the sand substrate. Kin to the state hues but
+   * calmer: hue whispers the grammar while ink (s11) stays the default. Every
+   * value clears WCAG 4.5:1 on s1–s3 at code sizes. Strings sit yellower than
+   * diff-add so a string never reads as an added line. Comments and
+   * punctuation share s9 (the quietest step that still clears 4.5:1 on s3);
+   * comments are italic besides. */
+  --color-syn-key: #c4907e;
+  --color-syn-str: #a3b284;
+  --color-syn-num: #cfa763;
+  --color-syn-type: #8ca9d3;
+  --color-syn-fn: #d2bd85;
+  --color-syn-punct: #878477;
+  --color-syn-comment: #878477;
+
   /* Modal scrim — part of the theme (a light theme dims differently). */
   --color-scrim: rgba(0, 0, 0, 0.45);
 

@@ -12,25 +12,48 @@ import {
   cx,
 } from '@coa/console-kit';
 import { useState } from 'react';
+import { Gallery } from './chat/Gallery.js';
 
-/** The kit showcase: every primitive, every state, on the record.
- *  Feedback here hardens what graduates into @coa/console-kit. */
+/** The showcase: the living spec, two pages. `kit` is every primitive, every
+ *  state; `conversation` is the transcript's whole surface vocabulary
+ *  (chat/Gallery). Feedback here hardens what graduates. */
 export function Showcase(): React.JSX.Element {
+  const [page, setPage] = useState<'kit' | 'conversation'>('conversation');
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-10 px-8 py-8">
-        <Ramp />
-        <StateColors />
-        <Type />
-        <Buttons />
-        <Controls />
-        <Inputs />
-        <Cards />
-        <TabsSpec />
-        <ChatMolecules />
-        <Rules />
-        <Motion />
-        <ScrollSpec />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-none items-center gap-1 border-b border-s3 px-8 py-1.5">
+        {(['conversation', 'kit'] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setPage(p)}
+            className={cx(
+              'slip cursor-pointer rounded-r2 px-2.5 py-1 text-[12px]',
+              p === page ? 'bg-s3 text-s12' : 'text-s9 hover:text-s11',
+            )}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {page === 'conversation' ? (
+          <Gallery />
+        ) : (
+          <div className="mx-auto flex max-w-[860px] flex-col gap-10 px-8 py-8">
+            <Ramp />
+            <StateColors />
+            <Type />
+            <Buttons />
+            <Controls />
+            <Inputs />
+            <Cards />
+            <TabsSpec />
+            <Rules />
+            <Motion />
+            <ScrollSpec />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -433,97 +456,6 @@ function TabsSpec(): React.JSX.Element {
           ))}
         </div>
         <div className="h-10 bg-s1" />
-      </div>
-    </Section>
-  );
-}
-
-/* ---------- chat molecules ---------- */
-
-function ChatMolecules(): React.JSX.Element {
-  const [resolved, setResolved] = useState<undefined | 'approved' | 'denied'>(undefined);
-  return (
-    <Section
-      title="chat molecules"
-      note="the transcript's block vocabulary — every kind, resting state"
-    >
-      <div className="flex flex-col gap-3.5 rounded-r2 border border-s4 bg-s1 p-5">
-        <div className="max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-[13px] text-s11">
-          user message — right-aligned, raised one step
-        </div>
-        <div className="text-[11.5px] text-s7 italic">
-          reasoning — muted italic, streams per-word, no label (the color IS the label)
-        </div>
-        <div className="flex items-center gap-2 py-px font-mono text-[11.5px] text-s8">
-          <span className="w-3 text-center text-s7">R</span>
-          <span className="text-s9">pipe-server.test.ts</span>
-        </div>
-        <div className="max-w-[88%] overflow-hidden rounded-r2 border border-s3 bg-s2">
-          <div className="flex items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px] text-s9">
-            <span className="w-3 text-center text-s7">E</span>
-            <span className="text-s11">packages/daemon/src/transport/pipe-server.ts</span>
-            <span className="ml-auto">
-              <span className="text-diff-add">+9</span> <span className="text-diff-del">−3</span>
-            </span>
-          </div>
-          <div className="border-t border-s3 py-1 font-mono text-[11px] leading-[1.65]">
-            <div className="px-3 whitespace-pre text-s7">
-              {' '}
-              async close(): Promise&lt;void&gt; {'{'}
-            </div>
-            <div className="px-3 whitespace-pre text-diff-del">- this.server.close();</div>
-            <div className="px-3 whitespace-pre text-diff-add">+ await this.drainPending();</div>
-          </div>
-        </div>
-        <div className="max-w-[88%] text-[13px] leading-[1.55] text-s11">
-          agent text — body ink, with <b className="font-semibold text-s12">bold reaching s12</b>
-        </div>
-        <div className="group flex items-center gap-2 py-0.5 text-[12px] text-s8">
-          <span className="font-mono text-s7">⎇</span>
-          <b className="font-[550] text-s9">test-writer</b>
-          <StatusDot status="running" size={5} />
-          <span className="font-mono text-[10.5px] text-s6">4 tools · $0.12</span>
-          <span className="hidden gap-2 text-[10.5px] text-s8 group-hover:flex">
-            <button type="button" className="cursor-pointer hover:text-s10">
-              watch
-            </button>
-            <button type="button" className="cursor-pointer hover:text-s10">
-              stop
-            </button>
-          </span>
-          <Cap>← hover me</Cap>
-        </div>
-        <div className="max-w-[88%] rounded-r2 border border-s4 bg-s2 px-3 py-2.5">
-          <div className="flex items-center gap-2 text-[12px] font-[550] text-s11">
-            <StatusDot
-              status={resolved ? (resolved === 'approved' ? 'done' : 'critical') : 'needs-you'}
-            />
-            Bash
-            {resolved && <span className="ml-auto font-mono text-[10px] text-s7">{resolved}</span>}
-          </div>
-          <div className="mt-1.5 font-mono text-[11.5px] text-s10">pnpm vitest run --retry=8</div>
-          <div className="mt-1 text-[11px] text-s7">
-            retry-loop exceeds the verification budget · M3
-          </div>
-          {!resolved && (
-            <div className="mt-2.5 flex items-center gap-2.5">
-              <Button onClick={() => setResolved('approved')}>Approve</Button>
-              <Button variant="outline" onClick={() => setResolved('denied')}>
-                Deny
-              </Button>
-              <span className="font-mono text-[9.5px] text-s6">⏎ ⌫</span>
-            </div>
-          )}
-        </div>
-        {resolved && (
-          <button
-            type="button"
-            onClick={() => setResolved(undefined)}
-            className="slip self-start cursor-pointer font-mono text-[10px] text-s7 hover:text-s9"
-          >
-            reset approval specimen
-          </button>
-        )}
       </div>
     </Section>
   );
