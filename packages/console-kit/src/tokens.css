@@ -1,0 +1,110 @@
+/* @coa/console-kit — design tokens.
+ *
+ * Substrate: Radix Colors "Sand" dark scale (12 steps, a11y-graded) — the
+ * proven-palette decision from the UX overhaul (see the design system doc).
+ * The future brass identity re-enters as a step-for-step accent scale swap.
+ *
+ * Motion: "Slipstream" — fast, continuous, momentum-carrying; never bouncy.
+ * CSS transitions own interruptible state; keyframes only for mount/unmount.
+ */
+
+@theme {
+  /* Radix Sand dark — tier-1 scale. Steps 7–12 (the text/icon band) are nudged
+   * ~half a step brighter than stock Radix: a deliberate global contrast lift
+   * (maintainer call) while grounds/borders (1–6) stay stock so structure stays
+   * quiet. */
+  --color-s1: #111110;
+  --color-s2: #191918;
+  --color-s3: #222221;
+  --color-s4: #2a2a28;
+  --color-s5: #31312e;
+  --color-s6: #3b3a37;
+  --color-s7: #5d5c55;
+  --color-s8: #76746c;
+  --color-s9: #878477;
+  --color-s10: #99968b;
+  --color-s11: #ceccc4;
+  --color-s12: #f9f9f7;
+
+  /* State colors — the indicator law's vocabulary. Blue = running (decided v6);
+   * green = done/clean; amber = needs-you; red = critical. */
+  --color-run: #5b7fd0;
+  --color-ok: #5a9367;
+  --color-warn: #d8a03d;
+  --color-crit: #c65a54;
+
+  /* Diff tints (quiet register — tinted text, not filled rows). */
+  --color-diff-add: #8fb896;
+  --color-diff-del: #c68f8b;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  /* Near-boxy radii (terminal register). */
+  --radius-r1: 3px;
+  --radius-r2: 4px;
+  --radius-r3: 5px;
+  --radius-r4: 8px;
+
+  /* Slipstream curve. */
+  --ease-slip: cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+:root {
+  /* Slipstream durations. swift: press/toggle/exit · base: hover/color ·
+   * move: position/size · enter: mount (fade + ≤8px rise). */
+  --dur-swift: 80ms;
+  --dur-base: 140ms;
+  --dur-move: 200ms;
+  --dur-enter: 180ms;
+
+  /* One title-bar height, shared with the Electron main process (TITLE_BAR_HEIGHT). */
+  --titlebar-h: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-swift: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-move: 0.01ms;
+    --dur-enter: 0.01ms;
+  }
+}
+
+@layer components {
+  /* Slipstream transition presets — the ONLY transition vocabulary. */
+  .slip {
+    transition:
+      color var(--dur-base) var(--ease-slip),
+      background-color var(--dur-base) var(--ease-slip),
+      border-color var(--dur-base) var(--ease-slip),
+      opacity var(--dur-base) var(--ease-slip);
+  }
+  .slip-press {
+    transition: transform var(--dur-swift) ease-out;
+  }
+  .slip-move {
+    transition:
+      transform var(--dur-move) var(--ease-slip),
+      left var(--dur-move) var(--ease-slip),
+      width var(--dur-move) var(--ease-slip);
+  }
+
+  /* Mount entrance: fade + 6px rise at enter duration. Keyframes are sanctioned
+   * for mount/unmount only. fill-mode backwards (not both) so no computed
+   * transform lingers after the animation — a filled transform makes the
+   * element a containing block and hijacks position:fixed descendants. */
+  .slip-enter {
+    animation: slip-enter var(--dur-enter) var(--ease-slip) backwards;
+  }
+  @keyframes slip-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}

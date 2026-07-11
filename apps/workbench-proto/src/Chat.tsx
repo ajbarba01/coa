@@ -1,0 +1,538 @@
+import { StatusDot, cx } from '@coa/console-kit';
+import { useEffect, useRef, useState } from 'react';
+import { useClickAway, useDismissLayer } from './layers.js';
+import { runScriptedTurn } from './mock.js';
+import type { Frame } from './store.js';
+import { ZOOM, useWorkbench } from './store.js';
+
+/** The conversation canvas: transcript + composer. */
+export function Chat(): React.JSX.Element {
+  const activeId = useWorkbench((s) => s.activeId);
+  const frames = useWorkbench((s) => s.sessions[s.activeId]?.frames ?? EMPTY);
+  const running = useWorkbench((s) => s.running);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Stick to bottom as frames arrive.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [frames.length]);
+
+  return (
+    <div className="relative min-h-0 flex-1">
+      {/* the transcript owns the full panel; it scrolls beneath the floating composer */}
+      <div ref={scrollRef} className="h-full overflow-y-auto">
+        <div className="flex flex-col gap-3.5 px-8 pt-6 pb-36">
+          {frames.map((f) => (
+            <FrameView key={f.id} frame={f} sessionId={activeId} />
+          ))}
+        </div>
+      </div>
+      <Composer sessionId={activeId} running={running} />
+    </div>
+  );
+}
+
+const EMPTY: Frame[] = [];
+
+function FrameView({ frame, sessionId }: { frame: Frame; sessionId: string }): React.JSX.Element {
+  switch (frame.kind) {
+    case 'user':
+      return (
+        <div className="slip-enter max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-[13px] text-s11">
+          {frame.text}
+        </div>
+      );
+    case 'think':
+      return (
+        <div className="text-[11.5px] text-s7 italic">
+          {frame.text}
+          {frame.streaming && <span className="not-italic">▎</span>}
+        </div>
+      );
+    case 'tool':
+      return (
+        <div className="slip-enter flex items-center gap-2 py-[1px] font-mono text-[11.5px] text-s8">
+          <span className="w-3 text-center text-s7">{frame.tk}</span>
+          <span className="text-s9">{frame.label}</span>
+        </div>
+      );
+    case 'toolx':
+      return (
+        <div className="slip-enter max-w-[88%] overflow-hidden rounded-r2 border border-s3 bg-s2">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 font-mono text-[11.5px] text-s9">
+            <span className="w-3 text-center text-s7">{frame.tk}</span>
+            <span className="text-s11">{frame.file}</span>
+            <span className="ml-auto">
+              <span className="text-diff-add">+{frame.add}</span>{' '}
+              <span className="text-diff-del">−{frame.del}</span>
+            </span>
+          </div>
+          <div className="border-t border-s3 py-1 font-mono text-[11px] leading-[1.65]">
+            {frame.diff.map((d, i) => (
+              <div
+                key={i}
+                className={cx(
+                  'px-3 whitespace-pre',
+                  d.t === 'a' ? 'text-diff-add' : d.t === 'd' ? 'text-diff-del' : 'text-s7',
+                )}
+              >
+                {d.line}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    case 'text':
+      return (
+        <div className="slip-enter max-w-[88%] text-[13px] leading-[1.55] text-s11">
+          <Bold text={frame.text} />
+        </div>
+      );
+    case 'subagent':
+      return (
+        <div className="slip-enter group flex items-center gap-2 py-0.5 text-[12px] text-s8">
+          <span className="font-mono text-s7">⎇</span>
+          <b className="font-[550] text-s9">{frame.name}</b>
+          <StatusDot status={frame.status} size={5} />
+          <span className="font-mono text-[10.5px] text-s6">{frame.tick}</span>
+          <span className="hidden gap-2 text-[10.5px] text-s8 group-hover:flex">
+            <button type="button" className="cursor-pointer hover:text-s10">
+              watch
+            </button>
+            <button type="button" className="cursor-pointer hover:text-s10">
+              stop
+            </button>
+          </span>
+        </div>
+      );
+    case 'approval':
+      return <Approval frame={frame} sessionId={sessionId} />;
+  }
+}
+
+function Bold({ text }: { text: string }): React.JSX.Element {
+  const parts = text.split('**');
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? (
+          <b key={i} className="font-semibold text-s12">
+            {p}
+          </b>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function Approval({
+  frame,
+  sessionId,
+}: {
+  frame: Extract<Frame, { kind: 'approval' }>;
+  sessionId: string;
+}): React.JSX.Element {
+  const resolveApproval = useWorkbench((s) => s.resolveApproval);
+  const setStatus = useWorkbench((s) => s.setStatus);
+
+  const resolve = (decision: 'approved' | 'denied'): void => {
+    resolveApproval(sessionId, frame.id, decision);
+    setStatus(sessionId, 'idle');
+  };
+
+  return (
+    <div className="slip-enter max-w-[88%] rounded-r2 border border-s4 bg-s2 px-3 py-2.5">
+      <div className="flex items-center gap-2 text-[12px] font-[550] text-s11">
+        <StatusDot status={frame.resolved ? (frame.resolved === 'approved' ? 'done' : 'critical') : 'needs-you'} />
+        {frame.tool}
+        {frame.resolved && (
+          <span className="ml-auto font-mono text-[10px] text-s7">{frame.resolved}</span>
+        )}
+      </div>
+      <div className="mt-1.5 font-mono text-[11.5px] text-s10">{frame.cmd}</div>
+      <div className="mt-1 text-[11px] text-s7">{frame.why}</div>
+      {!frame.resolved && (
+        <div className="mt-2.5 flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => resolve('approved')}
+            className="slip slip-press cursor-pointer rounded-r1 border border-s6 bg-s5 px-3 py-1 text-[11.5px] font-[550] text-s12 hover:bg-s6 active:scale-[0.97]"
+          >
+            Approve
+          </button>
+          <button
+            type="button"
+            onClick={() => resolve('denied')}
+            className="slip slip-press cursor-pointer rounded-r1 border border-s4 px-3 py-1 text-[11.5px] text-s8 hover:border-s6 hover:text-s11 active:scale-[0.97]"
+          >
+            Deny
+          </button>
+          <span className="font-mono text-[9.5px] text-s6">⏎ ⌫</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The glyph is an autonomy meter — the circle fills as the agent's leash lengthens.
+const PERMISSIONS = [
+  { id: 'read only', glyph: '○', desc: 'nothing is written' },
+  { id: 'ask edits', glyph: '◔', desc: 'writes wait for approval' },
+  { id: 'auto edits', glyph: '◑', desc: 'writes land; commands still ask' },
+  { id: 'full auto', glyph: '●', desc: 'only the cost cap says no' },
+] as const;
+
+const MODELS = ['fable-5', 'opus-4.8', 'sonnet-5', 'haiku-4.5'] as const;
+const EFFORTS = ['low', 'medium', 'high', 'max'] as const;
+type Effort = (typeof EFFORTS)[number];
+
+
+function Composer({ sessionId, running }: { sessionId: string; running: boolean }): React.JSX.Element {
+  const [text, setText] = useState('');
+  const [perm, setPerm] = useState<string>('ask edits');
+  const [model, setModel] = useState<string>('fable-5');
+  const [effort, setEffort] = useState<Effort>('high');
+  const [attachments, setAttachments] = useState<string[]>([]);
+
+  const attach = (name: string): void => {
+    setAttachments((a) => (a.includes(name) ? a : [...a, name]));
+  };
+
+  const send = (): void => {
+    const t = text.trim();
+    if (!t || running) return;
+    setText('');
+    setAttachments([]);
+    void runScriptedTurn(sessionId, t);
+  };
+
+  return (
+    // no overflow-hidden on the shell — the chip menus must escape the composer's bounds
+    <div className="absolute bottom-4 left-1/2 w-[calc(100%-64px)] max-w-[656px] -translate-x-1/2 rounded-r3 border border-s4 bg-s2 shadow-[0_8px_28px_rgba(0,0,0,0.45)] focus-within:border-s5">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+          {attachments.map((a) => (
+            <span
+              key={a}
+              className="slip-enter flex items-center gap-1.5 rounded-r1 border border-s4 bg-s3 px-1.5 py-0.5 font-mono text-[10.5px] text-s9"
+            >
+              {a}
+              <button
+                type="button"
+                aria-label={`remove ${a}`}
+                onClick={() => setAttachments((list) => list.filter((x) => x !== a))}
+                className="slip cursor-pointer text-[10px] text-s7 hover:text-s10"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') send();
+        }}
+        placeholder={running ? 'running… (esc to stop)' : 'Message builder…'}
+        className="w-full bg-transparent px-3.5 py-2.5 text-[13px] text-s11 outline-none placeholder:text-s6"
+      />
+      {/* the control shelf: same rect, its own hairline */}
+      <div className="flex items-center gap-1 border-t border-s3 px-2 py-1.5">
+        <AttachButton onAttach={attach} />
+        <div className="flex-1" />
+        <PermissionChip value={perm} onPick={setPerm} />
+        <ModelChip
+          model={model}
+          effort={effort}
+          onPickModel={setModel}
+          onPickEffort={setEffort}
+        />
+        <button
+          type="button"
+          onClick={send}
+          disabled={running || text.trim() === ''}
+          aria-label="send"
+          className={cx(
+            'slip slip-press ml-1 flex h-7 w-7 items-center justify-center rounded-r2 border text-[13px] font-semibold',
+            running || text.trim() === ''
+              ? 'cursor-default border-s4 text-s6'
+              : 'cursor-pointer border-transparent bg-run text-s12 hover:brightness-110 active:scale-[0.95]',
+          )}
+        >
+          ↑
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The attach menu — one option for now: upload a file from disk. */
+function AttachButton({ onAttach }: { onAttach: (name: string) => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useClickAway(ref, () => setOpen(false));
+  useDismissLayer(open, () => setOpen(false));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-label="attach"
+        onClick={() => setOpen((o) => !o)}
+        className={cx(
+          'slip slip-press flex h-7 w-7 cursor-pointer items-center justify-center rounded-r2 border text-s10 active:scale-[0.95]',
+          open ? 'border-s6 bg-s5 text-s12' : 'border-s5 bg-s4 hover:bg-s5 hover:text-s12',
+        )}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </svg>
+      </button>
+      {open && (
+        <div className="slip-enter absolute bottom-full left-0 z-30 mb-1.5 w-48 overflow-hidden rounded-r3 border border-s5 bg-s3 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.55)]">
+          <button
+            type="button"
+            onClick={() => {
+              onAttach('screenshot.png');
+              setOpen(false);
+            }}
+            className="slip flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-s10 hover:bg-s4 hover:text-s11"
+          >
+            <span className="w-4 text-center font-mono text-[12px] text-s8">⇪</span>
+            upload file…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A composer chip that grows a floating card above itself. */
+function ChipMenu({
+  chip,
+  title,
+  open,
+  setOpen,
+  children,
+}: {
+  chip: string;
+  title: string;
+  open: boolean;
+  setOpen: (o: boolean) => void;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  useClickAway(ref, () => setOpen(false));
+  useDismissLayer(open, () => setOpen(false));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        title={title}
+        onClick={() => setOpen(!open)}
+        className={cx(
+          'slip cursor-pointer rounded-r2 px-2 py-1 font-mono text-[10.5px]',
+          open ? 'bg-s3 text-s11' : 'text-s9 hover:bg-s3 hover:text-s11',
+        )}
+      >
+        {chip}
+      </button>
+      {open && (
+        <div className="slip-enter absolute right-0 bottom-full z-30 mb-1.5 overflow-hidden rounded-r3 border border-s5 bg-s3 shadow-[0_12px_32px_rgba(0,0,0,0.55)]">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PermissionChip({
+  value,
+  onPick,
+}: {
+  value: string;
+  onPick: (v: string) => void;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const current = PERMISSIONS.find((p) => p.id === value);
+  return (
+    <ChipMenu
+      chip={`${current?.glyph ?? ''} ${value}`}
+      title="permission mode"
+      open={open}
+      setOpen={setOpen}
+    >
+      <div className="w-60 py-1">
+        {PERMISSIONS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => {
+              onPick(p.id);
+              setOpen(false);
+            }}
+            className={cx(
+              'slip flex w-full cursor-pointer items-start gap-2.5 px-3 py-1.5 text-left',
+              p.id === value ? 'bg-s4' : 'hover:bg-s4',
+            )}
+          >
+            <span
+              className={cx(
+                'w-4 pt-px text-center font-mono text-[12px]',
+                p.id === value ? 'text-s11' : 'text-s8',
+              )}
+            >
+              {p.glyph}
+            </span>
+            <span className="flex flex-col gap-px">
+              <span className={cx('text-[12px]', p.id === value ? 'text-s12' : 'text-s10')}>
+                {p.id}
+              </span>
+              <span className="text-[10.5px] text-s7">{p.desc}</span>
+            </span>
+            {p.id === value && (
+              <span className="ml-auto pt-px font-mono text-[10px] text-s7">current</span>
+            )}
+          </button>
+        ))}
+      </div>
+    </ChipMenu>
+  );
+}
+
+function ModelChip({
+  model,
+  effort,
+  onPickModel,
+  onPickEffort,
+}: {
+  model: string;
+  effort: Effort;
+  onPickModel: (m: string) => void;
+  onPickEffort: (e: Effort) => void;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <ChipMenu
+      chip={`${model} · ${effort}`}
+      title="model · reasoning effort"
+      open={open}
+      setOpen={setOpen}
+    >
+      <div className="w-60">
+        <div className="px-3 pt-2 pb-0.5 text-[10px] tracking-[0.07em] text-s6 uppercase">
+          model
+        </div>
+        <div className="pb-1">
+          {MODELS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onPickModel(m)}
+              className={cx(
+                'slip flex w-full cursor-pointer items-center px-3 py-1.5 text-left font-mono text-[11.5px]',
+                m === model ? 'bg-s4 text-s12' : 'text-s9 hover:bg-s4 hover:text-s11',
+              )}
+            >
+              {m}
+              {m === model && <span className="ml-auto text-[10px] text-s7">current</span>}
+            </button>
+          ))}
+        </div>
+        <div className="border-t border-s4 px-3 pt-2 pb-3">
+          <div className="flex items-baseline pb-1.5">
+            <span className="text-[10px] tracking-[0.07em] text-s6 uppercase">reasoning</span>
+            <span className="ml-auto font-mono text-[10.5px] text-s9">{effort}</span>
+          </div>
+          <EffortSlider value={effort} onChange={onPickEffort} />
+        </div>
+      </div>
+    </ChipMenu>
+  );
+}
+
+/** The reasoning-effort step slider: four stops, click/drag/arrow keys. */
+function EffortSlider({
+  value,
+  onChange,
+}: {
+  value: Effort;
+  onChange: (e: Effort) => void;
+}): React.JSX.Element {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const idx = EFFORTS.indexOf(value);
+
+  const pickFromX = (clientX: number): void => {
+    const el = trackRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    // the track is inset 4 layout px each side — rect coords are visual px
+    const inset = 4 * ZOOM;
+    const pct = Math.min(1, Math.max(0, (clientX - r.left - inset) / (r.width - inset * 2)));
+    const next = EFFORTS[Math.round(pct * (EFFORTS.length - 1))];
+    if (next && next !== value) onChange(next);
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      role="slider"
+      tabIndex={0}
+      aria-label="reasoning effort"
+      aria-valuemin={0}
+      aria-valuemax={EFFORTS.length - 1}
+      aria-valuenow={idx}
+      aria-valuetext={value}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        pickFromX(e.clientX);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons === 1) pickFromX(e.clientX);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+          const prev = EFFORTS[Math.max(0, idx - 1)];
+          if (prev) onChange(prev);
+        }
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+          const next = EFFORTS[Math.min(EFFORTS.length - 1, idx + 1)];
+          if (next) onChange(next);
+        }
+        if (e.key === 'Home') onChange(EFFORTS[0] as Effort);
+        if (e.key === 'End') onChange(EFFORTS[EFFORTS.length - 1] as Effort);
+      }}
+      className="relative h-5 cursor-pointer touch-none px-1"
+    >
+      {/* track + filled span up to the thumb */}
+      <div className="absolute top-1/2 right-1 left-1 h-[3px] -translate-y-1/2 bg-s5">
+        <div
+          className="slip-move absolute inset-y-0 left-0 bg-s8"
+          style={{ width: `${(idx / (EFFORTS.length - 1)) * 100}%` }}
+        />
+      </div>
+      {/* stops */}
+      {EFFORTS.map((e, i) => (
+        <span
+          key={e}
+          className={cx(
+            'absolute top-1/2 h-[9px] w-[3px] -translate-x-1/2 -translate-y-1/2',
+            i <= idx ? 'bg-s9' : 'bg-s6',
+          )}
+          style={{ left: `calc(4px + ${(i / (EFFORTS.length - 1)) * 100}% - ${(i / (EFFORTS.length - 1)) * 8}px)` }}
+        />
+      ))}
+      {/* thumb */}
+      <span
+        className="slip-move absolute top-1/2 h-[13px] w-[7px] -translate-x-1/2 -translate-y-1/2 bg-s11"
+        style={{ left: `calc(4px + ${(idx / (EFFORTS.length - 1)) * 100}% - ${(idx / (EFFORTS.length - 1)) * 8}px)` }}
+      />
+    </div>
+  );
+}
