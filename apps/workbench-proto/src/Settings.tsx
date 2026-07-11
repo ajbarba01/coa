@@ -1,8 +1,7 @@
-import { cx } from '@coa/console-kit';
+import { cx, useClickAway, useDismissLayer } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { KEYBINDS, Kbd } from './keys.js';
-import { useClickAway, useDismissLayer } from './layers.js';
 import { ZOOM } from './store.js';
 
 /** The settings dialog: VS Code's shape (search → TOC rail → setting rows,

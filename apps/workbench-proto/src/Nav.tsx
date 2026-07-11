@@ -1,6 +1,5 @@
-import { cx } from '@coa/console-kit';
+import { cx, useClickAway, useDismissLayer } from '@coa/console-kit';
 import { useRef, useState } from 'react';
-import { useClickAway, useDismissLayer } from './layers.js';
 import { useWorkbench } from './store.js';
 
 const SURFACES = [

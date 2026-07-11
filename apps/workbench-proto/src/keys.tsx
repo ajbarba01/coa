@@ -1,5 +1,5 @@
+import { useDismissLayer } from '@coa/console-kit';
 import { useEffect } from 'react';
-import { useDismissLayer } from './layers.js';
 import { useWorkbench } from './store.js';
 
 /** One keybind registry: the dispatch table and the shortcuts overlay both

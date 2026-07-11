@@ -1,6 +1,5 @@
-import { StatusDot, cx } from '@coa/console-kit';
+import { StatusDot, cx, useClickAway, useDismissLayer } from '@coa/console-kit';
 import { useRef, useState } from 'react';
-import { useClickAway, useDismissLayer } from './layers.js';
 import type { Session } from './store.js';
 import { useWorkbench } from './store.js';
 

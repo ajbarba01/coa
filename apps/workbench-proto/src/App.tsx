@@ -1,8 +1,7 @@
-import { cx } from '@coa/console-kit';
+import { Button, cx, useDismissLayer } from '@coa/console-kit';
 import { useRef, useState } from 'react';
 import { Center } from './Center.js';
 import { ShortcutsOverlay, useGlobalKeys } from './keys.js';
-import { useDismissLayer } from './layers.js';
 import { Nav } from './Nav.js';
 import { Palette } from './Palette.js';
 import { SettingsDialog } from './Settings.js';
@@ -148,13 +147,9 @@ function DaemonGate({ state }: { state: 'starting' | 'stopped' }): React.JSX.Ele
           {state === 'starting' ? 'starting the coa daemon…' : 'the coa daemon is not running'}
         </div>
         {state === 'stopped' && (
-          <button
-            type="button"
-            onClick={start}
-            className="slip slip-press cursor-pointer rounded-r2 bg-run px-4 py-1.5 text-[12.5px] font-semibold text-s12 hover:brightness-110 active:scale-[0.97]"
-          >
+          <Button variant="primary" onClick={start}>
             Start daemon
-          </button>
+          </Button>
         )}
       </div>
     </div>

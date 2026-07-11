@@ -1,6 +1,5 @@
-import { StatusDot, cx } from '@coa/console-kit';
+import { Button, CapsLabel, MenuItem, PopoverCard, StatusDot, cx } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
-import { useClickAway, useDismissLayer } from './layers.js';
 import { runScriptedTurn } from './mock.js';
 import type { Frame } from './store.js';
 import { ZOOM, useWorkbench } from './store.js';
@@ -156,20 +155,10 @@ function Approval({
       <div className="mt-1 text-[11px] text-s7">{frame.why}</div>
       {!frame.resolved && (
         <div className="mt-2.5 flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => resolve('approved')}
-            className="slip slip-press cursor-pointer rounded-r1 border border-s6 bg-s5 px-3 py-1 text-[11.5px] font-[550] text-s12 hover:bg-s6 active:scale-[0.97]"
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            onClick={() => resolve('denied')}
-            className="slip slip-press cursor-pointer rounded-r1 border border-s4 px-3 py-1 text-[11.5px] text-s8 hover:border-s6 hover:text-s11 active:scale-[0.97]"
-          >
+          <Button onClick={() => resolve('approved')}>Approve</Button>
+          <Button variant="outline" onClick={() => resolve('denied')}>
             Deny
-          </button>
+          </Button>
           <span className="font-mono text-[9.5px] text-s6">⏎ ⌫</span>
         </div>
       )}
@@ -252,20 +241,9 @@ function Composer({ sessionId, running }: { sessionId: string; running: boolean 
           onPickModel={setModel}
           onPickEffort={setEffort}
         />
-        <button
-          type="button"
-          onClick={send}
-          disabled={running || text.trim() === ''}
-          aria-label="send"
-          className={cx(
-            'slip slip-press ml-1 flex h-7 w-7 items-center justify-center rounded-r2 border text-[13px] font-semibold',
-            running || text.trim() === ''
-              ? 'cursor-default border-s4 text-s6'
-              : 'cursor-pointer border-transparent bg-run text-s12 hover:brightness-110 active:scale-[0.95]',
-          )}
-        >
+        <Button variant="primary" icon aria-label="send" disabled={running || text.trim() === ''} onClick={send}>
           ↑
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -274,41 +252,39 @@ function Composer({ sessionId, running }: { sessionId: string; running: boolean 
 /** The attach menu — one option for now: upload a file from disk. */
 function AttachButton({ onAttach }: { onAttach: (name: string) => void }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useClickAway(ref, () => setOpen(false));
-  useDismissLayer(open, () => setOpen(false));
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label="attach"
-        onClick={() => setOpen((o) => !o)}
-        className={cx(
-          'slip slip-press flex h-7 w-7 cursor-pointer items-center justify-center rounded-r2 border text-s10 active:scale-[0.95]',
-          open ? 'border-s6 bg-s5 text-s12' : 'border-s5 bg-s4 hover:bg-s5 hover:text-s12',
-        )}
+    <PopoverCard
+      open={open}
+      onOpenChange={setOpen}
+      side="top"
+      align="start"
+      className="w-48"
+      trigger={
+        <button
+          type="button"
+          aria-label="attach"
+          className={cx(
+            'slip slip-press flex h-7 w-7 cursor-pointer items-center justify-center rounded-r2 border text-s10 active:scale-[0.95]',
+            open ? 'border-s6 bg-s5 text-s12' : 'border-s5 bg-s4 hover:bg-s5 hover:text-s12',
+          )}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
+        </button>
+      }
+    >
+      <MenuItem
+        onClick={() => {
+          onAttach('screenshot.png');
+          setOpen(false);
+        }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-        </svg>
-      </button>
-      {open && (
-        <div className="slip-enter absolute bottom-full left-0 z-30 mb-1.5 w-48 overflow-hidden rounded-r3 border border-s5 bg-s3 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.55)]">
-          <button
-            type="button"
-            onClick={() => {
-              onAttach('screenshot.png');
-              setOpen(false);
-            }}
-            className="slip flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left text-[12px] text-s10 hover:bg-s4 hover:text-s11"
-          >
-            <span className="w-4 text-center font-mono text-[12px] text-s8">⇪</span>
-            upload file…
-          </button>
-        </div>
-      )}
-    </div>
+        <span className="w-4 text-center font-mono text-code text-s8">⇪</span>
+        upload file…
+      </MenuItem>
+    </PopoverCard>
   );
 }
 
@@ -326,29 +302,25 @@ function ChipMenu({
   setOpen: (o: boolean) => void;
   children: React.ReactNode;
 }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null);
-  useClickAway(ref, () => setOpen(false));
-  useDismissLayer(open, () => setOpen(false));
-
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        title={title}
-        onClick={() => setOpen(!open)}
-        className={cx(
-          'slip cursor-pointer rounded-r2 px-2 py-1 font-mono text-[10.5px]',
-          open ? 'bg-s3 text-s11' : 'text-s9 hover:bg-s3 hover:text-s11',
-        )}
-      >
-        {chip}
-      </button>
-      {open && (
-        <div className="slip-enter absolute right-0 bottom-full z-30 mb-1.5 overflow-hidden rounded-r3 border border-s5 bg-s3 shadow-[0_12px_32px_rgba(0,0,0,0.55)]">
-          {children}
-        </div>
-      )}
-    </div>
+    <PopoverCard
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <button
+          type="button"
+          title={title}
+          className={cx(
+            'slip cursor-pointer rounded-r2 px-2 py-1 font-mono text-meta',
+            open ? 'bg-s3 text-s11' : 'text-s9 hover:bg-s3 hover:text-s11',
+          )}
+        >
+          {chip}
+        </button>
+      }
+    >
+      {children}
+    </PopoverCard>
   );
 }
 
@@ -368,19 +340,16 @@ function PermissionChip({
       open={open}
       setOpen={setOpen}
     >
-      <div className="w-60 py-1">
+      <div className="w-60">
         {PERMISSIONS.map((p) => (
-          <button
+          <MenuItem
             key={p.id}
-            type="button"
+            selected={p.id === value}
+            className="items-start"
             onClick={() => {
               onPick(p.id);
               setOpen(false);
             }}
-            className={cx(
-              'slip flex w-full cursor-pointer items-start gap-2.5 px-3 py-1.5 text-left',
-              p.id === value ? 'bg-s4' : 'hover:bg-s4',
-            )}
           >
             <span
               className={cx(
@@ -394,12 +363,9 @@ function PermissionChip({
               <span className={cx('text-[12px]', p.id === value ? 'text-s12' : 'text-s10')}>
                 {p.id}
               </span>
-              <span className="text-[10.5px] text-s7">{p.desc}</span>
+              <span className="text-meta text-s7">{p.desc}</span>
             </span>
-            {p.id === value && (
-              <span className="ml-auto pt-px font-mono text-[10px] text-s7">current</span>
-            )}
-          </button>
+          </MenuItem>
         ))}
       </div>
     </ChipMenu>
@@ -426,29 +392,23 @@ function ModelChip({
       setOpen={setOpen}
     >
       <div className="w-60">
-        <div className="px-3 pt-2 pb-0.5 text-[10px] tracking-[0.07em] text-s6 uppercase">
-          model
-        </div>
+        <CapsLabel>model</CapsLabel>
         <div className="pb-1">
           {MODELS.map((m) => (
-            <button
+            <MenuItem
               key={m}
-              type="button"
+              selected={m === model}
+              className="font-mono text-code"
               onClick={() => onPickModel(m)}
-              className={cx(
-                'slip flex w-full cursor-pointer items-center px-3 py-1.5 text-left font-mono text-[11.5px]',
-                m === model ? 'bg-s4 text-s12' : 'text-s9 hover:bg-s4 hover:text-s11',
-              )}
             >
               {m}
-              {m === model && <span className="ml-auto text-[10px] text-s7">current</span>}
-            </button>
+            </MenuItem>
           ))}
         </div>
         <div className="border-t border-s4 px-3 pt-2 pb-3">
           <div className="flex items-baseline pb-1.5">
-            <span className="text-[10px] tracking-[0.07em] text-s6 uppercase">reasoning</span>
-            <span className="ml-auto font-mono text-[10.5px] text-s9">{effort}</span>
+            <span className="text-caps tracking-[0.07em] text-s6 uppercase">reasoning</span>
+            <span className="ml-auto font-mono text-meta text-s9">{effort}</span>
           </div>
           <EffortSlider value={effort} onChange={onPickEffort} />
         </div>

@@ -1,4 +1,4 @@
-import { StatusDot, cx } from '@coa/console-kit';
+import { Button, StatusDot, cx } from '@coa/console-kit';
 import { useState } from 'react';
 
 /** The kit showcase: every primitive, every state, on the record.
@@ -140,60 +140,48 @@ function Buttons(): React.JSX.Element {
     <Section title="buttons" note="hover = base 140ms · press = swift 80ms scale .97/.95 · disabled = no hover">
       <div className="flex flex-col gap-5">
         <Row label="primary (accent) — send, start daemon, one per view at most">
-          <button type="button" className="slip slip-press cursor-pointer rounded-r2 bg-run px-4 py-1.5 text-[12.5px] font-semibold text-s12 hover:brightness-110 active:scale-[0.97]">
-            Start daemon
-          </button>
-          <button type="button" className="slip slip-press flex h-7 w-7 cursor-pointer items-center justify-center rounded-r2 bg-run text-[13px] font-semibold text-s12 hover:brightness-110 active:scale-[0.95]">
+          <Button variant="primary">Start daemon</Button>
+          <Button variant="primary" icon aria-label="send">
             ↑
-          </button>
-          <button type="button" disabled className="flex h-7 w-7 cursor-default items-center justify-center rounded-r2 border border-s4 text-[13px] text-s6">
+          </Button>
+          <Button variant="primary" icon aria-label="send" disabled>
             ↑
-          </button>
+          </Button>
           <Cap>+ disabled</Cap>
         </Row>
 
         <Row label="quiet solid — approve, confirm; the workhorse">
-          <button type="button" className="slip slip-press cursor-pointer rounded-r1 border border-s6 bg-s5 px-3 py-1 text-[11.5px] font-[550] text-s12 hover:bg-s6 active:scale-[0.97]">
-            Approve
-          </button>
-          <button type="button" disabled className="cursor-default rounded-r1 border border-s4 bg-s3 px-3 py-1 text-[11.5px] text-s6">
-            Approve
-          </button>
+          <Button>Approve</Button>
+          <Button disabled>Approve</Button>
           <Cap>+ disabled</Cap>
         </Row>
 
         <Row label="outline — deny, secondary actions">
-          <button type="button" className="slip slip-press cursor-pointer rounded-r1 border border-s4 px-3 py-1 text-[11.5px] text-s8 hover:border-s6 hover:text-s11 active:scale-[0.97]">
+          <Button variant="outline">Deny</Button>
+          <Button variant="outline" disabled>
             Deny
-          </button>
-          <button type="button" disabled className="cursor-default rounded-r1 border border-s3 px-3 py-1 text-[11.5px] text-s6">
-            Deny
-          </button>
+          </Button>
           <Cap>+ disabled</Cap>
         </Row>
 
         <Row label="raised block — attach; small square utilities">
-          <button type="button" className="slip slip-press flex h-7 w-7 cursor-pointer items-center justify-center rounded-r2 border border-s5 bg-s4 text-s10 hover:bg-s5 hover:text-s12 active:scale-[0.95]">
+          <Button variant="block" icon aria-label="attach">
             <Paperclip />
-          </button>
+          </Button>
         </Row>
 
         <Row label="ghost icon — foot buttons, window-adjacent">
-          <button type="button" className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 text-[17px] text-s8 hover:bg-s3 hover:text-s10">
+          <Button variant="ghost" icon aria-label="settings">
             ⚙
-          </button>
-          <button type="button" className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 text-[17px] text-s8 hover:bg-s3 hover:text-s10">
+          </Button>
+          <Button variant="ghost" icon aria-label="theme">
             ◐
-          </button>
+          </Button>
         </Row>
 
         <Row label="text button — toolbar controls, ink-only hover">
-          <button type="button" className="slip cursor-pointer font-mono text-[10.5px] text-s9 hover:text-s11">
-            sort: recent ▾
-          </button>
-          <button type="button" className="slip cursor-pointer font-mono text-[10.5px] text-s9 hover:text-s11">
-            group: divider ▾
-          </button>
+          <Button variant="text">sort: recent ▾</Button>
+          <Button variant="text">group: divider ▾</Button>
         </Row>
       </div>
     </Section>

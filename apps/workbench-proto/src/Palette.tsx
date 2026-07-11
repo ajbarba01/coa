@@ -1,7 +1,6 @@
-import { StatusDot } from '@coa/console-kit';
+import { StatusDot, useDismissLayer } from '@coa/console-kit';
 import { Command } from 'cmdk';
 import { useEffect, useState } from 'react';
-import { useDismissLayer } from './layers.js';
 import { useWorkbench } from './store.js';
 
 const SURFACES = ['chat', 'graph', 'flags', 'timeline', 'cost'];
