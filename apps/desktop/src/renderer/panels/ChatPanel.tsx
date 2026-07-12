@@ -13,6 +13,7 @@ import type { RespondFn, TranscriptFrame } from '@coa/console-ui';
 import type { Banner, ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
+import { matchesFind } from '../shell/keys.js';
 import { useShell } from '../shell/store.js';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
@@ -687,6 +688,8 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
                           // stick-to-bottom observer, scroll saves. Reactivation
                           // restores the session's remembered scroll place.
                           active={isActive && shellMode === 'work'}
+                          // the find chord is rebindable, so the registry names it — not the kit
+                          findMatch={matchesFind}
                           onOpenPath={onOpenPath}
                           onOpenUrl={onOpenUrl}
                           label="Conversation"

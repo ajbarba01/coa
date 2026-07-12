@@ -103,6 +103,27 @@ describe('Browser', () => {
     expect(useShell.getState().mode).toBe('work');
   });
 
+  it('Delete removes the session the cursor names — the same row Enter would open', () => {
+    useShell.getState().openSearch();
+    const { deleteSession, selectSession } = mount();
+    fireEvent.keyDown(window, { key: 'ArrowDown' }); // cursor → wire the dock (c1)
+    fireEvent.keyDown(window, { key: 'Delete' });
+    expect(deleteSession).toHaveBeenCalledExactlyOnceWith('c1');
+    // deleting is not opening, and search stays up so you can keep pruning
+    expect(selectSession).not.toHaveBeenCalled();
+    expect(useShell.getState().mode).toBe('search');
+  });
+
+  it('a deleted session leaves nothing on the reopen stack to resurrect', () => {
+    useShell.getState().openSearch();
+    useShell.setState({ tabs: ['c1'], closedTabs: ['c1'] });
+    mount();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Delete' });
+    expect(useShell.getState().closedTabs).toEqual([]);
+    expect(useShell.getState().tabs).toEqual([]);
+  });
+
   it('the cursor wraps at the ends and follows the mouse', () => {
     useShell.getState().openSearch();
     mount();

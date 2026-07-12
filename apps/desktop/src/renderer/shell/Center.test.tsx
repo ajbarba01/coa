@@ -98,37 +98,25 @@ describe('Center tabs', () => {
     useShell.getState().openTab('c1');
     useShell.getState().openTab('c2');
     render(<Center />);
-    // c1 is active; middle-click its tab → working set drops it, selection falls to c2.
-    fireEvent(
-      screen.getByRole('button', { name: /wire the dock/ }),
-      new MouseEvent('auxclick', { bubbles: true, button: 1 }),
-    );
+    // c1 is active; middle-press its tab → working set drops it, selection falls to c2.
+    // (The PRESS, not auxclick: that's what beats Windows' autoscroll to the gesture.)
+    fireEvent.mouseDown(screen.getByRole('button', { name: /wire the dock/ }), { button: 1 });
     expect(useShell.getState().tabs).toEqual(['c2']);
     expect(selectSession).toHaveBeenCalledWith('c2');
+    // and the closed tab is on the reopen stack (ctrl+shift+t)
+    expect(useShell.getState().closedTabs).toEqual(['c1']);
   });
 });
 
-describe('Center tab-strip new-session menu', () => {
-  it('the + control opens a menu of agents and selecting one calls newSession(ref)', async () => {
+describe('Center tab-strip new-session control', () => {
+  it('the + control opens the agent picker — the same one ctrl+t opens', async () => {
     const user = userEvent.setup();
-    const newSession = vi.fn();
-    publish({
-      data: {
-        agents: {
-          status: 'ok',
-          value: [
-            { ref: 'roles/dev', name: 'dev', icon: 'bot', color: 'slate', scope: 'project' },
-            { ref: 'roles/doc', name: 'docs', icon: 'bot', color: 'slate', scope: 'project' },
-          ],
-        },
-      },
-      actions: { newSession },
-    });
+    publish();
     useShell.getState().openTab('c1');
     render(<Center />);
     await user.click(screen.getByRole('button', { name: 'new session' }));
-    await user.click(screen.getByText('docs'));
-    expect(newSession).toHaveBeenCalledExactlyOnceWith('roles/doc');
+    // one way to start a session: the control raises the picker, it doesn't grow its own menu
+    expect(useShell.getState().newSessionOpen).toBe(true);
   });
 });
 

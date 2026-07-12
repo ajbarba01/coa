@@ -1,6 +1,7 @@
 import {
   CapsLabel,
   DialogSearchHead,
+  filterKeybinds,
   Kbd,
   ModalShell,
   Select,
@@ -12,7 +13,7 @@ import {
 import { useRef, useState } from 'react';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { useConsoleState } from './consoleStore.js';
-import { KEYBINDS } from './keys.js';
+import { useKeybinds } from './keys.js';
 import { useShell } from './store.js';
 
 /** The settings dialog: VS Code's shape (search head → TOC rail → name +
@@ -84,6 +85,7 @@ export function SettingsDialog(): React.JSX.Element {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(SECTIONS[0]?.id ?? '');
   const contentRef = useRef<HTMLDivElement>(null);
+  const keybinds = useKeybinds();
 
   const settings = state?.ui.settings;
   const apply = (patch: Partial<ConsoleSettings>): void => state?.actions.setSettings(patch);
@@ -97,11 +99,7 @@ export function SettingsDialog(): React.JSX.Element {
         )
       : s.rows,
   })).filter((s) => s.rows.length > 0);
-  const bindHits = query
-    ? KEYBINDS.filter(
-        (k) => k.label.toLowerCase().includes(query) || k.keys.join(' ').includes(query),
-      )
-    : KEYBINDS;
+  const bindHits = filterKeybinds(keybinds, query);
   const railEntries = [
     ...visible.map((s) => ({ id: s.id, title: s.title })),
     ...(bindHits.length > 0 ? [{ id: 'keybinds', title: 'keybinds' }] : []),
@@ -147,17 +145,23 @@ export function SettingsDialog(): React.JSX.Element {
               <div data-section="keybinds" className="pt-4">
                 <CapsLabel className="p-0 pb-1">keybinds</CapsLabel>
                 {bindHits.map((k) => (
-                  <SettingRow key={k.label} name={k.label} desc={k.group}>
+                  <SettingRow key={k.id} name={k.label} desc={k.group}>
                     <span className="flex flex-none gap-1">
-                      {k.keys.map((key) => (
-                        <Kbd key={key}>{key}</Kbd>
-                      ))}
+                      {k.keys.length > 0 ? (
+                        k.keys.map((key) => <Kbd key={key}>{key}</Kbd>)
+                      ) : (
+                        <span className="font-mono text-caps text-warn">unbound</span>
+                      )}
                     </span>
                   </SettingRow>
                 ))}
-                <div className={cx('pt-1 text-meta text-s6')}>
-                  rebinding arrives with a later pass — these are the defaults
-                </div>
+                <button
+                  type="button"
+                  onClick={() => useShell.getState().setShortcutsOpen(true)}
+                  className={cx('slip cursor-pointer pt-1 text-meta text-s6 hover:text-s9')}
+                >
+                  rebind them in the shortcuts card (ctrl /)
+                </button>
               </div>
             )}
             {visible.length === 0 && bindHits.length === 0 && (

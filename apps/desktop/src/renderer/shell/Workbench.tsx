@@ -1,8 +1,17 @@
-import { PanelResize, ShortcutsOverlay, resolveCollapse, useDismissLayer } from '@coa/console-kit';
+import {
+  PanelResize,
+  ShortcutsOverlay,
+  resolveCollapse,
+  useDismissLayer,
+  type KeybindEditing,
+} from '@coa/console-kit';
 import { useState } from 'react';
 import { Center } from './Center.js';
-import { KEYBINDS, useGlobalKeys } from './keys.js';
+import { useConsoleState } from './consoleStore.js';
+import { chordFromEvent, conflictFor, isBindable, rebind } from './keybinds.js';
+import { useGlobalKeys, useKeybinds } from './keys.js';
 import { Nav } from './Nav.js';
+import { NewSessionDialog } from './NewSession.js';
 import { Palette } from './Palette.js';
 import { SettingsDialog } from './Settings.js';
 import { useShell } from './store.js';
@@ -39,6 +48,8 @@ export function Workbench(): React.JSX.Element {
   const closeSearch = useShell((s) => s.closeSearch);
   const shortcutsOpen = useShell((s) => s.shortcutsOpen);
   const setShortcutsOpen = useShell((s) => s.setShortcutsOpen);
+  const keybinds = useKeybinds();
+  const editing = useKeybindEditing();
   // The seam stays mounted through a drag-collapse, so pulling back out in the
   // same gesture resurrects the column (VS Code behavior).
   const [rightDragging, setRightDragging] = useState(false);
@@ -77,10 +88,41 @@ export function Workbench(): React.JSX.Element {
       )}
       {workOpen ? <Work /> : !rightDragging && <ReopenWork />}
       <Palette />
+      <NewSessionDialog />
       <SettingsDialog />
       {shortcutsOpen && (
-        <ShortcutsOverlay keybinds={KEYBINDS} onClose={() => setShortcutsOpen(false)} />
+        <ShortcutsOverlay
+          keybinds={keybinds}
+          editing={editing}
+          onClose={() => setShortcutsOpen(false)}
+        />
       )}
     </div>
   );
+}
+
+/** The editor's seam into the app: the kit captures chords, this decides what they mean
+ *  and persists them. Overrides ride the existing settings path (main writes settings.json),
+ *  so a rebinding survives a restart with no new storage. */
+function useKeybindEditing(): KeybindEditing | undefined {
+  const state = useConsoleState((s) => s);
+  const keybinds = useKeybinds();
+  if (state === undefined) return undefined;
+  const overrides = state.ui.settings.keybinds;
+  const save = (next: Record<string, string[]>): void =>
+    state.actions.setSettings({ keybinds: next });
+
+  return {
+    chordFromEvent,
+    isBindable,
+    conflictLabel: (id, keys) => conflictFor(keybinds, keys, id)?.label,
+    onRebind: (id, keys) => save(rebind(keybinds, overrides, id, keys)),
+    onReset: (id) => {
+      const next = { ...overrides };
+      delete next[id];
+      save(next);
+    },
+    onResetAll: () => save({}),
+    isCustom: (id) => overrides[id] !== undefined,
+  };
 }

@@ -169,6 +169,10 @@ export interface TranscriptProps {
    *  down, and reactivation restores the session's remembered place (a
    *  display:none pass wipes the live scroll position). Defaults to true. */
   active?: boolean | undefined;
+  /** Does this event carry the app's "find in conversation" command? The chord is the
+   *  app's to name (it is rebindable there) — omitted, the component keeps its own
+   *  ctrl/cmd+F so it still works standalone. */
+  findMatch?: ((e: KeyboardEvent) => boolean) | undefined;
 }
 
 /** Known file-touching tools whose input JSON carries a reviewable path. Tool names
@@ -288,7 +292,9 @@ function ThinkingCard({
             {...(streaming === true
               ? {
                   'data-reveal': defaultReveal.text.variant,
-                  style: { '--reveal-dur': `${defaultReveal.text.durationMs}ms` } as React.CSSProperties,
+                  style: {
+                    '--reveal-dur': `${defaultReveal.text.durationMs}ms`,
+                  } as React.CSSProperties,
                 }
               : {})}
           >
@@ -407,7 +413,10 @@ export function TranscriptRow({
         <div className="slip-enter flex items-center gap-2 font-mono text-code">
           <span
             aria-hidden
-            className={cx('w-3 text-center', frame.resolved === 'approved' ? 'text-ok/70' : 'text-s7')}
+            className={cx(
+              'w-3 text-center',
+              frame.resolved === 'approved' ? 'text-ok/70' : 'text-s7',
+            )}
           >
             {frame.resolved === 'approved' ? '✓' : '—'}
           </span>
@@ -898,13 +907,14 @@ export function Transcript({
   bottomInset,
   scrollKey,
   active = true,
+  findMatch,
 }: TranscriptProps): React.JSX.Element | null {
   const scroller = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   // Scroll memory: pinned state comes back with the session (the keyed remount
   // is the save/restore boundary), so switching tabs never loses your place.
-  const [pinned, setPinned] = useState(
-    () => (scrollKey !== undefined ? (scrollMemory.get(scrollKey)?.pinned ?? true) : true),
+  const [pinned, setPinned] = useState(() =>
+    scrollKey !== undefined ? (scrollMemory.get(scrollKey)?.pinned ?? true) : true,
   );
   // Transcript measure: wide (the default) lets output use the whole panel; narrow caps it
   // to the composer's reading measure. Toggled from the corner control (matches the design
@@ -976,7 +986,13 @@ export function Transcript({
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      // The chord is the APP's to name (it's rebindable there); the default keeps this
+      // component usable on its own.
+      const isFind =
+        findMatch !== undefined
+          ? findMatch(e)
+          : (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f';
+      if (isFind) {
         e.preventDefault();
         // A toggle, not an opener — the same chord that summoned the bar
         // dismisses it (matches ctrl+p on the session search).
@@ -987,7 +1003,7 @@ export function Transcript({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [findOpen, active]);
+  }, [findOpen, active, findMatch]);
 
   // Reset to the first match whenever the query (or the underlying frame set) changes
   // matches, so navigation never lands on a stale index past the new match count.

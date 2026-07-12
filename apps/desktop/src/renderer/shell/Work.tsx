@@ -43,7 +43,7 @@ export function Work(): React.JSX.Element {
       )}
 
       <div className="mt-auto flex items-center border-t border-s3 px-3.5 py-2">
-        <Tooltip label="hide session panel" keys={bindFor('toggle the session panel')} side="top">
+        <Tooltip label="hide session panel" keys={bindFor('toggle-dock')} side="top">
           <button
             type="button"
             aria-label="hide session panel"
@@ -63,7 +63,7 @@ export function Work(): React.JSX.Element {
 export function ReopenWork(): React.JSX.Element {
   const toggleWork = useShell((s) => s.toggleWork);
   return (
-    <Tooltip label="show session panel" keys={bindFor('toggle the session panel')} side="top">
+    <Tooltip label="show session panel" keys={bindFor('toggle-dock')} side="top">
       <button
         type="button"
         aria-label="show session panel"

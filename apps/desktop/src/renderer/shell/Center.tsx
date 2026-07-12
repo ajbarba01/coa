@@ -1,4 +1,4 @@
-import { CapsLabel, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { StatusDot, Tooltip, cx } from '@coa/console-kit';
 import type { AgentRailItem } from '@coa/console-ui';
 import type { AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
@@ -15,7 +15,7 @@ import { DRAG, NO_DRAG } from './appRegion.js';
 import { Browser } from './Browser.js';
 import { useConsoleState } from './consoleStore.js';
 import { DeferredCanvas, Freeze } from './deferredMount.js';
-import { bindFor } from './keys.js';
+import { bindFor, closeTab } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
 
@@ -205,14 +205,12 @@ export function Center(): React.JSX.Element {
 
 function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
   const tabs = useShell((s) => s.tabs);
-  const closeTab = useShell((s) => s.closeTab);
   const openSearch = useShell((s) => s.openSearch);
+  const setNewSessionOpen = useShell((s) => s.setNewSessionOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sessions = state?.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const agents = state?.data.agents.status === 'ok' ? state.data.agents.value : [];
   const activeId = state?.ui.activeSessionId;
   const rawMode = state?.ui.rawMode === true;
-  const [newOpen, setNewOpen] = useState(false);
   // Optimistic selection: opening a session re-renders the whole canvas (transcript
   // swap, scroll restore), and until that commit lands the strip still paints the OLD
   // tab as selected. `pending` moves the marker on the click itself and the open runs
@@ -221,20 +219,22 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
   const selected = pending ?? activeId;
   useEffect(() => setPending(undefined), [activeId]);
 
+  // The selected tab must be VISIBLE, whoever moved the selection — a keyboard cycle, the
+  // browser, the palette. Centre it where the strip has room to; at either end the scroller
+  // simply stops, which is what `inline: 'center'` does on its own. `block: 'nearest'`
+  // keeps this from scrolling anything but the strip.
+  const activeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [selected, tabs.length]);
+
   const select = (id: string): void => {
     setPending(id);
     startTransition(() => state?.actions.selectSession(id));
   };
-  /** Middle-click closes a tab (working-set removal only — the session survives);
-   *  closing the active one falls to the last remaining tab. */
-  const close = (id: string): void => {
-    closeTab(id);
-    if (id === activeId) {
-      const rest = tabs.filter((t) => t !== id);
-      const next = rest.at(-1);
-      if (next !== undefined) select(next);
-    }
-  };
+  /** Middle-click closes a tab — the same command ctrl+w runs (working-set removal only:
+   *  the session survives, and ctrl+shift+t brings the tab back). */
+  const close = closeTab;
 
   return (
     <>
@@ -258,10 +258,17 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
             return (
               <button
                 key={tid}
+                ref={on ? activeRef : undefined}
                 type="button"
                 onClick={() => select(tid)}
-                onAuxClick={(e) => {
-                  if (e.button === 1) close(tid);
+                // Close on the middle PRESS, not on auxclick: the press is also what starts
+                // Windows' autoscroll, and preventing the default here is the only way to
+                // stop that — an auxclick handler fires too late and the gesture is eaten.
+                onMouseDown={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    close(tid);
+                  }
                 }}
                 className={cx(
                   // Constant tab width (VS Code register): every tab is EXACTLY the
@@ -291,41 +298,19 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           })}
         </div>
       </div>
-      {/* hugs the last tab, but sits outside the scroll region so overflow never sweeps it away */}
-      <PopoverCard
-        open={newOpen}
-        onOpenChange={setNewOpen}
-        side="bottom"
-        align="start"
-        className="w-52"
-        tooltip={{ label: 'new session' }}
-        trigger={
-          <button
-            type="button"
-            aria-label="new session"
-            className="slip flex flex-none cursor-pointer items-center px-3 text-[20px] text-s7 hover:text-s9"
-            style={NO_DRAG}
-          >
-            +
-          </button>
-        }
-      >
-        <CapsLabel>new session</CapsLabel>
-        {agents.map((a) => (
-          <MenuItem
-            key={a.ref}
-            onClick={() => {
-              state?.actions.newSession(a.ref);
-              setNewOpen(false);
-            }}
-          >
-            {a.name}
-          </MenuItem>
-        ))}
-        {agents.length === 0 && (
-          <div className="px-3 py-1.5 text-code text-s7">no agents yet — create one first</div>
-        )}
-      </PopoverCard>
+      {/* hugs the last tab, but sits outside the scroll region so overflow never sweeps it
+          away. It opens the SAME picker ctrl+t does — one way to start a session. */}
+      <Tooltip label="new session" keys={bindFor('new-session')}>
+        <button
+          type="button"
+          aria-label="new session"
+          onClick={() => setNewSessionOpen(true)}
+          className="slip flex flex-none cursor-pointer items-center px-3 text-[20px] text-s7 hover:text-s9"
+          style={NO_DRAG}
+        >
+          +
+        </button>
+      </Tooltip>
       <div className="min-w-6 flex-1" />
       {/* D85 indicator: appears only while raw mode is ON (toggled via ⌘K) */}
       {rawMode && (
@@ -333,7 +318,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           raw
         </span>
       )}
-      <Tooltip label="search sessions" keys={bindFor('search sessions')}>
+      <Tooltip label="search sessions" keys={bindFor('search-sessions')}>
         <button
           type="button"
           onClick={openSearch}

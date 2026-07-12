@@ -1,28 +1,25 @@
 import { StatusDot, useDismissLayer } from '@coa/console-kit';
 import { Command } from 'cmdk';
-import { useEffect } from 'react';
 import { useConsoleState } from './consoleStore.js';
+import { bindFor } from './keys.js';
 import { SURFACES } from './Nav.js';
 import { useShell } from './store.js';
 
+/** A palette row's chord, read from the registry — a rebinding reaches this too, and an
+ *  unbound command simply shows no key. */
+function Chord({ id }: { id: string }): React.JSX.Element | null {
+  const keys = bindFor(id);
+  return keys === undefined ? null : <kbd>{keys.join(' ')}</kbd>;
+}
+
 /** ⌘K — the palette is the spine: every action reachable, nothing advertised.
- *  Raw mode lives ONLY here (D85: always reachable, never chrome). */
+ *  Raw mode lives ONLY here (D85: always reachable, never chrome). The summon itself is
+ *  a registry command (`palette`), dispatched with the rest — so it can be rebound. */
 export function Palette(): React.JSX.Element | null {
   const open = useShell((s) => s.paletteOpen);
   const setOpen = useShell((s) => s.setPaletteOpen);
   useDismissLayer(open, () => setOpen(false));
   const state = useConsoleState((s) => s);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        useShell.getState().setPaletteOpen(!useShell.getState().paletteOpen);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   if (!open || state === undefined) return null;
 
@@ -44,6 +41,11 @@ export function Palette(): React.JSX.Element | null {
     >
       <Command
         label="command palette"
+        // cmdk's vim bindings claim ctrl+k/ctrl+p/ctrl+n/ctrl+j for list navigation and
+        // preventDefault them — which silently ate the palette's OWN summon chord, so
+        // ctrl+k opened it but could never close it. The arrows navigate; the chords are
+        // the registry's.
+        vimBindings={false}
         className="slip-enter mt-[14vh] w-140 max-w-[85%] overflow-hidden rounded-r4 border border-s5 bg-s2 shadow-modal"
       >
         <div className="flex items-center gap-2.5 border-b border-s3 px-4">
@@ -69,17 +71,21 @@ export function Palette(): React.JSX.Element | null {
               <span className="glyph">■</span>interrupt running turn
               <kbd>esc</kbd>
             </Command.Item>
+            <Command.Item onSelect={() => run(() => shell.setNewSessionOpen(true))}>
+              <span className="glyph">+</span>new session
+              <Chord id="new-session" />
+            </Command.Item>
             <Command.Item onSelect={() => run(() => shell.openSearch())}>
               <span className="glyph">⌕</span>search sessions
-              <kbd>ctrl p</kbd>
+              <Chord id="search-sessions" />
             </Command.Item>
             <Command.Item onSelect={() => run(() => shell.setSettingsOpen(true))}>
               <span className="glyph">⚙</span>settings
-              <kbd>ctrl ,</kbd>
+              <Chord id="settings" />
             </Command.Item>
             <Command.Item onSelect={() => run(() => shell.setShortcutsOpen(true))}>
               <span className="glyph">⌨</span>keyboard shortcuts
-              <kbd>ctrl /</kbd>
+              <Chord id="shortcuts" />
             </Command.Item>
           </Command.Group>
 

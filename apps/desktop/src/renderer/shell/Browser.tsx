@@ -86,6 +86,9 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
   };
 
   const remove = (id: string): void => {
+    // A deleted session has nothing to come back to: drop it from the working set AND the
+    // reopen stack, so ctrl+shift+t can't resurrect a tab whose session is gone.
+    useShell.getState().forgetTab(id);
     state.actions.deleteSession(id);
   };
 
@@ -110,6 +113,11 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
         if (target instanceof HTMLElement && target.closest('[data-session-row]')) return;
         e.preventDefault();
         open(cursorId);
+      } else if (e.key === 'Delete' && cursorId !== undefined) {
+        // Delete acts on the row the cursor names — the same row Enter would open, so the
+        // key and the highlight can never disagree about their target.
+        e.preventDefault();
+        remove(cursorId);
       }
     };
     window.addEventListener('keydown', onKey);

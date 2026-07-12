@@ -8,6 +8,7 @@ import {
   cx,
 } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
+import { useShell } from '../shell/store.js';
 
 export interface QueuedMessage {
   id: string;
@@ -115,6 +116,14 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
   };
   useEffect(autoGrow, [text]);
+
+  // The shell asks for the caret (a session opened, or Enter was pressed in the
+  // conversation) — a nonce, so two consecutive asks are two events. The first render's
+  // 0 is not an ask: the app doesn't steal focus on boot.
+  const composerFocus = useShell((s) => s.composerFocus);
+  useEffect(() => {
+    if (composerFocus > 0) areaRef.current?.focus();
+  }, [composerFocus]);
 
   const take = (): string | undefined => {
     const t = text.trim();

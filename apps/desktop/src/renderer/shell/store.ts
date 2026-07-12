@@ -16,6 +16,10 @@ export interface ShellState {
   query: string;
   /** The open tabs (working set) in order. */
   tabs: string[];
+  /** Closed tabs, most recent last — the browser's reopen stack. Closing a tab drops the
+   *  session from the working set, never from the daemon, so reopening is just re-adding
+   *  its id. Deleting a session purges it from here (nothing to come back to). */
+  closedTabs: string[];
   /** Session hovered in the browser — the dock previews it (search mode). */
   previewId?: string | undefined;
   /** Right column (dock) visibility — the left nav never collapses; this one does. */
@@ -27,6 +31,13 @@ export interface ShellState {
   shortcutsOpen: boolean;
   paletteOpen: boolean;
   projectOpen: boolean;
+  /** The agent picker — the one way a session is started (the + control and ctrl+t both
+   *  open it). */
+  newSessionOpen: boolean;
+  /** Bumped whenever the composer should take focus — opening a session, or Enter pressed
+   *  anywhere in the conversation. A nonce rather than a flag: two consecutive requests to
+   *  focus are two events, and the composer must answer both. */
+  composerFocus: number;
   /** The coa daemon itself — the console is a client; no daemon, no console. */
   daemon: DaemonStatus;
   /** The REAL window maximize state (main pushes it) — drives the restore glyph. */
@@ -36,9 +47,15 @@ export interface ShellState {
 
   /** Also exits search mode (a surface switch is a work-mode navigation). */
   setSurface: (id: string) => void;
-  /** Adds to `tabs` if absent, and switches to work mode. */
+  /** Adds to `tabs` if absent, and brings the chat surface forward in work mode — opening
+   *  a session means looking at it, wherever you were. */
   openTab: (sessionId: string) => void;
   closeTab: (sessionId: string) => void;
+  /** Reopen the most recently closed tab; returns its id (undefined if the stack is empty)
+   *  so the caller can also make it active. */
+  reopenTab: () => string | undefined;
+  /** A deleted session can't be reopened — drop it from the stack (and the working set). */
+  forgetTab: (sessionId: string) => void;
   setPreview: (id?: string) => void;
   setMode: (mode: 'work' | 'search') => void;
   openSearch: () => void;
@@ -52,6 +69,9 @@ export interface ShellState {
   setShortcutsOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
   setProjectOpen: (open: boolean) => void;
+  setNewSessionOpen: (open: boolean) => void;
+  /** Put the caret in the composer — whatever the user types next is a message. */
+  focusComposer: () => void;
   setDaemon: (daemon: DaemonStatus) => void;
   setMaximized: (maximized: boolean) => void;
   setWorkspace: (workspace: { name: string; root: string }) => void;
@@ -64,13 +84,15 @@ const CLOSE_ALL_DIALOGS = {
   shortcutsOpen: false,
   paletteOpen: false,
   projectOpen: false,
+  newSessionOpen: false,
 } as const;
 
-export const useShell = create<ShellState>((set) => ({
+export const useShell = create<ShellState>((set, get) => ({
   surface: 'chat',
   mode: 'work',
   query: '',
   tabs: [],
+  closedTabs: [],
   previewId: undefined,
   workOpen: true,
   navWidth: 196,
@@ -79,6 +101,8 @@ export const useShell = create<ShellState>((set) => ({
   shortcutsOpen: false,
   paletteOpen: false,
   projectOpen: false,
+  newSessionOpen: false,
+  composerFocus: 0,
   daemon: 'stopped',
   maximized: false,
   workspace: undefined,
@@ -87,9 +111,34 @@ export const useShell = create<ShellState>((set) => ({
   openTab: (sessionId) =>
     set((s) => ({
       tabs: s.tabs.includes(sessionId) ? s.tabs : [...s.tabs, sessionId],
+      surface: 'chat',
       mode: 'work',
+      // Opening a session is an invitation to say something: the caret lands in the
+      // composer, so typing goes straight into the message.
+      composerFocus: s.composerFocus + 1,
     })),
-  closeTab: (sessionId) => set((s) => ({ tabs: s.tabs.filter((t) => t !== sessionId) })),
+  closeTab: (sessionId) =>
+    set((s) => ({
+      tabs: s.tabs.filter((t) => t !== sessionId),
+      // Re-closing a tab moves it to the top of the stack rather than duplicating it.
+      closedTabs: [...s.closedTabs.filter((t) => t !== sessionId), sessionId],
+    })),
+  reopenTab: () => {
+    const { closedTabs, tabs } = get();
+    const id = closedTabs.at(-1);
+    if (id === undefined) return undefined;
+    set({
+      closedTabs: closedTabs.slice(0, -1),
+      tabs: tabs.includes(id) ? tabs : [...tabs, id],
+      mode: 'work',
+    });
+    return id;
+  },
+  forgetTab: (sessionId) =>
+    set((s) => ({
+      tabs: s.tabs.filter((t) => t !== sessionId),
+      closedTabs: s.closedTabs.filter((t) => t !== sessionId),
+    })),
   setPreview: (previewId) => set({ previewId }),
   setMode: (mode) => set({ mode }),
   // Search lives on the chat surface (the strip morphs) — opening it from any
@@ -105,10 +154,17 @@ export const useShell = create<ShellState>((set) => ({
   setWorkWidth: (workWidth) => set({ workWidth }),
   // Opening any dialog first clears the others (single dialog at a time); closing leaves
   // the rest untouched.
-  setSettingsOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, settingsOpen: true } : { settingsOpen: false }),
-  setShortcutsOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, shortcutsOpen: true } : { shortcutsOpen: false }),
-  setPaletteOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, paletteOpen: true } : { paletteOpen: false }),
-  setProjectOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, projectOpen: true } : { projectOpen: false }),
+  setSettingsOpen: (open) =>
+    set(open ? { ...CLOSE_ALL_DIALOGS, settingsOpen: true } : { settingsOpen: false }),
+  setShortcutsOpen: (open) =>
+    set(open ? { ...CLOSE_ALL_DIALOGS, shortcutsOpen: true } : { shortcutsOpen: false }),
+  setPaletteOpen: (open) =>
+    set(open ? { ...CLOSE_ALL_DIALOGS, paletteOpen: true } : { paletteOpen: false }),
+  setProjectOpen: (open) =>
+    set(open ? { ...CLOSE_ALL_DIALOGS, projectOpen: true } : { projectOpen: false }),
+  setNewSessionOpen: (open) =>
+    set(open ? { ...CLOSE_ALL_DIALOGS, newSessionOpen: true } : { newSessionOpen: false }),
+  focusComposer: () => set((s) => ({ composerFocus: s.composerFocus + 1 })),
   setDaemon: (daemon) => set({ daemon }),
   setMaximized: (maximized) => set({ maximized }),
   setWorkspace: (workspace) => set({ workspace }),

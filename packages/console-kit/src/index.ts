@@ -30,5 +30,5 @@ export {
   type TooltipSpec,
 } from './overlay/Tooltip.js';
 export { Kbd, type Keybind } from './keys/Kbd.js';
-export { ShortcutsOverlay } from './keys/ShortcutsOverlay.js';
+export { filterKeybinds, ShortcutsOverlay, type KeybindEditing } from './keys/ShortcutsOverlay.js';
 export { ZoomProvider, useZoom } from './zoom.js';
