@@ -247,10 +247,11 @@ describe('ToolCard', () => {
 });
 
 describe('state vocabulary — the indicator law', () => {
-  it('renders no status dot on success', () => {
+  it('renders the green succeeded dot on success', () => {
     const { container } = render(<ToolCard tool="Bash" input='{"command":"ls"}' output="ok" ok={true} />);
-    expect(container.querySelector('[aria-label="running"]')).toBeNull();
-    expect(container.querySelector('[aria-label="failed"]')).toBeNull();
+    const dot = container.querySelector('[aria-label="succeeded"]');
+    expect(dot).not.toBeNull();
+    expect(dot?.className).toMatch(/bg-ok\b/);
   });
 
   it('renders the blue running dot while the call is in flight', () => {
@@ -265,6 +266,18 @@ describe('state vocabulary — the indicator law', () => {
     const dot = container.querySelector('[aria-label="failed"]');
     expect(dot).not.toBeNull();
     expect(dot?.className).toMatch(/bg-crit\b/);
+  });
+
+  it('renders exactly one status dot per call, in the one slot', () => {
+    for (const props of [
+      { output: undefined, ok: undefined },
+      { output: 'ok', ok: true },
+      { output: 'boom', ok: false },
+    ]) {
+      const { container, unmount } = render(<ToolCard tool="Bash" input='{"command":"ls"}' {...props} />);
+      expect(container.querySelectorAll('[aria-label="running"], [aria-label="succeeded"], [aria-label="failed"]')).toHaveLength(1);
+      unmount();
+    }
   });
 
   it('renders no body at all while running (the dot is the only live emphasis)', () => {

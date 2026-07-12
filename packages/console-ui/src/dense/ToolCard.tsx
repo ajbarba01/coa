@@ -156,12 +156,34 @@ function deriveHeaderText(
   return { targetBare: path === undefined ? bare : '', meta: metaText.length > 0 ? metaText : undefined };
 }
 
+/** A tool call's lifecycle state, rendered as the header's one status dot. */
+type ToolStatus = 'running' | 'succeeded' | 'failed';
+
+const STATUS_DOT: Record<ToolStatus, string> = {
+  running: 'bg-run motion-safe:animate-pulse',
+  succeeded: 'bg-ok',
+  failed: 'bg-crit',
+};
+
+/** The header's single status indicator (UI.md indicator law: state is a dot — blue
+ *  running, green done, red critical). One slot for all three states, so the eye reads
+ *  every call's outcome from the same place down the transcript rather than tracking a
+ *  left dot for "running" and a right one for "failed". Labelled, not `aria-hidden`: on a
+ *  succeeded or failed card the dot is the ONLY thing carrying the outcome. */
+function StatusDot({ status }: { status: ToolStatus }): React.JSX.Element {
+  return (
+    <span
+      aria-label={status}
+      className={cx('size-[5px] flex-none rounded-full', STATUS_DOT[status])}
+    />
+  );
+}
+
 /** The rich tool call: ONE container for both states. The header row is byte-identical
- *  closed and open — glyph, running dot, verb, linked target, then meta, fail dot, and a
- *  chevron on the right. Expanding fades the card chrome in and slides the body open
- *  beneath it, so the change reads as "the result appears", never as a different
- *  component. Indicator law: RUNNING earns the blue dot; FAILURE earns the red dot and its
- *  output is always visible (SC-1); SUCCESS renders no dot at all. */
+ *  closed and open — status dot, glyph, verb, linked target, then meta and a chevron on
+ *  the right. Expanding fades the card chrome in and slides the body open beneath it, so
+ *  the change reads as "the result appears", never as a different component. A failure's
+ *  output is always visible (SC-1). */
 export function ToolCard({
   tool,
   input,
@@ -174,6 +196,7 @@ export function ToolCard({
   const overlay = usePaneOverlay();
   const running = output === undefined && ok === undefined;
   const failed = ok === false;
+  const status: ToolStatus = running ? 'running' : failed ? 'failed' : 'succeeded';
   const [open, setOpen] = useState(!RESTS_COLLAPSED.has(tool) || failed);
   const [inlineFull, setInlineFull] = useState(false);
 
@@ -241,8 +264,8 @@ export function ToolCard({
             }
           : {})}
       >
+        <StatusDot status={status} />
         <span className="w-3 flex-none text-center text-s7">{toolGlyph(tool)}</span>
-        {running && <span aria-label="running" className="size-[5px] flex-none rounded-full bg-run" />}
         <span className="flex-none text-s8">{verb}</span>
         {path !== undefined ? (
           onOpenPath !== undefined ? (
@@ -285,7 +308,6 @@ export function ToolCard({
         )}
         <span className="ml-auto flex flex-none items-center gap-2 pl-2">
           {meta !== undefined && <MetaValue text={meta} />}
-          {failed && <span aria-label="failed" className="size-[5px] flex-none rounded-full bg-crit" />}
           {hasBody && (
             <span
               aria-hidden
