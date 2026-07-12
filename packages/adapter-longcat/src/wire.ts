@@ -65,9 +65,17 @@ export const streamDeltaSchema = z.object({
     .array(
       z.object({
         index: z.number(),
-        id: z.string().optional(),
+        // `nullish`, NOT `optional` — the same null-vs-undefined trap as `usage` below, and
+        // for the same reason. LongCat streams a tool call as fragments and sets the
+        // already-known fields to NULL on the continuations (`id: null`, `name: null`)
+        // rather than omitting them. `.optional()` admits `undefined` but not `null`, so a
+        // null-blind schema fails the whole chunk's parse — and an unparseable chunk is
+        // DROPPED in `complete.ts` — discarding every fragment that carried the `arguments`.
+        // The call then arrives NAMED but with EMPTY arguments, and the governed tool
+        // rejects it as `invalid-args`, blaming the model for the adapter's own data loss.
+        id: z.string().nullish(),
         function: z
-          .object({ name: z.string().optional(), arguments: z.string().optional() })
+          .object({ name: z.string().nullish(), arguments: z.string().nullish() })
           .optional(),
       }),
     )

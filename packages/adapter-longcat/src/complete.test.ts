@@ -299,4 +299,33 @@ describe('makeLongCatComplete', () => {
     while (step.done !== true) step = await it.next();
     expect(step.value.toolCalls).toEqual([{ id: 'c1', name: 'Read', arguments: { path: 'a' } }]);
   });
+
+  // VERBATIM from a live LongCat-2.0 stream. LongCat sends `id: null` and `name: null` on
+  // the argument-continuation fragments rather than omitting them — and Zod's `.optional()`
+  // accepts `undefined`, NOT `null`, so a null-blind schema fails the whole chunk's parse
+  // and the `safeParse` guard drops it. Only the first fragment (real id, real name, EMPTY
+  // arguments) survives, so the call arrives NAMED but with EMPTY arguments, which the
+  // governed tool then rejects as `invalid-args` ("expected string, received undefined").
+  // The identical null-vs-undefined trap is already documented for `usage` in wire.ts.
+  it('reassembles a tool call whose continuation fragments carry null id/name (live LongCat shape)', async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({}),
+      body: sseBody(
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"call_1","index":0,"type":"function","function":{"name":"Bash","arguments":""}}]}}]}\n\n',
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":null,"index":0,"type":"function","function":{"name":null,"arguments":"{\\"command\\": \\"ls -la"}}]}}]}\n\n',
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":null,"index":0,"type":"function","function":{"name":null,"arguments":"\\"}"}}]}}]}\n\n',
+        'data: [DONE]\n\n',
+      ),
+    });
+    const complete = makeLongCatComplete({ apiKey: 'k', model: 'm', fetchImpl, prices: {} });
+    const it = complete([{ role: 'user', content: 'hi' }], [], undefined);
+    let step = await it.next();
+    while (step.done !== true) step = await it.next();
+    expect(step.value.toolCalls).toEqual([
+      { id: 'call_1', name: 'Bash', arguments: { command: 'ls -la' } },
+    ]);
+  });
 });
