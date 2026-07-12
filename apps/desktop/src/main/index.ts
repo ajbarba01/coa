@@ -104,7 +104,13 @@ function createWindow(): void {
   win.on('unmaximize', pushMaximized);
   win.once('ready-to-show', () => {
     win.show();
-    if (process.env['ELECTRON_RENDERER_URL']) win.webContents.openDevTools();
+  });
+  // The custom title bar means no native menu, and no menu means no accelerators — so
+  // devtools has no way in unless we give it one. It opens on request, never on launch.
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const combo = input.control && input.shift && input.key.toLowerCase() === 'i';
+    if (combo || input.key === 'F12') win.webContents.toggleDevTools();
   });
   // Fallback: if `ready-to-show` never fires (a dev-server race that would otherwise
   // leave a hidden window and a process that "acts like it's running"), show anyway.

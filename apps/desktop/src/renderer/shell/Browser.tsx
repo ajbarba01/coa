@@ -1,6 +1,6 @@
 import type { SessionSummary } from '@coa/console-viewmodel';
-import { Select, StatusDot } from '@coa/console-kit';
-import { useState } from 'react';
+import { cx, Select, StatusDot } from '@coa/console-kit';
+import { useEffect, useRef, useState } from 'react';
 import { relativeTime } from '../panels/ChatPanel.js';
 import type { ConsoleState } from '../panels/state.js';
 import { useShell } from './store.js';
@@ -71,6 +71,14 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
       !q || s.title.toLowerCase().includes(q) || agentName(s.agentRef).toLowerCase().includes(q),
   );
   const groups = arrangeSessions(hits, sort, group, agentName, isRunning);
+  // The cursor is the ONE highlight: ↑/↓ move it, the mouse moves it too (hover and
+  // keyboard can't disagree), and it always names the row Enter would open — the
+  // command palette's mechanic, over the browser's grouped list read flat.
+  const flat = groups.flatMap((g) => g.sessions);
+  const [cursor, setCursor] = useState(0);
+  const at = Math.min(cursor, Math.max(0, flat.length - 1));
+  const cursorId = flat[at]?.id;
+  const cursorRef = useRef<HTMLDivElement>(null);
 
   const open = (id: string): void => {
     state.actions.selectSession(id);
@@ -81,11 +89,45 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
     state.actions.deleteSession(id);
   };
 
+  // Keys land on the window because focus stays in the search field (which lives in the
+  // title-bar strip, not here) — the list is the strip's canvas, so it listens where the
+  // typing is. Skipped while a dialog is up: that layer owns the arrows then.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const shell = useShell.getState();
+      if (shell.paletteOpen || shell.settingsOpen || shell.shortcutsOpen || shell.projectOpen) {
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (flat.length === 0) return;
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        setCursor((c) => (Math.min(c, flat.length - 1) + step + flat.length) % flat.length);
+      } else if (e.key === 'Enter' && cursorId !== undefined) {
+        // A tabbed-to row opens ITSELF (its own handler) — the cursor only speaks for
+        // Enter pressed from the search field, where the pointer never went.
+        const target = e.target;
+        if (target instanceof HTMLElement && target.closest('[data-session-row]')) return;
+        e.preventDefault();
+        open(cursorId);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  // Wrapping top→bottom would otherwise leave the cursor off-screen.
+  useEffect(() => {
+    cursorRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [cursorId]);
+
+  // A new query re-ranks the list: the cursor returns to the top hit, and the dock
+  // previews whatever it now names.
+  useEffect(() => setCursor(0), [q, sort, group]);
+  useEffect(() => setPreview(cursorId), [cursorId, setPreview]);
+
   return (
-    <div
-      className="slip-enter min-h-0 flex-1 overflow-y-auto px-8 pt-12 pb-4"
-      onMouseLeave={() => setPreview(undefined)}
-    >
+    <div className="slip-enter min-h-0 flex-1 overflow-y-auto px-8 pt-12 pb-4">
       <div className="flex items-center gap-3.5 pb-3 font-mono text-meta text-s7">
         <div className="flex items-center gap-1.5">
           <span>sort</span>
@@ -119,6 +161,8 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
           {list.map((s) => (
             <div
               key={s.id}
+              ref={s.id === cursorId ? cursorRef : undefined}
+              data-session-row
               role="button"
               tabIndex={0}
               onClick={() => open(s.id)}
@@ -128,8 +172,11 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
                   open(s.id);
                 }
               }}
-              onMouseEnter={() => setPreview(s.id)}
-              className="slip group -mx-2.5 flex w-[calc(100%+20px)] cursor-pointer items-center gap-2.5 rounded-r2 px-2.5 py-1.75 text-left text-sec text-s10 hover:bg-s2"
+              onMouseEnter={() => setCursor(flat.findIndex((f) => f.id === s.id))}
+              className={cx(
+                'slip group -mx-2.5 flex w-[calc(100%+20px)] cursor-pointer items-center gap-2.5 rounded-r2 px-2.5 py-1.75 text-left text-sec text-s10',
+                s.id === cursorId && 'bg-s2',
+              )}
             >
               <StatusDot status={isRunning(s.id) ? 'running' : 'idle'} />
               <span className="overflow-hidden text-ellipsis whitespace-nowrap">
@@ -145,7 +192,11 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
                     e.stopPropagation();
                     remove(s.id);
                   }}
-                  className="slip flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-r1 text-icon text-s6 opacity-0 group-hover:opacity-100 hover:text-crit focus-visible:opacity-100"
+                  className={cx(
+                    'slip flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-r1 text-icon text-s6 opacity-0 group-hover:opacity-100 hover:text-crit focus-visible:opacity-100',
+                    // the cursor row is "hovered" whether the mouse or the arrows put it there
+                    s.id === cursorId && 'opacity-100',
+                  )}
                 >
                   ✕
                 </button>

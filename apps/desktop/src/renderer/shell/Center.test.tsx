@@ -48,6 +48,44 @@ describe('Center tabs', () => {
     expect(selectSession).toHaveBeenCalledWith('c2');
   });
 
+  it('gives every session tab the same fixed width (titles truncate inside)', () => {
+    publish();
+    useShell.getState().openTab('c1');
+    useShell.getState().openTab('c2');
+    render(<Center />);
+    const tab = screen.getByRole('button', { name: /wire the dock/ });
+    // exact width + flex-none: the row can neither grow nor compress a tab
+    expect(tab.className).toContain('w-30');
+    expect(tab.className).toContain('flex-none');
+    expect(tab.className).not.toContain('max-w-52');
+  });
+
+  it('marks the clicked tab selected immediately, before the session finishes opening', () => {
+    // selectSession is a mock — the published activeSessionId NEVER moves off c1. The strip
+    // must not wait for it: the marker is optimistic, so the click is answered on the frame
+    // it happens instead of after the canvas swap commits.
+    publish();
+    useShell.getState().openTab('c1');
+    useShell.getState().openTab('c2');
+    render(<Center />);
+    const c2 = screen.getByRole('button', { name: /fix the seam/ });
+    act(() => {
+      fireEvent.click(c2);
+    });
+    expect(c2.className).toContain('text-s12');
+    expect(screen.getByRole('button', { name: /wire the dock/ }).className).toContain('text-s9');
+  });
+
+  it('parts every tab from its neighbour with a hairline, selected ones included', () => {
+    publish({ ui: { activeSessionId: 'c2' } });
+    useShell.getState().openTab('c1');
+    useShell.getState().openTab('c2');
+    render(<Center />);
+    for (const name of [/wire the dock/, /fix the seam/]) {
+      expect(screen.getByRole('button', { name }).querySelector('[data-divider]')).toBeTruthy();
+    }
+  });
+
   it('shows the raw indicator only while raw mode is on', () => {
     publish({ ui: { activeSessionId: 'c1', rawMode: true } });
     useShell.getState().openTab('c1');
@@ -136,10 +174,13 @@ describe('Center search morph', () => {
     useShell.getState().openTab('c1');
     render(<Center />);
     act(() => useShell.getState().openSearch());
-    const field = screen.getByPlaceholderText('search sessions…').parentElement as HTMLElement;
-    // A viewport-relative cap collides with the absolutely-placed ✕ on narrow
-    // panels; the field must reserve the cancel zone and shrink from there.
-    expect(field.className).toContain('min-w-0');
+    const input = screen.getByPlaceholderText('search sessions…');
+    const field = input.parentElement as HTMLElement;
+    const row = field.parentElement as HTMLElement;
+    // EVERY link in the chain must be able to shrink. A flex item's automatic minimum
+    // size is its content, so a single missing min-w-0 anywhere here lets the search bar
+    // overflow the column and land on top of the dock — measured, not theorised.
+    for (const el of [input, field, row]) expect(el.className).toContain('min-w-0');
     expect(field.className).not.toContain('max-w-[70%]');
   });
 });

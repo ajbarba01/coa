@@ -35,6 +35,8 @@ export interface DaemonManagerDeps {
   path: string;
   /** Connect retry after a spawn (the daemon needs a beat to bind). */
   retry?: { attempts: number; delayMs: number };
+  /** How long `stop` waits for the endpoint to actually release (see doStop). */
+  drain?: { attempts: number; delayMs: number };
   /** Injectable sleep (tests). */
   delay?: (ms: number) => Promise<void>;
 }
@@ -56,19 +58,25 @@ export interface DaemonManager {
   dispose: () => void;
 }
 
-const DEFAULT_RETRY = { attempts: 20, delayMs: 100 };
+const DEFAULT_RETRY = { attempts: 50, delayMs: 100 };
+const DEFAULT_DRAIN = { attempts: 30, delayMs: 100 };
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export function createDaemonManager(deps: DaemonManagerDeps): DaemonManager {
   const retry = deps.retry ?? DEFAULT_RETRY;
+  const drain = deps.drain ?? DEFAULT_DRAIN;
   const delay = deps.delay ?? sleep;
   const listeners = new Set<(status: DaemonStatus) => void>();
 
   let status: DaemonStatus = 'stopped';
   let client: DaemonClient | undefined;
   let proc: DaemonProcess | undefined;
-  // Guards a deliberate teardown so its `onClose` doesn't masquerade as a crash.
-  let expectingClose = false;
+  // Every connection gets an epoch, and a teardown burns it. `onClose` is a socket
+  // event: it lands whenever the OS gets round to it, which for a deliberate stop is
+  // AFTER we've finished stopping, and for a restart can be after the NEXT connection
+  // has started. A close only speaks for its own epoch — anything older is the wake of
+  // a teardown we did on purpose, not a daemon dropping out from under us.
+  let epoch = 0;
   // Serializes start/stop/restart so overlapping clicks can't interleave transitions.
   let inflight: Promise<void> = Promise.resolve();
 
@@ -78,18 +86,18 @@ export function createDaemonManager(deps: DaemonManagerDeps): DaemonManager {
     for (const listener of listeners) listener(status);
   };
 
-  const onClientClose = (): void => {
-    if (expectingClose) return; // a deliberate stop/restart handles its own status
+  const onClientClose = (era: number): void => {
+    if (era !== epoch) return;
     client = undefined;
     proc = undefined;
     setStatus('error'); // the daemon dropped out from under us
   };
 
-  const connectWithRetry = async (): Promise<DaemonClient> => {
+  const connectWithRetry = async (era: number): Promise<DaemonClient> => {
     let lastErr: unknown;
     for (let attempt = 0; attempt < retry.attempts; attempt += 1) {
       try {
-        return await deps.connect(deps.path, onClientClose);
+        return await deps.connect(deps.path, () => onClientClose(era));
       } catch (err) {
         lastErr = err;
         await delay(retry.delayMs);
@@ -100,11 +108,12 @@ export function createDaemonManager(deps: DaemonManagerDeps): DaemonManager {
 
   const doStart = async (): Promise<void> => {
     if (status === 'running' && client !== undefined) return;
+    const era = (epoch += 1);
     setStatus('starting');
     try {
       // Attach to a live daemon if one is already serving; otherwise spawn one.
       if (!(await deps.probe(deps.path))) proc = deps.spawn();
-      client = await connectWithRetry();
+      client = await connectWithRetry(era);
       setStatus('running');
     } catch {
       client = undefined;
@@ -113,7 +122,7 @@ export function createDaemonManager(deps: DaemonManagerDeps): DaemonManager {
   };
 
   const doStop = async (): Promise<void> => {
-    expectingClose = true;
+    epoch += 1; // burn the connection: its close is now expected, whenever it arrives
     try {
       if (client !== undefined) {
         // Best-effort graceful stop over the pipe (reaps orphans too), then close.
@@ -124,9 +133,16 @@ export function createDaemonManager(deps: DaemonManagerDeps): DaemonManager {
     } finally {
       client = undefined;
       proc = undefined;
-      expectingClose = false;
-      setStatus('stopped');
     }
+    // The daemon outlives its own shutdown reply: the endpoint stays bound until the
+    // process is really gone. A `start` that races that window PROBES A LIVE PIPE, so it
+    // attaches to the corpse instead of spawning — and reports the corpse's close as a
+    // crash. Stopping isn't done until the endpoint is free (bounded: a pipe that never
+    // releases is still reported stopped, and the next start will spawn over it).
+    for (let i = 0; i < drain.attempts && (await deps.probe(deps.path)); i += 1) {
+      await delay(drain.delayMs);
+    }
+    setStatus('stopped');
   };
 
   // Chain each transition after the previous so concurrent calls stay ordered.
@@ -158,7 +174,7 @@ export function createDaemonManager(deps: DaemonManagerDeps): DaemonManager {
       return () => listeners.delete(listener);
     },
     dispose: () => {
-      expectingClose = true;
+      epoch += 1;
       void client?.close().catch(() => undefined);
       proc?.kill();
       client = undefined;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { SessionSummary } from '@coa/console-viewmodel';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeState } from '../panels/fixtures.js';
 import { arrangeSessions, Browser } from './Browser.js';
@@ -49,6 +49,12 @@ function mount(
   return { selectSession, deleteSession };
 }
 
+/** The result rows in render order (their accessible names collide with the per-row
+ *  delete buttons, so query the rows themselves). */
+function rows(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-session-row]')];
+}
+
 describe('Browser', () => {
   it('lists every session with its agent name when the query is empty', () => {
     mount();
@@ -79,6 +85,50 @@ describe('Browser', () => {
     expect(deleteSession).toHaveBeenCalledExactlyOnceWith('c1');
     // Deleting is not opening — it must not also select the session.
     expect(selectSession).not.toHaveBeenCalled();
+  });
+
+  it('arrow keys move a cursor over the results and Enter opens the one it names', () => {
+    useShell.getState().openSearch();
+    const { selectSession } = mount();
+    // sorted by recency: audit the ledger (c2, newest) then wire the dock (c1). The cursor
+    // starts on the top hit — the row Enter would open is always the one that looks hovered.
+    expect(rows()[0]?.className).toContain('bg-s2');
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(rows()[1]?.className).toContain('bg-s2');
+    expect(rows()[0]?.className).not.toContain('bg-s2');
+    // the dock previews whatever the cursor names, keyboard or mouse
+    expect(useShell.getState().previewId).toBe('c1');
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(selectSession).toHaveBeenCalledExactlyOnceWith('c1');
+    expect(useShell.getState().mode).toBe('work');
+  });
+
+  it('the cursor wraps at the ends and follows the mouse', () => {
+    useShell.getState().openSearch();
+    mount();
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(rows()[1]?.className).toContain('bg-s2');
+    fireEvent.mouseEnter(rows()[0] as HTMLElement);
+    expect(rows()[0]?.className).toContain('bg-s2');
+    expect(useShell.getState().previewId).toBe('c2');
+  });
+
+  it('a re-ranking query returns the cursor to the top hit', () => {
+    useShell.getState().openSearch();
+    mount();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(useShell.getState().previewId).toBe('c1');
+    act(() => useShell.getState().setQuery('audit'));
+    expect(rows()).toHaveLength(1);
+    expect(useShell.getState().previewId).toBe('c2');
+  });
+
+  it('leaves the arrows alone while a dialog owns the layer', () => {
+    useShell.getState().openSearch();
+    mount();
+    act(() => useShell.getState().setPaletteOpen(true));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(rows()[0]?.className).toContain('bg-s2');
   });
 
   it('picking group: status from the toolbar renders a header per run state', () => {

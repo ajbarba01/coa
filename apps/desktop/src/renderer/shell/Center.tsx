@@ -2,7 +2,7 @@ import { CapsLabel, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/c
 import type { AgentRailItem } from '@coa/console-ui';
 import type { AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useRef, useState } from 'react';
+import { startTransition, useEffect, useRef, useState } from 'react';
 import { AccountSurface } from '../panels/AccountPanel.js';
 import { AgentsSurface } from '../panels/AgentsPanel.js';
 import { ChatSurface } from '../panels/ChatPanel.js';
@@ -135,8 +135,11 @@ export function Center(): React.JSX.Element {
       {surface === 'chat' ? (
         <div
           className={cx(
-            'flex h-(--titlebar-h) flex-none items-stretch bg-s1',
-            mode === 'work' && 'border-b border-s3',
+            // z + the drop shadow lift the strip over the canvas: the transcript scrolls
+            // UNDER a surface, not up to a line. The hairline stays as the crisp edge —
+            // the shadow alone reads as fog (the toolbar-elevation pattern).
+            'relative z-(--z-seam) flex h-(--titlebar-h) flex-none items-stretch bg-s1',
+            mode === 'work' && 'border-b border-s3 shadow-[0_6px_10px_-6px_rgba(0,0,0,0.55)]',
           )}
           style={DRAG}
         >
@@ -210,9 +213,17 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
   const activeId = state?.ui.activeSessionId;
   const rawMode = state?.ui.rawMode === true;
   const [newOpen, setNewOpen] = useState(false);
+  // Optimistic selection: opening a session re-renders the whole canvas (transcript
+  // swap, scroll restore), and until that commit lands the strip still paints the OLD
+  // tab as selected. `pending` moves the marker on the click itself and the open runs
+  // as a transition, so the strip answers first and the content follows.
+  const [pending, setPending] = useState<string>();
+  const selected = pending ?? activeId;
+  useEffect(() => setPending(undefined), [activeId]);
 
   const select = (id: string): void => {
-    state?.actions.selectSession(id);
+    setPending(id);
+    startTransition(() => state?.actions.selectSession(id));
   };
   /** Middle-click closes a tab (working-set removal only — the session survives);
    *  closing the active one falls to the last remaining tab. */
@@ -242,7 +253,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           {tabs.map((tid) => {
             const t = sessions.find((s) => s.id === tid);
             if (!t) return undefined;
-            const on = tid === activeId;
+            const on = tid === selected;
             const running = state?.ui.runStatus[tid] !== undefined;
             return (
               <button
@@ -253,15 +264,28 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
                   if (e.button === 1) close(tid);
                 }}
                 className={cx(
-                  'slip relative flex max-w-52 cursor-pointer items-center gap-2 px-4 text-sec whitespace-nowrap',
+                  // Constant tab width (VS Code register): every tab is EXACTLY the
+                  // same size regardless of title — flex-none so the row can never
+                  // compress one — and the strip reads as a steady row. Titles truncate.
+                  // NO `slip` here: selection is a state, not a move. The underline flips
+                  // on the click and the ink must land with it — a 140ms colour fade on
+                  // the title reads as the old tab hanging on to the selection.
+                  'relative flex w-30 flex-none cursor-pointer items-center gap-1.5 px-3 text-sec whitespace-nowrap',
                   // selection = ink + underline; the shadow covers the strip's hairline so
                   // the active tab stays continuous with the canvas below
                   on ? 'text-s12 shadow-[0_1px_0_var(--color-s1)]' : 'text-s9 hover:text-s11',
                 )}
               >
                 <StatusDot status={running ? 'running' : 'idle'} />
-                <span className="truncate">{t.title}</span>
+                <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>
                 {on && <span className="absolute right-3 bottom-0 left-3 h-0.5 bg-s9" />}
+                {/* a hairline on every tab's trailing edge — including the selected one's,
+                    so the row reads as a row of tabs and not a run-on strip; the last
+                    one also parts the strip from the + */}
+                <span
+                  data-divider
+                  className="pointer-events-none absolute top-1/2 right-0 h-3.5 w-px -translate-y-1/2 bg-s4"
+                />
               </button>
             );
           })}
@@ -333,13 +357,18 @@ function SearchBar(): React.JSX.Element {
   useEffect(() => inputRef.current?.focus(), []);
 
   return (
-    <div className="relative flex flex-1 items-start justify-center px-3.5">
+    // min-w-0: this row's content (the field at its full w-110 plus both gutters) is wider
+    // than the strip on a narrow panel, and a flex item's automatic minimum size is its
+    // content — so without this the ROW overflows the strip and everything inside it sizes
+    // against a container that has already spilled past the column, over the dock.
+    <div className="relative flex min-w-0 flex-1 items-start justify-center px-11">
       {/* a real input box: centered, dropped below the window edge, floating over the canvas.
           15px glyph: between type tokens — matches the input's optical center, one-off.
-          The width cap reserves the cancel zone on both sides (symmetric, so the box stays
-          centered) and shrinks from there instead of colliding with the ✕ on narrow panels. */}
+          The gutters ARE the cancel zone (px-11 ≈ the ✕ hitbox, mirrored so the box stays
+          centered): the field caps at the padding box and shrinks from there, so it can
+          never reach the ✕ however narrow the panel gets. */}
       <div
-        className="z-(--z-seam) mt-6 flex w-110 min-w-0 max-w-[calc(100%-6rem)] items-center gap-2.5 rounded-r3 border border-s5 bg-s3 px-3 py-1.5 shadow-float focus-within:border-s6"
+        className="z-(--z-seam) mt-6 flex w-110 min-w-0 max-w-full items-center gap-2.5 rounded-r3 border border-s5 bg-s3 px-3 py-1.5 shadow-float focus-within:border-s6"
         style={NO_DRAG}
       >
         <span className="text-[15px] text-s8">⌕</span>
@@ -348,7 +377,10 @@ function SearchBar(): React.JSX.Element {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="search sessions…"
-          className="flex-1 bg-transparent text-body text-s11 outline-none placeholder:text-s7"
+          // min-w-0: an <input> is a flex child with an intrinsic min width (~20ch), so
+          // without this it refuses to shrink and spills out of the box, over the ✕ —
+          // the box's own cap can't save it.
+          className="w-full min-w-0 flex-1 bg-transparent text-body text-s11 outline-none placeholder:text-s7"
         />
       </div>
       {/* cancel sits exactly where ⌕ lives in tab mode */}

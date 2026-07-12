@@ -13,6 +13,24 @@ import { ReopenWork, Work } from './Work.js';
  *  keeps the AGENTS title-bar segment whole. */
 export const NAV = { min: 160, max: 300, base: 196 };
 export const WORK = { min: 200, max: 340, base: 218, collapseBelow: 112, reopenAt: 132 };
+/** The middle column is the work, not the leftovers: neither seam may squeeze it below
+ *  this. Sized so it survives both columns at their min on the smallest window we allow
+ *  (main's `minWidth`) — the tab strip, the composer and the transcript all stay whole. */
+export const CENTER = { min: 360 };
+
+/** Pure: the widest the LEFT seam may go — its own max, or wherever the center hits its
+ *  floor, whichever comes first. Never returns less than the nav's own min (a window too
+ *  small to honour everything still leaves the nav usable). */
+export function clampNav(x: number, viewport: number, rightWidth: number): number {
+  const ceiling = Math.max(NAV.min, Math.min(NAV.max, viewport - rightWidth - CENTER.min));
+  return Math.min(Math.max(x, NAV.min), ceiling);
+}
+
+/** Pure: cap the dock's dragged width against the center's floor. Only the UPPER bound —
+ *  narrow values pass through untouched so the collapse hysteresis still fires. */
+export function clampWork(width: number, viewport: number, navWidth: number): number {
+  return Math.min(width, Math.max(WORK.min, viewport - navWidth - CENTER.min));
+}
 
 /** The three-column workbench frame. */
 export function Workbench(): React.JSX.Element {
@@ -35,7 +53,9 @@ export function Workbench(): React.JSX.Element {
       <Nav />
       <PanelResize
         onDrag={(x) => {
-          useShell.getState().setNavWidth(Math.min(NAV.max, Math.max(NAV.min, x)));
+          const st = useShell.getState();
+          const right = st.workOpen ? st.workWidth : 0;
+          st.setNavWidth(clampNav(x, window.innerWidth, right));
         }}
         onReset={() => useShell.getState().setNavWidth(NAV.base)}
       />
@@ -47,7 +67,8 @@ export function Workbench(): React.JSX.Element {
             const st = useShell.getState();
             // Page zoom (setZoomLevel) keeps pointer coords AND innerWidth in
             // layout px, so no zoom division here — unlike the proto's CSS zoom.
-            const r = resolveCollapse(window.innerWidth - x, WORK, st.workOpen);
+            const target = clampWork(window.innerWidth - x, window.innerWidth, st.navWidth);
+            const r = resolveCollapse(target, WORK, st.workOpen);
             if (r.open !== st.workOpen) st.setWorkOpen(r.open);
             if (r.width !== null) st.setWorkWidth(r.width);
           }}
