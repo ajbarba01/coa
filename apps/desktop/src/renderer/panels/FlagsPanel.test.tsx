@@ -48,4 +48,9 @@ describe('FlagsSurface states-first', () => {
     expect(screen.getByText('pay.ts:10')).toBeTruthy();
     expect(screen.getByText(/4 more/i)).toBeTruthy();
   });
+
+  it('announces an error via role=alert', () => {
+    render(<FlagsSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
+    expect(screen.getByRole('alert').textContent).toContain('daemon down');
+  });
 });
