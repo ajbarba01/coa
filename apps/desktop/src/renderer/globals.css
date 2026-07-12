@@ -453,8 +453,9 @@ code,
 .cx-word {
   display: inline-block;
   animation-name: cx-word-fade-in;
-  animation-duration: var(--reveal-dur, 190ms);
-  animation-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
+  animation-duration: var(--reveal-dur, 180ms);
+  /* The one Slipstream ease (matches the design reference's word-in / slip-enter). */
+  animation-timing-function: var(--ease-slip);
   animation-fill-mode: both;
 }
 [data-reveal='blurIn'] .cx-word {
@@ -472,7 +473,7 @@ code,
 @keyframes cx-word-blur-in {
   from {
     opacity: 0;
-    filter: blur(5px);
+    filter: blur(3px);
   }
   to {
     opacity: 1;
@@ -502,8 +503,9 @@ code,
    blocks; prose flows per-word above). One-shot on mount; memoized blocks never re-run it. Variant
    + duration come from `defaultReveal.block`. `[data-motion='reduce']` zeroes it. */
 .cx-block-enter {
-  animation-duration: var(--enter-dur, 500ms);
-  animation-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
+  animation-duration: var(--enter-dur, 180ms);
+  /* The one Slipstream ease (matches the design reference's slip-enter). */
+  animation-timing-function: var(--ease-slip);
   animation-fill-mode: both;
 }
 .cx-block-enter[data-enter='blurRise'] {

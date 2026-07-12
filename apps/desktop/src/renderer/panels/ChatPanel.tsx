@@ -608,7 +608,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               transcript box (`absolute inset-0` within its own `relative` container) — so
               expanding a deeply-scrolled row covers the transcript region only, never the
               window, and the floating composer stays over its bottom edge. */}
-          <PaneOverlayProvider className="flex-1 bg-s1 p-3.5">
+          <PaneOverlayProvider className="flex-1 bg-s1">
             {vm.frames.length === 0 ? (
               <EmptyConversation
                 agent={vm.agentName ?? 'agent'}
@@ -624,7 +624,6 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
                 // suppression for the incoming history; only genuinely live arrivals animate.
                 key={vm.activeSessionId ?? 'none'}
                 frames={vm.frames}
-                onRespond={vm.onRespond}
                 onOpenPath={onOpenPath}
                 onOpenUrl={onOpenUrl}
                 label="Conversation"

@@ -57,6 +57,15 @@ export interface ShellState {
   setWorkspace: (workspace: { name: string; root: string }) => void;
 }
 
+/** The four modal overlays are mutually exclusive — opening one dismisses the rest so they
+ *  never stack over each other. All false = every dialog closed. */
+const CLOSE_ALL_DIALOGS = {
+  settingsOpen: false,
+  shortcutsOpen: false,
+  paletteOpen: false,
+  projectOpen: false,
+} as const;
+
 export const useShell = create<ShellState>((set) => ({
   surface: 'chat',
   mode: 'work',
@@ -92,10 +101,12 @@ export const useShell = create<ShellState>((set) => ({
   setWorkOpen: (workOpen) => set({ workOpen }),
   setNavWidth: (navWidth) => set({ navWidth }),
   setWorkWidth: (workWidth) => set({ workWidth }),
-  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
-  setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
-  setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
-  setProjectOpen: (projectOpen) => set({ projectOpen }),
+  // Opening any dialog first clears the others (single dialog at a time); closing leaves
+  // the rest untouched.
+  setSettingsOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, settingsOpen: true } : { settingsOpen: false }),
+  setShortcutsOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, shortcutsOpen: true } : { shortcutsOpen: false }),
+  setPaletteOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, paletteOpen: true } : { paletteOpen: false }),
+  setProjectOpen: (open) => set(open ? { ...CLOSE_ALL_DIALOGS, projectOpen: true } : { projectOpen: false }),
   setDaemon: (daemon) => set({ daemon }),
   setMaximized: (maximized) => set({ maximized }),
   setWorkspace: (workspace) => set({ workspace }),

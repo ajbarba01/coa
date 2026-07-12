@@ -80,16 +80,21 @@ describe('useShell', () => {
     expect(useShell.getState().workOpen).toBe(true);
   });
 
-  it('the dialog/palette booleans each set independently', () => {
+  it('opens dialogs one at a time — opening one dismisses the others', () => {
     useShell.getState().setSettingsOpen(true);
-    useShell.getState().setShortcutsOpen(true);
-    useShell.getState().setPaletteOpen(true);
+    expect(useShell.getState().settingsOpen).toBe(true);
+    // Opening the project dialog closes settings (never stacked).
     useShell.getState().setProjectOpen(true);
-    const s = useShell.getState();
-    expect(s.settingsOpen).toBe(true);
-    expect(s.shortcutsOpen).toBe(true);
-    expect(s.paletteOpen).toBe(true);
+    let s = useShell.getState();
     expect(s.projectOpen).toBe(true);
+    expect(s.settingsOpen).toBe(false);
+    expect(s.shortcutsOpen).toBe(false);
+    expect(s.paletteOpen).toBe(false);
+    // Closing one leaves the rest as they were (here: all closed).
+    useShell.getState().setProjectOpen(false);
+    s = useShell.getState();
+    expect(s.projectOpen).toBe(false);
+    expect(s.settingsOpen).toBe(false);
   });
 
   it('setNavWidth/setWorkWidth/setDaemon set their fields directly', () => {

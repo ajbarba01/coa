@@ -1,7 +1,5 @@
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
-import { IconButton } from '../actions/IconButton.js';
-import { Icon } from '../icon/Icon.js';
-import { cx, focusRing } from '../lib/cx.js';
+import { useEffect, useRef } from 'react';
+import { cx } from '../lib/cx.js';
 
 export interface FindBarProps {
   query: string;
@@ -14,9 +12,11 @@ export interface FindBarProps {
   onClose: () => void;
 }
 
-/** A small overlay find control (Ctrl/Cmd+F) hosted by `Transcript`: a query input,
- *  a `current/total` count, prev/next, and close. Internal to `Transcript` — not part
- *  of the package's public surface. */
+/** Find-in-transcript (Ctrl/Cmd+F): a floating bar at the transcript's top-right, hosted by
+ *  `Transcript`. Row-level matches — the count reads `current/total`, ⏎/⇧⏎ (or ‹ ›) walk
+ *  them, the active row wears the amber wash and scrolls into view, Esc closes. The desktop
+ *  needs this because an Electron window has no browser find chrome. Internal to `Transcript`
+ *  — not part of the package's public surface. Matches the design reference (chat/FindBar). */
 export function FindBar({
   query,
   onQueryChange,
@@ -26,51 +26,81 @@ export function FindBar({
   onNext,
   onClose,
 }: FindBarProps): React.JSX.Element {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => inputRef.current?.focus(), []);
+
   return (
     <div
       role="search"
       aria-label="Find in conversation"
-      className="pointer-events-auto flex items-center gap-1 rounded-surface border border-border-default bg-raised px-2 py-1 shadow-sm"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (e.shiftKey) onPrev();
-          else onNext();
-        }
-      }}
+      className="slip-enter pointer-events-auto flex items-center gap-1.5 rounded-r2 border border-s5 bg-s3 px-2 py-1 shadow-[var(--shadow-float)]"
     >
-      <Icon name={Search} size={14} className="shrink-0 text-faint" />
+      <span aria-hidden className="text-[13px] text-s7">
+        ⌕
+      </span>
       <input
-        // Opening the find bar should focus its input immediately (Ctrl/Cmd+F intent).
-        autoFocus
+        ref={inputRef}
         type="text"
         aria-label="Find in conversation"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Find…"
-        className={cx('w-40 bg-transparent text-label text-fg placeholder:text-faint', focusRing)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (e.shiftKey) onPrev();
+            else onNext();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+        placeholder="find in conversation…"
+        className="w-44 bg-transparent font-mono text-sec text-s11 outline-none placeholder:text-s6"
       />
-      <span className="shrink-0 text-caption text-muted tabular-nums">
-        {total === 0 ? '0/0' : `${current}/${total}`}
+      <span
+        className={cx(
+          'font-mono text-meta whitespace-nowrap tabular-nums',
+          total === 0 && query !== '' ? 'text-s6' : 'text-s7',
+        )}
+      >
+        {query === '' ? '' : `${current}/${total}`}
       </span>
-      <IconButton
-        icon={ChevronUp}
-        label="Previous match"
-        variant="tertiary"
-        size="sm"
-        disabled={total === 0}
+      <button
+        type="button"
+        aria-label="previous match"
         onClick={onPrev}
-      />
-      <IconButton
-        icon={ChevronDown}
-        label="Next match"
-        variant="tertiary"
-        size="sm"
         disabled={total === 0}
+        className={cx(
+          'flex h-5 w-5 items-center justify-center rounded-r1 text-[13px]',
+          total === 0
+            ? 'cursor-default text-s5'
+            : 'slip cursor-pointer text-s8 hover:bg-s4 hover:text-s11',
+        )}
+      >
+        ‹
+      </button>
+      <button
+        type="button"
+        aria-label="next match"
         onClick={onNext}
-      />
-      <IconButton icon={X} label="Close find" variant="tertiary" size="sm" onClick={onClose} />
+        disabled={total === 0}
+        className={cx(
+          'flex h-5 w-5 items-center justify-center rounded-r1 text-[13px]',
+          total === 0
+            ? 'cursor-default text-s5'
+            : 'slip cursor-pointer text-s8 hover:bg-s4 hover:text-s11',
+        )}
+      >
+        ›
+      </button>
+      <button
+        type="button"
+        aria-label="close find"
+        onClick={onClose}
+        className="slip flex h-5 w-5 cursor-pointer items-center justify-center rounded-r1 text-[11px] text-s7 hover:bg-s4 hover:text-s10"
+      >
+        ✕
+      </button>
     </div>
   );
 }

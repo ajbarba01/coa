@@ -5,10 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { FindBar } from './FindBar.js';
 
 describe('FindBar', () => {
-  it('renders the query input and a 0/0 count with no matches', () => {
+  it('renders the query input and a 0/0 count for a query with no matches', () => {
     render(
       <FindBar
-        query=""
+        query="zz"
         onQueryChange={vi.fn()}
         current={0}
         total={0}

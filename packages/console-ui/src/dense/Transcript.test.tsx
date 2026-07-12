@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  dotTone,
   foldToolFrames,
   nextBatchIndex,
   revealSuppressed,
@@ -22,31 +21,6 @@ const scrollIntoViewSpy = vi.fn();
 beforeEach(() => {
   Element.prototype.scrollIntoView = scrollIntoViewSpy;
   scrollIntoViewSpy.mockClear();
-});
-
-describe('dotTone', () => {
-  it('tones the status dot by outcome', () => {
-    expect(
-      dotTone({ id: '1', role: 'agent', kind: 'tool-result', tool: 'x', output: 'ok', ok: true }),
-    ).toBe('success');
-    expect(
-      dotTone({ id: '2', role: 'agent', kind: 'tool-result', tool: 'x', output: 'e', ok: false }),
-    ).toBe('danger');
-    expect(dotTone({ id: '3', role: 'agent', kind: 'error', message: 'boom' })).toBe('danger');
-    expect(dotTone({ id: '4', role: 'agent', kind: 'text', text: 'hi' })).toBe('neutral');
-  });
-
-  it('tones a merged tool frame by its ok flag, pending is neutral', () => {
-    expect(
-      dotTone({ id: '5', role: 'agent', kind: 'tool', tool: 'Read', input: '{}', ok: true }),
-    ).toBe('success');
-    expect(
-      dotTone({ id: '6', role: 'agent', kind: 'tool', tool: 'Read', input: '{}', ok: false }),
-    ).toBe('danger');
-    expect(dotTone({ id: '7', role: 'agent', kind: 'tool', tool: 'Read', input: '{}' })).toBe(
-      'neutral',
-    );
-  });
 });
 
 describe('foldToolFrames', () => {
@@ -197,11 +171,12 @@ describe('toolQuickInfo', () => {
 });
 
 describe('TranscriptRow', () => {
-  it('renders a status dot at the start of a row', () => {
+  it('renders a clean row — no status gutter dot or connector', () => {
     const { container } = render(
       <TranscriptRow frame={{ id: '1', role: 'agent', kind: 'text', text: 'hi' }} />,
     );
-    expect(container.querySelector('[data-dot]')).not.toBeNull();
+    expect(container.querySelector('[data-dot]')).toBeNull();
+    expect(container.querySelector('[data-spine-line]')).toBeNull();
   });
   it('renders a text frame with its text', () => {
     render(<TranscriptRow frame={{ id: 't1', role: 'you', kind: 'text', text: 'do the thing' }} />);
@@ -215,9 +190,9 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('ls').tagName).toBe('CODE');
   });
 
-  it('offers a copy action on an assistant text turn', () => {
-    render(<TranscriptRow frame={{ id: 'a', role: 'agent', kind: 'text', text: '# hi' }} />);
-    expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
+  it('keeps agent prose clean — no message-level copy affordance (copy lives on code blocks)', () => {
+    render(<TranscriptRow frame={{ id: 'a', role: 'agent', kind: 'text', text: 'plain reply' }} />);
+    expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
   });
 
   it('omits the copy action on a user text turn', () => {
@@ -233,26 +208,12 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('[data-role="you"]')).not.toBeNull();
   });
 
-  it('renders an agent turn under the gutter spine, no role label', () => {
+  it('renders an agent turn flush with no role label', () => {
     const { container } = render(
       <TranscriptRow frame={{ id: '2', role: 'agent', kind: 'text', text: 'sure' }} />,
     );
     expect(screen.queryByText(/^agent$/i)).not.toBeInTheDocument();
-    expect(container.querySelector('[data-role="agent"][data-spine="true"]')).not.toBeNull();
-  });
-
-  it('renders the gutter spine line for an agent row', () => {
-    const { container } = render(
-      <TranscriptRow frame={{ id: '2', role: 'agent', kind: 'text', text: 'sure' }} />,
-    );
-    expect(container.querySelector('[data-spine-line]')).not.toBeNull();
-  });
-
-  it('omits the gutter spine line for a user row', () => {
-    const { container } = render(
-      <TranscriptRow frame={{ id: '1', role: 'you', kind: 'text', text: 'hi' }} />,
-    );
-    expect(container.querySelector('[data-spine-line]')).toBeNull();
+    expect(container.querySelector('[data-role="agent"]')).not.toBeNull();
   });
 
   it('de-indents an agent text row flush with no per-row border', () => {
@@ -362,23 +323,7 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('[aria-label="running"]')).toBeInTheDocument();
   });
 
-  it('tones the gutter dot danger for a failed tool-result', () => {
-    const { container } = render(
-      <TranscriptRow
-        frame={{
-          id: '2',
-          role: 'agent',
-          kind: 'tool-result',
-          tool: 'Bash',
-          output: 'boom',
-          ok: false,
-        }}
-      />,
-    );
-    expect(container.querySelector('[data-dot]')?.className).toMatch(/bg-danger/);
-  });
-
-  it('indents a nested subagent frame with a left hairline rail (per row, since Virtuoso rows render independently)', () => {
+  it('indents a nested subagent frame with a left hairline rail (per row, since rows render independently)', () => {
     const { container } = render(
       <TranscriptRow
         frame={{ id: 't4', role: 'subagent', kind: 'text', text: 'reviewing', depth: 1 }}
@@ -442,15 +387,6 @@ describe('TranscriptRow', () => {
 
     rerender(<TranscriptRow frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'idle' }} />);
     expect(screen.queryByRole('button', { name: /watch/i })).toBeNull();
-  });
-
-  it('indents a depth-1 child frame with a nesting spine', () => {
-    const { container } = render(
-      <TranscriptRow
-        frame={{ id: '2', role: 'subagent', kind: 'text', text: 'child work', depth: 1 }}
-      />,
-    );
-    expect(container.querySelector('[data-nested="true"]')).not.toBeNull();
   });
 
   it('shows a resolved approval as an unboxed one-line receipt without live buttons', () => {
@@ -696,9 +632,6 @@ describe('TranscriptRow', () => {
     expect(screen.getByText(/switched to Opus/)).toBeInTheDocument();
   });
 
-  it('tones a note frame neutral (no spine emphasis)', () => {
-    expect(dotTone({ id: 'n', kind: 'note', text: 'switched to Opus 4.8 · high' })).toBe('neutral');
-  });
 });
 
 describe('Transcript container', () => {
@@ -738,7 +671,7 @@ describe('Transcript container', () => {
     expect(screen.getByRole('button', { name: /latest/i })).toBeInTheDocument();
   });
 
-  it('gives the jump-to-latest control the sand raised-surface background', () => {
+  it('styles the jump-to-latest control as the sand raised pill', () => {
     const frames = Array.from({ length: 30 }, (_, i) => ({
       id: String(i),
       role: 'agent' as const,
@@ -747,23 +680,19 @@ describe('Transcript container', () => {
     }));
     render(<Transcript frames={frames} showJumpToLatest />);
     const btn = screen.getByRole('button', { name: /latest/i });
-    expect(btn.className).toMatch(/bg-s2/);
-    expect(btn.className).not.toMatch(/bg-raised|border-hairline/);
+    expect(btn.className).toMatch(/bg-s3/);
+    expect(btn.className).toMatch(/border-s5/);
   });
 
-  it('breaks the spine at the user turn (no connector line on the row)', () => {
-    const grouped: TranscriptFrame[] = [
-      { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
-      { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
-    ];
-    const { container } = render(<Transcript frames={grouped} />);
-    // The user turn is set apart from the spine: its own row carries no connector line
-    // (RowShell's isUser check), so the timeline breaks around it (a run reads continuous
-    // between user turns without any group math).
-    const userRole = container.querySelector('[data-role="you"]');
-    const userRow = userRole?.closest('.gap-3');
-    expect(userRow).not.toBeNull();
-    expect(userRow?.querySelector('[data-spine-line]')).toBeNull();
+  it('toggles the transcript measure between the whole panel and a reading width', async () => {
+    const { container } = render(<Transcript frames={frames} />);
+    const col = container.querySelector('[role="log"] > div');
+    // Wide by default — the column fills the panel (no reading cap).
+    expect(col?.className ?? '').not.toMatch(/max-w-180/);
+    await userEvent.click(screen.getByRole('button', { name: /narrow transcript/i }));
+    expect(col?.className ?? '').toMatch(/mx-auto max-w-180/);
+    // The control now offers to widen again.
+    expect(screen.getByRole('button', { name: /widen transcript/i })).toBeInTheDocument();
   });
 
   it('renders the working footer while busy', () => {
@@ -785,18 +714,6 @@ describe('Transcript container', () => {
     expect(scrollIntoViewSpy).toHaveBeenCalled();
   });
 
-  it('renders a "previous prompt" control that jumps to the nearest user row above', async () => {
-    const grouped: TranscriptFrame[] = [
-      { id: 'u1', role: 'you', kind: 'text', text: 'first prompt' },
-      { id: 'a1', role: 'agent', kind: 'text', text: 'reply one' },
-      { id: 'u2', role: 'you', kind: 'text', text: 'second prompt' },
-      { id: 'a2', role: 'agent', kind: 'text', text: 'reply two' },
-    ];
-    render(<Transcript frames={grouped} />);
-    scrollIntoViewSpy.mockClear();
-    await userEvent.click(screen.getByRole('button', { name: /previous prompt/i }));
-    expect(scrollIntoViewSpy).toHaveBeenCalled();
-  });
 });
 
 describe('Transcript find-in-conversation', () => {
@@ -916,21 +833,6 @@ describe('WorkingFooter', () => {
   });
 });
 
-describe('spine continuity', () => {
-  it('renders a spine dot + connector for an agent row and omits them for a user row', () => {
-    const { container: agent } = render(
-      <TranscriptRow frame={{ id: 'a', role: 'agent', kind: 'text', text: 'x' }} />,
-    );
-    expect(agent.querySelector('[data-dot]')).not.toBeNull();
-    expect(agent.querySelectorAll('[data-spine-line]').length).toBeGreaterThan(0);
-
-    const { container: you } = render(
-      <TranscriptRow frame={{ id: 'y', role: 'you', kind: 'text', text: 'x' }} />,
-    );
-    expect(you.querySelector('[data-dot]')).toBeNull();
-  });
-});
-
 describe('Transcript container motion (block entrance)', () => {
   it('gives a live-arriving row the shared kit .cx-block-enter entrance (not a bespoke WAAPI call)', () => {
     const frames: TranscriptFrame[] = [
@@ -949,7 +851,7 @@ describe('Transcript container motion (block entrance)', () => {
     rerender(<Transcript frames={frames2} />);
     const liveRow = container.querySelector('[data-row-index="1"]');
     expect(liveRow?.className).toMatch(/cx-block-enter/);
-    expect(liveRow?.getAttribute('data-enter')).toBe('blurRise');
+    expect(liveRow?.getAttribute('data-enter')).toBe('fadeRise');
   });
 
   it('never gives a live raw row the block entrance (D85 — the loop is byte-faithful, never styled)', () => {

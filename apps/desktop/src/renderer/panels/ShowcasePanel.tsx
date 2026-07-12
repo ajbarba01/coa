@@ -612,7 +612,6 @@ function DenseSection(): React.JSX.Element {
               summary: 'src/auth.ts',
               diffStat: '+42 −18',
             }}
-            onRespond={noop}
           />
           <TranscriptRow
             frame={{

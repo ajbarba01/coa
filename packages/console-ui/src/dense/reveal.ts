@@ -20,8 +20,12 @@ export interface RevealConfig {
 }
 
 export const defaultReveal: RevealConfig = {
-  text: { variant: 'blurIn', durationMs: 190 },
+  // The design reference's motion: a word blurs in and a block does a crisp fade + short
+  // rise, both at the kit's `--dur-enter` (180ms) with the one Slipstream ease. No block
+  // stagger — each block enters on its own arrival, the way the reference does it (a 500ms
+  // blurRise with a cascade delay read as sluggish and un-crisp against the proto).
+  text: { variant: 'blurIn', durationMs: 180 },
   caret: false,
   reasoning: { mode: 'auto-expand', collapseDelayMs: 900, collapseDurationMs: 320 },
-  block: { variant: 'blurRise', durationMs: 500, staggerMs: 65, staggerCap: 6 },
+  block: { variant: 'fadeRise', durationMs: 180, staggerMs: 0, staggerCap: 0 },
 };

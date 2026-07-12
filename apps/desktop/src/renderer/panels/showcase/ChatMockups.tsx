@@ -181,7 +181,7 @@ function TranscriptSpecimens(): React.JSX.Element {
   return (
     <div className="w-full max-w-2xl divide-y divide-hairline rounded-surface border border-hairline bg-surface">
       {SPECIMEN_FRAMES.map((frame) => (
-        <TranscriptRow key={frame.id} frame={frame} onRespond={noop} />
+        <TranscriptRow key={frame.id} frame={frame} />
       ))}
     </div>
   );

@@ -55,14 +55,17 @@ export interface SyntaxTextProps {
  *  never mutated, only wrapped in colored spans. */
 export function SyntaxText({ code, language, className }: SyntaxTextProps): React.JSX.Element {
   if (language === undefined) {
-    return <span className={cx('font-mono text-label text-fg', className)}>{code}</span>;
+    // No detected language: the sand ink, sized by the parent row (a diff/code body sets
+    // its own mono size). The old `text-label` (a 13px legacy token) OVERRODE that size, so
+    // code and diffs rendered a step too large against the reference's 11px — dropped here.
+    return <span className={cx('font-mono text-s11', className)}>{code}</span>;
   }
   return (
     <SyntaxHighlighter
       language={language}
       style={HLJS_TOKEN_STYLE}
       customStyle={{ margin: 0, padding: 0, background: 'transparent', display: 'inline' }}
-      codeTagProps={{ className: cx('font-mono text-label', className) }}
+      codeTagProps={{ className: cx('font-mono', className) }}
       PreTag="span"
       CodeTag="span"
     >

@@ -224,7 +224,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           <button
             type="button"
             aria-label="new session"
-            className="slip flex flex-none cursor-pointer items-center px-3 text-icon text-s7 hover:text-s9"
+            className="slip flex flex-none cursor-pointer items-center px-3 text-[20px] text-s7 hover:text-s9"
           >
             +
           </button>
@@ -257,7 +257,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
         type="button"
         onClick={openSearch}
         aria-label="search sessions"
-        className="slip flex cursor-pointer items-center px-3.5 text-icon text-s7 hover:text-s9"
+        className="slip flex cursor-pointer items-center px-3.5 text-[20px] text-s7 hover:text-s9"
       >
         ⌕
       </button>

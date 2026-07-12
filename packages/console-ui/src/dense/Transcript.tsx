@@ -1,17 +1,14 @@
-import { ArrowUp } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '../actions/Button.js';
-import { CopyButton } from '../actions/CopyButton.js';
-import { IconButton } from '../actions/IconButton.js';
 import { DenyNotice } from '../feedback/DenyNotice.js';
 import { findMatches } from './find.js';
 import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
+import { splitWords } from './markdownBlocks.js';
 import { defaultReveal } from './reveal.js';
 import { StreamingMarkdown } from './StreamingMarkdown.js';
 import { formatTokens } from './tokenEstimate.js';
 import { ToolCard } from './ToolCard.js';
-import { nearBottom, previousPromptIndex } from './scrollState.js';
+import { nearBottom } from './scrollState.js';
 import { cx } from '../lib/cx.js';
 
 /** Reveal a touched file (from a tool card's path/match link) in the editor/OS at an
@@ -125,21 +122,17 @@ export type TranscriptFrame =
         | undefined;
     };
 
+/** The approval-decision callback the composer's docked gate uses (SC-1 — surfacing only;
+ *  the daemon owns the real decision). Lives here as the shared type for `ChatVm`; the
+ *  transcript itself no longer actions approvals (a pending gate docks to the composer). */
 export type RespondFn = (requestId: string, decision: 'approve' | 'deny') => void;
 
 export interface TranscriptProps {
   frames: TranscriptFrame[];
-  /** Fired when an inline approval card is actioned. Surfacing only — the console
-   *  never denies; the daemon owns the real decision (SC-1). MUST be referentially
-   *  stable across renders (e.g. a stable action ref, not an inline arrow) — `MemoRow`
-   *  is a `React.memo` keyed on prop identity, so an unstable `onRespond` would
-   *  re-render every row on every streamed frame, defeating that memoization. */
-  onRespond?: RespondFn | undefined;
   /** Reveal a touched file (from a tool card's path/match link) in the editor/OS at an
-   *  optional line. Like `onRespond`, MUST be referentially stable across renders — it is
-   *  threaded into `MemoRow` (a `React.memo`), so an unstable ref would defeat that
-   *  memoization and re-render every row on every streamed frame. Omitted ⇒ paths render
-   *  as plain text (no link). */
+   *  optional line. MUST be referentially stable across renders — it is threaded into
+   *  `MemoRow` (a `React.memo`), so an unstable ref would defeat that memoization and
+   *  re-render every row on every streamed frame. Omitted ⇒ paths render as plain text. */
   onOpenPath?: OpenPathFn | undefined;
   /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser. Like
    *  `onOpenPath`, MUST be referentially stable across renders (threaded into `MemoRow`).
@@ -159,14 +152,11 @@ export interface TranscriptProps {
   /** Bump (change value) to force a re-pin to bottom even if the user has scrolled
    *  up — e.g. on sending a new message, so the new turn snaps into view. */
   jumpNonce?: number | undefined;
-  /** Pixels of reserved space at the bottom of the scroll content for a control
-   *  (the floating composer) that overlaps the transcript's bottom edge. The
-   *  scroller stays bound to the visible region (height 100%), so the scrollbar
-   *  track never descends into the composer's vertical space — the thumb stops at
-   *  the composer's top edge at max scroll. A same-height spacer inside the
-   *  scrolled content reserves the overlap region so the last row clears the
-   *  composer on stick-to-bottom; the jump-to-latest control is lifted by the same
-   *  amount so it never hides behind the composer. */
+  /** Pixels of reserved space at the bottom of the scroll content for the floating
+   *  composer that sits over the transcript's floor. The scroller runs the full panel
+   *  height (the composer floats OVER it), and a same-height spacer inside the scrolled
+   *  content reserves clearance so the last row clears the composer on stick-to-bottom;
+   *  the jump-to-latest pill is lifted by the same amount so it never hides behind it. */
   bottomInset?: number | undefined;
 }
 
@@ -278,14 +268,30 @@ function ThinkingCard({
         style={{ '--collapse-dur': `${cfg.collapseDurationMs}ms` } as React.CSSProperties}
       >
         <div className="cx-collapse-inner">
-          {/* `italic` cascades into the Markdown prose; `muted` keeps the reasoning trace in
-              the quiet secondary color (Markdown otherwise renders in the primary fg). */}
-          <div className="pt-1 text-code leading-[1.6] text-s9 italic">
-            {streaming === true ? (
-              <StreamingMarkdown source={text} muted perWord />
-            ) : (
-              <Markdown source={text} muted />
-            )}
+          {/* A quiet aside, not a unit of work: the reasoning trace is a flat italic
+              monospace run, never Markdown prose (that would render it at body size with
+              block spacing). Streaming reveals per word; settled is plain text — a soft
+              newline flows as a space, matching the design reference's ThinkRow. */}
+          <div
+            className="pt-1 text-code leading-[1.6] text-s9 italic"
+            {...(streaming === true
+              ? {
+                  'data-reveal': defaultReveal.text.variant,
+                  style: { '--reveal-dur': `${defaultReveal.text.durationMs}ms` } as React.CSSProperties,
+                }
+              : {})}
+          >
+            {streaming === true
+              ? splitWords(text).map((t, i) =>
+                  t.word ? (
+                    <span key={i} className="cx-word">
+                      {t.value}
+                    </span>
+                  ) : (
+                    <span key={i}>{t.value}</span>
+                  ),
+                )
+              : text}
           </div>
         </div>
       </div>
@@ -331,152 +337,46 @@ function SubagentDot({
   );
 }
 
-/** Pure classification of a frame's outcome for the gutter status dot: errors and
- *  denies read danger, a tool-result's `ok` flag decides success vs danger, and
- *  everything else (text/tool-use/thinking/plan/approval/subagent/raw/note) is neutral —
- *  informational, not an outcome. Exported for unit testing. */
-export function dotTone(frame: TranscriptFrame): 'success' | 'danger' | 'neutral' {
-  if (frame.kind === 'error' || frame.kind === 'deny') return 'danger';
-  if (frame.kind === 'tool-result') return frame.ok ? 'success' : 'danger';
-  if (frame.kind === 'tool') {
-    if (frame.ok === true) return 'success';
-    if (frame.ok === false) return 'danger';
-    return 'neutral';
-  }
-  return 'neutral';
-}
-
-const dotToneClass = {
-  success: 'bg-success',
-  danger: 'bg-danger',
-  neutral: 'bg-muted',
-} as const;
-
-/** The shared left gutter: the status dot with two independent connector segments that
- *  meet at it — one above (`lineTop`), one below (`lineBottom`). `self-stretch` makes the
- *  gutter span the whole row (padding included) so a row's bottom segment abuts the next
- *  row's top segment into one continuous spine. A run's FIRST row omits `lineTop` and its
- *  LAST row omits `lineBottom`, so the line terminates exactly at the end dots instead of
- *  overshooting into the break before/after a user turn. Decorative (`aria-hidden`). */
-function SpineGutter({
-  tone = 'neutral',
-  lineTop = true,
-  lineBottom = true,
-  showDot = true,
-}: {
-  tone?: 'success' | 'danger' | 'neutral' | undefined;
-  lineTop?: boolean | undefined;
-  lineBottom?: boolean | undefined;
-  showDot?: boolean | undefined;
-}): React.JSX.Element {
-  // Dot geometry: `top-3` = 0.75rem (12 px), `size-2.5` = 0.625rem (10 px).
-  // Dot spans [12 px, 22 px].  The line above runs from the gutter's top edge
-  // to the dot; the line below runs from the dot to the gutter's bottom edge.
-  // Rows use `pb-1` (no flex gap), so consecutive gutters abut at zero distance
-  // and the line is one continuous vertical — no overflow tricks needed.
-  return (
-    <div className="relative w-4 shrink-0 self-stretch">
-      {lineTop && (
-        <span
-          data-spine-line
-          aria-hidden
-          className="absolute left-1/2 top-0 h-3 w-px -translate-x-1/2 bg-hairline"
-        />
-      )}
-      {lineBottom && (
-        <span
-          data-spine-line
-          aria-hidden
-          className="absolute bottom-0 left-1/2 top-[calc(0.75rem+0.625rem)] w-px -translate-x-1/2 bg-hairline"
-        />
-      )}
-      {showDot && (
-        <span
-          data-dot
-          aria-hidden
-          className={cx(
-            'absolute left-1/2 top-3 inline-block size-2.5 -translate-x-1/2 rounded-full',
-            dotToneClass[tone],
-          )}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Every row's shared shell: the spine gutter (dot + connector) ahead of the row's own
- *  indent/role styling. Factored out so every early-return branch (approval/deny/
- *  subagent/thinking/error/plan) and the shared text/tool branch get the spine without
- *  duplicating the gutter markup. */
+/** Every row's shared shell. A row is clean — no status gutter, no connector: the only
+ *  left-edge structure is the hairline rail a nested (depth>0) frame wears, which reads as
+ *  an indented subagent thread (matches the design reference's `FrameList`). The column
+ *  owns the horizontal measure (`px-8`) and the inter-row rhythm (its `gap`), so a row adds
+ *  only whatever internal padding its own content needs, via `className`. */
 function RowShell({
-  frame,
   indent,
   className,
-  spineTop = true,
-  spineBottom = true,
   children,
 }: {
-  frame: TranscriptFrame;
+  /** Set only for a depth>0 row — the `paddingLeft` that offsets content from the rail. */
   indent?: React.CSSProperties | undefined;
   className?: string | undefined;
-  /** Whether the connector reaches up/down out of this row — false at a run's ends so
-   *  the spine terminates at its first/last dot rather than into a user-turn break. */
-  spineTop?: boolean | undefined;
-  spineBottom?: boolean | undefined;
   children: React.ReactNode;
 }): React.JSX.Element {
-  const tone = dotTone(frame);
-  const isUser = 'role' in frame && frame.role === 'you';
-  // The vertical padding lives on the CONTENT column, not the flex row, so the
-  // `self-stretch` gutter spans the full item height (padding included) and consecutive
-  // rows' lines abut into one unbroken spine. Putting the padding on the row instead
-  // leaves the line covering only the content box, so every gap between rows shows.
-  //
-  // A depth>0 row wears a left hairline rail (`indent` is only set when nested — see
-  // TranscriptRow). Virtuoso renders each row independently, so a run of nested rows
-  // can't share one wrapping rail the way the non-virtualized proto does (that would
-  // require de-virtualizing); giving every nested row its OWN border at the same left
-  // offset reads as one continuous line across the run instead.
+  // A depth>0 row wears a left hairline rail (`indent` is set only when nested — see
+  // TranscriptRow). The stream is flat (one memoized row per frame), so a run of nested
+  // rows can't share one wrapping rail the way the design reference does; giving every
+  // nested row its OWN border at the same left offset reads as one continuous line.
   return (
     <div
       style={indent}
-      className={cx('flex gap-3 px-2', indent !== undefined && 'border-l border-s3')}
+      className={cx('min-w-0', indent !== undefined && 'border-l border-s3', className)}
     >
-      <SpineGutter
-        tone={tone}
-        lineTop={!isUser && spineTop}
-        lineBottom={!isUser && spineBottom}
-        showDot={!isUser}
-      />
-      <div className={cx('min-w-0 flex-1', className)}>
-        <div className="pb-1">{children}</div>
-      </div>
+      {children}
     </div>
   );
 }
 
 /** Renders a single frame by kind. Exported so it is unit-testable independent of the
- *  container. `spineTop`/`spineBottom` default to a full through-line — the spine breaks
- *  only at user rows, via {@link RowShell}'s own `isUser` check, so a run reads continuous
- *  between user turns without any group math. */
+ *  container. A pending approval renders nothing here (it docks to the composer); a
+ *  resolved one is a plain receipt. */
 export function TranscriptRow({
   frame,
-  // No frame kind actions through this anymore — a pending approval renders nothing
-  // here (docked to the composer instead) and a resolved one is a plain receipt.
-  // Kept on the signature as a forward-compatible seam for a future frame kind that
-  // does need it, so callers threading it through `MemoRow` (below) don't break.
-  onRespond: _onRespond,
   onOpenPath,
   onOpenUrl,
-  spineTop = true,
-  spineBottom = true,
 }: {
   frame: TranscriptFrame;
-  onRespond?: RespondFn | undefined;
   onOpenPath?: OpenPathFn | undefined;
   onOpenUrl?: OpenUrlFn | undefined;
-  spineTop?: boolean | undefined;
-  spineBottom?: boolean | undefined;
 }): React.JSX.Element {
   const depth = 'depth' in frame ? frame.depth : undefined;
   // Left padding scaled by depth doubles as the nesting indent AND the space between
@@ -492,13 +392,7 @@ export function TranscriptRow({
     return (
       // The resolved receipt (proto ApprovalRow) — an answered question earns no card,
       // just one quiet line taking the request's place in history.
-      <RowShell
-        frame={frame}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-        indent={indent}
-        className="py-0.5"
-      >
+      <RowShell indent={indent} className="py-0.5">
         <div className="slip-enter flex items-center gap-2 font-mono text-code">
           <span
             aria-hidden
@@ -516,7 +410,7 @@ export function TranscriptRow({
 
   if (frame.kind === 'deny') {
     return (
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} className="py-2">
+      <RowShell>
         <DenyNotice kind={frame.denyKind} reason={frame.reason} />
       </RowShell>
     );
@@ -526,8 +420,8 @@ export function TranscriptRow({
     // D85 — the mask comes off: plain mono, no chrome, no reveal, no interpretation.
     // Never animated (see `revealSuppressed`), so no entrance/reveal class lands here.
     return (
-      <RowShell frame={frame} spineTop={spineTop} spineBottom={spineBottom} className="py-0.5">
-        <div className="px-0.5 font-mono text-code leading-[1.7] whitespace-pre-wrap text-s9">
+      <RowShell>
+        <div className="font-mono text-code leading-[1.7] whitespace-pre-wrap text-s9">
           {frame.text}
         </div>
       </RowShell>
@@ -558,13 +452,7 @@ export function TranscriptRow({
       if (r?.tokens !== undefined) bits.push(`${formatTokens(r.tokens)} tok`);
       if (r?.cost !== undefined) bits.push(`$${r.cost.toFixed(2)}`);
       return (
-        <RowShell
-          frame={frame}
-          spineTop={spineTop}
-          spineBottom={spineBottom}
-          indent={indent}
-          className="py-0.5"
-        >
+        <RowShell indent={indent} className="py-0.5">
           <div className="flex items-center gap-2 font-mono text-code">
             <span aria-hidden className="w-3 text-center font-mono text-s7">
               ⎇
@@ -580,13 +468,7 @@ export function TranscriptRow({
       );
     }
     return (
-      <RowShell
-        frame={frame}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-        indent={indent}
-        className="py-0.5"
-      >
+      <RowShell indent={indent} className="py-0.5">
         <div className="group flex items-center gap-2 font-mono text-code">
           <span aria-hidden className="w-3 text-center font-mono text-s7">
             ⎇
@@ -620,16 +502,7 @@ export function TranscriptRow({
     // empty expander is dishonest UI, so guard here too rather than trust the caller.
     if (frame.text.trim().length === 0) return <></>;
     return (
-      // `pt-2.5` (not the shared `py-2`) centers the caret+"Thinking" line on the gutter
-      // dot — the header is the frame's only always-visible line, so it is the one that
-      // must land on the dot, not the row's overall padding.
-      <RowShell
-        frame={frame}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-        indent={indent}
-        className="pt-2.5 pb-2"
-      >
+      <RowShell indent={indent}>
         <ThinkingCard
           text={frame.text}
           {...(frame.streaming !== undefined ? { streaming: frame.streaming } : {})}
@@ -644,13 +517,7 @@ export function TranscriptRow({
     // one blue element; done recedes (never struck through), pending waits.
     const done = frame.items.filter((it) => it.status === 'done').length;
     return (
-      <RowShell
-        frame={frame}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-        indent={indent}
-        className="py-2"
-      >
+      <RowShell indent={indent} className="py-0.5">
         <div className="flex flex-col gap-1">
           <div className="font-mono text-caps tracking-[0.07em] text-s7 uppercase">
             plan{' '}
@@ -695,13 +562,7 @@ export function TranscriptRow({
     // Information, not an alarm: one line, the mark and the origin chip carry the
     // classification, the message stays ink.
     return (
-      <RowShell
-        frame={frame}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-        indent={indent}
-        className="py-0.5"
-      >
+      <RowShell indent={indent} className="py-0.5">
         <div role="alert" className="flex items-baseline gap-2">
           <span
             aria-hidden
@@ -725,42 +586,29 @@ export function TranscriptRow({
 
   const role = 'role' in frame ? frame.role : 'agent';
   const isUser = role === 'you';
-  const nested = (depth ?? 0) > 0;
   return (
-    <RowShell
-      frame={frame}
-      spineTop={spineTop}
-      spineBottom={spineBottom}
-      indent={indent}
-      // Uniform vertical rhythm for every text/tool row (~20-24px between turns
-      // combined with the container's `gap-1`); tool cards' own box interior handles
-      // their internal alignment.
-      className="py-3"
-    >
+    <RowShell indent={indent}>
       <div
         data-role={role}
-        data-spine={!isUser}
-        data-nested={nested}
         className={cx(
           'min-w-0',
-          isUser && 'ml-auto max-w-[70%] rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
+          isUser &&
+            'ml-auto w-fit max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
         )}
       >
         {frame.kind === 'text' && isUser && (
           <div className="whitespace-pre-wrap text-body">{frame.text}</div>
         )}
-        {frame.kind === 'text' && !isUser && (
-          <div className="group relative">
-            <div className="absolute right-0 top-0 opacity-0 transition-opacity group-hover:opacity-100">
-              <CopyButton text={frame.text} />
-            </div>
-            {frame.streaming === true ? (
-              <StreamingMarkdown source={frame.text} />
-            ) : (
-              <Markdown source={frame.text} />
-            )}
-          </div>
-        )}
+        {frame.kind === 'text' &&
+          !isUser &&
+          // No message-level copy affordance — the design reference keeps copy on code
+          // blocks alone (CodeBlock owns its own hover-revealed `copy`), so agent prose
+          // stays clean.
+          (frame.streaming === true ? (
+            <StreamingMarkdown source={frame.text} />
+          ) : (
+            <Markdown source={frame.text} />
+          ))}
         {frame.kind === 'tool' && (
           <ToolCard
             tool={frame.tool}
@@ -956,30 +804,24 @@ export function nextBatchIndex(): number {
 // enter. Child mount effects run before the parent's, so initial rows read `false`.
 let liveMountReady = false;
 
-/** Memoized so a streamed frame re-renders only the appended row, and `content-visibility`
- *  lets the browser skip layout/paint for off-screen rows while keeping them in the DOM
- *  (full-transcript selection + Ctrl-F). `contain-intrinsic-size` is a height estimate that
- *  prevents scrollbar jump; tuned to a typical row. */
+/** Memoized so a streamed frame re-renders only the appended row (every row stays in the
+ *  DOM — full-transcript selection + Ctrl-F). No `content-visibility` paint containment: it
+ *  clips a row's children to the row box, which cuts off the tool card's intentional `-mx`
+ *  bleed (the design reference has no such containment). */
 const MemoRow = memo(function MemoRow({
   frame,
-  onRespond,
   onOpenPath,
   onOpenUrl,
   index,
   findActive = false,
-  spineTop = true,
-  spineBottom = true,
 }: {
   frame: TranscriptFrame;
-  onRespond?: RespondFn | undefined;
   onOpenPath?: OpenPathFn | undefined;
   onOpenUrl?: OpenUrlFn | undefined;
   index: number;
   /** True when this row is the active find-in-conversation match — washes the row so
    *  prev/next navigation has a visible landing target. */
   findActive?: boolean | undefined;
-  spineTop?: boolean | undefined;
-  spineBottom?: boolean | undefined;
 }): React.JSX.Element {
   const cfg = defaultReveal.block;
   // Whole-row entrance on live arrival, via the SAME `.cx-block-enter` mount keyframe
@@ -1013,34 +855,23 @@ const MemoRow = memo(function MemoRow({
       )}
       style={
         {
-          contentVisibility: 'auto',
-          containIntrinsicSize: 'auto 60px',
           ...(entering
             ? { '--enter-dur': `${cfg.durationMs}ms`, animationDelay: `${entranceDelayMs}ms` }
             : {}),
         } as React.CSSProperties
       }
     >
-      <TranscriptRow
-        frame={frame}
-        onRespond={onRespond}
-        onOpenPath={onOpenPath}
-        onOpenUrl={onOpenUrl}
-        spineTop={spineTop}
-        spineBottom={spineBottom}
-      />
+      <TranscriptRow frame={frame} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />
     </div>
   );
 });
 
 /** A non-virtualized turn stream: every frame renders to the DOM (no windowing), so
- *  selection and Ctrl-F work across the full transcript; `content-visibility: auto` on
- *  each row keeps off-screen rows out of layout/paint without unmounting them. Native
- *  scroll + a bottom sentinel drive stick-to-bottom. Empty is the panel's concern (it
- *  owns the EmptyState), so an empty stream renders nothing here. */
+ *  selection and Ctrl-F work across the full transcript. Native scroll + a bottom sentinel
+ *  drive stick-to-bottom. Empty is the panel's concern (it owns the EmptyState), so an empty
+ *  stream renders nothing here. */
 export function Transcript({
   frames,
-  onRespond,
   onOpenPath,
   onOpenUrl,
   label = 'Conversation',
@@ -1054,6 +885,10 @@ export function Transcript({
   const scroller = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
+  // Transcript measure: wide (the default) lets output use the whole panel; narrow caps it
+  // to the composer's reading measure. Toggled from the corner control (matches the design
+  // reference); only the transcript width changes — the composer keeps its own max measure.
+  const [wide, setWide] = useState(true);
   // Suppress onScroll + stick-to-bottom during programmatic scrolls:
   //  • smooth-scroll onScroll events can fire at the start before the view
   //    has left the nearBottom threshold, re-enabling stick-to-bottom
@@ -1074,40 +909,6 @@ export function Transcript({
 
   // Folded once per frames change (was recomputed every render).
   const items = useMemo(() => foldToolFrames(frames), [frames]);
-
-  // Run-boundary index sets: a "run" is a contiguous block of non-user, non-note
-  // frames.  The spine starts at the first dot of a run (lineTop suppressed) and
-  // ends at the last dot (lineBottom suppressed) so it never reaches into user turns.
-  const { spineStarts, spineEnds } = useMemo(() => {
-    const starts = new Set<number>();
-    const ends = new Set<number>();
-    const spineIndices: number[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const f = items[i];
-      if (f === undefined) continue;
-      const isUser = 'role' in f && f.role === 'you';
-      const isNote = f.kind === 'note';
-      if (!isUser && !isNote) spineIndices.push(i);
-    }
-    // Group contiguous indices into runs.
-    let i = 0;
-    while (i < spineIndices.length) {
-      const start = spineIndices[i];
-      if (start === undefined) break;
-      starts.add(start);
-      let j = i;
-      let jVal = start;
-      while (j + 1 < spineIndices.length) {
-        const nextVal = spineIndices[j + 1];
-        if (nextVal === undefined || nextVal !== jVal + 1) break;
-        j++;
-        jVal = nextVal;
-      }
-      ends.add(jVal);
-      i = j + 1;
-    }
-    return { spineStarts: starts, spineEnds: ends };
-  }, [items]);
 
   // Find-in-conversation (Ctrl/Cmd+F): every frame is in the DOM (no windowing), so
   // find can search the full transcript, not just the visible window.
@@ -1211,27 +1012,6 @@ export function Transcript({
     sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   };
 
-  /** Scrolls to the nearest user row above the viewport top ("↑ previous prompt").
-   *  The topmost row whose offset is at/above the current scrollTop approximates the
-   *  first fully-visible row; previousPromptIndex walks up from there to the nearest
-   *  user turn. */
-  const jumpToPrompt = (): void => {
-    const el = scroller.current;
-    if (el === null) return;
-    const rows = el.querySelectorAll('[data-row-index]');
-    let top = 0;
-    rows.forEach((r) => {
-      if (r instanceof HTMLElement && r.offsetTop <= el.scrollTop + 4)
-        top = Number(r.dataset['rowIndex']);
-    });
-    const target = previousPromptIndex(items, top);
-    if (target === undefined) return;
-    startNav();
-    const el2 = el.querySelector(`[data-row-index="${target}"]`);
-    if (el2 instanceof HTMLElement) el2.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    setPinned(false);
-  };
-
   if (items.length === 0) return null;
   const showJump = showJumpToLatest ?? !pinned;
 
@@ -1242,49 +1022,35 @@ export function Transcript({
         onScroll={onScroll}
         role="log"
         aria-label={label}
-        // Native scroll; content capped to a readable measure (§5.2).
-        //
-        // The scroller's HEIGHT is the visible region minus `bottomInset` (the
-        // measured height of the floating composer). This is what bounds the
-        // scrollbar track: the track ends exactly where the composer begins, so
-        // the thumb NEVER enters the composer's vertical space — at max scroll it
-        // rests at the composer's top edge. This is the industry-standard pattern:
-        // ChatGPT, Claude Web, Cursor, Windsurf, and Aider all size their scroll
-        // region to end at the floating input, not under it.
-        //
-        // The composer (docked by ChatPanel at absolute bottom-0 on the scroller's
-        // sibling box) occupies the space we carve out below, and the inner spacer
-        // reserves overlap space INSIDE the content so the last row clears the
-        // composer on stick-to-bottom.
-        className="overflow-y-auto"
-        style={{
-          height:
-            bottomInset !== undefined && bottomInset > 0 ? `calc(100% - ${bottomInset}px)` : '100%',
-        }}
+        // The transcript owns the full panel and scrolls the whole height, flush to the
+        // panel's right edge — the floating composer sits OVER its floor (not in a carved-
+        // out gap), and a bottom spacer sized to the composer's measured height reserves
+        // clearance INSIDE the content so the last row clears it on stick-to-bottom.
+        className="h-full overflow-y-auto"
       >
-        <div className="flex flex-col">
+        <div className={cx('flex w-full flex-col gap-3.5 px-8 pt-6', !wide && 'mx-auto max-w-180')}>
           {items.map((item, index) => (
             <MemoRow
               key={item.id}
               frame={item}
-              onRespond={onRespond}
               onOpenPath={onOpenPath}
               onOpenUrl={onOpenUrl}
               index={index}
               findActive={findOpen && index === activeMatchFrameIndex}
-              spineTop={!spineStarts.has(index)}
-              spineBottom={!spineEnds.has(index)}
             />
           ))}
           {busy === true && <WorkingFooter busySince={busySince} />}
           {bottomInset !== undefined && bottomInset > 0 && (
-            <div aria-hidden style={{ height: bottomInset }} />
+            // Reserve the composer's height PLUS its `bottom-4` (16px) float offset and a
+            // comfortable gap, so the last message clears the floating composer with air —
+            // not pressed right up against it — when scrolled fully down.
+            <div aria-hidden style={{ height: bottomInset + 48 }} />
           )}
           <div ref={sentinel} aria-hidden className="h-0" />
         </div>
       </div>
       {findOpen && (
-        <div className="pointer-events-none absolute right-2 top-2 z-20">
+        <div className="pointer-events-none absolute right-12 top-2 z-20">
           <FindBar
             query={findQuery}
             onQueryChange={setFindQuery}
@@ -1296,37 +1062,35 @@ export function Transcript({
           />
         </div>
       )}
-      <div
-        className={cx('pointer-events-none absolute right-2 z-10', findOpen ? 'top-12' : 'top-2')}
+      {/* Width toggle: the composer's reading measure ⇄ the whole panel (design reference's
+          corner control). Sits at the top-right; find, when open, tucks to its left. */}
+      <button
+        type="button"
+        onClick={() => setWide((w) => !w)}
+        title={wide ? 'narrow to reading measure' : 'use the whole panel'}
+        aria-label={wide ? 'narrow transcript' : 'widen transcript'}
+        className="slip absolute right-3.5 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-r1 font-mono text-[12px] text-s6 hover:bg-s3 hover:text-s9"
       >
-        <IconButton
-          icon={ArrowUp}
-          label="Previous prompt"
-          variant="secondary"
-          size="sm"
-          className="pointer-events-auto border-s4 bg-s2"
-          onClick={jumpToPrompt}
-        />
-      </div>
+        {wide ? '⇥⇤' : '⇤⇥'}
+      </button>
       {showJump && (
         <div
           className={cx(
             'pointer-events-none absolute inset-x-0 z-10 flex justify-center',
-            // With no overlap the 8pt-grid `bottom-2` applies; a floating composer lifts
-            // the control above it via an inline offset (a runtime pixel measurement, not
-            // a design value — it must match the composer's measured height).
+            // With no floating composer the 8pt-grid `bottom-2` applies; a composer lifts
+            // the pill clear of it — above its measured height PLUS its own `bottom-4`
+            // (16px) float offset, with an 8px gap — so it never sits over the composer.
             !bottomInset && 'bottom-2',
           )}
-          {...(bottomInset ? { style: { bottom: bottomInset + 8 } } : {})}
+          {...(bottomInset ? { style: { bottom: bottomInset + 24 } } : {})}
         >
-          <Button
-            variant="secondary"
-            size="sm"
-            className="pointer-events-auto border-s4 bg-s2"
+          <button
+            type="button"
             onClick={jumpToLatest}
+            className="slip slip-enter pointer-events-auto cursor-pointer rounded-r2 border border-s5 bg-s3 px-2.5 py-1 font-mono text-meta text-s9 shadow-[var(--shadow-composer)] hover:text-s11"
           >
-            Jump to latest
-          </Button>
+            ↓ latest
+          </button>
         </div>
       )}
     </div>
