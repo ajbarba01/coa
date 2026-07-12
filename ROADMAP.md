@@ -201,7 +201,7 @@ everything else the new design overwrites.
   persistence, and the drift/cache banner functions all work inside the new shell — plus a cold-boot rehydrate
   so a daemon that comes up late repopulates the boot reads. Center-surface content still renders on legacy
   `console-ui` by design (W2 re-skins conversation; W3 redraws surfaces).
-- **W2 — Conversation re-skin [L].** Re-token the streaming transcript (StreamingMarkdown, reasoning block,
+- **W2 — Conversation re-skin [L]. ✅ Done.** Re-token the streaming transcript (StreamingMarkdown, reasoning block,
   plan checklist, tool cards + openPath links, subagent roll-ups, approval cards, DenyNotice) onto the
   sand scale with a Slipstream motion audit (durations/easing/fill-mode; reduced-motion). New composer:
   attach chip, model picker + reasoning **step slider** off the real capabilities seam (degrading to the
