@@ -1,6 +1,7 @@
-import { InlineMessage, Pane, Skeleton } from '@coa/console-ui';
 import { toCapViewModel, type CapViewModel } from '@coa/console-viewmodel';
+import { cx } from '@coa/console-kit';
 import type { ConsoleState } from './state.js';
+import { SkeletonLines, SurfaceError } from './surfaceStates.js';
 
 export type CostVm =
   | { status: 'loading' }
@@ -15,30 +16,17 @@ export function selectCostVm(state: ConsoleState): CostVm {
 }
 
 function CostView({ vm }: { vm: CostVm }): React.JSX.Element {
+  if (vm.status === 'loading') return <SkeletonLines widths={['w-24', 'w-16']} />;
+  if (vm.status === 'error') return <SurfaceError message={vm.message} />;
   return (
-    <Pane title="Cost" seam="left">
-      {vm.status === 'loading' && (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="w-24" />
-          <Skeleton className="w-16" />
-        </div>
-      )}
-      {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
-      {vm.status === 'ok' && (
-        <div>
-          <div
-            className={
-              vm.vm.tone === 'danger'
-                ? 'text-metric font-semibold text-danger-text'
-                : 'text-metric font-semibold text-fg'
-            }
-          >
-            {vm.vm.headline}
-          </div>
-          <div className="text-caption text-muted">{vm.vm.sub}</div>
-        </div>
-      )}
-    </Pane>
+    <div className="flex flex-col gap-1 px-4 py-4">
+      <div
+        className={cx('text-2xl font-semibold', vm.vm.tone === 'danger' ? 'text-crit' : 'text-s12')}
+      >
+        {vm.vm.headline}
+      </div>
+      <div className="text-meta text-s7">{vm.vm.sub}</div>
+    </div>
   );
 }
 
