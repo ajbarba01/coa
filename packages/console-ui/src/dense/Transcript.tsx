@@ -1,7 +1,8 @@
 import { Tooltip } from '@coa/console-kit';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DenyNotice } from '../feedback/DenyNotice.js';
-import { findMatches } from './find.js';
+import { findTermMatches } from './find.js';
+import { clearFindHighlights, paintFindHighlights } from './findHighlight.js';
 import { FindBar } from './FindBar.js';
 import { Markdown } from './Markdown.js';
 import { splitWords } from './markdownBlocks.js';
@@ -159,6 +160,15 @@ export interface TranscriptProps {
    *  content reserves clearance so the last row clears the composer on stick-to-bottom;
    *  the jump-to-latest pill is lifted by the same amount so it never hides behind it. */
   bottomInset?: number | undefined;
+  /** Identity for scroll memory (the session id). A remount with the same key
+   *  restores the reader's place: a mid-transcript offset comes back exactly;
+   *  a bottom-pinned session re-pins. Omitted ⇒ every mount starts pinned. */
+  scrollKey?: string | undefined;
+  /** False while this instance is a hidden (kept-alive) tab: global keys, the
+   *  stick-to-bottom observer, scroll saves, and find highlights all stand
+   *  down, and reactivation restores the session's remembered place (a
+   *  display:none pass wipes the live scroll position). Defaults to true. */
+  active?: boolean | undefined;
 }
 
 /** Known file-touching tools whose input JSON carries a reviewable path. Tool names
@@ -867,6 +877,10 @@ const MemoRow = memo(function MemoRow({
   );
 });
 
+/** Scroll positions by `scrollKey` (session id), surviving the per-session keyed
+ *  remount — module scope on purpose: the memory must outlive the component. */
+const scrollMemory = new Map<string, { top: number; pinned: boolean }>();
+
 /** A non-virtualized turn stream: every frame renders to the DOM (no windowing), so
  *  selection and Ctrl-F work across the full transcript. Native scroll + a bottom sentinel
  *  drive stick-to-bottom. Empty is the panel's concern (it owns the EmptyState), so an empty
@@ -882,10 +896,16 @@ export function Transcript({
   busySince,
   jumpNonce,
   bottomInset,
+  scrollKey,
+  active = true,
 }: TranscriptProps): React.JSX.Element | null {
   const scroller = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
-  const [pinned, setPinned] = useState(true);
+  // Scroll memory: pinned state comes back with the session (the keyed remount
+  // is the save/restore boundary), so switching tabs never loses your place.
+  const [pinned, setPinned] = useState(
+    () => (scrollKey !== undefined ? (scrollMemory.get(scrollKey)?.pinned ?? true) : true),
+  );
   // Transcript measure: wide (the default) lets output use the whole panel; narrow caps it
   // to the composer's reading measure. Toggled from the corner control (matches the design
   // reference); only the transcript width changes — the composer keeps its own max measure.
@@ -912,11 +932,12 @@ export function Transcript({
   const items = useMemo(() => foldToolFrames(frames), [frames]);
 
   // Find-in-conversation (Ctrl/Cmd+F): every frame is in the DOM (no windowing), so
-  // find can search the full transcript, not just the visible window.
+  // find can search the full transcript, not just the visible window. Matches are
+  // term-level (the count reads occurrences, not rows).
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [activeMatch, setActiveMatch] = useState(0);
-  const matches = useMemo(() => findMatches(items, findQuery), [items, findQuery]);
+  const matches = useMemo(() => findTermMatches(items, findQuery), [items, findQuery]);
 
   // Clean up the navigation-guard timer on unmount.
   useEffect(() => {
@@ -934,10 +955,26 @@ export function Transcript({
     };
   }, []);
 
+  // Restore this session's remembered place on mount AND on every reactivation
+  // (a hidden kept-alive tab's display:none pass wipes the live scroll
+  // position): pinned sessions snap back to bottom, others to their offset.
+  useLayoutEffect(() => {
+    if (!active) return;
+    const el = scroller.current;
+    if (el === null) return;
+    const mem = scrollKey !== undefined ? scrollMemory.get(scrollKey) : undefined;
+    const pin = mem?.pinned ?? true;
+    setPinned(pin);
+    if (pin) sentinel.current?.scrollIntoView({ block: 'end' });
+    else el.scrollTop = mem?.top ?? 0;
+  }, [active, scrollKey]);
+
   // Ctrl/Cmd+F opens the in-transcript find bar instead of the browser's own find,
   // since every frame already renders to the DOM. Scoped to this component's
-  // lifetime via add/removeEventListener in the effect cleanup.
+  // lifetime via add/removeEventListener in the effect cleanup — and to the
+  // ACTIVE tab only, so hidden kept-alive instances never race for the chord.
   useEffect(() => {
+    if (!active) return;
     const onKeyDown = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
@@ -950,7 +987,7 @@ export function Transcript({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [findOpen]);
+  }, [findOpen, active]);
 
   // Reset to the first match whenever the query (or the underlying frame set) changes
   // matches, so navigation never lands on a stale index past the new match count.
@@ -982,36 +1019,87 @@ export function Transcript({
 
   const activeMatchFrameIndex = matches[activeMatch]?.index;
 
-  // Stick-to-bottom: while pinned and content grows, keep the sentinel in view. A
-  // ResizeObserver on the content fires on every appended/streamed row.
+  // Paint the term highlights (Custom Highlight API — no DOM mutation, so
+  // React's rendered markdown is untouched). Every occurrence wears the quiet
+  // find tint; the active row's occurrences the stronger one. Repainted when
+  // the query, the frames, or the active match move; skipped silently where
+  // the API is absent (jsdom).
+  useEffect(() => {
+    const root = scroller.current;
+    const q = findQuery.trim();
+    if (!active || !findOpen || q === '' || root === null) {
+      clearFindHighlights();
+      return;
+    }
+    const activeRow =
+      activeMatchFrameIndex !== undefined
+        ? root.querySelector(`[data-row-index="${activeMatchFrameIndex}"]`)
+        : null;
+    paintFindHighlights(root, q, activeRow);
+    return clearFindHighlights;
+  }, [active, findOpen, findQuery, items, activeMatchFrameIndex]);
+
+  // Stick-to-bottom, two parts. On mount: snap the sentinel into view once if
+  // pinned. While mounted: a ResizeObserver on the content re-pins on every
+  // genuine height change (streamed words, appended rows, the composer spacer)
+  // with a DIRECT scrollTop write — the old per-render scrollIntoView both
+  // missed growth that landed between renders and fought Chromium's native
+  // scroll anchoring, which is the word-by-word jitter. The observer fires
+  // after layout and before paint, so the pin never visibly lags.
   // Skipped during programmatic navigation (navigatingRef) — otherwise a smooth
   // scroll animation's early onScroll events can re-enable pinned and abort the
   // navigation by yanking the sentinel back into view.
+  const content = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(pinned);
+  pinnedRef.current = pinned;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   useLayoutEffect(() => {
-    if (!pinned || navigatingRef.current) return;
-    sentinel.current?.scrollIntoView({ block: 'end' });
-  });
+    if (typeof ResizeObserver === 'undefined') return;
+    const el = scroller.current;
+    const target = content.current;
+    if (el === null || target === null) return;
+    const ro = new ResizeObserver(() => {
+      // Hidden kept-alive tabs report zero sizes — never pin from them.
+      if (!activeRef.current || !pinnedRef.current || navigatingRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(target);
+    return () => ro.disconnect();
+  }, []);
 
-  // Snap-to-sent: a bump of jumpNonce (e.g. on send) force-pins to bottom even if the
-  // user had scrolled up, so their new turn snaps into view. Skipped on mount
-  // (jumpNonce === undefined) — only a change fires it.
+  // Snap-to-sent: a bump of jumpNonce (e.g. on send) force-pins to bottom even
+  // if the user had scrolled up, so their new turn snaps into view. Only a
+  // CHANGE fires it — the mounted value is a standing counter (sendNonce is
+  // always a number), so firing on mount would stomp the restored scroll place.
+  const prevNonceRef = useRef(jumpNonce);
   useLayoutEffect(() => {
-    if (jumpNonce === undefined) return;
+    const changed = jumpNonce !== undefined && jumpNonce !== prevNonceRef.current;
+    prevNonceRef.current = jumpNonce;
+    if (!changed || !active) return;
     startNav();
     setPinned(true);
+    if (scrollKey !== undefined) scrollMemory.set(scrollKey, { top: 0, pinned: true });
     sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [jumpNonce]);
+    // scrollKey is identity, not a trigger — only a jumpNonce bump re-pins.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpNonce, active]);
 
   const onScroll = (): void => {
-    if (navigatingRef.current) return;
+    // Inactive instances only see programmatic/display-toggle scrolls (e.g. the
+    // reset to 0 on hide) — saving those would corrupt the session's memory.
+    if (!active || navigatingRef.current) return;
     const el = scroller.current;
     if (el === null) return;
-    setPinned(nearBottom(el.scrollTop, el.clientHeight, el.scrollHeight));
+    const pin = nearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
+    setPinned(pin);
+    if (scrollKey !== undefined) scrollMemory.set(scrollKey, { top: el.scrollTop, pinned: pin });
   };
 
   const jumpToLatest = (): void => {
     startNav();
     setPinned(true);
+    if (scrollKey !== undefined) scrollMemory.set(scrollKey, { top: 0, pinned: true });
     sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   };
 
@@ -1029,9 +1117,14 @@ export function Transcript({
         // panel's right edge — the floating composer sits OVER its floor (not in a carved-
         // out gap), and a bottom spacer sized to the composer's measured height reserves
         // clearance INSIDE the content so the last row clears it on stick-to-bottom.
-        className="h-full overflow-y-auto"
+        // overflow-anchor off: the ResizeObserver pin owns bottom-tracking; Chromium's
+        // native scroll anchoring double-adjusting under it is the streaming jitter.
+        className="h-full overflow-y-auto [overflow-anchor:none]"
       >
-        <div className={cx('flex w-full flex-col gap-3.5 px-8 pt-6', !wide && 'mx-auto max-w-180')}>
+        <div
+          ref={content}
+          className={cx('flex w-full flex-col gap-3.5 px-8 pt-6', !wide && 'mx-auto max-w-180')}
+        >
           {items.map((item, index) => (
             <MemoRow
               key={item.id}

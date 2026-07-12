@@ -103,4 +103,16 @@
       transform: none;
     }
   }
+
+  /* Spinner reveal: hidden for the first 120ms of a load so transitions that
+   * finish inside a couple of frames never flash a loading circle. */
+  .spinner-reveal {
+    opacity: 0;
+    animation: spinner-reveal var(--dur-base) var(--ease-slip) 120ms forwards;
+  }
+  @keyframes spinner-reveal {
+    to {
+      opacity: 1;
+    }
+  }
 }

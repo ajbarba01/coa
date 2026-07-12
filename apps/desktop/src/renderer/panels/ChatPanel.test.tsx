@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptFrame } from '@coa/console-ui';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import {
   ChatSurface,
+  composerMeasure,
   formatElapsed,
   frameToRawLine,
   interleaveNotes,
@@ -13,11 +14,19 @@ import {
   selectChatVm,
   toGovernedFrame,
 } from './ChatPanel.js';
+import { useShell } from '../shell/store.js';
 import { makeState, type StateOverrides } from './fixtures.js';
 import { MOCK_AGENTS, MOCK_SESSIONS } from './mockAgents.js';
 import type { ConsoleState } from './state.js';
 
 const NOW = '2026-07-01T16:00:00Z';
+
+// The keep-alive tab list derives from the shell store — reset it per test so
+// one test's open tabs never leave extra (hidden) transcripts mounted in the next.
+const initialShell = useShell.getState();
+beforeEach(() => {
+  useShell.setState(initialShell, true);
+});
 
 const stateWith = (
   turns: ConsoleState['data']['turns'],
@@ -63,9 +72,9 @@ describe('toGovernedFrame', () => {
   });
 
   it('maps a thinking view frame to a thinking transcript frame', () => {
-    expect(toGovernedFrame({ id: '2', role: 'agent', kind: 'thinking', text: 'hmm' })).toMatchObject(
-      { kind: 'thinking', text: 'hmm' },
-    );
+    expect(
+      toGovernedFrame({ id: '2', role: 'agent', kind: 'thinking', text: 'hmm' }),
+    ).toMatchObject({ kind: 'thinking', text: 'hmm' });
   });
 
   it('renders every new kind to a raw line without throwing', () => {
@@ -124,9 +133,7 @@ describe('selectChatVm', () => {
 
   it('routes onInterrupt to interruptSession for the active session (the Stop/Esc affordance)', () => {
     const interruptSession = vi.fn();
-    const vm = selectChatVm(
-      stateWith({ status: 'ok', value: [] }, {}, { interruptSession }),
-    );
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, {}, { interruptSession }));
     if (vm.status === 'ready') {
       vm.onInterrupt();
       expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
@@ -162,7 +169,11 @@ describe('selectChatVm', () => {
             { id: '2', role: 'agent', kind: 'text', text: 'hello' },
           ],
         },
-        { notesBySession: { 's-audit-auth': [{ afterCount: 1, text: 'switched to Opus 4.8 · high' }] } },
+        {
+          notesBySession: {
+            's-audit-auth': [{ afterCount: 1, text: 'switched to Opus 4.8 · high' }],
+          },
+        },
       ),
     );
     if (vm.status === 'ready') {
@@ -180,7 +191,9 @@ describe('selectChatVm', () => {
         { status: 'ok', value: [{ id: '1', role: 'you', kind: 'text', text: 'hi' }] },
         {
           rawMode: true,
-          notesBySession: { 's-audit-auth': [{ afterCount: 0, text: 'switched to Opus 4.8 · high' }] },
+          notesBySession: {
+            's-audit-auth': [{ afterCount: 0, text: 'switched to Opus 4.8 · high' }],
+          },
         },
       ),
     );
@@ -368,8 +381,13 @@ describe('raw + approval projection', () => {
   it('derives the drift banner from a config mismatch and routes its action to the active session', () => {
     const onBannerAction = vi.fn();
     const agent = {
-      ref: 'a/x', name: 'x', icon: 'bot' as const, color: 'slate' as const,
-      scope: 'personal' as const, roles: ['swe'], packageIds: ['research'],
+      ref: 'a/x',
+      name: 'x',
+      icon: 'bot' as const,
+      color: 'slate' as const,
+      scope: 'personal' as const,
+      roles: ['swe'],
+      packageIds: ['research'],
     };
     const vm = selectChatVm(
       makeState({
@@ -378,7 +396,15 @@ describe('raw + approval projection', () => {
           agents: { status: 'ok', value: [agent] },
           sessions: {
             status: 'ok',
-            value: [{ id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, promptConfig: { roles: ['swe'] } }],
+            value: [
+              {
+                id: 's1',
+                agentRef: 'a/x',
+                title: 't',
+                updatedAt: NOW,
+                promptConfig: { roles: ['swe'] },
+              },
+            ],
           },
         },
         ui: { activeSessionId: 's1' },
@@ -464,13 +490,52 @@ describe('raw + approval projection', () => {
   });
 });
 
+describe('composerMeasure', () => {
+  it('keeps the last real measure through a hidden (zero-height) pass', () => {
+    // display:none passes report 0 — accepting them collapses the transcript's
+    // reserve spacer, and its return re-pins the view (the visible jump on
+    // exiting search).
+    expect(composerMeasure(120, 0)).toBe(120);
+    expect(composerMeasure(120, 96)).toBe(96);
+    expect(composerMeasure(0, 84)).toBe(84);
+  });
+});
+
+describe('ChatSurface keep-alive tabs', () => {
+  it("keeps the previous session's transcript mounted (hidden) after switching", () => {
+    useShell.setState({ tabs: ['s-audit-auth', 's-auth-refactor'] });
+    const turn = (id: string, text: string): TurnFrame => ({
+      id,
+      role: 'agent',
+      kind: 'text',
+      text,
+    });
+    const { rerender } = render(
+      <ChatSurface state={stateWith({ status: 'ok', value: [turn('t1', 'alpha-transcript')] })} />,
+    );
+    expect(screen.getByText('alpha-transcript')).toBeInTheDocument();
+
+    rerender(
+      <ChatSurface
+        state={stateWith(
+          { status: 'ok', value: [turn('t2', 'beta-transcript')] },
+          { activeSessionId: 's-auth-refactor' },
+        )}
+      />,
+    );
+    expect(screen.getByText('beta-transcript')).toBeInTheDocument();
+    // the tab model: the first session is still in the DOM, just hidden
+    expect(screen.getByText('alpha-transcript')).toBeInTheDocument();
+  });
+});
+
 describe('ChatSurface states-first', () => {
   const readyState = (turns: TurnFrame[], ui: Partial<ConsoleState['ui']> = {}) =>
     stateWith({ status: 'ok', value: turns }, ui);
 
-  it('skeletons while loading', () => {
-    const { container } = render(<ChatSurface state={stateWith({ status: 'loading' })} />);
-    expect(container.querySelector('.animate-pulse')).not.toBeNull();
+  it('shows the loading circle while the transcript loads cold', () => {
+    render(<ChatSurface state={stateWith({ status: 'loading' })} />);
+    expect(screen.getByRole('status', { name: 'loading conversation' })).toBeTruthy();
   });
 
   it('shows an error inline', () => {
@@ -482,7 +547,9 @@ describe('ChatSurface states-first', () => {
     render(<ChatSurface state={readyState([])} />);
     // "{agent} is ready" — the reviewer session's agent.
     expect(screen.getByText(/is ready/i)).toBeTruthy();
-    expect(screen.getByText((_, el) => el?.tagName === 'B' && el.textContent === 'reviewer')).toBeTruthy();
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'B' && el.textContent === 'reviewer'),
+    ).toBeTruthy();
     // model · effort · permission line.
     expect(screen.getByText(/sonnet.*ask edits/)).toBeTruthy();
     // send / newline / commands hints.
@@ -492,12 +559,16 @@ describe('ChatSurface states-first', () => {
   });
 
   it('renders the transcript log when there are frames', () => {
-    render(<ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />);
+    render(
+      <ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />,
+    );
     expect(screen.getByRole('log')).toBeTruthy();
   });
 
   it('carries no duplicate session-switching chrome — the shell owns that now', () => {
-    render(<ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />);
+    render(
+      <ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />,
+    );
     // No pane title bar naming the surface "Chat" (the shell's tab strip already does).
     expect(screen.queryByText('Chat')).toBeNull();
     // No in-pane session switcher trigger.
@@ -534,7 +605,15 @@ describe('ChatSurface states-first', () => {
         sessions: {
           status: 'ok',
           value: [
-            { id: 's1', agentRef: 'a/x', title: 't', updatedAt: NOW, provider: 'claude', model: 'opus', promptConfig: { roles: ['swe'] } },
+            {
+              id: 's1',
+              agentRef: 'a/x',
+              title: 't',
+              updatedAt: NOW,
+              provider: 'claude',
+              model: 'opus',
+              promptConfig: { roles: ['swe'] },
+            },
           ],
         },
       },
@@ -586,7 +665,10 @@ describe('ChatSurface states-first', () => {
     // The reviewer session's agent default (sonnet) seeds the chip.
     await userEvent.click(screen.getByRole('button', { name: 'Claude · sonnet' }));
     await userEvent.click(screen.getByRole('button', { name: 'Claude · opus' }));
-    expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', { model: 'opus', provider: 'claude' });
+    expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', {
+      model: 'opus',
+      provider: 'claude',
+    });
   });
 
   it('derives a passive cache banner on a staged switch (no dismiss control)', () => {
@@ -634,7 +716,10 @@ describe('ChatSurface states-first', () => {
     render(<ChatSurface state={state} />);
     await userEvent.type(screen.getByRole('textbox'), 'go check the tests instead');
     await userEvent.click(screen.getByRole('button', { name: /barge in/i }));
-    expect(steerSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'go check the tests instead');
+    expect(steerSession).toHaveBeenCalledExactlyOnceWith(
+      's-audit-auth',
+      'go check the tests instead',
+    );
   });
 
   it('Queue pins the message (no daemon steer) and releases it as a send when the turn ends', async () => {
@@ -732,7 +817,13 @@ describe('toGovernedFrame streaming', () => {
     expect(toGovernedFrame(f)).toMatchObject({ kind: 'text', text: 'hi', streaming: true });
   });
   it('carries the streaming flag onto the governed thinking frame', () => {
-    const f = { id: 'b', role: 'agent', kind: 'thinking', text: 'po', streaming: true } as TurnFrame;
+    const f = {
+      id: 'b',
+      role: 'agent',
+      kind: 'thinking',
+      text: 'po',
+      streaming: true,
+    } as TurnFrame;
     expect(toGovernedFrame(f)).toMatchObject({ kind: 'thinking', text: 'po', streaming: true });
   });
   it('omits streaming for a settled text frame', () => {

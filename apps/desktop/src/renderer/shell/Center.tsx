@@ -14,6 +14,7 @@ import type { ConsoleState } from '../panels/state.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
 import { Browser } from './Browser.js';
 import { useConsoleState } from './consoleStore.js';
+import { DeferredCanvas, Freeze } from './deferredMount.js';
 import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
@@ -72,6 +73,51 @@ function SurfaceHost({
   }
 }
 
+/** The canvas region: every VISITED surface stays mounted — switching nav rows
+ *  (or leaving/entering search) is a display swap, never a rebuild. A surface's
+ *  first visit mounts through a transition (DeferredCanvas) so the nav flip
+ *  paints before the panel's rows do. `chatHidden` hides (never unmounts) the
+ *  chat canvas while the session browser overlays it in search mode. */
+function SurfaceCanvas({
+  surface,
+  state,
+  chatHidden,
+}: {
+  surface: string;
+  state: ConsoleState;
+  chatHidden: boolean;
+}): React.JSX.Element {
+  const [visited, setVisited] = useState<string[]>([]);
+  useEffect(() => {
+    setVisited((v) => (v.includes(surface) ? v : [...v, surface]));
+  }, [surface]);
+  const mounted = visited.includes(surface) ? visited : [...visited, surface];
+  return (
+    <>
+      {mounted.map((id) => {
+        const shown = id === surface && !(id === 'chat' && chatHidden);
+        return (
+          <div
+            key={id}
+            data-canvas={id}
+            className={shown ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+          >
+            {/* Frozen while hidden: live publishes must not re-render every
+                visited surface (that cost is the switching slowdown). The chat
+                canvas stays THAWED during search so the transcript keeps
+                streaming under the browser overlay. */}
+            <Freeze frozen={id !== surface}>
+              <DeferredCanvas id={id}>
+                <SurfaceHost surface={id} state={state} />
+              </DeferredCanvas>
+            </Freeze>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /** Center column: the title-bar segment (session tabs, morphing into search) +
  *  the surface canvas. Non-chat surfaces bring their own name strip — the
  *  session tabs are chat's. */
@@ -80,11 +126,52 @@ export function Center(): React.JSX.Element {
   const mode = useShell((s) => s.mode);
   const workOpen = useShell((s) => s.workOpen);
   const state = useConsoleState((s) => s);
+  const searching = surface === 'chat' && mode === 'search';
 
-  if (surface !== 'chat') {
-    return (
-      <div className="flex min-w-0 flex-1 flex-col bg-s1">
-        {/* the whole strip drags; interactive children opt out (appRegion policy) */}
+  return (
+    <div className="flex min-w-0 flex-1 flex-col bg-s1">
+      {/* the whole strip drags; interactive children opt out (appRegion policy) —
+          this is what keeps the top edge grabbable in search mode too */}
+      {surface === 'chat' ? (
+        <div
+          className={cx(
+            'flex h-(--titlebar-h) flex-none items-stretch bg-s1',
+            mode === 'work' && 'border-b border-s3',
+          )}
+          style={DRAG}
+        >
+          <div className="relative min-w-0 flex-1">
+            {/* both states overlap and cross-fade in the same 180ms window, so the
+                search bar finishes exactly when the browser canvas does */}
+            <AnimatePresence initial={false}>
+              {mode === 'work' ? (
+                <motion.div
+                  key="tabs"
+                  className="absolute inset-0 flex items-stretch"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: [0.19, 1, 0.22, 1] }}
+                >
+                  <TabStrip state={state} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="search"
+                  className="absolute inset-0 flex items-stretch"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: [0.19, 1, 0.22, 1] }}
+                >
+                  <SearchBar />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          {!workOpen && <AppWindowControls />}
+        </div>
+      ) : (
         <div
           className="flex h-(--titlebar-h) flex-none items-stretch border-b border-s3 bg-s1"
           style={DRAG}
@@ -95,61 +182,18 @@ export function Center(): React.JSX.Element {
           <div className="flex-1" />
           {!workOpen && <AppWindowControls />}
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">
-          {state === undefined ? null : <SurfaceHost surface={surface} state={state} />}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-w-0 flex-1 flex-col bg-s1">
-      {/* the whole strip drags; interactive children opt out (appRegion policy) —
-          this is what keeps the top edge grabbable in search mode too */}
-      <div
-        className={cx(
-          'flex h-(--titlebar-h) flex-none items-stretch bg-s1',
-          mode === 'work' && 'border-b border-s3',
-        )}
-        style={DRAG}
-      >
-        <div className="relative min-w-0 flex-1">
-          {/* both states overlap and cross-fade in the same 180ms window, so the
-              search bar finishes exactly when the browser canvas does */}
-          <AnimatePresence initial={false}>
-            {mode === 'work' ? (
-              <motion.div
-                key="tabs"
-                className="absolute inset-0 flex items-stretch"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18, ease: [0.19, 1, 0.22, 1] }}
-              >
-                <TabStrip state={state} />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="search"
-                className="absolute inset-0 flex items-stretch"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18, ease: [0.19, 1, 0.22, 1] }}
-              >
-                <SearchBar />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-        {!workOpen && <AppWindowControls />}
-      </div>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {state === undefined ? null : mode === 'work' ? (
-          <SurfaceHost surface="chat" state={state} />
-        ) : (
-          <Browser state={state} />
+        {state === undefined ? null : (
+          <>
+            <SurfaceCanvas surface={surface} state={state} chatHidden={searching} />
+            {searching && (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Browser state={state} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

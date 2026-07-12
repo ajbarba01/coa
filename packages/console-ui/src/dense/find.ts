@@ -8,18 +8,30 @@ function frameText(fr: TranscriptFrame): string {
   return '';
 }
 
-export interface FindMatch {
+export interface FindTermMatch {
   frameId: string;
+  /** The owning frame's index — drives row navigation + the active-row wash. */
   index: number;
+  /** Which occurrence within its frame this is (0-based). */
+  occurrence: number;
 }
 
-/** Frames (in order) whose text contains `query` (case-insensitive). Empty query → none. */
-export function findMatches(frames: TranscriptFrame[], query: string): FindMatch[] {
+/** Every occurrence of `query` across the frames' text (case-insensitive), in
+ *  document order — the count reads matches, not rows. Empty query → none.
+ *  Counting/navigation run on this frame DATA; the painted term highlights walk
+ *  the rendered DOM instead (findHighlight.ts) — best-effort twins, since
+ *  markdown rendering can reshape text. */
+export function findTermMatches(frames: TranscriptFrame[], query: string): FindTermMatch[] {
   const q = query.trim().toLowerCase();
   if (q === '') return [];
-  const out: FindMatch[] = [];
+  const out: FindTermMatch[] = [];
   frames.forEach((fr, index) => {
-    if (frameText(fr).toLowerCase().includes(q)) out.push({ frameId: fr.id, index });
+    const text = frameText(fr).toLowerCase();
+    let occurrence = 0;
+    for (let at = text.indexOf(q); at !== -1; at = text.indexOf(q, at + q.length)) {
+      out.push({ frameId: fr.id, index, occurrence });
+      occurrence++;
+    }
   });
   return out;
 }

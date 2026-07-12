@@ -716,6 +716,122 @@ describe('Transcript container', () => {
 
 });
 
+describe('Transcript stick-to-bottom', () => {
+  const frames: TranscriptFrame[] = [
+    { id: 'a', role: 'agent', kind: 'text', text: 'one' },
+    { id: 'b', role: 'agent', kind: 'text', text: 'two' },
+  ];
+
+  it('re-pins with a direct scrollTop write when the content resizes (streamed growth)', () => {
+    let fire: (() => void) | undefined;
+    class MockRO {
+      private readonly cb: () => void;
+      constructor(cb: () => void) {
+        this.cb = cb;
+        fire = (): void => this.cb();
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', MockRO);
+    try {
+      render(<Transcript frames={frames} />);
+      const scroller = screen.getByRole('log');
+      Object.defineProperty(scroller, 'scrollHeight', { value: 3000, configurable: true });
+      act(() => fire?.());
+      expect(scroller.scrollTop).toBe(3000);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('Transcript keep-alive (active prop)', () => {
+  const frames: TranscriptFrame[] = [
+    { id: 'a', role: 'agent', kind: 'text', text: 'Hello World' },
+    { id: 'b', role: 'agent', kind: 'text', text: 'two' },
+  ];
+
+  it('an inactive (hidden-tab) transcript ignores Ctrl+F', () => {
+    render(<Transcript frames={frames} active={false} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    expect(screen.queryByRole('search', { name: /find/i })).not.toBeInTheDocument();
+  });
+
+  it('does NOT re-pin on mount just because a jumpNonce value exists', () => {
+    // Seed memory: the reader had scrolled up (not pinned) in this session.
+    const { unmount } = render(<Transcript frames={frames} scrollKey="keep-1" />);
+    const scroller = screen.getByRole('log');
+    Object.defineProperty(scroller, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(scroller, 'clientHeight', { value: 500, configurable: true });
+    scroller.scrollTop = 100;
+    fireEvent.scroll(scroller);
+    unmount();
+
+    scrollIntoViewSpy.mockClear();
+    // Remount with a standing sendNonce (always a number in the app) — the
+    // restored offset must win; only a CHANGE of nonce re-pins.
+    render(<Transcript frames={frames} scrollKey="keep-1" jumpNonce={5} />);
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('log').scrollTop).toBe(100);
+  });
+
+  it('restores the remembered place when reactivated after being hidden', () => {
+    const { rerender } = render(<Transcript frames={frames} scrollKey="keep-2" active />);
+    const scroller = screen.getByRole('log');
+    Object.defineProperty(scroller, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(scroller, 'clientHeight', { value: 500, configurable: true });
+    scroller.scrollTop = 300;
+    fireEvent.scroll(scroller);
+
+    rerender(<Transcript frames={frames} scrollKey="keep-2" active={false} />);
+    // display:none wipes the live scroll position
+    scroller.scrollTop = 0;
+    rerender(<Transcript frames={frames} scrollKey="keep-2" active />);
+    expect(scroller.scrollTop).toBe(300);
+  });
+});
+
+describe('Transcript scroll memory', () => {
+  const frames: TranscriptFrame[] = [
+    { id: 'a', role: 'agent', kind: 'text', text: 'one' },
+    { id: 'b', role: 'agent', kind: 'text', text: 'two' },
+  ];
+
+  const fakeGeometry = (el: HTMLElement): void => {
+    Object.defineProperty(el, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { value: 500, configurable: true });
+  };
+
+  it('restores the remembered scroll position for the same scrollKey', () => {
+    const { unmount } = render(<Transcript frames={frames} scrollKey="mem-1" />);
+    const scroller = screen.getByRole('log');
+    fakeGeometry(scroller);
+    scroller.scrollTop = 100;
+    fireEvent.scroll(scroller);
+    unmount();
+
+    render(<Transcript frames={frames} scrollKey="mem-1" />);
+    const again = screen.getByRole('log');
+    expect(again.scrollTop).toBe(100);
+  });
+
+  it('a session left pinned to bottom re-pins on return instead of restoring a stale offset', () => {
+    const { unmount } = render(<Transcript frames={frames} scrollKey="mem-2" />);
+    const scroller = screen.getByRole('log');
+    fakeGeometry(scroller);
+    scroller.scrollTop = 1500; // 2000 - (1500 + 500) = 0 → near bottom
+    fireEvent.scroll(scroller);
+    unmount();
+
+    scrollIntoViewSpy.mockClear();
+    render(<Transcript frames={frames} scrollKey="mem-2" />);
+    // pinned memory → the stick-to-bottom sentinel scroll fires, not a scrollTop restore
+    expect(scrollIntoViewSpy).toHaveBeenCalled();
+  });
+});
+
 describe('Transcript find-in-conversation', () => {
   const frames: TranscriptFrame[] = [
     { id: 'a', role: 'agent', kind: 'text', text: 'Hello World' },

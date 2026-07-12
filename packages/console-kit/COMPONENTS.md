@@ -63,6 +63,17 @@ The kbd chip — one look for every shortcut the UI names.
 - **Accessibility:** Semantic <kbd> element; reads as the key name.
 - **Related:** ShortcutsOverlay, CapsLabel
 
+### Spinner
+
+The loading circle — quiet s-scale ring for content that is genuinely not there yet.
+
+- **Use it when:** A cold load with nothing cached to show (first open of a transcript). A deferred canvas whose content is still rendering in a transition.
+- **Don't use it when:** Anything already partially visible — stream it in place instead. A running/working state — that is the pulsing StatusDot vocabulary. Decorating a button press — the press state is feedback enough.
+- **Anatomy:** A role=status span (aria-label names what loads) wearing .spinner-reveal (120ms delayed fade so fast loads never flash it), around a border-ring that spins motion-safe.
+- **Variants & states:** revealing (first 120ms, invisible), spinning, reduced-motion (pulse)
+- **Accessibility:** role=status with a required label; the rotation is aria-hidden decoration.
+- **Related:** StatusDot
+
 ### StatusDot
 
 The indicator law's state vocabulary: state is a dot, never a word.

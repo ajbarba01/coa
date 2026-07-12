@@ -296,20 +296,41 @@ export async function startConsole(
     push();
   }
 
-  /** Open a session: reload its persisted transcript and make it active. Also
+  /** Open a session cache-first: the active id flips SYNCHRONOUSLY — a warm
+   *  `turnsBySession` entry renders this same frame; a cold one shows the loading
+   *  state — and the persisted-transcript reload reconciles in the background,
+   *  ignored if the user has already moved on (stale response). Also
    *  (re)subscribes to the daemon's live session (G4 reattach) so a fresh mount —
    *  e.g. a reload mid-run — hydrates `runStatus` from the daemon's own snapshot
    *  instead of reconstructing it from this renderer's send-tracking (docs/adr/0011).
    *  Fire-and-forget like `interruptSession`: the pill is driven by the resulting
    *  status Push (the existing `onPush` handler below), not by this call's result. */
   async function openSession(id: string): Promise<void> {
-    const loaded = await settle(() => bridge.reloadConversation({ id }));
-    if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
-    const turns: Remote<TurnFrame[]> =
-      loaded.status === 'ok' ? { status: 'ok', value: turnsBySession.get(id) ?? [] } : loaded;
-    state = { ...state, data: { ...state.data, turns }, ui: { ...state.ui, activeSessionId: id } };
+    const cached = turnsBySession.get(id);
+    state = {
+      ...state,
+      data: {
+        ...state.data,
+        turns: cached !== undefined ? { status: 'ok', value: cached } : { status: 'loading' },
+      },
+      ui: { ...state.ui, activeSessionId: id },
+    };
     push();
     void bridge.subscribeSession({ id }).catch(() => {});
+
+    const loaded = await settle(() => bridge.reloadConversation({ id }));
+    if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
+    if (state.ui.activeSessionId !== id) return;
+    // On a failed refresh a warm cache keeps showing (best-effort reconcile);
+    // only a cold open surfaces the error.
+    const turns: Remote<TurnFrame[]> =
+      loaded.status === 'ok'
+        ? { status: 'ok', value: turnsBySession.get(id) ?? [] }
+        : cached !== undefined
+          ? { status: 'ok', value: cached }
+          : loaded;
+    state = { ...state, data: { ...state.data, turns } };
+    push();
   }
 
   /** Clear the active selection when no session remains. */

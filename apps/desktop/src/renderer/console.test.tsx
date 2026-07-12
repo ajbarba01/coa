@@ -384,6 +384,89 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().data.sessions).toEqual({ status: 'ok', value: FAKE_SESSIONS });
   });
 
+  it('switches sessions synchronously: the active id flips and loading shows before the reload lands', async () => {
+    const TWO_SESSIONS = [
+      ...FAKE_SESSIONS,
+      { id: 'c2', agentRef: 'roles/reviewer', title: 'second', updatedAt: '2026-07-01T00:00:00Z' },
+    ];
+    let resolveReload: (v: unknown) => void = () => {};
+    const bridge = fakeBridge({
+      listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
+      reloadConversation: vi
+        .fn()
+        .mockResolvedValueOnce(FAKE_TURNS) // boot-time open (newest = c1)
+        .mockImplementationOnce(
+          () =>
+            new Promise((r) => {
+              resolveReload = r;
+            }),
+        ),
+    });
+    const { last } = await mount(bridge);
+    last().actions.selectSession('c2');
+    // No await: the switch must not wait on the daemon round-trip.
+    expect(last().ui.activeSessionId).toBe('c2');
+    expect(last().data.turns).toEqual({ status: 'loading' });
+    resolveReload([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().data.turns.status).toBe('ok');
+  });
+
+  it('re-opening a cached session serves its turns instantly, then reconciles in the background', async () => {
+    const TWO_SESSIONS = [
+      ...FAKE_SESSIONS,
+      { id: 'c2', agentRef: 'roles/reviewer', title: 'second', updatedAt: '2026-07-01T00:00:00Z' },
+    ];
+    const bridge = fakeBridge({
+      listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
+      reloadConversation: vi
+        .fn()
+        .mockResolvedValueOnce(FAKE_TURNS) // boot: c1
+        .mockResolvedValueOnce([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]) // c2
+        .mockImplementationOnce(() => new Promise(() => {})), // c1 again — held forever
+    });
+    const { last } = await mount(bridge);
+    last().actions.selectSession('c2');
+    await new Promise((r) => setTimeout(r, 0));
+    last().actions.selectSession('c1');
+    // c1 is warm — its cached turns render this same frame, no loading gap.
+    expect(last().ui.activeSessionId).toBe('c1');
+    const turns = last().data.turns;
+    expect(turns.status).toBe('ok');
+    if (turns.status === 'ok') expect(JSON.stringify(turns.value)).toContain('on it');
+  });
+
+  it('a stale reload landing after the user moved on never clobbers the active transcript', async () => {
+    const TWO_SESSIONS = [
+      ...FAKE_SESSIONS,
+      { id: 'c2', agentRef: 'roles/reviewer', title: 'second', updatedAt: '2026-07-01T00:00:00Z' },
+    ];
+    let resolveC2: (v: unknown) => void = () => {};
+    const bridge = fakeBridge({
+      listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
+      reloadConversation: vi
+        .fn()
+        .mockResolvedValueOnce(FAKE_TURNS) // boot: c1
+        .mockImplementationOnce(
+          () =>
+            new Promise((r) => {
+              resolveC2 = r;
+            }),
+        ) // c2 — held
+        .mockResolvedValueOnce(FAKE_TURNS), // c1 again
+    });
+    const { last } = await mount(bridge);
+    last().actions.selectSession('c2');
+    last().actions.selectSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+    resolveC2([{ seq: 0, frame: { t: 'text', text: 'late c2 turn' } }]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.activeSessionId).toBe('c1');
+    const turns = last().data.turns;
+    expect(turns.status).toBe('ok');
+    if (turns.status === 'ok') expect(JSON.stringify(turns.value)).not.toContain('late c2 turn');
+  });
+
   it('sends a composer message into the active session with its conversation id', async () => {
     const bridge = fakeBridge();
     const { last } = await mount(bridge);

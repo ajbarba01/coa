@@ -395,6 +395,18 @@ code,
   animation: sheet-out-left 160ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
 }
 
+/* Find-in-conversation term highlights (CSS Custom Highlight API — the ranges are
+   registered by the transcript, no DOM mutation). Every occurrence wears the quiet
+   amber tint; the active row's occurrences the stronger one. ::highlight() supports
+   color/background only, so these stay tints of the status warn hue. */
+::highlight(coa-find) {
+  background-color: color-mix(in oklab, var(--color-warn) 22%, transparent);
+}
+::highlight(coa-find-active) {
+  background-color: color-mix(in oklab, var(--color-warn) 45%, transparent);
+  color: var(--color-s12);
+}
+
 /* Reasoning "Thinking" label shimmer (defaultReveal.reasoning.mode='shimmer'): a soft gradient
    sweep across the collapsed label while the trace streams. The global `[data-motion='reduce']`
    duration-zero doesn't degrade a gradient-clip cleanly, so a targeted reduced-motion rule falls

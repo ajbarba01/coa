@@ -1,9 +1,9 @@
+import { Spinner } from '@coa/console-kit';
 import {
   Banner as BannerCard,
   Button,
   InlineMessage,
   PaneOverlayProvider,
-  Skeleton,
   Toast,
   ToastProvider,
   Transcript,
@@ -12,10 +12,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RespondFn, TranscriptFrame } from '@coa/console-ui';
 import type { Banner, ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
+import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
+import { useShell } from '../shell/store.js';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners } from './banners.js';
 import { Composer } from './Composer.js';
 import type { ConsoleState } from './state.js';
+
+// Keep-alive tab caches (module scope — they outlive renders): the last frames
+// and send-nonce each session rendered with, so a hidden tab keeps its DOM
+// showing what it last showed. The ACTIVE tab always renders the live vm.
+const framesBySession = new Map<string, TranscriptFrame[]>();
+const nonceBySession = new Map<string, number>();
+
+/** Keep the last real composer measure — a hidden (display:none) pass reports
+ *  0, which would collapse the transcript's reserve spacer and make its return
+ *  re-pin the view (a visible upward jump on exiting search). */
+export const composerMeasure = (prev: number, next: number): number => (next > 0 ? next : prev);
 
 // Frame identity caches: the wire `TurnFrame` objects in `state.data.turns.value` are
 // STABLE across renders (`appendTurns` builds `[...prev, ...new]`, so previously-seen
@@ -38,7 +51,9 @@ export type ChatVm =
        *  omits it (governed mode only — raw stays untouched); a resolved approval
        *  stays in `frames` as the one-line receipt. Undefined when nothing is
        *  pending. */
-      approval?: { id: string; tool: string; summary: string; diffStat?: string | undefined } | undefined;
+      approval?:
+        | { id: string; tool: string; summary: string; diffStat?: string | undefined }
+        | undefined;
       /** System banners (drift/cache notices) for the active session — surfaced above
        *  the transcript, never sent to the agent. */
       banners: Banner[];
@@ -155,7 +170,14 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
         ...(f.durationMs !== undefined ? { durationMs: f.durationMs } : {}),
       };
     case 'error':
-      return { id: f.id, role: f.role, kind: 'error', message: f.message, origin: f.origin, depth: f.depth };
+      return {
+        id: f.id,
+        role: f.role,
+        kind: 'error',
+        message: f.message,
+        origin: f.origin,
+        depth: f.depth,
+      };
     case 'plan':
       return { id: f.id, role: f.role, kind: 'plan', items: f.items, depth: f.depth };
     case 'subagent':
@@ -230,7 +252,9 @@ export function interleaveNotes(
   const result: TranscriptFrame[] = [...frames];
   // Insert from the end backward so earlier insertions don't shift later afterCount
   // offsets (which are all expressed against the ORIGINAL frame list).
-  const ordered = notes.map((n, i) => ({ ...n, index: i })).sort((a, b) => b.afterCount - a.afterCount);
+  const ordered = notes
+    .map((n, i) => ({ ...n, index: i }))
+    .sort((a, b) => b.afterCount - a.afterCount);
   for (const note of ordered) {
     const at = Math.min(Math.max(note.afterCount, 0), result.length);
     result.splice(at, 0, { id: `note:${sessionId}:${note.index}`, kind: 'note', text: note.text });
@@ -269,8 +293,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     ? undefined
     : [...governedFrames]
         .reverse()
-        .find((f): f is Extract<TranscriptFrame, { kind: 'approval' }> =>
-          f.kind === 'approval' && f.resolved === undefined,
+        .find(
+          (f): f is Extract<TranscriptFrame, { kind: 'approval' }> =>
+            f.kind === 'approval' && f.resolved === undefined,
         );
   const frames: TranscriptFrame[] = rawMode
     ? r.value.map((f) => {
@@ -305,7 +330,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
           },
         }
       : {}),
-    ...(activeSession?.promptConfig !== undefined ? { frozenConfig: activeSession.promptConfig } : {}),
+    ...(activeSession?.promptConfig !== undefined
+      ? { frozenConfig: activeSession.promptConfig }
+      : {}),
     agentConfig: {
       ...(activeAgent?.roles !== undefined ? { roles: activeAgent.roles } : {}),
       ...(activeAgent?.packageIds !== undefined ? { packageIds: activeAgent.packageIds } : {}),
@@ -321,7 +348,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const currentModelId = override?.model ?? activeSession?.model ?? activeAgent?.model;
   const currentModel = models.find((m) => m.id === currentModelId);
   const effortOpts = effortOptions(currentModel);
-  const effortVal = reasoningValue(override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning);
+  const effortVal = reasoningValue(
+    override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning,
+  );
   const active = activeSessionId ? state.ui.runStatus[activeSessionId] : undefined;
   return {
     status: 'ready',
@@ -333,7 +362,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
             id: pendingApproval.requestId,
             tool: pendingApproval.tool,
             summary: pendingApproval.summary,
-            ...(pendingApproval.diffStat !== undefined ? { diffStat: pendingApproval.diffStat } : {}),
+            ...(pendingApproval.diffStat !== undefined
+              ? { diffStat: pendingApproval.diffStat }
+              : {}),
           },
         }
       : {}),
@@ -516,6 +547,10 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     setQueuedBySession((m) => ({ ...m, [id]: (m[id] ?? []).filter((_, i) => i !== index) }));
   }, []);
 
+  // Keep-alive tab inputs (hooks stay above the states-first early return).
+  const tabs = useShell((s) => s.tabs);
+  const shellMode = useShell((s) => s.mode);
+
   // Read the reveal action + active session through refs so the `onOpenPath` handed to
   // the memoized transcript rows keeps a STABLE identity across renders (the vm — hence
   // `vm.openPath`/`vm.activeSessionId` — is rebuilt every render; threading them directly
@@ -565,7 +600,8 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     if (target === null) return;
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry !== undefined) setComposerHeight(entry.contentRect.height);
+      if (entry !== undefined)
+        setComposerHeight((prev) => composerMeasure(prev, entry.contentRect.height));
     });
     ro.observe(target);
     composerRoRef.current = ro;
@@ -575,9 +611,10 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     return (
       <div className="flex h-full min-h-0 flex-col bg-s1 p-3.5">
         {vm.status === 'loading' && (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="w-2/3" />
-            <Skeleton className="w-1/2" />
+          // The loading circle, centered — shown only on a cold cache; warm
+          // switches render instantly from `turnsBySession`.
+          <div className="flex flex-1 items-center justify-center">
+            <Spinner label="loading conversation" />
           </div>
         )}
         {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
@@ -585,9 +622,20 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     );
   }
   const queuedMessages = activeQueue.map((text, i) => ({ id: String(i), text }));
+  // Refresh the keep-alive caches for the active session, then derive which
+  // tabs stay mounted: every open tab already visited (cache hit) + the active
+  // one. Unvisited tabs mount lazily on their first activation.
+  const activeTabId = vm.activeSessionId ?? 'none';
+  if (vm.activeSessionId !== undefined) {
+    framesBySession.set(vm.activeSessionId, vm.frames);
+    nonceBySession.set(vm.activeSessionId, vm.sendNonce);
+  }
+  const keepAlive = [...new Set([...tabs.filter((t) => framesBySession.has(t)), activeTabId])];
   const currentModelDesc = vm.models.find((m) => m.id === vm.currentModelId);
   const currentModelLabel =
-    currentModelDesc !== undefined ? modelPickerLabel(currentModelDesc) : (vm.currentModelId ?? 'model');
+    currentModelDesc !== undefined
+      ? modelPickerLabel(currentModelDesc)
+      : (vm.currentModelId ?? 'model');
   const currentEffortLabel =
     vm.effortOptions.find((e) => e.value === vm.effortValue)?.label ?? vm.effortValue;
   return (
@@ -609,30 +657,51 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               expanding a deeply-scrolled row covers the transcript region only, never the
               window, and the floating composer stays over its bottom edge. */}
           <PaneOverlayProvider className="flex-1 bg-s1">
-            {vm.frames.length === 0 ? (
-              <EmptyConversation
-                agent={vm.agentName ?? 'agent'}
-                model={currentModelLabel}
-                effort={currentEffortLabel}
-              />
-            ) : (
-              <Transcript
-                // Keyed per conversation so switching sessions REMOUNTS the transcript: the
-                // block-entrance gate (`liveMountReady`) only suppresses history on a fresh
-                // mount, so a persisted instance would replay the blur-in for every already-
-                // seen block of the session you switch into. Remounting re-runs that
-                // suppression for the incoming history; only genuinely live arrivals animate.
-                key={vm.activeSessionId ?? 'none'}
-                frames={vm.frames}
-                onOpenPath={onOpenPath}
-                onOpenUrl={onOpenUrl}
-                label="Conversation"
-                busy={vm.sessionStatus === 'running'}
-                busySince={vm.runningSince}
-                jumpNonce={vm.sendNonce}
-                bottomInset={composerHeight}
-              />
-            )}
+            {/* THE TAB MODEL: every visited open tab keeps its transcript mounted —
+                switching is a display swap, not a rebuild (and search mode hides,
+                never unmounts). Only a tab's FIRST mount is heavy, and that one
+                goes through a transition (DeferredCanvas) so the switch paints
+                before the rows do. Hidden tabs render their last-seen frames from
+                the module cache; the active tab always renders the live vm. */}
+            {keepAlive.map((tid) => {
+              const isActive = tid === activeTabId;
+              const frames = isActive ? vm.frames : (framesBySession.get(tid) ?? []);
+              return (
+                <div key={tid} className={isActive ? 'h-full' : 'hidden'}>
+                  {/* Frozen while hidden: live publishes must not re-render
+                      background tabs (that cost is the switching slowdown). */}
+                  <Freeze frozen={!isActive}>
+                    <DeferredCanvas id={tid}>
+                      {frames.length === 0 ? (
+                        isActive ? (
+                          <EmptyConversation
+                            agent={vm.agentName ?? 'agent'}
+                            model={currentModelLabel}
+                            effort={currentEffortLabel}
+                          />
+                        ) : null
+                      ) : (
+                        <Transcript
+                          frames={frames}
+                          // Hidden tabs (and search mode) stand down: keys, the
+                          // stick-to-bottom observer, scroll saves. Reactivation
+                          // restores the session's remembered scroll place.
+                          active={isActive && shellMode === 'work'}
+                          onOpenPath={onOpenPath}
+                          onOpenUrl={onOpenUrl}
+                          label="Conversation"
+                          busy={isActive && vm.sessionStatus === 'running'}
+                          busySince={isActive ? vm.runningSince : undefined}
+                          jumpNonce={isActive ? vm.sendNonce : nonceBySession.get(tid)}
+                          bottomInset={composerHeight}
+                          scrollKey={tid}
+                        />
+                      )}
+                    </DeferredCanvas>
+                  </Freeze>
+                </div>
+              );
+            })}
           </PaneOverlayProvider>
           {/* A plain, non-positioning wrapper — the composer self-positions
               (`absolute bottom-4 left-1/2 …`) against this pane's own `relative`

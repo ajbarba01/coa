@@ -2,6 +2,7 @@ export { Button, type ButtonProps, type ButtonVariant } from './actions/Button.j
 export { WindowControls, type WindowControlsProps } from './chrome/WindowControls.js';
 export { cx } from './cx.js';
 export { DialogSearchHead, SettingRow, TocRail } from './frame/SettingsFrame.js';
+export { Spinner, type SpinnerProps } from './Spinner.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';
 export { useDismissLayer, useClickAway, hasOpenLayers } from './overlay/layers.js';
 export { PanelResize } from './layout/PanelResize.js';

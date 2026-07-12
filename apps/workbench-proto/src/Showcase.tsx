@@ -6,6 +6,7 @@ import {
   MenuItem,
   PopoverCard,
   Select,
+  Spinner,
   StatusDot,
   StepSlider,
   Toggle,
@@ -354,6 +355,11 @@ function Controls(): React.JSX.Element {
               </button>
             </Tooltip>
           </TooltipProvider>
+        </Row>
+
+        <Row label="spinner — the loading circle; reveals 120ms late so fast loads never flash it">
+          <Spinner label="loading specimen" />
+          <Cap>reduced-motion pulses instead of spinning</Cap>
         </Row>
 
         <Row label="kbd — every named shortcut wears the chip">

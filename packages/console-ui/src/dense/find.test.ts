@@ -1,14 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { findMatches } from './find.js';
+import { findTermMatches } from './find.js';
 
-describe('findMatches', () => {
-  it('matches frames by case-insensitive text', () => {
-    const frames = [
-      { id: 'a', role: 'agent', kind: 'text', text: 'Hello World' },
-      { id: 'b', role: 'agent', kind: 'text', text: 'nothing here' },
-      { id: 'c', role: 'you', kind: 'text', text: 'say hello again' },
-    ] as const;
-    expect(findMatches(frames as never, 'hello').map((m) => m.frameId)).toEqual(['a', 'c']);
-    expect(findMatches(frames as never, '')).toEqual([]);
+describe('findTermMatches', () => {
+  const frames = [
+    { id: 'a', role: 'agent', kind: 'text', text: 'Hello World, hello again' },
+    { id: 'b', role: 'agent', kind: 'text', text: 'nothing here' },
+    { id: 'c', role: 'you', kind: 'text', text: 'say hello' },
+  ] as const;
+
+  it('counts every occurrence, not just rows (case-insensitive)', () => {
+    const matches = findTermMatches(frames as never, 'hello');
+    expect(matches.map((m) => [m.frameId, m.occurrence])).toEqual([
+      ['a', 0],
+      ['a', 1],
+      ['c', 0],
+    ]);
+  });
+
+  it('empty and whitespace queries match nothing', () => {
+    expect(findTermMatches(frames as never, '')).toEqual([]);
+    expect(findTermMatches(frames as never, '   ')).toEqual([]);
+  });
+
+  it('carries the frame index for row navigation', () => {
+    const matches = findTermMatches(frames as never, 'hello');
+    expect(matches.map((m) => m.index)).toEqual([0, 0, 2]);
   });
 });

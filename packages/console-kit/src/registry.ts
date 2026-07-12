@@ -2,6 +2,7 @@ import { buttonIntent } from './actions/Button.intent.js';
 import { windowControlsIntent } from './chrome/WindowControls.intent.js';
 import { panelResizeIntent } from './layout/PanelResize.intent.js';
 import type { ComponentIntent } from './lib/intent.js';
+import { spinnerIntent } from './Spinner.intent.js';
 import { statusDotIntent } from './StatusDot.intent.js';
 import { useClickAwayIntent, useDismissLayerIntent } from './overlay/layers.intent.js';
 import { capsLabelIntent, menuCardIntent, menuItemIntent } from './overlay/MenuCard.intent.js';
@@ -23,6 +24,7 @@ import { zoomIntent } from './zoom.intent.js';
 /** Every kit member appends its intent here. Feeds COMPONENTS.md + the coverage test. */
 export const allIntents: ComponentIntent[] = [
   statusDotIntent,
+  spinnerIntent,
   useDismissLayerIntent,
   useClickAwayIntent,
   zoomIntent,

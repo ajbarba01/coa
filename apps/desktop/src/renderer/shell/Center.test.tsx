@@ -118,6 +118,19 @@ describe('Center search morph', () => {
     expect(tip).toHaveTextContent(/ctrl/);
   });
 
+  it('keeps the chat canvas mounted (hidden) while searching, so exiting is instant', () => {
+    publish();
+    useShell.getState().openTab('c1');
+    const { container } = render(<Center />);
+    const before = container.querySelectorAll('[data-canvas="chat"]').length;
+    expect(before).toBe(1);
+    act(() => useShell.getState().openSearch());
+    // still mounted — search overlays it, never unmounts it
+    expect(container.querySelectorAll('[data-canvas="chat"]')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'cancel search' }));
+    expect(container.querySelectorAll('[data-canvas="chat"]')).toHaveLength(1);
+  });
+
   it('lets the search field shrink instead of colliding with the cancel control', () => {
     publish();
     useShell.getState().openTab('c1');
