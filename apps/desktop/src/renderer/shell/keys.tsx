@@ -85,6 +85,9 @@ const COMMANDS: Record<string, () => void> = {
   },
   'next-tab': () => cycleTab(1),
   'prev-tab': () => cycleTab(-1),
+  // D85 — the mask comes off: the same toggle the title bar and the palette drive, so the
+  // three can never disagree about what raw mode is.
+  'toggle-raw': () => useConsoleState.getState()?.actions.toggleRaw(),
 };
 
 /** The tabs the STRIP actually renders. The working set can hold an id the strip skips —

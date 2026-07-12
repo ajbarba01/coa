@@ -64,6 +64,13 @@ export const DEFAULT_KEYBINDS: Keybind[] = [
     scope: 'chat',
   },
   {
+    id: 'toggle-raw',
+    keys: ['alt', 'r'],
+    label: 'raw mode — the unfiltered loop',
+    group: 'workbench',
+    scope: 'chat',
+  },
+  {
     id: 'dismiss',
     keys: ['esc'],
     label: 'dismiss the topmost layer · stop a running turn',

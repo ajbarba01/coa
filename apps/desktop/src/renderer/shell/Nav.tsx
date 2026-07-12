@@ -98,7 +98,11 @@ export function Nav(): React.JSX.Element {
         <FootButton label="account" onClick={() => setSurface('account')}>
           ◐
         </FootButton>
-        <FootButton label="settings" keys={bindFor('settings')} onClick={() => setSettingsOpen(true)}>
+        <FootButton
+          label="settings"
+          keys={bindFor('settings')}
+          onClick={() => setSettingsOpen(true)}
+        >
           ⚙
         </FootButton>
         <DaemonButton />

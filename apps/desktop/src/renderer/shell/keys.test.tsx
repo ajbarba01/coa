@@ -98,6 +98,23 @@ describe('useGlobalKeys', () => {
     expect(DEFAULT_KEYBINDS.some((k) => k.keys.join('+') === 'ctrl+f')).toBe(true);
   });
 
+  it('alt+r toggles raw mode on the chat surface', () => {
+    const toggleRaw = vi.fn();
+    publishConsoleState(makeState({ ui: { activeSessionId: 'c1' }, actions: { toggleRaw } }));
+    render(<Keys />);
+    fireEvent.keyDown(window, { key: 'r', altKey: true });
+    expect(toggleRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('alt+r does nothing with a dialog over the chat surface (out of scope)', () => {
+    const toggleRaw = vi.fn();
+    publishConsoleState(makeState({ ui: { activeSessionId: 'c1' }, actions: { toggleRaw } }));
+    render(<Keys />);
+    useShell.getState().setSettingsOpen(true);
+    fireEvent.keyDown(window, { key: 'r', altKey: true });
+    expect(toggleRaw).not.toHaveBeenCalled();
+  });
+
   it('dispatches a REBOUND chord, and the default it replaced goes dead', () => {
     publishConsoleState(
       makeState({
