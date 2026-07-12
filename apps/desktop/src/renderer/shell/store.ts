@@ -94,7 +94,9 @@ export const useShell = create<ShellState>((set) => ({
   setMode: (mode) => set({ mode }),
   // Search lives on the chat surface (the strip morphs) — opening it from any
   // other surface routes home first, so ctrl+p never strands an invisible mode.
-  openSearch: () => set({ surface: 'chat', mode: 'search', query: '' }),
+  // It also closes every dialog: the shortcut swaps, so search can never open
+  // (and steal focus) behind a modal.
+  openSearch: () => set({ ...CLOSE_ALL_DIALOGS, surface: 'chat', mode: 'search', query: '' }),
   closeSearch: () => set({ mode: 'work', query: '' }),
   setQuery: (query) => set({ query }),
   toggleWork: () => set((s) => ({ workOpen: !s.workOpen })),

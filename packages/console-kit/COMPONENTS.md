@@ -185,7 +185,7 @@ A trigger-anchored floating card on Base UI mechanics, wearing the shared menu-s
 
 - **Use it when:** A chip or button that grows a card of options or controls (composer chips, attach menu). Any anchored popup that must escape clipping containers and reposition on scroll.
 - **Don't use it when:** Picking one value from a flat list — Select. A blocking decision or form — the modal ground. Hover-only detail — a tooltip, not a popover.
-- **Anatomy:** Controlled Base UI Popover (Root/Trigger/Portal/Positioner/Popup); the caller supplies the trigger element; the popup wears menuSurface at the dropdown z.
+- **Anatomy:** Controlled Base UI Popover (Root/Trigger/Portal/Positioner/Popup); the caller supplies the trigger element; the popup wears menuSurface at the dropdown z. An optional tooltip spec stacks Tooltip.Trigger onto the same element for hover/focus detail.
 - **Variants & states:** closed, open (positioned side/align, mount rise), reduced-motion (instant)
 - **Accessibility:** Base UI wires trigger aria + focus; outside-press is Base UI; Escape runs through the kit dismiss-layer stack so app-mode ordering holds.
 - **Related:** MenuCard, MenuItem, useDismissLayer
@@ -200,6 +200,17 @@ The quick shortcuts reference: the keybind registry rendered as a grouped modal 
 - **Variants & states:** open, closed (unmounted by the caller)
 - **Accessibility:** Labelled dialog via ModalShell; the registry prop guarantees no bind exists without appearing here.
 - **Related:** Kbd, ModalShell
+
+### Tooltip
+
+Hover/focus detail for icon-only controls — a quiet floating label, with the keybind when one exists.
+
+- **Use it when:** An icon-only button whose meaning is not instantly readable (foot buttons, strip glyphs, chevrons). A control that has a registry keybind worth surfacing at point-of-use.
+- **Don't use it when:** The control already shows its full text — a tooltip restating a label is noise. Content the user must interact with or that must persist — PopoverCard. Disabled-state explanations on elements that swallow pointer events — inline text instead.
+- **Anatomy:** Base UI Tooltip (Root/Trigger/Portal/Positioner/Popup) under one app-level TooltipProvider (600ms delay, 400ms warm window); the popup wears the floating-surface skin (s3 + s5 hairline + shadow) at the tooltip z; keybinds render as Kbd chips.
+- **Variants & states:** hidden, open (after delay, or instantly inside the warm window), open-from-focus (keyboard focus, no delay path), with-keybind (label + kbd chips), reduced-motion (instant)
+- **Accessibility:** Base UI wires the trigger aria and opens on keyboard focus; NOT a dismiss layer — Escape falls through to real layers; triggers keep their own aria-label as the accessible name.
+- **Related:** PopoverCard, Kbd
 
 ### useClickAway
 

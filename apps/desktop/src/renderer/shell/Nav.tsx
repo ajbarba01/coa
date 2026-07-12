@@ -3,6 +3,7 @@ import {
   MenuItem,
   ModalShell,
   PopoverCard,
+  Tooltip,
   cx,
   menuSurface,
   useClickAway,
@@ -12,7 +13,9 @@ import type { FeedView } from '@coa/console-viewmodel';
 import { toCapViewModel } from '@coa/console-viewmodel';
 import { useRef, useState } from 'react';
 import type { ConsoleState, Remote } from '../panels/state.js';
+import { DRAG, NO_DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
+import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 
 export const SURFACES = [
@@ -54,7 +57,9 @@ export function Nav(): React.JSX.Element {
             onClick={() => setSurface(s.id)}
             className={cx(
               'slip relative flex w-full cursor-pointer items-center gap-3 px-4 py-1.75 text-left text-sec',
-              s.id === surface ? 'bg-s3 text-s12' : 'text-s10 hover:bg-s3 hover:text-s11',
+              // Selection wears the s4 tint (selection-marker law); hover sits one
+              // step below on s3 so the two states never read identically.
+              s.id === surface ? 'bg-s4 text-s12' : 'text-s10 hover:bg-s3 hover:text-s11',
             )}
           >
             <span
@@ -93,7 +98,7 @@ export function Nav(): React.JSX.Element {
         <FootButton label="account" onClick={() => setSurface('account')}>
           ◐
         </FootButton>
-        <FootButton label="settings" onClick={() => setSettingsOpen(true)}>
+        <FootButton label="settings" keys={bindFor('settings')} onClick={() => setSettingsOpen(true)}>
           ⚙
         </FootButton>
         <DaemonButton />
@@ -128,6 +133,7 @@ function DaemonButton(): React.JSX.Element {
         side="top"
         align="end"
         className="w-36"
+        tooltip={{ label: `daemon: ${daemon}`, side: 'top' }}
         trigger={
           <button
             type="button"
@@ -170,18 +176,25 @@ function ProjectButton(): React.JSX.Element {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="slip group flex h-(--titlebar-h) w-full flex-none cursor-pointer items-center justify-center gap-2 border-b border-s4 px-3.5"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      {/* the segment is drag surface; the button's hitbox is its content, not
+          the whole sidebar width */}
+      <div
+        className="flex h-(--titlebar-h) w-full flex-none items-center justify-center border-b border-s4"
+        style={DRAG}
       >
-        <span className="slip font-mono text-icon text-s8 group-hover:text-s10">▣</span>
-        <span className="slip truncate text-sec font-semibold text-s11 group-hover:text-s12">
-          {name}
-        </span>
-        <span className="slip text-body text-s7 group-hover:text-s9">⇄</span>
-      </button>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="slip group flex h-full min-w-0 cursor-pointer items-center gap-2 px-3.5"
+          style={NO_DRAG}
+        >
+          <span className="slip font-mono text-icon text-s8 group-hover:text-s10">▣</span>
+          <span className="slip truncate text-sec font-semibold text-s11 group-hover:text-s12">
+            {name}
+          </span>
+          <span className="slip text-body text-s7 group-hover:text-s9">⇄</span>
+        </button>
+      </div>
 
       <ModalShell
         open={open}
@@ -297,14 +310,16 @@ function HudDash(): React.JSX.Element {
             glyphs render optically small, so they wear a raw 26px (no token
             exists for oversized glyph marks; the hit target stays h-9/w-9). */}
         <div className="flex items-center px-2 pb-1.5">
-          <button
-            type="button"
-            aria-label="previous hud"
-            onClick={() => cycle(-1)}
-            className="slip flex h-9 w-9 flex-none cursor-pointer items-center justify-center text-[26px] leading-none text-s7 hover:text-s11"
-          >
-            ‹
-          </button>
+          <Tooltip label="previous hud" side="top">
+            <button
+              type="button"
+              aria-label="previous hud"
+              onClick={() => cycle(-1)}
+              className="slip flex h-9 w-9 flex-none cursor-pointer items-center justify-center text-[26px] leading-none text-s7 hover:text-s11"
+            >
+              ‹
+            </button>
+          </Tooltip>
           <button
             type="button"
             onClick={() => (open ? setOpen(false) : openPicker())}
@@ -312,14 +327,16 @@ function HudDash(): React.JSX.Element {
           >
             {highlighted}
           </button>
-          <button
-            type="button"
-            aria-label="next hud"
-            onClick={() => cycle(1)}
-            className="slip flex h-9 w-9 flex-none cursor-pointer items-center justify-center text-[26px] leading-none text-s7 hover:text-s11"
-          >
-            ›
-          </button>
+          <Tooltip label="next hud" side="top">
+            <button
+              type="button"
+              aria-label="next hud"
+              onClick={() => cycle(1)}
+              className="slip flex h-9 w-9 flex-none cursor-pointer items-center justify-center text-[26px] leading-none text-s7 hover:text-s11"
+            >
+              ›
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -333,22 +350,26 @@ function HudDash(): React.JSX.Element {
 
 function FootButton({
   label,
+  keys,
   onClick,
   children,
 }: {
   label: string;
+  keys?: string[] | undefined;
   onClick?: () => void;
   children: string;
 }): React.JSX.Element {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 text-icon text-s8 hover:bg-s3 hover:text-s10"
-    >
-      {children}
-    </button>
+    <Tooltip label={label} keys={keys} side="top">
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 text-icon text-s8 hover:bg-s3 hover:text-s10"
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

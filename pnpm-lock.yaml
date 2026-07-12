@@ -310,6 +310,9 @@ importers:
 
   packages/console-ui:
     dependencies:
+      '@coa/console-kit':
+        specifier: workspace:*
+        version: link:../console-kit
       '@floating-ui/react':
         specifier: ^0.27.19
         version: 0.27.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

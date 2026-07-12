@@ -1,5 +1,7 @@
-import { CapsLabel, StatusDot } from '@coa/console-kit';
+import { CapsLabel, StatusDot, Tooltip } from '@coa/console-kit';
+import { DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
+import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
 
@@ -21,9 +23,10 @@ export function Work(): React.JSX.Element {
 
   return (
     <div className="flex flex-none flex-col border-l border-s4 bg-s2" style={{ width: workWidth }}>
-      <div className="flex h-(--titlebar-h) flex-none items-stretch">
+      {/* the whole strip drags; interactive children opt out (appRegion policy) */}
+      <div className="flex h-(--titlebar-h) flex-none items-stretch" style={DRAG}>
         <CapsLabel className="self-center px-3.5 pt-0 pb-0">agents</CapsLabel>
-        <div className="flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
+        <div className="flex-1" />
         <AppWindowControls />
       </div>
 
@@ -40,14 +43,16 @@ export function Work(): React.JSX.Element {
       )}
 
       <div className="mt-auto flex items-center border-t border-s3 px-3.5 py-2">
-        <button
-          type="button"
-          aria-label="hide session panel"
-          onClick={toggleWork}
-          className="slip ml-auto cursor-pointer font-mono text-body text-s7 hover:text-s9"
-        >
-          »
-        </button>
+        <Tooltip label="hide session panel" keys={bindFor('toggle the session panel')} side="top">
+          <button
+            type="button"
+            aria-label="hide session panel"
+            onClick={toggleWork}
+            className="slip ml-auto cursor-pointer font-mono text-body text-s7 hover:text-s9"
+          >
+            »
+          </button>
+        </Tooltip>
       </div>
     </div>
   );
@@ -58,13 +63,15 @@ export function Work(): React.JSX.Element {
 export function ReopenWork(): React.JSX.Element {
   const toggleWork = useShell((s) => s.toggleWork);
   return (
-    <button
-      type="button"
-      aria-label="show session panel"
-      onClick={toggleWork}
-      className="slip fixed right-1.5 bottom-1.5 z-(--z-seam) flex h-8 w-8 cursor-pointer items-center justify-center font-mono text-body text-s7 hover:text-s9"
-    >
-      «
-    </button>
+    <Tooltip label="show session panel" keys={bindFor('toggle the session panel')} side="top">
+      <button
+        type="button"
+        aria-label="show session panel"
+        onClick={toggleWork}
+        className="slip fixed right-1.5 bottom-1.5 z-(--z-seam) flex h-8 w-8 cursor-pointer items-center justify-center font-mono text-body text-s7 hover:text-s9"
+      >
+        «
+      </button>
+    </Tooltip>
   );
 }

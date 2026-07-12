@@ -46,6 +46,12 @@ describe('Composer — resting', () => {
     expect(onSend).toHaveBeenCalledWith('hello');
     expect(box).toHaveValue('');
   });
+
+  it('rounds the shell on the r4 step', () => {
+    const { container } = render(<Composer {...baseProps()} />);
+    expect(container.querySelector('.rounded-r4')).toBeTruthy();
+    expect(container.querySelector('.rounded-r3')).toBeNull();
+  });
 });
 
 describe('Composer — running', () => {

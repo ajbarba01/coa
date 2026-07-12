@@ -738,6 +738,14 @@ describe('Transcript find-in-conversation', () => {
     expect(screen.getByRole('search', { name: /find/i })).toBeInTheDocument();
   });
 
+  it('Ctrl+F toggles — a second press closes the find bar', () => {
+    render(<Transcript frames={frames} />);
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    expect(screen.getByRole('search', { name: /find/i })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    expect(screen.queryByRole('search', { name: /find/i })).not.toBeInTheDocument();
+  });
+
   it('closes the find bar via its own close button', async () => {
     render(<Transcript frames={frames} />);
     fireEvent.keyDown(window, { key: 'f', ctrlKey: true });

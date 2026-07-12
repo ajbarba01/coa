@@ -63,6 +63,14 @@ describe('useShell', () => {
     expect(s.query).toBe('');
   });
 
+  it('openSearch closes any open dialog — search never opens behind a modal', () => {
+    useShell.getState().setSettingsOpen(true);
+    useShell.getState().openSearch();
+    const s = useShell.getState();
+    expect(s.settingsOpen).toBe(false);
+    expect(s.mode).toBe('search');
+  });
+
   it('closeSearch clears the query and returns to work mode', () => {
     useShell.getState().openSearch();
     useShell.getState().setQuery('some query');

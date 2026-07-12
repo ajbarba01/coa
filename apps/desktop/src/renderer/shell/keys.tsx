@@ -12,9 +12,15 @@ export const KEYBINDS: Keybind[] = [
   { keys: ['ctrl', ','], label: 'settings', group: 'global' },
   { keys: ['ctrl', '/'], label: 'keyboard shortcuts', group: 'global' },
   { keys: ['ctrl', 'b'], label: 'toggle the session panel', group: 'workbench' },
+  { keys: ['ctrl', 'f'], label: 'find in conversation', group: 'workbench' },
   { keys: ['esc'], label: 'dismiss the topmost layer · stop a running turn', group: 'workbench' },
   { keys: ['enter'], label: 'send message', group: 'composer' },
 ];
+
+/** Registry lookup for tooltips — a surfaced bind can never drift from dispatch. */
+export function bindFor(label: string): string[] | undefined {
+  return KEYBINDS.find((k) => k.label === label)?.keys;
+}
 
 /** Global ctrl/cmd dispatch. ⌘K stays in Palette (it owns toggle-vs-focus);
  *  Escape belongs to the dismiss-layer stack (and the composer's stop). */
@@ -60,10 +66,16 @@ export function useGlobalKeys(): void {
           e.preventDefault();
           st.toggleWork();
           break;
-        case 'p':
+        case 'p': {
           e.preventDefault();
-          st.openSearch();
+          // Swap over a dialog (the shortcut wins — openSearch closes them);
+          // with nothing on top it's a plain toggle.
+          const dialogOpen =
+            st.settingsOpen || st.shortcutsOpen || st.paletteOpen || st.projectOpen;
+          if (!dialogOpen && st.mode === 'search') st.closeSearch();
+          else st.openSearch();
           break;
+        }
       }
     };
     window.addEventListener('keydown', onKey);

@@ -1,5 +1,6 @@
 import { Button, cx } from '@coa/console-kit';
 import { useEffect } from 'react';
+import { DRAG } from './appRegion.js';
 import { AppWindowControls } from './windowControls.js';
 import { useShell } from './store.js';
 
@@ -32,8 +33,9 @@ export function DaemonGate(): React.JSX.Element {
 
   return (
     <div className="slip-enter flex h-full flex-col bg-s1">
-      <div className="flex h-(--titlebar-h) flex-none items-stretch">
-        <div className="flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
+      {/* the whole strip drags; interactive children opt out (appRegion policy) */}
+      <div className="flex h-(--titlebar-h) flex-none items-stretch" style={DRAG}>
+        <div className="flex-1" />
         <AppWindowControls />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-4">

@@ -7,6 +7,7 @@ import { useClickAwayIntent, useDismissLayerIntent } from './overlay/layers.inte
 import { capsLabelIntent, menuCardIntent, menuItemIntent } from './overlay/MenuCard.intent.js';
 import { modalShellIntent } from './overlay/ModalShell.intent.js';
 import { popoverCardIntent } from './overlay/PopoverCard.intent.js';
+import { tooltipIntent } from './overlay/Tooltip.intent.js';
 import {
   dialogSearchHeadIntent,
   settingRowIntent,
@@ -31,6 +32,7 @@ export const allIntents: ComponentIntent[] = [
   menuItemIntent,
   capsLabelIntent,
   popoverCardIntent,
+  tooltipIntent,
   selectIntent,
   toggleIntent,
   stepSliderIntent,

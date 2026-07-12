@@ -22,6 +22,12 @@ export {
 } from './overlay/MenuCard.js';
 export { ModalShell, type ModalShellProps } from './overlay/ModalShell.js';
 export { PopoverCard, type PopoverCardProps } from './overlay/PopoverCard.js';
+export {
+  Tooltip,
+  TooltipProvider,
+  type TooltipProps,
+  type TooltipSpec,
+} from './overlay/Tooltip.js';
 export { Kbd, type Keybind } from './keys/Kbd.js';
 export { ShortcutsOverlay } from './keys/ShortcutsOverlay.js';
 export { ZoomProvider, useZoom } from './zoom.js';

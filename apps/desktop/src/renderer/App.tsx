@@ -1,3 +1,4 @@
+import { TooltipProvider } from '@coa/console-kit';
 import { useEffect, useRef } from 'react';
 import type { DaemonStatus } from '../shared/methods.js';
 import { startConsole, type ConsoleController } from './console.js';
@@ -98,5 +99,7 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
-  return daemon === 'running' ? <Workbench /> : <DaemonGate />;
+  // One tooltip provider for the whole frame: shared open delay + the warm
+  // window that lets adjacent icon buttons show their tips instantly.
+  return <TooltipProvider>{daemon === 'running' ? <Workbench /> : <DaemonGate />}</TooltipProvider>;
 }

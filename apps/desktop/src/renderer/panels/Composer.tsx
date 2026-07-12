@@ -174,7 +174,7 @@ export function Composer({
       {/* no overflow-hidden on the shell — the chip menus must escape its bounds */}
       <div
         className={cx(
-          'relative rounded-r3 border bg-s3 shadow-[var(--shadow-composer)]',
+          'relative rounded-r4 border bg-s3 shadow-[var(--shadow-composer)]',
           disabled
             ? 'border-s4'
             : edge === 'running'
@@ -205,7 +205,7 @@ export function Composer({
             left half denies, the whole right half approves. The corner labels
             name the halves; hovering a half washes it with its verdict. */}
         {approval !== undefined && (
-          <div className="slip-enter relative overflow-hidden rounded-t-r3 border-b border-s4">
+          <div className="slip-enter relative overflow-hidden rounded-t-r4 border-b border-s4">
             <div className="absolute inset-0 grid grid-cols-2">
               <button
                 type="button"
@@ -399,6 +399,7 @@ function AttachButton({
       side="top"
       align="start"
       className="w-48"
+      tooltip={{ label: 'attach a file', side: 'top' }}
       trigger={
         <button
           type="button"

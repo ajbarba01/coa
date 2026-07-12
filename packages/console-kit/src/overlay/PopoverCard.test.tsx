@@ -16,6 +16,33 @@ function Host(): React.JSX.Element {
 }
 
 describe('PopoverCard', () => {
+  it('with a tooltip prop, keyboard focus shows the tooltip and click still opens the popover', async () => {
+    function TipHost(): React.JSX.Element {
+      const [open, setOpen] = useState(false);
+      return (
+        <PopoverCard
+          open={open}
+          onOpenChange={setOpen}
+          tooltip={{ label: 'new session' }}
+          trigger={
+            <button type="button" aria-label="new session">
+              +
+            </button>
+          }
+        >
+          <MenuItem>option</MenuItem>
+        </PopoverCard>
+      );
+    }
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    render(<TipHost />);
+    await user.tab();
+    expect(screen.getByRole('tooltip')).toHaveTextContent('new session');
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: /option/ })).toBeInTheDocument();
+  });
+
   it('opens from the trigger, wears the menu surface, closes on item pick', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'chip' }));

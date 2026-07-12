@@ -1,6 +1,8 @@
 import { Popover } from '@base-ui/react/popover';
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import { cx } from '../cx.js';
 import { menuSurface } from './MenuCard.js';
+import { TooltipSurface, type TooltipSpec } from './Tooltip.js';
 import { useDismissLayer } from './layers.js';
 
 export interface PopoverCardProps {
@@ -12,6 +14,9 @@ export interface PopoverCardProps {
   align?: 'start' | 'center' | 'end';
   sideOffset?: number;
   className?: string;
+  /** Hover/focus detail on the trigger (icon-only chips) — the tooltip closes
+   *  itself when the popover opens (Base UI's trigger-press reason). */
+  tooltip?: TooltipSpec;
   children?: React.ReactNode;
 }
 
@@ -26,10 +31,11 @@ export function PopoverCard({
   align = 'end',
   sideOffset = 6,
   className,
+  tooltip,
   children,
 }: PopoverCardProps): React.JSX.Element {
   useDismissLayer(open, () => onOpenChange(false));
-  return (
+  const core = (
     <Popover.Root
       open={open}
       onOpenChange={(next, details) => {
@@ -45,7 +51,12 @@ export function PopoverCard({
         onOpenChange(next);
       }}
     >
-      <Popover.Trigger render={trigger} />
+      {/* With a tooltip, both triggers stack render props so one element
+          carries the popover AND tooltip wiring (Base UI's documented
+          composition). */}
+      <Popover.Trigger
+        render={tooltip === undefined ? trigger : <BaseTooltip.Trigger render={trigger} />}
+      />
       <Popover.Portal>
         <Popover.Positioner
           side={side}
@@ -59,5 +70,12 @@ export function PopoverCard({
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
+  );
+  if (tooltip === undefined) return core;
+  return (
+    <BaseTooltip.Root>
+      {core}
+      <TooltipSurface {...tooltip} />
+    </BaseTooltip.Root>
   );
 }

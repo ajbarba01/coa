@@ -9,6 +9,8 @@ import {
   StatusDot,
   StepSlider,
   Toggle,
+  Tooltip,
+  TooltipProvider,
   cx,
 } from '@coa/console-kit';
 import { useState } from 'react';
@@ -329,6 +331,29 @@ function Controls(): React.JSX.Element {
             <MenuItem>option row</MenuItem>
             <MenuItem disabled>disabled row</MenuItem>
           </PopoverCard>
+        </Row>
+
+        <Row label="tooltip — 600ms hover delay, instant on keyboard focus, warm window across neighbors">
+          <TooltipProvider>
+            <Tooltip label="search sessions" keys={['ctrl', 'p']}>
+              <button
+                type="button"
+                aria-label="search sessions"
+                className="slip cursor-pointer rounded-r2 px-2 py-1 text-icon text-s8 hover:bg-s3 hover:text-s10"
+              >
+                ⌕
+              </button>
+            </Tooltip>
+            <Tooltip label="settings">
+              <button
+                type="button"
+                aria-label="settings"
+                className="slip cursor-pointer rounded-r2 px-2 py-1 text-icon text-s8 hover:bg-s3 hover:text-s10"
+              >
+                ⚙
+              </button>
+            </Tooltip>
+          </TooltipProvider>
         </Row>
 
         <Row label="kbd — every named shortcut wears the chip">

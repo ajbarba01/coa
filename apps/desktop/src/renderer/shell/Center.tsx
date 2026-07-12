@@ -1,4 +1,4 @@
-import { CapsLabel, MenuItem, PopoverCard, StatusDot, cx } from '@coa/console-kit';
+import { CapsLabel, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import type { AgentRailItem } from '@coa/console-ui';
 import type { AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
@@ -11,8 +11,10 @@ import { FlagsSurface } from '../panels/FlagsPanel.js';
 import { ShowcaseSurface } from '../panels/ShowcasePanel.js';
 import { TimelineSurface } from '../panels/TimelinePanel.js';
 import type { ConsoleState } from '../panels/state.js';
+import { DRAG, NO_DRAG } from './appRegion.js';
 import { Browser } from './Browser.js';
 import { useConsoleState } from './consoleStore.js';
+import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
 
@@ -82,11 +84,15 @@ export function Center(): React.JSX.Element {
   if (surface !== 'chat') {
     return (
       <div className="flex min-w-0 flex-1 flex-col bg-s1">
-        <div className="flex h-(--titlebar-h) flex-none items-stretch border-b border-s3 bg-s1">
+        {/* the whole strip drags; interactive children opt out (appRegion policy) */}
+        <div
+          className="flex h-(--titlebar-h) flex-none items-stretch border-b border-s3 bg-s1"
+          style={DRAG}
+        >
           <span className="self-center px-4 font-mono text-meta tracking-[0.06em] text-s9">
             {surface}
           </span>
-          <div className="flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
+          <div className="flex-1" />
           {!workOpen && <AppWindowControls />}
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
@@ -98,11 +104,14 @@ export function Center(): React.JSX.Element {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col bg-s1">
+      {/* the whole strip drags; interactive children opt out (appRegion policy) —
+          this is what keeps the top edge grabbable in search mode too */}
       <div
         className={cx(
           'flex h-(--titlebar-h) flex-none items-stretch bg-s1',
           mode === 'work' && 'border-b border-s3',
         )}
+        style={DRAG}
       >
         <div className="relative min-w-0 flex-1">
           {/* both states overlap and cross-fade in the same 180ms window, so the
@@ -179,6 +188,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
       <div
         ref={scrollRef}
         className="tabscroll min-w-0"
+        style={NO_DRAG}
         onWheel={(e) => {
           const el = scrollRef.current;
           if (el && e.deltaY !== 0) el.scrollLeft += e.deltaY;
@@ -220,11 +230,13 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
         side="bottom"
         align="start"
         className="w-52"
+        tooltip={{ label: 'new session' }}
         trigger={
           <button
             type="button"
             aria-label="new session"
             className="slip flex flex-none cursor-pointer items-center px-3 text-[20px] text-s7 hover:text-s9"
+            style={NO_DRAG}
           >
             +
           </button>
@@ -246,21 +258,24 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           <div className="px-3 py-1.5 text-code text-s7">no agents yet — create one first</div>
         )}
       </PopoverCard>
-      <div className="min-w-6 flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
+      <div className="min-w-6 flex-1" />
       {/* D85 indicator: appears only while raw mode is ON (toggled via ⌘K) */}
       {rawMode && (
         <span className="self-center px-1 font-mono text-meta tracking-[0.06em] text-warn">
           raw
         </span>
       )}
-      <button
-        type="button"
-        onClick={openSearch}
-        aria-label="search sessions"
-        className="slip flex cursor-pointer items-center px-3.5 text-[20px] text-s7 hover:text-s9"
-      >
-        ⌕
-      </button>
+      <Tooltip label="search sessions" keys={bindFor('search sessions')}>
+        <button
+          type="button"
+          onClick={openSearch}
+          aria-label="search sessions"
+          className="slip flex cursor-pointer items-center px-3.5 text-[20px] text-s7 hover:text-s9"
+          style={NO_DRAG}
+        >
+          ⌕
+        </button>
+      </Tooltip>
     </>
   );
 }
@@ -276,8 +291,13 @@ function SearchBar(): React.JSX.Element {
   return (
     <div className="relative flex flex-1 items-start justify-center px-3.5">
       {/* a real input box: centered, dropped below the window edge, floating over the canvas.
-          15px glyph: between type tokens — matches the input's optical center, one-off. */}
-      <div className="z-(--z-seam) mt-6 flex w-110 max-w-[70%] items-center gap-2.5 rounded-r3 border border-s5 bg-s3 px-3 py-1.5 shadow-float focus-within:border-s6">
+          15px glyph: between type tokens — matches the input's optical center, one-off.
+          The width cap reserves the cancel zone on both sides (symmetric, so the box stays
+          centered) and shrinks from there instead of colliding with the ✕ on narrow panels. */}
+      <div
+        className="z-(--z-seam) mt-6 flex w-110 min-w-0 max-w-[calc(100%-6rem)] items-center gap-2.5 rounded-r3 border border-s5 bg-s3 px-3 py-1.5 shadow-float focus-within:border-s6"
+        style={NO_DRAG}
+      >
         <span className="text-[15px] text-s8">⌕</span>
         <input
           ref={inputRef}
@@ -288,14 +308,17 @@ function SearchBar(): React.JSX.Element {
         />
       </div>
       {/* cancel sits exactly where ⌕ lives in tab mode */}
-      <button
-        type="button"
-        onClick={closeSearch}
-        aria-label="cancel search"
-        className="slip absolute top-0 right-0 flex h-(--titlebar-h) cursor-pointer items-center px-3.5 text-[15px] text-s7 hover:text-s10"
-      >
-        ✕
-      </button>
+      <Tooltip label="cancel search" keys={['esc']}>
+        <button
+          type="button"
+          onClick={closeSearch}
+          aria-label="cancel search"
+          className="slip absolute top-0 right-0 flex h-(--titlebar-h) cursor-pointer items-center px-3.5 text-[15px] text-s7 hover:text-s10"
+          style={NO_DRAG}
+        >
+          ✕
+        </button>
+      </Tooltip>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { Tooltip } from '@coa/console-kit';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DenyNotice } from '../feedback/DenyNotice.js';
 import { findMatches } from './find.js';
@@ -940,7 +941,9 @@ export function Transcript({
     const onKeyDown = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
-        setFindOpen(true);
+        // A toggle, not an opener — the same chord that summoned the bar
+        // dismisses it (matches ctrl+p on the session search).
+        setFindOpen((open) => !open);
       } else if (e.key === 'Escape' && findOpen) {
         setFindOpen(false);
       }
@@ -1064,15 +1067,16 @@ export function Transcript({
       )}
       {/* Width toggle: the composer's reading measure ⇄ the whole panel (design reference's
           corner control). Sits at the top-right; find, when open, tucks to its left. */}
-      <button
-        type="button"
-        onClick={() => setWide((w) => !w)}
-        title={wide ? 'narrow to reading measure' : 'use the whole panel'}
-        aria-label={wide ? 'narrow transcript' : 'widen transcript'}
-        className="slip absolute right-3.5 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-r1 font-mono text-[12px] text-s6 hover:bg-s3 hover:text-s9"
-      >
-        {wide ? '⇥⇤' : '⇤⇥'}
-      </button>
+      <Tooltip label={wide ? 'narrow to reading measure' : 'use the whole panel'}>
+        <button
+          type="button"
+          onClick={() => setWide((w) => !w)}
+          aria-label={wide ? 'narrow transcript' : 'widen transcript'}
+          className="slip absolute right-3.5 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-r1 font-mono text-[12px] text-s6 hover:bg-s3 hover:text-s9"
+        >
+          {wide ? '⇥⇤' : '⇤⇥'}
+        </button>
+      </Tooltip>
       {showJump && (
         <div
           className={cx(

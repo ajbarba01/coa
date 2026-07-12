@@ -1,4 +1,5 @@
 import { cx } from '../cx.js';
+import { Tooltip } from '../overlay/Tooltip.js';
 
 export interface WindowControlsProps {
   /** Drives the middle glyph (maximize ⇄ restore) — feed it the REAL window
@@ -26,30 +27,36 @@ export function WindowControls({
       className="flex items-stretch"
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
-      <button
-        type="button"
-        aria-label="minimize"
-        onClick={onMinimize}
-        className={cx(FACE, 'text-s8 hover:bg-s3 hover:text-s10')}
-      >
-        ─
-      </button>
-      <button
-        type="button"
-        aria-label={isMaximized ? 'restore' : 'maximize'}
-        onClick={onToggleMaximize}
-        className={cx(FACE, 'text-s8 hover:bg-s3 hover:text-s10')}
-      >
-        {isMaximized ? '❐' : '▢'}
-      </button>
-      <button
-        type="button"
-        aria-label="close"
-        onClick={onClose}
-        className={cx(FACE, 'text-s8 hover:bg-crit hover:text-s12')}
-      >
-        ✕
-      </button>
+      <Tooltip label="minimize">
+        <button
+          type="button"
+          aria-label="minimize"
+          onClick={onMinimize}
+          className={cx(FACE, 'text-s8 hover:bg-s3 hover:text-s10')}
+        >
+          ─
+        </button>
+      </Tooltip>
+      <Tooltip label={isMaximized ? 'restore' : 'maximize'}>
+        <button
+          type="button"
+          aria-label={isMaximized ? 'restore' : 'maximize'}
+          onClick={onToggleMaximize}
+          className={cx(FACE, 'text-s8 hover:bg-s3 hover:text-s10')}
+        >
+          {isMaximized ? '❐' : '▢'}
+        </button>
+      </Tooltip>
+      <Tooltip label="close">
+        <button
+          type="button"
+          aria-label="close"
+          onClick={onClose}
+          className={cx(FACE, 'text-s8 hover:bg-crit hover:text-s12')}
+        >
+          ✕
+        </button>
+      </Tooltip>
     </div>
   );
 }

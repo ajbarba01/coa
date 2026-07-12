@@ -104,6 +104,31 @@ describe('Center search morph', () => {
     fireEvent.click(screen.getByRole('button', { name: 'cancel search' }));
     expect(useShell.getState().mode).toBe('work');
   });
+
+  it('grows a tooltip naming the search shortcut on the ⌕ control', async () => {
+    const user = userEvent.setup();
+    publish();
+    useShell.getState().openTab('c1');
+    render(<Center />);
+    const btn = screen.getByRole('button', { name: 'search sessions' });
+    for (let i = 0; i < 25 && document.activeElement !== btn; i++) await user.tab();
+    expect(document.activeElement).toBe(btn);
+    const tip = await screen.findByRole('tooltip');
+    expect(tip).toHaveTextContent(/search sessions/);
+    expect(tip).toHaveTextContent(/ctrl/);
+  });
+
+  it('lets the search field shrink instead of colliding with the cancel control', () => {
+    publish();
+    useShell.getState().openTab('c1');
+    render(<Center />);
+    act(() => useShell.getState().openSearch());
+    const field = screen.getByPlaceholderText('search sessions…').parentElement as HTMLElement;
+    // A viewport-relative cap collides with the absolutely-placed ✕ on narrow
+    // panels; the field must reserve the cancel zone and shrink from there.
+    expect(field.className).toContain('min-w-0');
+    expect(field.className).not.toContain('max-w-[70%]');
+  });
 });
 
 describe('buildRailItems', () => {

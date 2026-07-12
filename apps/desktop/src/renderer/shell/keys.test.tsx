@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDismissLayer } from '@coa/console-kit';
 import { makeState } from '../panels/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
-import { useGlobalKeys } from './keys.js';
+import { KEYBINDS, useGlobalKeys } from './keys.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -73,5 +73,26 @@ describe('useGlobalKeys', () => {
     render(<Keys />);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(interruptSession).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+P toggles search — a second press exits it', () => {
+    render(<Keys />);
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
+    expect(useShell.getState().mode).toBe('search');
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
+    expect(useShell.getState().mode).toBe('work');
+  });
+
+  it('Ctrl+P over an open dialog swaps — the dialog closes and search comes forward', () => {
+    render(<Keys />);
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+    expect(useShell.getState().settingsOpen).toBe(true);
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
+    expect(useShell.getState().settingsOpen).toBe(false);
+    expect(useShell.getState().mode).toBe('search');
+  });
+
+  it('lists find-in-conversation in the registry (a bind cannot exist undiscoverable)', () => {
+    expect(KEYBINDS.some((k) => k.keys.join('+') === 'ctrl+f')).toBe(true);
   });
 });

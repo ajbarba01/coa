@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeedView } from '@coa/console-viewmodel';
 import { makeState } from '../panels/fixtures.js';
@@ -76,5 +77,32 @@ describe('Nav', () => {
     useShell.getState().setWorkspace({ name: 'coa', root: 'C:/dev/coa' });
     render(<Nav />);
     expect(screen.getByText('coa')).toBeTruthy();
+  });
+
+  it('separates the selected surface tint from the hover tint (selection law)', () => {
+    render(<Nav />);
+    // 'chat' is the default surface — the selected row wears the s4 selection
+    // tint; unselected rows hover on s3, one step below.
+    const selected = screen.getByRole('button', { name: /chat/ });
+    const unselected = screen.getByRole('button', { name: /timeline/ });
+    expect(selected.className).toContain('bg-s4');
+    expect(unselected.className).toContain('hover:bg-s3');
+    expect(unselected.className).not.toContain('bg-s4');
+  });
+
+  it('grows a keybind tooltip on the settings foot button when focused', async () => {
+    const user = userEvent.setup();
+    render(<Nav />);
+    const btn = screen.getByRole('button', { name: 'settings' });
+    for (let i = 0; i < 25 && document.activeElement !== btn; i++) await user.tab();
+    expect(document.activeElement).toBe(btn);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/settings/);
+  });
+
+  it('keeps the project hitbox to its content width, not the whole sidebar', () => {
+    useShell.getState().setWorkspace({ name: 'coa', root: 'C:/dev/coa' });
+    render(<Nav />);
+    const btn = screen.getByRole('button', { name: /coa/ });
+    expect(btn.className).not.toContain('w-full');
   });
 });
