@@ -1,7 +1,7 @@
-import { Badge, EmptyState, InlineMessage, List, Pane, Skeleton } from '@coa/console-ui';
+import { StatusDot } from '@coa/console-kit';
 import type { Checkpoint } from '@coa/console-viewmodel';
-import { History } from 'lucide-react';
 import type { ConsoleState } from './state.js';
+import { SkeletonLines, SurfaceError, SurfaceEmpty } from './surfaceStates.js';
 
 export type TimelineVm =
   | { status: 'loading' }
@@ -13,38 +13,24 @@ export function selectTimelineVm(state: ConsoleState): TimelineVm {
 }
 
 function TimelineView({ vm }: { vm: TimelineVm }): React.JSX.Element {
-  const newestFirst = vm.status === 'ok' ? [...vm.value].reverse() : [];
+  if (vm.status === 'loading') return <SkeletonLines widths={['w-2/3', 'w-1/2']} />;
+  if (vm.status === 'error') return <SurfaceError message={vm.message} />;
+  if (vm.value.length === 0) {
+    return (
+      <SurfaceEmpty title="No checkpoints" hint="checkpoints appear as the session progresses" />
+    );
+  }
+  const newestFirst = [...vm.value].reverse();
   return (
-    <Pane title="Timeline" scroll seam="left">
-      {vm.status === 'loading' && (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="w-2/3" />
-          <Skeleton className="w-1/2" />
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1">
+      {newestFirst.map((c) => (
+        <div key={c.id} className="slip flex items-center gap-2 px-3.5 py-1.5 text-sec hover:bg-s3">
+          <span className="w-12 flex-none font-mono text-meta text-s6">seq {c.seq}</span>
+          <span className="min-w-0 flex-1 truncate text-meta text-s8">{c.ts}</span>
+          {c.pinned && <StatusDot status="done" />}
         </div>
-      )}
-      {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
-      {vm.status === 'ok' && vm.value.length === 0 && (
-        <EmptyState
-          icon={History}
-          title="No checkpoints"
-          description="Checkpoints appear as the session progresses."
-        />
-      )}
-      {vm.status === 'ok' && vm.value.length > 0 && (
-        <List
-          label="Checkpoints"
-          items={newestFirst}
-          getKey={(c) => c.id}
-          renderItem={(c) => (
-            <div className="flex items-center gap-2">
-              <span className="text-label text-muted">seq {c.seq}</span>
-              <span className="min-w-0 flex-1 truncate text-caption text-faint">{c.ts}</span>
-              {c.pinned && <Badge tone="info">pinned</Badge>}
-            </div>
-          )}
-        />
-      )}
-    </Pane>
+      ))}
+    </div>
   );
 }
 
