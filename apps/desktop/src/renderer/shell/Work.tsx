@@ -48,7 +48,7 @@ export function Work(): React.JSX.Element {
             <span className="ml-auto font-mono text-caps text-s6">root</span>
           </div>
 
-          {planItems !== undefined && (
+          {planItems !== undefined ? (
             <Section
               title="plan"
               meta={`${planItems.filter((i) => i.status === 'done').length}/${planItems.length}`}
@@ -76,6 +76,12 @@ export function Work(): React.JSX.Element {
                   </span>
                 </div>
               ))}
+            </Section>
+          ) : (
+            // Plan IS supported (unlike the floors below) — it is just empty for this
+            // session/backend, so its empty line reads "no plan yet", not "not tracked yet".
+            <Section title="plan">
+              <div className="px-3.5 py-1 text-meta text-s6">no plan yet</div>
             </Section>
           )}
 
