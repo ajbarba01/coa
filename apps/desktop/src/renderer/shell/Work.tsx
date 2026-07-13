@@ -48,7 +48,7 @@ export function Work(): React.JSX.Element {
             <span className="ml-auto font-mono text-caps text-s6">root</span>
           </div>
 
-          {planItems !== undefined ? (
+          {planItems !== undefined && planItems.length > 0 ? (
             <Section
               title="plan"
               meta={`${planItems.filter((i) => i.status === 'done').length}/${planItems.length}`}
