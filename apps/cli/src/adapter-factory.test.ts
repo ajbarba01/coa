@@ -44,7 +44,9 @@ describe('fetchModels — deepseek', () => {
 
 describe('createLongCatAdapter', () => {
   it('constructs a runtime adapter advertising the barebones capability floor', () => {
-    const adapter = createLongCatAdapter(init({ model: { provider: 'longcat', model: 'LongCat-2.0' } }));
+    const adapter = createLongCatAdapter(
+      init({ model: { provider: 'longcat', model: 'LongCat-2.0' } }),
+    );
     expect(adapter.capabilityProfile().spiVersion).toBeDefined();
     expect(typeof adapter.runLoop).toBe('function');
   });

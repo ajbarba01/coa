@@ -68,7 +68,10 @@ function runAdd(
   }
   // Validate the provider BEFORE writing any key file, so a bad kind never orphans a secret.
   if (!(kinds as readonly string[]).includes(provider)) {
-    return fail(io, `'${provider}' is not a valid ${chain} provider (allowed: ${kinds.join(', ')})`);
+    return fail(
+      io,
+      `'${provider}' is not a valid ${chain} provider (allowed: ${kinds.join(', ')})`,
+    );
   }
 
   if (flag === '--key') {

@@ -111,7 +111,9 @@ describe('runAuthCommand', () => {
     expect(runAuthCommand(['add', 'lc', '--longcat-env-var', 'sk-e91530'], io(), home)).toBe(1);
     expect(err.join('')).toMatch(/looks like a key/);
     err = [];
-    expect(runAuthCommand(['add', 'lc', '--longcat-env-var', 'LONGCAT_API_KEY'], io(), home)).toBe(0);
+    expect(runAuthCommand(['add', 'lc', '--longcat-env-var', 'LONGCAT_API_KEY'], io(), home)).toBe(
+      0,
+    );
     out = [];
     runAuthCommand(['list'], io(), home);
     expect(out.join('\n')).toMatch(/lc\tlongcat\tenv-var LONGCAT_API_KEY/);

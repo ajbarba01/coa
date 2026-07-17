@@ -19,7 +19,9 @@ afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 describe('runWebCommand', () => {
   it('websearch add --key writes a 0600 key file and stores only a pointer', () => {
-    expect(runWebCommand('search', ['add', 'tavily', 'tv1', '--key', 'tvly-secret'], io(), home)).toBe(0);
+    expect(
+      runWebCommand('search', ['add', 'tavily', 'tv1', '--key', 'tvly-secret'], io(), home),
+    ).toBe(0);
     const keyPath = webKeyFilePath(home, 'tv1');
     expect(existsSync(keyPath)).toBe(true);
     expect(readFileSync(keyPath, 'utf8')).toBe('tvly-secret');
@@ -36,12 +38,21 @@ describe('runWebCommand', () => {
   });
 
   it('--env-var guards a pasted key', () => {
-    expect(runWebCommand('search', ['add', 'tavily', 't', '--env-var', 'tvly-oops'], io(), home)).toBe(1);
+    expect(
+      runWebCommand('search', ['add', 'tavily', 't', '--env-var', 'tvly-oops'], io(), home),
+    ).toBe(1);
     expect(err.join('\n')).toMatch(/looks like a key/);
   });
 
   it('add --env-var registers an env-var pointer', () => {
-    expect(runWebCommand('search', ['add', 'parallel', 'p', '--env-var', 'PARALLEL_API_KEY'], io(), home)).toBe(0);
+    expect(
+      runWebCommand(
+        'search',
+        ['add', 'parallel', 'p', '--env-var', 'PARALLEL_API_KEY'],
+        io(),
+        home,
+      ),
+    ).toBe(0);
     expect(readFileSync(webConfigPath(home), 'utf8')).toContain('PARALLEL_API_KEY');
   });
 

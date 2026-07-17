@@ -57,14 +57,16 @@ describe('parseRunArgs', () => {
 
 describe('renderPush — a CON-PUSH record → terminal lines', () => {
   const turn = (frame: Push extends { kind: 'turn' } ? never : unknown): Push =>
-    ({ kind: 'turn', sessionId: 's', worktree: 'w', seq: 0, frame } as Push);
+    ({ kind: 'turn', sessionId: 's', worktree: 'w', seq: 0, frame }) as Push;
 
   it('prints assistant text verbatim', () => {
     expect(renderPush(turn({ t: 'text', text: 'hello world' })).lines).toEqual(['hello world']);
   });
 
   it('renders a tool_use as an arrow with the tool name', () => {
-    const out = renderPush(turn({ t: 'tool_use', tool: 'Read', input: { path: 'a.ts' }, handle: 'h' }));
+    const out = renderPush(
+      turn({ t: 'tool_use', tool: 'Read', input: { path: 'a.ts' }, handle: 'h' }),
+    );
     expect(out.lines[0]).toContain('Read');
     expect(out.lines[0]).toMatch(/^→/u);
   });
@@ -91,7 +93,13 @@ describe('renderPush — a CON-PUSH record → terminal lines', () => {
   });
 
   it('prints a cost record', () => {
-    const out = renderPush({ kind: 'cost', sessionId: 's', spent: 0.25, remaining: 4, capHit: false });
+    const out = renderPush({
+      kind: 'cost',
+      sessionId: 's',
+      spent: 0.25,
+      remaining: 4,
+      capHit: false,
+    });
     expect(out.lines.join(' ')).toMatch(/0\.25/u);
   });
 
