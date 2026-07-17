@@ -140,7 +140,12 @@ describe('console handlers — the read-only inspector verbs over the dispatch r
 });
 
 describe('registry handlers — the agent-assembly catalogue verbs', () => {
-  const role: RoleSummary = { id: 'swe', name: 'SWE', description: 'writes code', packageIds: ['coding'] };
+  const role: RoleSummary = {
+    id: 'swe',
+    name: 'SWE',
+    description: 'writes code',
+    packageIds: ['coding'],
+  };
   const pkg: PackageSummary = {
     id: 'coding',
     name: 'Coding',
