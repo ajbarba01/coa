@@ -23,9 +23,7 @@ describe('resolveShell', () => {
 
   it('prefers an explicit COA_BASH_SHELL override when the file exists', () => {
     const custom = 'D:\\tools\\bash.exe';
-    const res = resolveShell(
-      probe({ env: { COA_BASH_SHELL: custom }, present: [custom] }),
-    );
+    const res = resolveShell(probe({ env: { COA_BASH_SHELL: custom }, present: [custom] }));
     expect(res).toEqual({ shell: custom, posix: true });
   });
 

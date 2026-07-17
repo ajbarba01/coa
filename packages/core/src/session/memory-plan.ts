@@ -85,7 +85,11 @@ export function planMemory(input: MemoryPlanInput): MemoryPlan {
 
   if (isClaude && eligible) {
     // Fast path: the server session already holds the memory (and the frozen prompt).
-    return { resume: input.meta!.backendSessionId!, history: input.transcript, deliverHistoryAsPreamble: false };
+    return {
+      resume: input.meta!.backendSessionId!,
+      history: input.transcript,
+      deliverHistoryAsPreamble: false,
+    };
   }
   if (isClaude) {
     // No resumable server session for this transcript (fresh, or switched in from

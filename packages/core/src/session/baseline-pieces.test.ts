@@ -37,7 +37,11 @@ describe('baselinePieces', () => {
   it('never puts the worktree path in the compiled prompt (dynamic, backend supplies cwd)', () => {
     const env = baselinePieces({ ...CTX }).find((p) => p.name === 'baseline-environment');
     expect(env?.body).not.toMatch(/working directory/i);
-    expect(baselinePieces(CTX).map((p) => p.body).join('\n')).not.toContain('/work/repo');
+    expect(
+      baselinePieces(CTX)
+        .map((p) => p.body)
+        .join('\n'),
+    ).not.toContain('/work/repo');
   });
 
   it('names the running model in its own Model slot (so the agent knows what it is)', () => {

@@ -106,7 +106,12 @@ function modelPiece(model: ModelPrompt): Piece {
 /** Author the volatile environment Piece from the session-invariant facts (ordered last, per D-P2). */
 function environmentPiece(ctx: BaselineContext): Piece {
   const lines = [`Platform: ${ctx.platform}`, `Shell: ${ctx.shell}`, `Date: ${ctx.date}`];
-  return authoredPush('baseline-environment', 'the session runtime facts', lines.join('\n'), 'volatile');
+  return authoredPush(
+    'baseline-environment',
+    'the session runtime facts',
+    lines.join('\n'),
+    'volatile',
+  );
 }
 
 /**
@@ -178,8 +183,7 @@ export function createBaselineAssemblePieces(deps: {
 export function modelPromptOf(ctx: AssemblePiecesContext): ModelPrompt {
   const provider = ctx.model?.provider ?? 'claude';
   const model = ctx.model?.model;
-  const effort =
-    ctx.model?.reasoning?.mode === 'effort' ? ctx.model.reasoning.effort : undefined;
+  const effort = ctx.model?.reasoning?.mode === 'effort' ? ctx.model.reasoning.effort : undefined;
   return {
     provider,
     ...(model !== undefined ? { model } : {}),
