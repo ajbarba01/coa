@@ -50,9 +50,7 @@ export interface CompletionResult {
  * delta to a `text-delta`/`thinking-delta` TurnFrame; no frame vocabulary crosses this
  * seam. Delivery-only: deltas are pushed to the UI, never persisted (docs/adr/0013).
  */
-export type CompletionDelta =
-  | { kind: 'text'; text: string }
-  | { kind: 'reasoning'; text: string };
+export type CompletionDelta = { kind: 'text'; text: string } | { kind: 'reasoning'; text: string };
 
 /**
  * The streaming `complete()` primitive: one model round-trip as an async-iterable of
