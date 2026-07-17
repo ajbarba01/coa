@@ -64,7 +64,9 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
             return lang !== undefined || text.includes('\n') ? (
               <CodeBlock code={text} language={lang} />
             ) : (
-              <code className="rounded-r1 bg-s3 px-[4px] py-[1px] font-mono text-code text-s11">{text}</code>
+              <code className="rounded-r1 bg-s3 px-[4px] py-[1px] font-mono text-code text-s11">
+                {text}
+              </code>
             );
           },
           h1: ({ children }) => (
@@ -97,14 +99,18 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
             </div>
           ),
           tbody: ({ children }) => (
-            <tbody className="[&>tr]:border-b [&>tr]:border-s3 [&>tr:last-child]:border-0">{children}</tbody>
+            <tbody className="[&>tr]:border-b [&>tr]:border-s3 [&>tr:last-child]:border-0">
+              {children}
+            </tbody>
           ),
           th: ({ children }) => (
             <th className="border-b border-s4 px-2.5 py-1.5 text-left font-semibold whitespace-nowrap text-s12 first:pl-0">
               {children}
             </th>
           ),
-          td: ({ children }) => <td className="px-2.5 py-1.5 align-top text-s11 first:pl-0">{children}</td>,
+          td: ({ children }) => (
+            <td className="px-2.5 py-1.5 align-top text-s11 first:pl-0">{children}</td>
+          ),
           // remark-gfm renders task-list checkboxes as a plain disabled <input>; keep
           // the real input (role=checkbox, checked state) for a11y/testability but
           // theme it with token utilities instead of the raw browser control.
@@ -122,7 +128,11 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
               />
             ) : null,
           li: ({ className: c, children }) => (
-            <li className={cx('leading-normal', (c ?? '').includes('task-list-item') && 'list-none')}>{children}</li>
+            <li
+              className={cx('leading-normal', (c ?? '').includes('task-list-item') && 'list-none')}
+            >
+              {children}
+            </li>
           ),
         }}
       >

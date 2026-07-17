@@ -97,7 +97,11 @@ function OutputBlocks({
  *  while `streaming === true` and swaps to plain `<Markdown>` on settle (D85 — byte-identical, no
  *  re-animate). Reasoning (`perWord`) types out per-word; agent output reveals a whole formatted
  *  markdown block at a time (its in-progress trailing block is held until it completes). */
-export function StreamingMarkdown({ source, muted, perWord }: StreamingMarkdownProps): React.JSX.Element {
+export function StreamingMarkdown({
+  source,
+  muted,
+  perWord,
+}: StreamingMarkdownProps): React.JSX.Element {
   if (perWord === true) {
     return (
       <div className="min-w-0">

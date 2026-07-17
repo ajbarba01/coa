@@ -35,7 +35,15 @@ const PREVIEW_LANG_TOOLS = new Set(['Read', 'get_symbol', 'get_piece', 'get_spec
 /** Reads/searches rest closed; edits, writes, commands, checks and every failure rest
  *  open. OVERRIDE: unions the proto's set with the real card's coa-specific collapsed
  *  tools (`get_symbol`, `get_piece`) so nothing regresses. */
-const RESTS_COLLAPSED = new Set(['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'get_symbol', 'get_piece']);
+const RESTS_COLLAPSED = new Set([
+  'Read',
+  'Grep',
+  'Glob',
+  'WebSearch',
+  'WebFetch',
+  'get_symbol',
+  'get_piece',
+]);
 
 /** Body lines shown inline before the clamp hands off to the overlay. */
 const CLAMP = 8;
@@ -98,7 +106,9 @@ function resolveBody(
     return { kind: 'checks', output };
   }
   if (failed) {
-    return output !== undefined && output.length > 0 ? { kind: 'out', text: output, fromEnd: true } : undefined;
+    return output !== undefined && output.length > 0
+      ? { kind: 'out', text: output, fromEnd: true }
+      : undefined;
   }
   // MAINTAINER OVERRIDE (deliberate — do not "fix" this back to no-body): the proto's
   // Gallery caption reads "the row is the receipt" and renders NO body for a successful
@@ -145,7 +155,10 @@ function deriveHeaderText(
   }
   metaText = metaText.replace(/^\s*·\s*/, '').trim();
   if (metaText.length === 0 && full.length > bare.length) {
-    metaText = full.slice(bare.length).replace(/^\s*·\s*/, '').trim();
+    metaText = full
+      .slice(bare.length)
+      .replace(/^\s*·\s*/, '')
+      .trim();
   }
   if (tool === 'run_checks' && output !== undefined) {
     const parsed = parseChecks(output);
@@ -153,7 +166,10 @@ function deriveHeaderText(
       metaText = `${parsed.checks.length} check${parsed.checks.length === 1 ? '' : 's'}`;
     }
   }
-  return { targetBare: path === undefined ? bare : '', meta: metaText.length > 0 ? metaText : undefined };
+  return {
+    targetBare: path === undefined ? bare : '',
+    meta: metaText.length > 0 ? metaText : undefined,
+  };
 }
 
 /** A tool call's lifecycle state, rendered as the header's one status dot. */
@@ -214,7 +230,9 @@ export function ToolCard({
   const shown = open && hasBody;
 
   const { targetBare, meta: derivedMeta } = deriveHeaderText(tool, input, output, ok, path, line);
-  const meta = derivedMeta ?? (output !== undefined ? `≈ ${formatTokens(estimateTokens(output))} tok` : undefined);
+  const meta =
+    derivedMeta ??
+    (output !== undefined ? `≈ ${formatTokens(estimateTokens(output))} tok` : undefined);
 
   const title = `${verb}${path !== undefined ? ` ${path}` : ''}`;
   const onExpand = (): void => {
@@ -399,7 +417,9 @@ function BodyView({
               </div>
             ))}
           </div>
-          {!full && clamped.truncated && <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />}
+          {!full && clamped.truncated && (
+            <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />
+          )}
         </>
       );
     }
@@ -443,7 +463,9 @@ function BodyView({
               <MatchRow key={i} tool={body.tool} line={ln} onOpenPath={onOpenPath} />
             ))}
           </div>
-          {!full && clamped.truncated && <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />}
+          {!full && clamped.truncated && (
+            <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />
+          )}
         </>
       );
     }
@@ -457,7 +479,9 @@ function BodyView({
               <WebRow key={i} line={ln} onOpenUrl={onOpenUrl} />
             ))}
           </div>
-          {!full && clamped.truncated && <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />}
+          {!full && clamped.truncated && (
+            <ClampRow hidden={clamped.hiddenCount} onExpand={onExpand} />
+          )}
         </>
       );
     }

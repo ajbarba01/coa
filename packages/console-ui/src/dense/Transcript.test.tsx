@@ -356,7 +356,9 @@ describe('TranscriptRow', () => {
 
   it('shows the running dot for a live "running" subagent event', () => {
     const { container } = render(
-      <TranscriptRow frame={{ id: '2', kind: 'subagent', childWorktree: 'wt', event: 'running' }} />,
+      <TranscriptRow
+        frame={{ id: '2', kind: 'subagent', childWorktree: 'wt', event: 'running' }}
+      />,
     );
     expect(container.querySelector('.bg-run')).not.toBeNull();
     expect(screen.getByText('running')).toBeInTheDocument();
@@ -380,12 +382,16 @@ describe('TranscriptRow', () => {
 
   it('reveals watch/stop actions on hover for a running subagent, not for a settled one', () => {
     const { rerender } = render(
-      <TranscriptRow frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'running' }} />,
+      <TranscriptRow
+        frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'running' }}
+      />,
     );
     expect(screen.getByRole('button', { name: /watch/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
 
-    rerender(<TranscriptRow frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'idle' }} />);
+    rerender(
+      <TranscriptRow frame={{ id: '4', kind: 'subagent', childWorktree: 'wt', event: 'idle' }} />,
+    );
     expect(screen.queryByRole('button', { name: /watch/i })).toBeNull();
   });
 
@@ -470,7 +476,10 @@ describe('TranscriptRow', () => {
     );
     // A SETTLED block reads past-tense "Thought" — reload has no live stream, so it must not
     // fall back to the present-tense "Thinking" (the reported live-vs-reload mismatch).
-    expect(screen.getByRole('button', { name: /thought/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /thought/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
     expect(screen.queryByText(/^thinking/i)).toBeNull();
     const collapse = container.querySelector('.cx-collapse');
     expect(collapse?.getAttribute('data-open')).toBe('false');
@@ -524,7 +533,9 @@ describe('TranscriptRow', () => {
 
   it('tints the reasoning toggle on hover', () => {
     render(
-      <TranscriptRow frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning', streaming: true }} />,
+      <TranscriptRow
+        frame={{ id: 't', role: 'agent', kind: 'thinking', text: 'reasoning', streaming: true }}
+      />,
     );
     expect(screen.getByRole('button', { name: /thinking/i }).className).toContain('hover:text-s10');
   });
@@ -570,7 +581,7 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('.rounded-surface, .bg-subtle')).toBeNull();
   });
 
-  it('exposes each plan item\'s status to the a11y tree without visible clutter', () => {
+  it("exposes each plan item's status to the a11y tree without visible clutter", () => {
     render(
       <TranscriptRow
         frame={{
@@ -611,7 +622,7 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('done thing').className).not.toContain('line-through');
   });
 
-  it('renders a user turn as plain text, never markdown-interpreted (D85 — the mask stays off the user\'s own words)', () => {
+  it("renders a user turn as plain text, never markdown-interpreted (D85 — the mask stays off the user's own words)", () => {
     render(<TranscriptRow frame={{ id: 'u1', role: 'you', kind: 'text', text: 'run `ls` now' }} />);
     // The literal backtick survives — no <code> element is produced for a user turn.
     expect(screen.getByText('run `ls` now')).toBeInTheDocument();
@@ -628,10 +639,11 @@ describe('TranscriptRow', () => {
   });
 
   it('renders a centered system note', () => {
-    render(<TranscriptRow frame={{ id: 'n', kind: 'note', text: 'switched to Opus 4.8 · high' }} />);
+    render(
+      <TranscriptRow frame={{ id: 'n', kind: 'note', text: 'switched to Opus 4.8 · high' }} />,
+    );
     expect(screen.getByText(/switched to Opus/)).toBeInTheDocument();
   });
-
 });
 
 describe('Transcript container', () => {
@@ -713,7 +725,6 @@ describe('Transcript container', () => {
     // Not directly observable in jsdom; assert the sentinel scrollIntoView was called.
     expect(scrollIntoViewSpy).toHaveBeenCalled();
   });
-
 });
 
 describe('Transcript stick-to-bottom', () => {
@@ -990,13 +1001,32 @@ describe('Transcript container motion (block entrance)', () => {
 
 describe('revealSuppressed', () => {
   it('suppresses the block entrance for agent text/thinking (the per-word reveal channel) and raw', () => {
-    expect(revealSuppressed({ id: '1', role: 'agent', kind: 'text', text: 'x' } as TranscriptFrame)).toBe(true);
-    expect(revealSuppressed({ id: '2', role: 'subagent', kind: 'thinking', text: 'x' } as TranscriptFrame)).toBe(true);
+    expect(
+      revealSuppressed({ id: '1', role: 'agent', kind: 'text', text: 'x' } as TranscriptFrame),
+    ).toBe(true);
+    expect(
+      revealSuppressed({
+        id: '2',
+        role: 'subagent',
+        kind: 'thinking',
+        text: 'x',
+      } as TranscriptFrame),
+    ).toBe(true);
     expect(revealSuppressed({ id: '3', kind: 'raw', text: 'x' } as TranscriptFrame)).toBe(true);
   });
   it('does not suppress the entrance for a user turn or a tool card', () => {
-    expect(revealSuppressed({ id: '4', role: 'you', kind: 'text', text: 'x' } as TranscriptFrame)).toBe(false);
-    expect(revealSuppressed({ id: '5', role: 'agent', kind: 'tool', tool: 'Edit', input: '' } as TranscriptFrame)).toBe(false);
+    expect(
+      revealSuppressed({ id: '4', role: 'you', kind: 'text', text: 'x' } as TranscriptFrame),
+    ).toBe(false);
+    expect(
+      revealSuppressed({
+        id: '5',
+        role: 'agent',
+        kind: 'tool',
+        tool: 'Edit',
+        input: '',
+      } as TranscriptFrame),
+    ).toBe(false);
   });
 });
 
@@ -1128,7 +1158,13 @@ describe('TranscriptRow streaming reveal', () => {
   });
 
   it('reveals streaming reasoning per word (mounted in the reveal body)', () => {
-    const frame = { id: 't', role: 'agent', kind: 'thinking', text: 'weighing options', streaming: true } as const;
+    const frame = {
+      id: 't',
+      role: 'agent',
+      kind: 'thinking',
+      text: 'weighing options',
+      streaming: true,
+    } as const;
     const { container } = render(<TranscriptRow frame={frame} />);
     // auto-expand: the body is open while streaming, and the per-word reasoning is mounted in it
     expect(container.querySelectorAll('span.cx-word').length).toBe(2);

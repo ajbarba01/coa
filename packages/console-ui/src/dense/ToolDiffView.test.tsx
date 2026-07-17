@@ -33,7 +33,9 @@ describe('ToolDiffView', () => {
   it('recedes context rows by opacity while keeping the ink hue intact', () => {
     const { lines } = diffLines('a\nctx\nb', 'A\nctx\nB');
     const { container } = render(<ToolDiffView lines={lines} />);
-    const ctx = [...container.querySelectorAll('.opacity-60')].find((n) => n.textContent?.includes('ctx'));
+    const ctx = [...container.querySelectorAll('.opacity-60')].find((n) =>
+      n.textContent?.includes('ctx'),
+    );
     expect(ctx).toBeTruthy();
   });
 });

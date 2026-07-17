@@ -134,7 +134,10 @@ const TOOLS: Record<string, ToolEntry> = {
   Read: { icon: FileText, target: readTarget },
   Write: { icon: FilePlus, target: (r) => str(r, 'file_path') ?? str(r, 'path') ?? '' },
   Edit: { icon: Pencil, target: editTarget },
-  NotebookEdit: { icon: Notebook, target: (r) => str(r, 'notebook_path') ?? str(r, 'file_path') ?? '' },
+  NotebookEdit: {
+    icon: Notebook,
+    target: (r) => str(r, 'notebook_path') ?? str(r, 'file_path') ?? '',
+  },
   Glob: {
     icon: FolderSearch,
     target: (r) => {
@@ -244,7 +247,10 @@ function refPath(v: unknown): string | undefined {
  *  tools (`Read`'s line comes from `offset`) and the symbol/patch tools (path from the
  *  ref, or `apply_patch`'s `target`). Returns undefined when there is no resolvable path
  *  (non-target tools, a name-only ref, malformed input). Pure; never throws. */
-export function toolTarget(tool: string, input: string): { path: string; line?: number } | undefined {
+export function toolTarget(
+  tool: string,
+  input: string,
+): { path: string; line?: number } | undefined {
   const rec = parseInput(input);
   switch (tool) {
     case 'Read': {

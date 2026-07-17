@@ -72,7 +72,8 @@
   --spacing-control-indicator: var(--control-indicator, 18px);
   /* Code/mono surfaces (inline `Code`, `CodeBlock`, raw block) — Fira Code first,
      with ligatures enabled via the base rule below. Chat prose stays sans. */
-  --font-mono: 'Fira Code Variable', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas,
+  --font-mono:
+    'Fira Code Variable', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas,
     'Liberation Mono', monospace;
 }
 

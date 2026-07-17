@@ -80,7 +80,6 @@ export function Composer({
     setText('');
   };
 
-
   return (
     <div className="mx-auto w-full max-w-3xl p-2.5">
       <div
