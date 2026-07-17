@@ -220,11 +220,29 @@ everything else the new design overwrites.
   "Someday / ideas".
 - **W4 — Orphan homes [M].** The redesigned **agents editor** (role/package picker, thinking toggles,
   scope, pin) lands as its designed home in the new IA; drift/cache **notices** ship in indicator-law form
-  (one quiet line docked to the composer: dot + name + inline action); per-provider **account management**
-  behind the ◐ foot button; the project-switch dialog at its floor. `apps/workbench-proto` retires once the
-  showcase surface lives in the real console. Acceptance: no audited feature of the old console lacks a
-  working home; the perf items under "Known issues" that the push-store architecture was meant to kill are
-  re-measured and closed or re-filed.
+  (one quiet line docked to the composer: dot + name + inline action); the project-switch dialog at its
+  floor. `apps/workbench-proto` retires once the showcase surface lives in the real console. Acceptance: no
+  audited feature of the old console lacks a working home; the perf items under "Known issues" that the
+  push-store architecture was meant to kill are re-measured and closed or re-filed.
+  **Account management is no longer part of W4** — credentials outgrew the ◐ foot button and became the
+  `auth` surface (below), which also retired the old `AccountPanel`.
+- **W5 — Auth + Usage surfaces [M]. ✅ Designed + built mock-first.** Two new center surfaces
+  (`AUTH-*`/`USAGE-*` in the [M10 spec](docs/design/handoff/spec/M10.md)): **auth** (credentials only —
+  master–detail over a provider **descriptor registry**, an add-flow that branches on **locator kind** so a
+  new provider is a registry row and zero new UI, replace-never-edit for secrets (labels and pointer
+  locators edit normally — they are readable facts), and a
+  three-level bench) and **usage** (a providers/tools view toggle in the strip; the providers overview
+  reads aggregate-first — workspace spend chart, a needs-you exceptions block, aligned-meter account
+  rows — over a per-account dashboard and the rail HUD; tools get a key-health view; **no caps**).
+  Retires the `cost` surface and the ◐ account popover. New kit members: `BrandMark` + `Meter`; new theme tokens: the validated chart-`series` palette
+  ([ADR-0015](docs/adr/0015-brand-marks-and-series-palette.md)). **This closes the deferred "Nav HUD
+  mini-states" question for `usage`** — the HUD is a customizable projection of the usage reads.
+  **Remaining: the seven RPC verbs the design proved missing** — `addSecret`, `listWebKeys`/`addWebKey`/
+  `removeWebKey` (tool services have zero RPC today), an enable/disable verb, a usage read (identity +
+  limits + spend per account, via the one M9 port), an edit verb for the non-secret facts (rename a
+  label, re-point a config-dir/env-var locator), a model-visibility write (plus per-provider model
+  reads — only Claude's list exists live), and a refresh (re-read every pointer locator on demand).
+  Until they land, both surfaces render from a renderer-side mock.
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).
@@ -251,10 +269,10 @@ Captured from prior scratch notes; none of these are planned or sized yet:
   package, proving the packaging machinery ahead of the full skills system.
 - **P3 — Claude-Code behavior mirroring** *(deferred, maintainer-driven)* — the maintainer supplies
   the specific CC leaked-prompt behaviors to mirror; scoped into its own later plan once supplied.
-- **Nav HUD mini-states** *(deferred out of the W3 UX arc, 2026-07-12)* — the left-nav foot HUD
-  (usage / account / flags at-a-glance content). The scaffold + the flags red count exist in `Nav.tsx`;
-  what each mini-state should actually show is an open design question, so it's held out of the rebuild
-  arc rather than guessed at. Pick it up as its own small design pass once the shape is decided.
+- **Nav HUD mini-states** *(partly answered by W5, 2026-07-13)* — the left-nav foot HUD. The **usage** HUD is
+  designed and built (the meters you tick, auto-quieting below 50%, a projection of the usage reads); the
+  **account** and **flags** mini-states are still floors, and what they should show remains an open design
+  question rather than something to guess at.
 - **Conversation naming** — auto-name conversations instead of leaving them titled by their first
   message.
 - **Constraint → flag authoring** — a lighter-weight authoring path for turning an observed
