@@ -17,26 +17,41 @@ describe('buildConversationHandlers', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it('creates a new session with a generated id and a default title', async () => {
-    const { id } = (await h['newSession']!.handle({ agentRef: 'roles/reviewer', scope: 'src' })) as { id: string };
+    const { id } = (await h['newSession']!.handle({
+      agentRef: 'roles/reviewer',
+      scope: 'src',
+    })) as { id: string };
     expect(id).toMatch(/[0-9a-f-]{36}/);
-    expect(store.getMeta(id)).toMatchObject({ agentRef: 'roles/reviewer', title: 'new session', scope: 'src' });
+    expect(store.getMeta(id)).toMatchObject({
+      agentRef: 'roles/reviewer',
+      title: 'new session',
+      scope: 'src',
+    });
   });
 
   it('lists sessions and reloads a conversation', async () => {
     const { id } = (await h['newSession']!.handle({ agentRef: 'r', scope: '' })) as { id: string };
     store.append(id, [{ seq: 0, frame: { t: 'text', text: 'hi' } }]);
-    expect((await h['listSessions']!.handle(undefined) as unknown[]).length).toBe(1);
-    expect(await h['reloadConversation']!.handle({ id })).toEqual([{ seq: 0, frame: { t: 'text', text: 'hi' } }]);
+    expect(((await h['listSessions']!.handle(undefined)) as unknown[]).length).toBe(1);
+    expect(await h['reloadConversation']!.handle({ id })).toEqual([
+      { seq: 0, frame: { t: 'text', text: 'hi' } },
+    ]);
   });
 
   it('enriches a listed session with the running prompt config when one is frozen', async () => {
     const { id } = (await h['newSession']!.handle({ agentRef: 'r', scope: '' })) as { id: string };
     // No frozen prompt yet ⇒ no promptConfig (drift not yet detectable).
-    expect(((await h['listSessions']!.handle(undefined)) as { promptConfig?: unknown }[])[0]).not.toHaveProperty(
-      'promptConfig',
-    );
+    expect(
+      ((await h['listSessions']!.handle(undefined)) as { promptConfig?: unknown }[])[0],
+    ).not.toHaveProperty('promptConfig');
     store.setCompilation(id, {
-      neutral: { prefixHead: [], systemReminders: [], onDemandPullable: [], scopePushed: [], toolIntents: { allow: [], deny: [] } },
+      neutral: {
+        prefixHead: [],
+        systemReminders: [],
+        onDemandPullable: [],
+        scopePushed: [],
+        toolIntents: { allow: [], deny: [] },
+      },
       frame: { allow: [], deny: [] },
       promptVersion: 'pv',
       configHash: 'cfg',

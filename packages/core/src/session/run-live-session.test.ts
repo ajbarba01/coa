@@ -6,7 +6,9 @@ describe('runLiveSession', () => {
   it('runs each queued turn in order then idles, and ends when the session closes', async () => {
     const s = new LiveSession('c1');
     const seen: string[] = [];
-    const runTurn = vi.fn(async (t) => { seen.push(t.input); });
+    const runTurn = vi.fn(async (t) => {
+      seen.push(t.input);
+    });
     s.enqueue({ input: 'one' });
     s.enqueue({ input: 'two' });
     const done = runLiveSession(s, runTurn);
@@ -22,13 +24,18 @@ describe('runLiveSession', () => {
     const pushes: unknown[] = [];
     s.subscribe((p) => pushes.push(p));
     let n = 0;
-    const runTurn = vi.fn(async () => { n += 1; if (n === 1) throw new Error('boom'); });
+    const runTurn = vi.fn(async () => {
+      n += 1;
+      if (n === 1) throw new Error('boom');
+    });
     s.enqueue({ input: 'bad' });
     s.enqueue({ input: 'good' });
     const done = runLiveSession(s, runTurn);
     await vi.waitFor(() => expect(runTurn).toHaveBeenCalledTimes(2));
     s.close();
     await done;
-    expect(pushes).toContainEqual(expect.objectContaining({ kind: 'turn', frame: expect.objectContaining({ t: 'error' }) }));
+    expect(pushes).toContainEqual(
+      expect.objectContaining({ kind: 'turn', frame: expect.objectContaining({ t: 'error' }) }),
+    );
   });
 });

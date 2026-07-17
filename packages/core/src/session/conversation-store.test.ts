@@ -24,8 +24,18 @@ describe('conversation store (R-7)', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it('creates a session and lists it back with its metadata', () => {
-    const meta = store.create({ id: 'c1', agentRef: 'roles/reviewer', title: 'audit auth', scope: 'src' });
-    expect(meta).toMatchObject({ id: 'c1', agentRef: 'roles/reviewer', title: 'audit auth', scope: 'src' });
+    const meta = store.create({
+      id: 'c1',
+      agentRef: 'roles/reviewer',
+      title: 'audit auth',
+      scope: 'src',
+    });
+    expect(meta).toMatchObject({
+      id: 'c1',
+      agentRef: 'roles/reviewer',
+      title: 'audit auth',
+      scope: 'src',
+    });
     expect(store.getMeta('c1')).toMatchObject({ id: 'c1', title: 'audit auth' });
     expect(store.list().map((m) => m.id)).toEqual(['c1']);
   });
@@ -92,7 +102,11 @@ describe('conversation store (R-7)', () => {
 
   it('clearBackendSession drops the resume token so the next turn starts a fresh server session', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
-    store.setBackendSession('c1', 'sdk-1', { provider: 'claude', model: 'opus', promptVersion: 'v1' });
+    store.setBackendSession('c1', 'sdk-1', {
+      provider: 'claude',
+      model: 'opus',
+      promptVersion: 'v1',
+    });
     store.clearBackendSession('c1');
     const meta = store.getMeta('c1')!;
     expect(meta.backendSessionId).toBeUndefined();
@@ -166,19 +180,33 @@ describe('conversation store (R-7)', () => {
     store.append('c1', [
       { seq: 0, frame: { t: 'text', text: 'hi', role: 'user' } },
       { seq: 1, frame: { t: 'tool_use', tool: 'Read', input: { p: 'a' }, handle: 'h1' } },
-      { seq: 2, frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' }, full: 'FULLBODY' },
+      {
+        seq: 2,
+        frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' },
+        full: 'FULLBODY',
+      },
       { seq: 3, frame: { t: 'text', text: 'done' } },
       { seq: 4, frame: { t: 'turn-boundary', role: 'assistant' } },
     ]);
     // Transcript = the fold (full body preserved), NOT the pointer.
     expect(store.loadBackendMessages('c1')).toEqual([
       { role: 'user', content: 'hi' },
-      { role: 'assistant', content: '', toolCalls: [{ id: 'h1', name: 'Read', arguments: { p: 'a' } }] },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'h1', name: 'Read', arguments: { p: 'a' } }],
+      },
       { role: 'tool', toolCallId: 'h1', content: 'FULLBODY' },
       { role: 'assistant', content: 'done' },
     ]);
     // UI view = the frame stream (full dropped).
-    expect(store.reload('c1').map((t) => t.frame.t)).toEqual(['text', 'tool_use', 'tool_result', 'text', 'turn-boundary']);
+    expect(store.reload('c1').map((t) => t.frame.t)).toEqual([
+      'text',
+      'tool_use',
+      'tool_result',
+      'text',
+      'turn-boundary',
+    ]);
     expect(store.reload('c1').every((t) => !('full' in t))).toBe(true);
   });
 

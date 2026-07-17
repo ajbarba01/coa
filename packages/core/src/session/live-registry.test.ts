@@ -4,8 +4,14 @@ import { LiveSessionRegistry } from './live-registry.js';
 function fakeTimers() {
   const timers = new Map<number, () => void>();
   let id = 0;
-  const setTimer = (fn: () => void) => { const t = ++id; timers.set(t, fn); return { clear: () => timers.delete(t) }; };
-  const fireAll = () => { for (const fn of [...timers.values()]) fn(); };
+  const setTimer = (fn: () => void) => {
+    const t = ++id;
+    timers.set(t, fn);
+    return { clear: () => timers.delete(t) };
+  };
+  const fireAll = () => {
+    for (const fn of [...timers.values()]) fn();
+  };
   return { setTimer, fireAll, size: () => timers.size };
 }
 
@@ -39,7 +45,8 @@ describe('LiveSessionRegistry', () => {
 
   it('closeAll tears down every session', () => {
     const r = new LiveSessionRegistry();
-    r.getOrCreate('c1'); r.getOrCreate('c2');
+    r.getOrCreate('c1');
+    r.getOrCreate('c2');
     r.closeAll();
     expect(r.get('c1')).toBeUndefined();
     expect(r.get('c2')).toBeUndefined();
@@ -79,7 +86,11 @@ describe('LiveSessionRegistry', () => {
   it('idle-eviction invokes onClose too', () => {
     const t = fakeTimers();
     const closed: string[] = [];
-    const r = new LiveSessionRegistry({ idleMs: 1000, setTimer: t.setTimer, onClose: (s) => closed.push(s.id) });
+    const r = new LiveSessionRegistry({
+      idleMs: 1000,
+      setTimer: t.setTimer,
+      onClose: (s) => closed.push(s.id),
+    });
     r.getOrCreate('c1');
 
     t.fireAll();

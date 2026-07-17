@@ -5,10 +5,17 @@ import { LiveSession } from './live-session.js';
 describe('LiveSession', () => {
   it('fans out an emitted push to every subscriber', () => {
     const s = new LiveSession('c1');
-    const a: Push[] = []; const b: Push[] = [];
+    const a: Push[] = [];
+    const b: Push[] = [];
     s.subscribe((p) => a.push(p));
     s.subscribe((p) => b.push(p));
-    const turn: Push = { kind: 'turn', sessionId: 'c1', worktree: '', seq: 0, frame: { t: 'text', text: 'hi' } };
+    const turn: Push = {
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '',
+      seq: 0,
+      frame: { t: 'text', text: 'hi' },
+    };
     s.emit(turn);
     expect(a).toContainEqual(turn);
     expect(b).toContainEqual(turn);
@@ -19,7 +26,12 @@ describe('LiveSession', () => {
     s.setState('running', '/wt');
     const got: Push[] = [];
     s.subscribe((p) => got.push(p));
-    expect(got).toContainEqual({ kind: 'status', sessionId: 'c1', worktree: '/wt', state: 'running' });
+    expect(got).toContainEqual({
+      kind: 'status',
+      sessionId: 'c1',
+      worktree: '/wt',
+      state: 'running',
+    });
   });
 
   it('nextTurn resolves with an enqueued turn, then undefined after close+drain', async () => {
@@ -36,7 +48,13 @@ describe('LiveSession', () => {
     const got: Push[] = [];
     const off = s.subscribe((p) => got.push(p));
     off();
-    s.emit({ kind: 'turn', sessionId: 'c1', worktree: '', seq: 1, frame: { t: 'text', text: 'x' } });
+    s.emit({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '',
+      seq: 1,
+      frame: { t: 'text', text: 'x' },
+    });
     expect(got.filter((p) => p.kind === 'turn')).toHaveLength(0);
   });
 
@@ -47,7 +65,13 @@ describe('LiveSession', () => {
       throw new Error('dead sink');
     });
     s.subscribe((p) => good.push(p));
-    const turn: Push = { kind: 'turn', sessionId: 'c1', worktree: '', seq: 0, frame: { t: 'text', text: 'hi' } };
+    const turn: Push = {
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '',
+      seq: 0,
+      frame: { t: 'text', text: 'hi' },
+    };
 
     expect(() => s.emit(turn)).not.toThrow();
     expect(good).toContainEqual(turn);

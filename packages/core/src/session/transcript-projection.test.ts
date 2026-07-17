@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { TurnFrame } from '@coa/shared';
-import { foldEventsToTranscript, repairUnpairedToolCalls, type PersistedEvent } from './transcript-projection.js';
+import {
+  foldEventsToTranscript,
+  repairUnpairedToolCalls,
+  type PersistedEvent,
+} from './transcript-projection.js';
 
 const ev = (seq: number, frame: TurnFrame, full?: string): PersistedEvent =>
   full !== undefined ? { seq, frame, full } : { seq, frame };
@@ -17,7 +21,11 @@ describe('foldEventsToTranscript', () => {
     ];
     expect(foldEventsToTranscript(events)).toEqual([
       { role: 'user', content: 'do it' },
-      { role: 'assistant', content: 'working', toolCalls: [{ id: 'h1', name: 'Read', arguments: { path: 'a' } }] },
+      {
+        role: 'assistant',
+        content: 'working',
+        toolCalls: [{ id: 'h1', name: 'Read', arguments: { path: 'a' } }],
+      },
       { role: 'tool', toolCallId: 'h1', content: 'FULL FILE BODY' },
       { role: 'assistant', content: 'done' },
     ]);
@@ -58,7 +66,11 @@ describe('foldEventsToTranscript', () => {
       ev(2, { t: 'tool_result', handle: 'h1', ok: true, pointer: 'PTR' }), // no full
     ];
     const out = foldEventsToTranscript(events);
-    expect(out.find((m) => m.role === 'tool')).toEqual({ role: 'tool', toolCallId: 'h1', content: 'PTR' });
+    expect(out.find((m) => m.role === 'tool')).toEqual({
+      role: 'tool',
+      toolCallId: 'h1',
+      content: 'PTR',
+    });
   });
 
   it('repairs an interrupted trailing tool_use (synthesize a paired result, not drop the assistant turn)', () => {
@@ -69,7 +81,11 @@ describe('foldEventsToTranscript', () => {
     ];
     expect(foldEventsToTranscript(events)).toEqual([
       { role: 'user', content: 'go' },
-      { role: 'assistant', content: 'calling', toolCalls: [{ id: 'h9', name: 'Bash', arguments: { cmd: 'x' } }] },
+      {
+        role: 'assistant',
+        content: 'calling',
+        toolCalls: [{ id: 'h9', name: 'Bash', arguments: { cmd: 'x' } }],
+      },
       { role: 'tool', toolCallId: 'h9', content: '[Tool execution was interrupted]' },
     ]);
   });
@@ -129,7 +145,11 @@ describe('foldEventsToTranscript', () => {
     ];
     expect(foldEventsToTranscript(events)).toEqual([
       { role: 'user', content: 'go' },
-      { role: 'assistant', content: '', toolCalls: [{ id: 'h1', name: 'Read', arguments: { path: 'a' } }] },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'h1', name: 'Read', arguments: { path: 'a' } }],
+      },
       { role: 'tool', toolCallId: 'h1', content: 'BODY' },
     ]);
   });

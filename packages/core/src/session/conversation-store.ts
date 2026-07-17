@@ -117,7 +117,11 @@ export interface PersistedTurn {
 }
 
 /** Validates one `events.ndjson` line — the on-disk shape of a {@link PersistedEvent}. */
-const persistedEventSchema = z.object({ seq: z.number(), frame: turnFrameSchema, full: z.string().optional() });
+const persistedEventSchema = z.object({
+  seq: z.number(),
+  frame: turnFrameSchema,
+  full: z.string().optional(),
+});
 
 export interface ConversationStore {
   /** Start a session: write its initial metadata (createdAt = updatedAt = now). */
