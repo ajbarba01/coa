@@ -63,7 +63,9 @@ export class WebConfigStore {
   addCredential(chain: WebChain, kind: string, locator: Locator): void {
     const allowed = chain === 'search' ? SEARCH_KINDS : FETCH_KINDS;
     if (!(allowed as readonly string[]).includes(kind)) {
-      throw new Error(`'${kind}' is not a valid ${chain} provider (allowed: ${allowed.join(', ')})`);
+      throw new Error(
+        `'${kind}' is not a valid ${chain} provider (allowed: ${allowed.join(', ')})`,
+      );
     }
     const config = this.#readStored();
     const block: StoredChain = config[chain] ?? { providers: [], quotaCooldown: 'next-midnight' };
@@ -88,7 +90,8 @@ export class WebConfigStore {
     const config = this.#readStored();
     const keyFilePath = webKeyFilePath(this.#home, id);
     const isMatch = (loc: Locator): boolean =>
-      (loc.type === 'key-file' && loc.path === keyFilePath) || (loc.type === 'env-var' && loc.name === id);
+      (loc.type === 'key-file' && loc.path === keyFilePath) ||
+      (loc.type === 'env-var' && loc.name === id);
     let removedKeyFile = false;
 
     const block = config[chain];

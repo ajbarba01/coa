@@ -110,7 +110,11 @@ export async function webFetch(
       // Summarizer failure degrades to raw markdown rather than failing the fetch (D85 / SC-1).
     }
   }
-  return wrap({ fetched: true, content: markdown, summarized: false }, `web_fetch:${req.url}`, req.url);
+  return wrap(
+    { fetched: true, content: markdown, summarized: false },
+    `web_fetch:${req.url}`,
+    req.url,
+  );
 }
 
 /** The pure-API web-tool ports; present only when the adapter wires egress. */

@@ -21,7 +21,13 @@ const firecrawlSearchResponseSchema = z.object({
   data: z
     .object({
       web: z
-        .array(z.object({ title: z.string().default(''), url: z.string(), description: z.string().default('') }))
+        .array(
+          z.object({
+            title: z.string().default(''),
+            url: z.string(),
+            description: z.string().default(''),
+          }),
+        )
         .default([]),
     })
     .optional(),
@@ -85,7 +91,11 @@ export function makeFirecrawlSearch(config: {
         if (!res.ok) return { status: 'error', reason: `firecrawl-http-${res.status}` };
         const parsed = firecrawlSearchResponseSchema.safeParse(await res.json());
         if (!parsed.success) return { status: 'error', reason: 'firecrawl-search-malformed' };
-        const value = (parsed.data.data?.web ?? []).map((r) => ({ title: r.title, url: r.url, snippet: r.description }));
+        const value = (parsed.data.data?.web ?? []).map((r) => ({
+          title: r.title,
+          url: r.url,
+          snippet: r.description,
+        }));
         return { status: 'ok', value, clean: true };
       } catch (err) {
         return { status: 'error', reason: `firecrawl-search-throw: ${String(err)}` };

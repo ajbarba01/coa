@@ -9,7 +9,8 @@ import {
 } from './web-tools.js';
 
 describe('webSearch', () => {
-  const okChain = (hits: { title: string; url: string; snippet: string }[]): RoutedSearch =>
+  const okChain =
+    (hits: { title: string; url: string; snippet: string }[]): RoutedSearch =>
     async () => ({ status: 'ok', value: hits, clean: true });
 
   it('returns the chain hits wrapped as a distilled handle', async () => {
@@ -31,11 +32,13 @@ describe('webSearch', () => {
 });
 
 describe('webFetch', () => {
-  const okChain = (value: string, clean: boolean): RoutedFetch => async () => ({
-    status: 'ok',
-    value,
-    clean,
-  });
+  const okChain =
+    (value: string, clean: boolean): RoutedFetch =>
+    async () => ({
+      status: 'ok',
+      value,
+      clean,
+    });
 
   it('summarizes non-clean content when a Summarizer is configured', async () => {
     const res = await webFetch(
@@ -51,15 +54,27 @@ describe('webFetch', () => {
       { url: 'https://x.test', prompt: 'p' },
       {
         fetchChain: okChain('# clean markdown', true),
-        summarizer: { summarize: async () => { called = true; return 'NOPE'; } },
+        summarizer: {
+          summarize: async () => {
+            called = true;
+            return 'NOPE';
+          },
+        },
       },
     );
     expect(called).toBe(false);
-    expect(res.result).toMatchObject({ fetched: true, content: '# clean markdown', summarized: false });
+    expect(res.result).toMatchObject({
+      fetched: true,
+      content: '# clean markdown',
+      summarized: false,
+    });
   });
 
   it('D85: degrades to raw markdown when no summarizer is configured', async () => {
-    const res = await webFetch({ url: 'https://x.test', prompt: 'p' }, { fetchChain: okChain('hello', false) });
+    const res = await webFetch(
+      { url: 'https://x.test', prompt: 'p' },
+      { fetchChain: okChain('hello', false) },
+    );
     expect(res.result).toMatchObject({ fetched: true, content: 'hello', summarized: false });
   });
 
@@ -77,7 +92,12 @@ describe('webFetch', () => {
       { url: 'https://x.test', prompt: 'p' },
       {
         fetchChain: okChain('abcdef', false),
-        summarizer: { summarize: async ({ markdown }) => { seen = markdown; return 'S'; } },
+        summarizer: {
+          summarize: async ({ markdown }) => {
+            seen = markdown;
+            return 'S';
+          },
+        },
         maxChars: 3,
       },
     );
@@ -95,7 +115,14 @@ describe('webFetch', () => {
   it('SC-1: a summarizer throw degrades to raw markdown (never throws)', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
-      { fetchChain: okChain('hello', false), summarizer: { summarize: async () => { throw new Error('x'); } } },
+      {
+        fetchChain: okChain('hello', false),
+        summarizer: {
+          summarize: async () => {
+            throw new Error('x');
+          },
+        },
+      },
     );
     expect(res.result).toMatchObject({ fetched: true, content: 'hello', summarized: false });
   });
@@ -109,7 +136,15 @@ describe('web tool registration', () => {
 
   it('dispatches WebSearch through its spec into web deps', async () => {
     const specs = webToolSpecs();
-    const deps = { web: { searchChain: async () => ({ status: 'ok' as const, value: [{ title: 'T', url: 'u', snippet: 's' }], clean: true }) } };
+    const deps = {
+      web: {
+        searchChain: async () => ({
+          status: 'ok' as const,
+          value: [{ title: 'T', url: 'u', snippet: 's' }],
+          clean: true,
+        }),
+      },
+    };
     const res = specs.WebSearch?.dispatch({ query: 'q' }, deps as never);
     await expect(Promise.resolve(res as never)).resolves.toMatchObject({ pointer: 'q' });
   });
@@ -123,6 +158,8 @@ describe('web tool registration', () => {
       },
     };
     const res = specs.WebFetch?.dispatch({ url: 'https://x.test', prompt: 'p' }, deps as never);
-    await expect(Promise.resolve(res as never)).resolves.toMatchObject({ pointer: 'https://x.test' });
+    await expect(Promise.resolve(res as never)).resolves.toMatchObject({
+      pointer: 'https://x.test',
+    });
   });
 });
