@@ -2,6 +2,11 @@
 **/*.tsbuildinfo
 pnpm-lock.yaml
 
+# Agent scratch, and the git worktrees that live under it. A worktree is a SEPARATE
+# checkout of another branch: formatting it from here rewrites files that branch never
+# asked us to touch (and with this branch's config).
+.claude/**
+
 # Markdown is authored prose (handoff docs carry hand-aligned tables Prettier
 # would collapse). Formatting docs is a deliberate separate pass, not a gate.
 **/*.md
