@@ -1,21 +1,21 @@
-import { StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import type { AgentRailItem } from '@coa/console-ui';
 import type { AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
 import { startTransition, useEffect, useRef, useState } from 'react';
-import { AccountSurface } from '../panels/AccountPanel.js';
 import { AgentsSurface } from '../panels/AgentsPanel.js';
+import { AuthStrip, AuthSurface } from '../panels/AuthPanel.js';
 import { ChatSurface } from '../panels/ChatPanel.js';
-import { CostSurface } from '../panels/CostPanel.js';
 import { FlagsSurface } from '../panels/FlagsPanel.js';
 import { ShowcaseSurface } from '../panels/ShowcasePanel.js';
 import { TimelineSurface } from '../panels/TimelinePanel.js';
+import { UsageStrip, UsageSurface } from '../panels/UsagePanel.js';
 import type { ConsoleState } from '../panels/state.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
 import { Browser } from './Browser.js';
 import { useConsoleState } from './consoleStore.js';
 import { DeferredCanvas, Freeze } from './deferredMount.js';
-import { bindFor, closeTab } from './keys.js';
+import { bindFor, closeOtherTabs, closeTab, closeTabsRight, reopenLastTab } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
 
@@ -60,12 +60,14 @@ function SurfaceHost({
       return <FlagsSurface state={state} />;
     case 'timeline':
       return <TimelineSurface state={state} />;
-    case 'cost':
-      return <CostSurface state={state} />;
+    // Auth and Usage are mock-fed today (the renderer owns their data until the four
+    // missing RPC verbs land — see mockAuth.ts), so they take no ConsoleState.
+    case 'auth':
+      return <AuthSurface />;
+    case 'usage':
+      return <UsageSurface />;
     case 'agents':
       return <AgentsSurface state={state} />;
-    case 'account':
-      return <AccountSurface state={state} />;
     case 'showcase':
       return <ShowcaseSurface />;
     default:
@@ -175,14 +177,25 @@ export function Center(): React.JSX.Element {
           {!workOpen && <AppWindowControls />}
         </div>
       ) : (
+        // The title bar is part of the SURFACE, not a label above it: a surface may furnish
+        // its own strip (auth's add-control, usage's total + range) exactly as chat furnishes
+        // its tabs. Surfaces that don't just wear their name.
         <div
           className="flex h-(--titlebar-h) flex-none items-stretch border-b border-s3 bg-s1"
           style={DRAG}
         >
-          <span className="self-center px-4 font-mono text-meta tracking-[0.06em] text-s9">
-            {surface}
-          </span>
-          <div className="flex-1" />
+          {surface === 'auth' ? (
+            <AuthStrip />
+          ) : surface === 'usage' ? (
+            <UsageStrip />
+          ) : (
+            <>
+              <span className="self-center px-4 font-mono text-meta tracking-[0.06em] text-s9">
+                {surface}
+              </span>
+              <div className="flex-1" />
+            </>
+          )}
           {!workOpen && <AppWindowControls />}
         </div>
       )}
@@ -207,6 +220,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
   const tabs = useShell((s) => s.tabs);
   const openSearch = useShell((s) => s.openSearch);
   const setNewSessionOpen = useShell((s) => s.setNewSessionOpen);
+  const reorderTabs = useShell((s) => s.reorderTabs);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sessions = state?.data.sessions.status === 'ok' ? state.data.sessions.value : [];
   const activeId = state?.ui.activeSessionId;
@@ -236,10 +250,72 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
    *  the session survives, and ctrl+shift+t brings the tab back). */
   const close = closeTab;
 
+  // The tab context menu: which tab it's about, anchored under the cursor. One menu
+  // for the whole strip — it rides the kit's Escape layer and one-open-menu registry.
+  const [ctxTab, setCtxTab] = useState<{ id: string; at: { x: number; y: number } }>();
+  const closedTabs = useShell((s) => s.closedTabs);
+
+  /* ---------------- drag-to-reorder (HTML5 DnD) ---------------- */
+
+  // The insertion slot (post-drag removal) in [0, tabs.length - 1]. Rendered as a
+  // 2px accent bar inline BEFORE the tab that marks that slot — so the bar travels
+  // with the horizontal scroll naturally. The dragged tab fades to ~40% so the
+  // indicator reads as the landing slot, not as the thing being held.
+
+  type Drag = { fromId: string; slot: number };
+  const [dragging, setDragging] = useState<Drag | null>(null);
+  const di = dragging ? tabs.indexOf(dragging.fromId) : -1;
+
+  // For a slot f in [0, n-1], which visualIndex paints the indicator bar at its LEADING
+  // edge? For f = n-1 (the after-last position) use the Trailing edge of the post-removal
+  // last tab instead — the rendering context handles which edge.
+  const slotEdge = (slot: number): { visual: number; edge: 'leading' | 'trailing' } => {
+    if (tabs.length <= 1) return { visual: 0, edge: 'leading' };
+    if (slot < tabs.length - 1) return { visual: slot < di ? slot : slot + 1, edge: 'leading' };
+    // after-last slot = trailing edge of the last tab after the dragged one is removed
+    return { visual: di === tabs.length - 1 ? tabs.length - 2 : tabs.length - 1, edge: 'trailing' };
+  };
+
+  const onTabDragStart =
+    (id: string, visualIndex: number): React.DragEventHandler =>
+    (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      // Initial slot = the dragged tab's own position. After the dragged tab is removed
+      // from the filtered array, the position it occupied is the slot at its visual index
+      // minus 0 (since it is at/after itself). tabs.indexOf(id) at this moment = visualIdx.
+      setDragging({ fromId: id, slot: tabs.indexOf(id) });
+    };
+
+  const onTabDragOver =
+    (visualIndex: number): React.DragEventHandler =>
+    (e) => {
+      if (dragging === null || di === visualIndex) return;
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const fromLeft = e.clientX - rect.left < rect.width / 2;
+      const leading = visualIndex <= di ? visualIndex : visualIndex - 1;
+      const slot = fromLeft ? leading : leading + 1;
+      const clamped = Math.max(0, Math.min(slot, tabs.length - 1));
+      setDragging((d) => (d === null || d.slot === clamped ? d : { ...d, slot: clamped }));
+    };
+
+  const onDragOver = (e: React.DragEvent): void => {
+    if (dragging) e.preventDefault();
+  };
+
+  const onDrop = (e: React.DragEvent): void => {
+    if (dragging === null) return;
+    e.preventDefault();
+    reorderTabs(dragging.fromId, dragging.slot);
+    setDragging(null);
+  };
+
+  const onDragEnd = (): void => setDragging(null);
+  const dragBar = dragging ? slotEdge(dragging.slot) : null;
+
   return (
     <>
-      {/* every open session rides the strip; overflow scrolls horizontally —
-          wheel included — with the thin top-edge scrollbar */}
       <div
         ref={scrollRef}
         className="tabscroll min-w-0"
@@ -248,56 +324,112 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           const el = scrollRef.current;
           if (el && e.deltaY !== 0) el.scrollLeft += e.deltaY;
         }}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onDragEnd={onDragEnd}
       >
         <div className="flex h-[calc(var(--titlebar-h)-4px)] items-stretch">
-          {tabs.map((tid) => {
+          {tabs.map((tid, visualIndex) => {
             const t = sessions.find((s) => s.id === tid);
             if (!t) return undefined;
+            const isDragged = di === visualIndex;
             const on = tid === selected;
             const running = state?.ui.runStatus[tid] !== undefined;
+            const showBar = dragBar !== null && !isDragged && dragBar.visual === visualIndex;
             return (
-              <button
-                key={tid}
-                ref={on ? activeRef : undefined}
-                type="button"
-                onClick={() => select(tid)}
-                // Close on the middle PRESS, not on auxclick: the press is also what starts
-                // Windows' autoscroll, and preventing the default here is the only way to
-                // stop that — an auxclick handler fires too late and the gesture is eaten.
-                onMouseDown={(e) => {
-                  if (e.button === 1) {
+              // The tooltip carries the FULL session title — the w-30 tabs truncate.
+              <Tooltip key={tid} label={t.title} side="bottom">
+                <button
+                  ref={on ? activeRef : undefined}
+                  type="button"
+                  draggable
+                  onDragStart={onTabDragStart(tid, visualIndex)}
+                  onDragOver={onTabDragOver(visualIndex)}
+                  onDragEnd={onDragEnd}
+                  onClick={() => select(tid)}
+                  // Right-click claims the event (the registry's dismiss contract) and
+                  // opens the tab menu under the cursor.
+                  onContextMenu={(e) => {
                     e.preventDefault();
-                    close(tid);
-                  }
-                }}
-                className={cx(
-                  // Constant tab width (VS Code register): every tab is EXACTLY the
-                  // same size regardless of title — flex-none so the row can never
-                  // compress one — and the strip reads as a steady row. Titles truncate.
-                  // NO `slip` here: selection is a state, not a move. The underline flips
-                  // on the click and the ink must land with it — a 140ms colour fade on
-                  // the title reads as the old tab hanging on to the selection.
-                  'relative flex w-30 flex-none cursor-pointer items-center gap-1.5 px-3 text-sec whitespace-nowrap',
-                  // selection = ink + underline; the shadow covers the strip's hairline so
-                  // the active tab stays continuous with the canvas below
-                  on ? 'text-s12 shadow-[0_1px_0_var(--color-s1)]' : 'text-s9 hover:text-s11',
-                )}
-              >
-                <StatusDot status={running ? 'running' : 'idle'} />
-                <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>
-                {on && <span className="absolute right-3 bottom-0 left-3 h-0.5 bg-s9" />}
-                {/* a hairline on every tab's trailing edge — including the selected one's,
-                    so the row reads as a row of tabs and not a run-on strip; the last
-                    one also parts the strip from the + */}
-                <span
-                  data-divider
-                  className="pointer-events-none absolute top-1/2 right-0 h-3.5 w-px -translate-y-1/2 bg-s4"
-                />
-              </button>
+                    e.stopPropagation();
+                    setCtxTab({ id: tid, at: { x: e.clientX, y: e.clientY } });
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      close(tid);
+                    }
+                  }}
+                  className={cx(
+                    'relative flex w-30 flex-none cursor-pointer items-center gap-1.5 px-3 text-sec whitespace-nowrap',
+                    on ? 'text-s12 shadow-[0_1px_0_var(--color-s1)]' : 'text-s9 hover:text-s11',
+                    isDragged && dragging ? 'opacity-40' : null,
+                  )}
+                >
+                  {/* The drop indicator — a 2px accent bar positioned at the leading or
+                    trailing edge of the tab whose slot the dragged tab will land in. */}
+                  {showBar && (
+                    <span
+                      aria-hidden
+                      className={cx(
+                        'absolute top-1 z-10 h-full w-0.5 rounded-[1px] bg-s9',
+                        dragBar?.edge === 'trailing' ? 'right-0' : 'left-0',
+                      )}
+                    />
+                  )}
+                  <StatusDot status={running ? 'running' : 'idle'} />
+                  <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>
+                  {on && <span className="absolute right-3 bottom-0 left-3 h-0.5 bg-s9" />}
+                  <span
+                    data-divider
+                    className="pointer-events-none absolute top-1/2 right-0 h-3.5 w-px -translate-y-1/2 bg-s4"
+                  />
+                </button>
+              </Tooltip>
             );
           })}
         </div>
       </div>
+      {/* The tab menu — one instance for the whole strip, anchored under the cursor.
+          The wrapping span claims right-clicks that bubble back through the PORTALED
+          popup (menus don't get menus); working-set commands only, so every item is
+          recoverable (the session always survives). */}
+      <span onContextMenu={(e) => e.preventDefault()} style={NO_DRAG}>
+        <PopoverCard
+          open={ctxTab !== undefined}
+          onOpenChange={(next) => {
+            if (!next) setCtxTab(undefined);
+          }}
+          side="bottom"
+          align="start"
+          anchorPoint={ctxTab?.at}
+          className="w-48"
+          trigger={<span aria-hidden className="absolute" />}
+        >
+          {ctxTab !== undefined && (
+            <div onClick={() => setCtxTab(undefined)}>
+              <MenuItem onClick={() => close(ctxTab.id)}>
+                close
+                <MenuChord keys={bindFor('close-tab')} />
+              </MenuItem>
+              <MenuItem disabled={tabs.length <= 1} onClick={() => closeOtherTabs(ctxTab.id)}>
+                close others
+              </MenuItem>
+              <MenuItem
+                disabled={tabs.at(-1) === ctxTab.id}
+                onClick={() => closeTabsRight(ctxTab.id)}
+              >
+                close to the right
+              </MenuItem>
+              <div className="my-1 h-px bg-s5" />
+              <MenuItem disabled={closedTabs.length === 0} onClick={reopenLastTab}>
+                reopen closed tab
+                <MenuChord keys={bindFor('reopen-tab')} />
+              </MenuItem>
+            </div>
+          )}
+        </PopoverCard>
+      </span>
       {/* hugs the last tab, but sits outside the scroll region so overflow never sweeps it
           away. It opens the SAME picker ctrl+t does — one way to start a session. */}
       <Tooltip label="new session" keys={bindFor('new-session')}>
@@ -331,6 +463,16 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
         </button>
       </Tooltip>
     </>
+  );
+}
+
+/** A menu line's keybind, worn in the trailing-marker register (the EditMenu idiom). */
+function MenuChord({ keys }: { keys: string[] | undefined }): React.JSX.Element | null {
+  if (keys === undefined) return null;
+  return (
+    <span className="ml-auto pl-4 font-mono text-caps tracking-normal text-s6">
+      {keys.join('+')}
+    </span>
   );
 }
 
