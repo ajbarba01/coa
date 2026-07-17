@@ -3,10 +3,12 @@ import { resolveSelection } from './selection.js';
 
 describe('resolveSelection', () => {
   it('uses the agent config as a coherent unit for a brand-new (unpinned) session', () => {
-    expect(resolveSelection(undefined, { provider: 'deepseek', model: 'deepseek-v4-pro' })).toEqual({
-      provider: 'deepseek',
-      model: 'deepseek-v4-pro',
-    });
+    expect(resolveSelection(undefined, { provider: 'deepseek', model: 'deepseek-v4-pro' })).toEqual(
+      {
+        provider: 'deepseek',
+        model: 'deepseek-v4-pro',
+      },
+    );
   });
 
   it('uses the agent config when the session exists but has never been pinned', () => {

@@ -323,8 +323,18 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     const bridge = fakeBridge({
       // two sessions exist; 's-active' is opened/active, 's-bg' is running in the background
       listSessions: vi.fn().mockResolvedValue([
-        { id: 's-active', agentRef: 'roles/reviewer', title: 'active', updatedAt: '2026-07-02T00:00:00Z' },
-        { id: 's-bg', agentRef: 'roles/reviewer', title: 'background', updatedAt: '2026-07-01T00:00:00Z' },
+        {
+          id: 's-active',
+          agentRef: 'roles/reviewer',
+          title: 'active',
+          updatedAt: '2026-07-02T00:00:00Z',
+        },
+        {
+          id: 's-bg',
+          agentRef: 'roles/reviewer',
+          title: 'background',
+          updatedAt: '2026-07-01T00:00:00Z',
+        },
       ]),
       reloadConversation: vi.fn().mockResolvedValue([]),
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -512,7 +522,10 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     // renders them — it never synthesizes closure of its own, which is what made live differ
     // from reload. The following status push flushes these turn frames synchronously.
     emit?.({
-      kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 1,
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 1,
       frame: { t: 'thinking', text: 'weighing options', durationMs: 3000 },
     });
     emit?.({ kind: 'turn', sessionId: 'c1', worktree: 'w', seq: 2, frame: { t: 'interrupted' } });

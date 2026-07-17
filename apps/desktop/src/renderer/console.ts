@@ -34,7 +34,9 @@ export function modelSwitchNoteText(override: ModelSelection, models: ModelDescr
   const descriptor = models.find((m) => m.id === override.model);
   const label = descriptor ? modelLabel(descriptor) : (override.model ?? 'default model');
   const effort = override.reasoning ? reasoningValue(override.reasoning) : undefined;
-  return effort !== undefined && effort !== 'off' ? `switched to ${label} · ${effort}` : `switched to ${label}`;
+  return effort !== undefined && effort !== 'off'
+    ? `switched to ${label} · ${effort}`
+    : `switched to ${label}`;
 }
 
 /** The subset of `window.coa` the controller needs (injected for testing). */

@@ -11,8 +11,13 @@ export function GroupedActivityLog({ calls }: { calls: ToolCall[] }): React.JSX.
   const [open, setOpen] = useState(false);
   const running = calls.some((c) => c.output === undefined && c.ok === undefined);
   const failed = calls.some((c) => c.ok === false);
-  const totalTokens = calls.reduce((sum, c) => sum + (c.output !== undefined ? estimateTokens(c.output) : 0), 0);
-  const peek = dedupe(calls.map((c) => describeTool(c.tool, c.input).verb)).slice(0, 4).join(' · ');
+  const totalTokens = calls.reduce(
+    (sum, c) => sum + (c.output !== undefined ? estimateTokens(c.output) : 0),
+    0,
+  );
+  const peek = dedupe(calls.map((c) => describeTool(c.tool, c.input).verb))
+    .slice(0, 4)
+    .join(' · ');
   return (
     <div className="min-w-0 rounded-surface border border-hairline bg-subtle">
       <button
@@ -30,11 +35,20 @@ export function GroupedActivityLog({ calls }: { calls: ToolCall[] }): React.JSX.
           )}
         />
         {running ? (
-          <Loader2 aria-hidden size={13} className="shrink-0 animate-spin text-info motion-reduce:animate-none" />
+          <Loader2
+            aria-hidden
+            size={13}
+            className="shrink-0 animate-spin text-info motion-reduce:animate-none"
+          />
         ) : (
-          <span aria-hidden className={cx('size-2 shrink-0 rounded-full', failed ? 'bg-danger' : 'bg-success')} />
+          <span
+            aria-hidden
+            className={cx('size-2 shrink-0 rounded-full', failed ? 'bg-danger' : 'bg-success')}
+          />
         )}
-        <span className="shrink-0 text-label font-medium text-fg">{running ? 'Working' : 'Worked'}</span>
+        <span className="shrink-0 text-label font-medium text-fg">
+          {running ? 'Working' : 'Worked'}
+        </span>
         <span className="shrink-0 text-caption text-faint">
           {calls.length} {calls.length === 1 ? 'step' : 'steps'}
         </span>
