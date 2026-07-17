@@ -54,7 +54,11 @@ describe('codeInvocation', () => {
   it('keeps a path with a space as a SINGLE argument (the reveal split-at-space bug)', () => {
     // The whole `<path>:<line>` is one array element — with shell:false, Node quotes it for
     // CreateProcess, so cmd.exe never word-splits "Side Projects" into two files.
-    const { args } = codeInvocation('win32', 'C:\\Users\\Zander\\Documents\\Side Projects\\a.ts', 3);
+    const { args } = codeInvocation(
+      'win32',
+      'C:\\Users\\Zander\\Documents\\Side Projects\\a.ts',
+      3,
+    );
     expect(args).toContain('C:\\Users\\Zander\\Documents\\Side Projects\\a.ts:3');
     expect(args).toHaveLength(4);
   });

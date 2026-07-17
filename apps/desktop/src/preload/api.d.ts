@@ -67,6 +67,12 @@ declare global {
       /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
        *  Validated to http(s) only; advisory (never blocks — SC-1). */
       openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
+      /** The native directory picker (a directory field's browse affordance). Cancelling
+       *  returns no path — the caller keeps whatever the field already held. */
+      pickDirectory(params: { defaultPath?: string }): Promise<{ path?: string }>;
+      /** The edit menu's actions — main drives Chromium's native editing commands on the
+       *  focused element (the renderer never touches the clipboard itself). */
+      editCommand(params: { command: 'cut' | 'copy' | 'paste' | 'selectAll' }): Promise<void>;
       /** The user's persisted agents (console-local identity + launch selection — the
        *  `roles/<id>` / `personal/<id>` ref is authoritative, icon/color/model/reasoning
        *  round-trip). Missing/corrupt file degrades to an empty list ("No agents yet"). */

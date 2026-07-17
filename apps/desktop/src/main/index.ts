@@ -1,7 +1,8 @@
 import { basename, dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
 import { titleBarConfig, windowBackground, type ResolvedTheme } from './titlebar.js';
@@ -344,6 +345,28 @@ async function openExternalUrl(params: { url: string }): Promise<{ ok: boolean; 
   }
 }
 
+/** Expand a leading `~` to the home directory — a directory field carries `~/…` pointers
+ *  (that is how the auth surface writes them), but the OS dialog needs a real path. */
+function expandHome(p: string): string {
+  return p === '~' || p.startsWith('~/') || p.startsWith('~\\') ? join(homedir(), p.slice(1)) : p;
+}
+
+/** The native directory picker, parented to the console window (a free-floating dialog can
+ *  land behind it). Cancelling returns NO path — the renderer keeps whatever it had. */
+async function pickDirectory(params: { defaultPath?: string }): Promise<{ path?: string }> {
+  const options = {
+    properties: ['openDirectory' as const],
+    ...(params.defaultPath !== undefined && existsSync(expandHome(params.defaultPath))
+      ? { defaultPath: expandHome(params.defaultPath) }
+      : {}),
+  };
+  const res = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options);
+  const path = res.filePaths[0];
+  return res.canceled || path === undefined ? {} : { path };
+}
+
 async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
   switch (name) {
     case 'capState':
@@ -388,6 +411,15 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return revealPath(params as { path: string; line?: number; sessionId?: string });
     case 'openExternal':
       return openExternalUrl(params as { url: string });
+    case 'pickDirectory':
+      return pickDirectory(params as { defaultPath?: string });
+    case 'editCommand': {
+      // The DOM edit menu's actions: main drives Chromium's native editing commands on
+      // the focused element, so the renderer never touches the clipboard itself.
+      const { command } = params as { command: 'cut' | 'copy' | 'paste' | 'selectAll' };
+      mainWindow?.webContents[command]();
+      return undefined;
+    }
     case 'getWorkspace': {
       const root = projectRoot();
       return { name: basename(root), root };
