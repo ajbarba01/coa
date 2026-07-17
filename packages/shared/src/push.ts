@@ -22,7 +22,11 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('thinking-delta'), text: z.string() }),
   // `role` marks a persisted user prompt in the R-7 store (assistant text omits it,
   // staying the live-stream default); the console renders a `user` text as a `you` turn.
-  z.object({ t: z.literal('text'), text: z.string(), role: z.enum(['user', 'assistant']).optional() }),
+  z.object({
+    t: z.literal('text'),
+    text: z.string(),
+    role: z.enum(['user', 'assistant']).optional(),
+  }),
   z.object({
     t: z.literal('tool_use'),
     tool: z.string(),

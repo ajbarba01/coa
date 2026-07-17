@@ -59,7 +59,12 @@ describe('pushSchema', () => {
   });
 
   it('accepts the interrupted status (a user stop, not a governance block)', () => {
-    const push = { kind: 'status' as const, sessionId: 's1', worktree: 'wt-1', state: 'interrupted' as const };
+    const push = {
+      kind: 'status' as const,
+      sessionId: 's1',
+      worktree: 'wt-1',
+      state: 'interrupted' as const,
+    };
     expect(pushSchema.parse(push)).toMatchObject({ kind: 'status', state: 'interrupted' });
   });
 });
@@ -89,7 +94,10 @@ describe('turnFrameSchema', () => {
     const withDuration = turnFrameSchema.parse({ t: 'thinking', text: 'hmm', durationMs: 4200 });
     expect(withDuration).toEqual({ t: 'thinking', text: 'hmm', durationMs: 4200 });
     // Still optional — a non-streamed backend (or the floor) omits it.
-    expect(turnFrameSchema.parse({ t: 'thinking', text: 'hmm' })).toEqual({ t: 'thinking', text: 'hmm' });
+    expect(turnFrameSchema.parse({ t: 'thinking', text: 'hmm' })).toEqual({
+      t: 'thinking',
+      text: 'hmm',
+    });
   });
 });
 
