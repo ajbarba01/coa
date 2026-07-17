@@ -8,7 +8,9 @@ import type { EffortLevel, Options } from '@anthropic-ai/claude-agent-sdk';
  * pins a fixed thinking-token budget. The effort string is coa's mirror of the
  * SDK `EffortLevel`, so the cast is sound (the schemas share the same members).
  */
-export function reasoningToOptions(reasoning: ClaudeReasoning): Pick<Options, 'thinking' | 'effort'> {
+export function reasoningToOptions(
+  reasoning: ClaudeReasoning,
+): Pick<Options, 'thinking' | 'effort'> {
   switch (reasoning.mode) {
     case 'off':
       return { thinking: { type: 'disabled' } };

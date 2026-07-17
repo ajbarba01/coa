@@ -33,16 +33,16 @@ import {
  *
  *   COA_LIVE=1 pnpm vitest run packages/adapter-claude-sdk/src/sot-smoke.live.test.ts
  */
-describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live source-of-truth smoke (real backend)', () => {
-  let locator: Locator;
+describe.skipIf(!process.env['COA_LIVE'])(
+  'ClaudeSdkAdapter — live source-of-truth smoke (real backend)',
+  () => {
+    let locator: Locator;
 
-  beforeAll(() => {
-    locator = resolveLiveLocator();
-  });
+    beforeAll(() => {
+      locator = resolveLiveLocator();
+    });
 
-  it(
-    'captures the FULL real tool-result body on the enriched onTurn stream (fold fidelity)',
-    async () => {
+    it('captures the FULL real tool-result body on the enriched onTurn stream (fold fidelity)', async () => {
       const events: Array<{ frame: TurnFrame; full?: string }> = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-sot-'));
@@ -68,7 +68,9 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live source-of-t
         capabilityFrame: { allow: [], deny: [] },
       });
 
-      queue.push('Use the Read tool to read the file secret.txt in the current directory, then reply with its exact contents.');
+      queue.push(
+        'Use the Read tool to read the file secret.txt in the current directory, then reply with its exact contents.',
+      );
 
       // Wait for the tool_result frame (the model ran Read).
       await waitForCondition(
@@ -100,8 +102,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live source-of-t
         20_000,
         'runLoop did not resolve within 20s of queue.close()',
       );
-    },
-    150_000,
-  );
-});
-
+    }, 150_000);
+  },
+);

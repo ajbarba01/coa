@@ -40,16 +40,16 @@ import {
  *
  *   COA_LIVE=1 pnpm vitest run packages/adapter-claude-sdk/src/barge-in-smoke.live.test.ts
  */
-describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in smoke (real backend)', () => {
-  let locator: Locator;
+describe.skipIf(!process.env['COA_LIVE'])(
+  'ClaudeSdkAdapter — live barge-in smoke (real backend)',
+  () => {
+    let locator: Locator;
 
-  beforeAll(() => {
-    locator = resolveLiveLocator();
-  });
+    beforeAll(() => {
+      locator = resolveLiveLocator();
+    });
 
-  it(
-    'interrupts a running turn, keeps the query alive, runs the framed steer next, and flushes the interrupted turn',
-    async () => {
+    it('interrupts a running turn, keeps the query alive, runs the framed steer next, and flushes the interrupted turn', async () => {
       const frames: TurnFrame[] = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-bargein-'));
@@ -103,7 +103,9 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
 
       // --- Barge-in: stop the running turn A (query stays alive), then push the steer.
       await turnInterrupt!();
-      queue.push('[The user interrupted to steer you] Stop counting. Reply with exactly one word: BANANA. Nothing else.');
+      queue.push(
+        '[The user interrupted to steer you] Stop counting. Reply with exactly one word: BANANA. Nothing else.',
+      );
 
       // The framed steer must run as the next turn and produce BANANA.
       await waitForCondition(
@@ -140,7 +142,9 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
       // result (`error_during_execution`) that maps to an error frame — which M8's
       // held-open `record()` must suppress (the `barging` counter) so a barge-in never
       // surfaces as an error. Locking it here flags any future SDK change to that shape.
-      expect(window.some((f) => f.t === 'error' && f.message === 'error_during_execution')).toBe(true);
+      expect(window.some((f) => f.t === 'error' && f.message === 'error_during_execution')).toBe(
+        true,
+      );
 
       // --- Clean close: the still-open query terminates, not hangs --------------
       queue.close();
@@ -150,8 +154,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live barge-in sm
         'runLoop did not resolve within 20s of queue.close() after a barge-in — the query may not be terminating',
       );
       expect(await isPending(runLoopPromise)).toBe(false);
-    },
-    150_000,
-  );
-});
-
+    }, 150_000);
+  },
+);

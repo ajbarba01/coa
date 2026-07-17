@@ -30,7 +30,11 @@ describe('modelInfoToDescriptor — SDK ModelInfo → neutral ModelDescriptor', 
 
   it('reflects a model with a smaller effort set faithfully (Haiku ≠ Opus)', () => {
     const d = modelInfoToDescriptor(
-      info({ value: 'claude-haiku-4-5', supportsEffort: true, supportedEffortLevels: ['low', 'medium'] }),
+      info({
+        value: 'claude-haiku-4-5',
+        supportsEffort: true,
+        supportedEffortLevels: ['low', 'medium'],
+      }),
     );
     expect(d.supportedEffortLevels).toEqual(['low', 'medium']);
   });

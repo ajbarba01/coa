@@ -31,16 +31,16 @@ import {
  *
  *   COA_LIVE=1 pnpm vitest run packages/adapter-claude-sdk/src/streaming-output-smoke.live.test.ts
  */
-describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming output (real backend)', () => {
-  let locator: Locator;
+describe.skipIf(!process.env['COA_LIVE'])(
+  'ClaudeSdkAdapter — live streaming output (real backend)',
+  () => {
+    let locator: Locator;
 
-  beforeAll(() => {
-    locator = resolveLiveLocator();
-  });
+    beforeAll(() => {
+      locator = resolveLiveLocator();
+    });
 
-  it(
-    'streams multiple text-delta frames whose concatenation equals the settled text',
-    async () => {
+    it('streams multiple text-delta frames whose concatenation equals the settled text', async () => {
       const frames: TurnFrame[] = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-stream-out-'));
@@ -65,14 +65,18 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming o
 
       // A prompt whose answer is long enough to necessarily stream in several partial
       // messages (a one-line answer can come back atomically as a single assistant message).
-      queue.push('Write a detailed paragraph of about 150 words explaining what a hash map is. Prose only, no lists.');
+      queue.push(
+        'Write a detailed paragraph of about 150 words explaining what a hash map is. Prose only, no lists.',
+      );
       await waitForCondition(
         () => boundaryCount(frames) >= 1,
         60_000,
         'the turn never produced a turn-boundary frame — the real query never streamed a result',
       );
 
-      const deltas = frames.filter((f): f is Extract<TurnFrame, { t: 'text-delta' }> => f.t === 'text-delta');
+      const deltas = frames.filter(
+        (f): f is Extract<TurnFrame, { t: 'text-delta' }> => f.t === 'text-delta',
+      );
       // (a) partial messages really streamed — more than one delta arrived.
       expect(deltas.length).toBeGreaterThan(1);
       // Every delta arrived before the settled `text` frame (delivery precedes record).
@@ -85,7 +89,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming o
 
       queue.close();
       await runLoopPromise;
-    },
-    120_000,
-  );
-});
+    }, 120_000);
+  },
+);

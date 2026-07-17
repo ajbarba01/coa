@@ -292,7 +292,8 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
         backendSessionReported = true;
         this.#init.onBackendSession?.(message.session_id);
       }
-      for (const { frame, full } of messageToEnrichedFrames(message)) this.#init.onTurn?.(frame, full);
+      for (const { frame, full } of messageToEnrichedFrames(message))
+        this.#init.onTurn?.(frame, full);
       if (message.type === 'result') {
         this.#lastUsage = {
           tokensIn: message.usage.input_tokens,
