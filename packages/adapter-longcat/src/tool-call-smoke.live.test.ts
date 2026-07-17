@@ -16,7 +16,10 @@ import { resolveApiKey } from './credentials.js';
  * real tool schema and asserts the arguments SURVIVE the round-trip. Skipped (never failed)
  * when no LongCat key is configured, so CI without creds stays green.
  */
-const apiKey = resolveApiKey({ type: 'key-file', path: `${process.env['USERPROFILE'] ?? process.env['HOME'] ?? ''}/.coa/keys/lc` });
+const apiKey = resolveApiKey({
+  type: 'key-file',
+  path: `${process.env['USERPROFILE'] ?? process.env['HOME'] ?? ''}/.coa/keys/lc`,
+});
 
 describe.skipIf(apiKey === undefined)('LongCat live tool call', () => {
   it('returns a streamed tool call with its arguments intact', async () => {

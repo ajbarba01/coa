@@ -47,7 +47,14 @@ describe('renderSystemPrompt (DeepSeek)', () => {
   it('renders every piece as ordered sections with no drop-set and no boundary heading', () => {
     const out = renderSystemPrompt(config());
     expect(out).toBe(
-      ['## Identity', 'You are a coa agent.', '## Tone', 'Be concise.', '## Environment', 'cwd: /w'].join('\n\n'),
+      [
+        '## Identity',
+        'You are a coa agent.',
+        '## Tone',
+        'Be concise.',
+        '## Environment',
+        'cwd: /w',
+      ].join('\n\n'),
     );
     expect(out.startsWith('## Identity')).toBe(true);
     expect(out).toContain('## Tone');
@@ -71,7 +78,9 @@ describe('renderSystemPrompt (DeepSeek)', () => {
         },
       ],
     });
-    expect(out).toBe(['## Model', 'You are running as deepseek/deepseek-v4-pro (max)'].join('\n\n'));
+    expect(out).toBe(
+      ['## Model', 'You are running as deepseek/deepseek-v4-pro (max)'].join('\n\n'),
+    );
   });
 
   it('appends standing-authority reminders after the sections', () => {
