@@ -13,11 +13,7 @@ export interface SpinnerProps {
  *  Reduced-motion swaps the spin for a pulse. */
 export function Spinner({ label, className }: SpinnerProps): React.JSX.Element {
   return (
-    <span
-      role="status"
-      aria-label={label}
-      className={cx('spinner-reveal inline-flex', className)}
-    >
+    <span role="status" aria-label={label} className={cx('spinner-reveal inline-flex', className)}>
       <span className="block h-4 w-4 rounded-full border-2 border-s4 border-t-s8 motion-safe:animate-spin motion-reduce:animate-pulse" />
     </span>
   );
