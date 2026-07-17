@@ -26,6 +26,19 @@ The option row: selection is an s4 tint plus the trailing mono `current` marker,
 - **Accessibility:** Native button semantics; disabled uses the real attribute; Escape/outside-press come from the hosting popup.
 - **Related:** MenuCard, PopoverCard, Select
 
+## Brand
+
+### BrandMark
+
+A third party's own mark in its own color — identity you read without thinking.
+
+- **Use it when:** Naming an external provider (agent backend, tool service) on a credentials or usage surface. A row whose subject IS the third party, where the logo is the fastest identifier.
+- **Don't use it when:** Indicating state — that is StatusDot; a mark is identity, never status. Decorating coa surfaces that are not about a third party (the sand register owns those).
+- **Anatomy:** One 24×24 svg path filled with the brand hex, or — when no official mark ships — a rounded monogram tile grounded in that hex.
+- **Variants & states:** path (bundled official mark), monogram (no mark bundled — the extensibility floor), muted (a benched provider: desaturated + dimmed, never recolored)
+- **Accessibility:** role="img" with the provider name as aria-label, so the identity survives with images or color off.
+- **Related:** StatusDot, Meter
+
 ## Chrome
 
 ### WindowControls
@@ -38,6 +51,19 @@ The hidden-frame window’s min/max/close cluster, drawn in the DOM so it scales
 - **Variants & states:** default (ink s8), hover (min/max: s3 ground + s10 ink), close hover (crit ground + s12 ink — the one red hover in the chrome), restore (maximized ⇒ ❐ glyph + aria-label "restore")
 - **Accessibility:** Each button carries its verb as aria-label; the maximize label flips to "restore" with the state.
 - **Related:** Button
+
+## Data
+
+### Meter
+
+Utilization against a known ceiling, as a bar that earns its color.
+
+- **Use it when:** A backend gave us both a value and its ceiling (a rate-limit window, a quota). Several of them stack, so the bars line up and comparison is a glance.
+- **Don't use it when:** The ceiling is unknown — render the number alone, or say "unknown"; never fake a denominator. Progress of a task (that is a Spinner) or a count (that is text).
+- **Anatomy:** A square-ended ground track with a fill sized by percent, toned by the value it earns. Boxy on purpose — a rounded pill reads as a control, not a measurement.
+- **Variants & states:** quiet (< warnAt — ground, the default), needs-you (>= warnAt — amber), critical (>= critAt — red), zero (a 1% hairline: read-and-empty must not read as never-read)
+- **Accessibility:** role="meter" with aria-valuenow/min/max; the caller renders the number in text beside it, so the reading never depends on the bar.
+- **Related:** StatusDot, BrandMark
 
 ## Foundations
 
