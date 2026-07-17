@@ -4,26 +4,27 @@
 - agents searchable by model and model shows full model
 - staleness banner on fresh session
 - copy block toast
-- is that how toasts are supposed to be activated lol.
 - user message shadow and proper push and expand 
 - claude.md or agents.md injection?
 - tool auto repair + grounding. even a "did you mean??" from a smaller model? (https://www.youtube.com/watch?v=f61DCDwvFis)
 - also in general coa needs more tool transparency for models
 - embedded cli mode? and maybe we could skip agent sdk and use subscription reliably for claude or codex then
-- integrate with openrouter
+- add openrouter provider
 - web search didn't return anything (1req/s from tavily probably)
 - better file grep (recency or hotspot based)
 - external web chat panels? (for chatgpt)
+- completely honest tool input fed back to model (no more gaslighting the model)
 
 ## New design
-- better highlighting for search in chat
 - title bar should act as a surface that you can click off a dialog/layer with
-- search sessions should have an arrow key up and down hover/select
-- rebindable keyboard shortcuts
 - find in chat a little wonky. highlight section should have some more padding, matches in reasoning blocks should auto expand
-- drag to rearrange tabs
 - green done status should be when an agent turns to idle but you are not on that chat session
 - coa butler can be a session that automaticllay pops out?
+- about page in settings (app version so far)
+- command palette suggest by how often you use it or by recency
+- standardize capitalizing or not
+- plan mode
+- context window indicator composer
 
 
 ### CHAT
