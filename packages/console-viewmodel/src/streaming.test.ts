@@ -2,10 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { appendStreamingFrame, reconcileStreaming } from './streaming.js';
 import type { TurnFrame } from './reads.js';
 
-const textDelta = (id: string, text: string): TurnFrame => ({ id, role: 'agent', kind: 'text', text, streaming: true });
-const thinkingDelta = (id: string, text: string): TurnFrame => ({ id, role: 'agent', kind: 'thinking', text, streaming: true });
-const settledText = (id: string, text: string): TurnFrame => ({ id, role: 'agent', kind: 'text', text });
-const settledThinking = (id: string, text: string): TurnFrame => ({ id, role: 'agent', kind: 'thinking', text });
+const textDelta = (id: string, text: string): TurnFrame => ({
+  id,
+  role: 'agent',
+  kind: 'text',
+  text,
+  streaming: true,
+});
+const thinkingDelta = (id: string, text: string): TurnFrame => ({
+  id,
+  role: 'agent',
+  kind: 'thinking',
+  text,
+  streaming: true,
+});
+const settledText = (id: string, text: string): TurnFrame => ({
+  id,
+  role: 'agent',
+  kind: 'text',
+  text,
+});
+const settledThinking = (id: string, text: string): TurnFrame => ({
+  id,
+  role: 'agent',
+  kind: 'thinking',
+  text,
+});
 
 describe('reconcileStreaming', () => {
   it('settles an open thinking block when agent output text begins (#3)', () => {
@@ -20,11 +42,16 @@ describe('reconcileStreaming', () => {
 
   it('accumulates consecutive text deltas into one live block', () => {
     const turns = reconcileStreaming([], [textDelta('a', 'Hel'), textDelta('b', 'lo')]);
-    expect(turns).toEqual([{ id: 'a', role: 'agent', kind: 'text', text: 'Hello', streaming: true }]);
+    expect(turns).toEqual([
+      { id: 'a', role: 'agent', kind: 'text', text: 'Hello', streaming: true },
+    ]);
   });
 
   it('replaces the live text block with the settled frame (no double-render), keeping the id', () => {
-    const turns = reconcileStreaming([], [textDelta('a', 'Hel'), textDelta('b', 'lo'), settledText('c', 'Hello')]);
+    const turns = reconcileStreaming(
+      [],
+      [textDelta('a', 'Hel'), textDelta('b', 'lo'), settledText('c', 'Hello')],
+    );
     expect(turns).toEqual([{ id: 'a', role: 'agent', kind: 'text', text: 'Hello' }]);
   });
 
@@ -63,7 +90,13 @@ describe('reconcileStreaming', () => {
   });
 
   it('leaves a tool_use frame between blocks intact', () => {
-    const toolUse: TurnFrame = { id: 'tu', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{}' };
+    const toolUse: TurnFrame = {
+      id: 'tu',
+      role: 'agent',
+      kind: 'tool-use',
+      tool: 'Read',
+      input: '{}',
+    };
     const turns = reconcileStreaming([], [textDelta('a', 'Hi'), settledText('b', 'Hi'), toolUse]);
     expect(turns).toEqual([{ id: 'a', role: 'agent', kind: 'text', text: 'Hi' }, toolUse]);
   });
