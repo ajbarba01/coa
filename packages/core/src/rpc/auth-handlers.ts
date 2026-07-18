@@ -7,6 +7,7 @@ import {
 } from '@coa/shared';
 import { z } from 'zod';
 import type { AccountsRegistry } from '../auth/registry.js';
+import { assembleAuthView, type AuthViewDeps } from './auth-view.js';
 import { rpcMethod, type RpcHandlers } from './router.js';
 
 /**
@@ -49,7 +50,11 @@ function accountsView(registry: AccountsRegistry): {
   };
 }
 
-export function buildAuthHandlers(registry: AccountsRegistry): RpcHandlers {
+/** The `buildAuthHandlers` deps — the same four-store shape `assembleAuthView` reads. */
+export type AuthHandlerDeps = AuthViewDeps;
+
+export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
+  const registry = deps.accounts;
   return {
     listAccounts: rpcMethod(noParams, () => accountsView(registry)),
     currentAccount: rpcMethod(noParams, () => ({ active: activeByProvider(registry) })),
@@ -70,5 +75,6 @@ export function buildAuthHandlers(registry: AccountsRegistry): RpcHandlers {
       registry.remove(p.label);
       return accountsView(registry);
     }),
+    authView: rpcMethod(noParams, () => assembleAuthView(deps)),
   };
 }
