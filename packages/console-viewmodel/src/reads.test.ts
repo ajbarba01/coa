@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AuthViewSchema,
   CheckpointSchema,
   FeedViewSchema,
   TimelineSchema,
@@ -62,5 +63,26 @@ describe('turn frame schema', () => {
       { id: 'e', role: 'agent', kind: 'tool-use', tool: 'Read', input: '{}', handle: 'h1' },
     ];
     expect(() => TurnStreamSchema.parse(frames)).not.toThrow();
+  });
+});
+
+describe('auth view schema', () => {
+  it('parses an auth view and keeps optional phase-2 fields absent', () => {
+    const v = AuthViewSchema.parse({
+      added: ['claude'],
+      credentials: [
+        {
+          id: 'claude:worm',
+          providerId: 'claude',
+          label: 'worm',
+          masked: '~/.claude',
+          disabled: false,
+        },
+      ],
+      activeByProvider: { claude: 'claude:worm' },
+      enabled: { claude: true },
+      chains: { search: ['tavily'], fetch: [] },
+    });
+    expect(v.credentials[0]?.identity).toBeUndefined();
   });
 });
