@@ -161,6 +161,24 @@ describe('auth write verbs', () => {
     expect(view.credentials.find((c) => c.label === 'new')?.disabled).toBe(true);
   });
 
+  it('renameCredential (service) clears the OLD path\'s breaker cooldown, so a re-added same-label key is not cooling', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'old', secret: 'tv-secret' });
+    const oldPath = webKeyFilePath(home, 'old');
+    d.keys.markCooldown(`tavily:${oldPath}`, Date.now() + 60_000);
+
+    await h.renameCredential!.handle({ id: credentialId('tavily', 'old'), label: 'new' });
+    const view = (await h.addCredential!.handle({
+      providerId: 'tavily',
+      label: 'old',
+      secret: 'tv-secret-2',
+    })) as AuthView;
+
+    expect(view.credentials.find((c) => c.label === 'old')?.coolingSec).toBeUndefined();
+    expect(d.keys.isCoolingDown(`tavily:${oldPath}`, Date.now())).toBe(false);
+  });
+
   it('renameCredential (backend) re-keys the registry, preserving locator + active status', async () => {
     const d = freshDeps(home);
     d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
@@ -242,6 +260,18 @@ describe('auth write verbs', () => {
     expect(view.activeByProvider['claude']).toBeUndefined();
   });
 
+  it('setCredentialDisabled (backend) is a graceful no-op for an unknown label', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    const h = buildAuthHandlers(d);
+    const before = (await h.authView!.handle(undefined)) as AuthView;
+    const after = (await h.setCredentialDisabled!.handle({
+      id: credentialId('claude', 'nonexistent'),
+      disabled: true,
+    })) as AuthView;
+    expect(after).toEqual(before);
+  });
+
   it('setCredentialDisabled (service) benches a service key without touching the file', async () => {
     const d = freshDeps(home);
     const h = buildAuthHandlers(d);
@@ -307,6 +337,24 @@ describe('auth write verbs', () => {
     const view = (await h.removeCredential!.handle({ id: credentialId('tavily', 'k1') })) as AuthView;
     expect(view.credentials.find((c) => c.label === 'k1')).toBeUndefined();
     expect(existsSync(path)).toBe(false);
+  });
+
+  it('removeCredential (service) clears the label\'s breaker cooldown, so a re-added same-label key is not cooling', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
+    const path = webKeyFilePath(home, 'k1');
+    d.keys.markCooldown(`tavily:${path}`, Date.now() + 60_000);
+
+    await h.removeCredential!.handle({ id: credentialId('tavily', 'k1') });
+    const view = (await h.addCredential!.handle({
+      providerId: 'tavily',
+      label: 'k1',
+      secret: 'tv-key-2',
+    })) as AuthView;
+
+    expect(view.credentials.find((c) => c.label === 'k1')?.coolingSec).toBeUndefined();
+    expect(d.keys.isCoolingDown(`tavily:${path}`, Date.now())).toBe(false);
   });
 
   it('removeCredential is a no-op for an unsupported provider', async () => {

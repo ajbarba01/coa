@@ -21,6 +21,7 @@ import {
   assembleAuthView,
   credentialId,
   heir,
+  labelOf,
   type AuthViewDeps,
   type CredentialView,
 } from './auth-view.js';
@@ -91,16 +92,6 @@ function splitId(id: string): { providerId: string; label: string } {
   return { providerId: id.slice(0, at), label: id.slice(at + 1) };
 }
 
-/** The tail label of a web `key-file`/`env-var` locator (mirrors auth-view's private labelOf). */
-function webLabelOf(locator: Locator): string {
-  if (locator.type === 'key-file') {
-    const base = locator.path.split(/[\\/]/).pop() ?? locator.path;
-    return base.startsWith('web-') ? base.slice(4) : base;
-  }
-  if (locator.type === 'env-var') return locator.name;
-  return '';
-}
-
 /** Unlink a key file, tolerating one that's already gone (never a secret read-back). */
 function safeUnlink(path: string): void {
   try {
@@ -168,8 +159,9 @@ function renameBackendCredential(
  * Rename a service key: the highest-care unit. Renames the `web-<label>` file on
  * disk, removes the old web credential from every chain it served, and re-adds a
  * fresh key-file locator at the new path across those same chains — preserving its
- * benched state. The old id's breaker cooldown (keyed on the old path) is simply
- * orphaned, not migrated: harmless, since the path it points at no longer exists.
+ * benched state. Also clears the OLD path's breaker cooldown: the key-file path is
+ * deterministic from the label, so a lingering cooldown there would otherwise make a
+ * future same-label key appear breaker-cooling on arrival.
  */
 function renameServiceCredential(
   deps: AuthHandlerDeps,
@@ -184,7 +176,7 @@ function renameServiceCredential(
   const web = deps.web.read();
   const wasDisabled = chains.some((chain) => {
     const entry = (web[chain]?.providers ?? []).find((p) => p.kind === providerId);
-    return entry?.credentials.some((c) => webLabelOf(c.locator) === oldLabel && c.disabled) ?? false;
+    return entry?.credentials.some((c) => labelOf(c.locator) === oldLabel && c.disabled) ?? false;
   });
 
   if (existsSync(oldPath)) {
@@ -199,16 +191,23 @@ function renameServiceCredential(
   if (wasDisabled) {
     for (const chain of chains) deps.web.setCredentialDisabled(chain, newLabel, true);
   }
+  deps.keys.clear(`${providerId}:${oldPath}`);
 }
 
-/** Cascade-delete every credential a service provider has across its chains, unlinking freed key files. */
+/**
+ * Cascade-delete every credential a service provider has across its chains, unlinking
+ * freed key files and clearing each removed label's breaker cooldown (the key-file
+ * path is deterministic from the label, so a stale cooldown would otherwise haunt a
+ * future same-label key).
+ */
 function removeServiceProviderCredentials(deps: AuthHandlerDeps, providerId: string): void {
   for (const chain of chainOf(providerId)) {
     const web = deps.web.read();
     const entry = (web[chain]?.providers ?? []).find((p) => p.kind === providerId);
-    const labels = (entry?.credentials ?? []).map((c) => webLabelOf(c.locator));
+    const labels = (entry?.credentials ?? []).map((c) => labelOf(c.locator));
     for (const label of labels) {
       for (const path of deps.web.removeCredential(chain, label)) safeUnlink(path);
+      deps.keys.clear(`${providerId}:${webKeyFilePath(homedir(), label)}`);
     }
   }
 }
@@ -346,6 +345,9 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         for (const chain of chainOf(providerId)) {
           for (const path of deps.web.removeCredential(chain, label)) safeUnlink(path);
         }
+        // the key-file path is deterministic from the label — clear its cooldown so a
+        // future same-label key never inherits a stale breaker cooling state
+        deps.keys.clear(`${providerId}:${webKeyFilePath(homedir(), label)}`);
       }
       return assembleAuthView(deps);
     }),
@@ -365,10 +367,14 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       const group = providerGroup(providerId);
       if (group === 'backend') {
         const provider = providerId as Provider;
-        const activeBefore = deps.accounts.getActive(provider);
-        const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === label;
-        deps.accounts.setDisabled(label, p.disabled);
-        if (p.disabled) applyHeirIfWasActive(deps.accounts, provider, label, wasActive);
+        const account = deps.accounts.listByProvider(provider).find((a) => a.label === label);
+        if (account !== undefined) {
+          const activeBefore = deps.accounts.getActive(provider);
+          const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === label;
+          deps.accounts.setDisabled(label, p.disabled);
+          if (p.disabled) applyHeirIfWasActive(deps.accounts, provider, label, wasActive);
+        }
+        // no account at this label — graceful no-op (SC-1: help, never crash)
       } else if (group === 'service') {
         for (const chain of chainOf(providerId)) deps.web.setCredentialDisabled(chain, label, p.disabled);
       }

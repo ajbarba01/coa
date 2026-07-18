@@ -71,7 +71,7 @@ export function heir(siblings: CredentialView[]): CredentialView | undefined {
 }
 
 /** A service key's label: the tail of its `web-<label>` key-file, or the env-var name. */
-function labelOf(locator: Locator): string {
+export function labelOf(locator: Locator): string {
   if (locator.type === 'key-file') {
     const base = locator.path.split(/[\\/]/).pop() ?? locator.path;
     return base.startsWith('web-') ? base.slice(4) : base;
