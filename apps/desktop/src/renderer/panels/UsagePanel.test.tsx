@@ -17,12 +17,56 @@ import {
 import { useAuthUi, useUsageUi } from './surfaceUi.js';
 import { useShell } from '../shell/store.js';
 
-const SEED = useMockAuth.getState();
+// The store is empty until `hydrate()` resolves (Task 10 — live daemon reads). This file
+// never mocks `../console.js`, so the surface's mount-time `hydrate()` fires the REAL
+// `rpcAuthView` against an absent `window.coa` in jsdom, rejects, and is swallowed (SC-1,
+// see AuthPanel/UsagePanel's mount effects) — leaving whatever this fixture seeds directly
+// below untouched. Usage stays Phase 2 mock: these are rendering assertions against a known
+// credential set, not RPC wiring (that's AuthPanel.test.tsx's job).
+const EMPTY_STATE = useMockAuth.getState();
+const FIXTURE_CREDENTIALS: Credential[] = [
+  {
+    id: 'x',
+    providerId: 'claude',
+    label: 'worm',
+    masked: '~/.claude',
+    identity: 'wormsegment1000@gmail.com',
+    plan: 'Claude Pro',
+    disabled: false,
+  },
+  {
+    id: 'y',
+    providerId: 'claude',
+    label: 'school',
+    masked: '~/.claude-school',
+    identity: 'alex@barba.edu',
+    plan: 'Claude Pro',
+    disabled: false,
+  },
+  {
+    id: 'z',
+    providerId: 'claude',
+    label: 'personal',
+    masked: '~/.claude-personal',
+    expired: true,
+    disabled: false,
+  },
+  { id: 'd', providerId: 'deepseek', label: 'ds', masked: 'sk-9…4f1', disabled: false },
+  { id: 'l', providerId: 'longcat', label: 'lc', masked: 'lc-2…c07', disabled: false },
+  { id: 't', providerId: 'tavily', label: 'tavily-1', masked: 'tvly…8f2', disabled: false },
+];
+const FIXTURE_ADDED = ['claude', 'deepseek', 'longcat', 'tavily'];
+const FIXTURE_ENABLED = { claude: true, deepseek: true, longcat: true, tavily: true };
 const HUD_SEED = useUsageHud.getState();
 const UI_SEED = useUsageUi.getState();
 const AUTH_UI_SEED = useAuthUi.getState();
 beforeEach(() => {
-  useMockAuth.setState(SEED, true);
+  useMockAuth.setState(EMPTY_STATE, true);
+  useMockAuth.setState({
+    added: FIXTURE_ADDED,
+    credentials: FIXTURE_CREDENTIALS,
+    enabled: FIXTURE_ENABLED,
+  });
   useUsageHud.setState(HUD_SEED, true);
   useUsageUi.setState(UI_SEED, true);
   useAuthUi.setState(AUTH_UI_SEED, true);
