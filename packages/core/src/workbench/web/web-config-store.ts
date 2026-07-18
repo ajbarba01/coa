@@ -118,6 +118,40 @@ export class WebConfigStore {
     return stillReferenced ? [] : [keyFilePath];
   }
 
+  /** Bench/unbench an entire provider entry (`kind`) in `chain`. A no-op if the chain or entry is absent. */
+  setProviderDisabled(chain: WebChain, kind: string, disabled: boolean): void {
+    const config = this.#readStored();
+    const block = config[chain];
+    const entry = block?.providers.find((p) => p.kind === kind);
+    if (block === undefined || entry === undefined) return;
+    entry.disabled = disabled;
+    config[chain] = block;
+    this.#write(config);
+  }
+
+  /**
+   * Bench/unbench every credential in `chain` matching `id` (a key-file at
+   * {@link webKeyFilePath}`(id)`, or an env-var named `id`). A no-op if the chain is
+   * absent. Credential-blind: flips only the `disabled` pointer, never touches the secret.
+   */
+  setCredentialDisabled(chain: WebChain, id: string, disabled: boolean): void {
+    const config = this.#readStored();
+    const block = config[chain];
+    if (block === undefined) return;
+    const keyFilePath = webKeyFilePath(this.#home, id);
+    for (const p of block.providers) {
+      for (const c of p.credentials) {
+        if (
+          (c.locator.type === 'key-file' && c.locator.path === keyFilePath) ||
+          (c.locator.type === 'env-var' && c.locator.name === id)
+        )
+          c.disabled = disabled;
+      }
+    }
+    config[chain] = block;
+    this.#write(config);
+  }
+
   #readStored(): Stored {
     return structuredClone(this.read()) as Stored;
   }

@@ -66,6 +66,53 @@ describe('buildWebToolDeps', () => {
     expect(await deps.searchChain({ query: 'q' })).toMatchObject({ status: 'exhausted' });
   });
 
+  it('excludes a disabled credential from the search chain', async () => {
+    // Stubbed to SUCCEED — if the disabled credential were not skipped, the chain
+    // would resolve `ok`; this proves exhaustion comes from the skip, not a network miss.
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ results: [{ title: 't', url: 'https://x.test', content: 'c' }] }),
+      text: async () => '',
+    }));
+    const cfg = webConfigSchema.parse({
+      search: {
+        providers: [
+          {
+            kind: 'tavily',
+            credentials: [{ locator: { type: 'env-var', name: 'K' }, disabled: true }],
+          },
+        ],
+      },
+    });
+    const deps = buildWebToolDeps(cfg, { K: 'secret' }, { store: noopStore, now: () => 0 });
+    expect(await deps.searchChain({ query: 'hi' })).toMatchObject({ status: 'exhausted' });
+  });
+
+  it('excludes a disabled provider even if its keys resolve', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ results: [{ title: 't', url: 'https://x.test', content: 'c' }] }),
+      text: async () => '',
+    }));
+    const cfg = webConfigSchema.parse({
+      search: {
+        providers: [
+          {
+            kind: 'tavily',
+            disabled: true,
+            credentials: [{ locator: { type: 'env-var', name: 'K' }, disabled: false }],
+          },
+        ],
+      },
+    });
+    const deps = buildWebToolDeps(cfg, { K: 'secret' }, { store: noopStore, now: () => 0 });
+    expect(await deps.searchChain({ query: 'hi' })).toMatchObject({ status: 'exhausted' });
+  });
+
   it('routes a Tavily search key and marks its credential-blind cooldown id on quota', async () => {
     const marks: Array<{ id: string; until: number }> = [];
     const store: CooldownStore = {

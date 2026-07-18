@@ -73,6 +73,39 @@ describe('WebConfigStore', () => {
     expect(store.read().search?.providers ?? []).toEqual([]);
   });
 
+  it('setCredentialDisabled benches an env-var credential by id', () => {
+    const store = new WebConfigStore(home);
+    store.addCredential('search', 'tavily', { type: 'env-var', name: 'TAVILY_KEY_1' });
+    store.setCredentialDisabled('search', 'TAVILY_KEY_1', true);
+    expect(store.read().search?.providers[0]?.credentials[0]?.disabled).toBe(true);
+  });
+
+  it('setCredentialDisabled benches a key-file credential by its label id', () => {
+    const store = new WebConfigStore(home);
+    store.addCredential('search', 'firecrawl', { type: 'key-file', path: webKeyFilePath(home, 'fc1') });
+    store.setCredentialDisabled('search', 'fc1', true);
+    expect(store.read().search?.providers[0]?.credentials[0]?.disabled).toBe(true);
+  });
+
+  it('setCredentialDisabled is a no-op when the chain is absent', () => {
+    const store = new WebConfigStore(home);
+    expect(() => store.setCredentialDisabled('fetch', 'nope', true)).not.toThrow();
+    expect(store.read().fetch).toBeUndefined();
+  });
+
+  it('setProviderDisabled benches an entire provider entry by kind', () => {
+    const store = new WebConfigStore(home);
+    store.addCredential('search', 'tavily', { type: 'env-var', name: 'TAVILY_KEY_1' });
+    store.setProviderDisabled('search', 'tavily', true);
+    expect(store.read().search?.providers[0]?.disabled).toBe(true);
+  });
+
+  it('setProviderDisabled is a no-op when the chain or entry is absent', () => {
+    const store = new WebConfigStore(home);
+    expect(() => store.setProviderDisabled('search', 'tavily', true)).not.toThrow();
+    expect(store.read().search).toBeUndefined();
+  });
+
   it('returns a key-file path for unlink only once it is unreferenced by EITHER chain', () => {
     const store = new WebConfigStore(home);
     const loc = { type: 'key-file' as const, path: webKeyFilePath(home, 'shared') };

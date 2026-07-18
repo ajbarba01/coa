@@ -129,7 +129,9 @@ function buildFetchChain(
 ): RoutedFetch {
   const providers: Array<{ provider: FetchProvider; keyStateId: string }> = [];
   for (const provider of fetchCfg?.providers ?? []) {
+    if (provider.disabled) continue;
     for (const cred of provider.credentials) {
+      if (cred.disabled) continue;
       const apiKey = resolveKey(cred.locator, env);
       if (apiKey === undefined) continue;
       providers.push({
@@ -177,7 +179,9 @@ function buildSearchChain(
 ): RoutedSearch {
   const providers: Array<{ provider: SearchProvider; keyStateId: string }> = [];
   for (const provider of searchCfg?.providers ?? []) {
+    if (provider.disabled) continue;
     for (const cred of provider.credentials) {
+      if (cred.disabled) continue;
       const apiKey = resolveKey(cred.locator, env);
       if (apiKey === undefined) continue;
       providers.push({
