@@ -31,4 +31,14 @@ describe('auth schema', () => {
   it('rejects an unknown locator type', () => {
     expect(() => locatorSchema.parse({ type: 'api-key', key: 'x' })).toThrow();
   });
+
+  it('defaults disabled to false when absent (drop-safe, additive)', () => {
+    const a = accountSchema.parse({ label: 'worm', provider: 'claude', locator: { type: 'config-dir', dir: '~/.claude' } });
+    expect(a.disabled).toBe(false);
+  });
+
+  it('round-trips an explicit disabled login', () => {
+    const a = accountSchema.parse({ label: 'ds', provider: 'deepseek', disabled: true, locator: { type: 'key-file', path: '/x' } });
+    expect(a.disabled).toBe(true);
+  });
 });
