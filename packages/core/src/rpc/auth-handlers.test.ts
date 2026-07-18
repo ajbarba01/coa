@@ -1,16 +1,18 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AccountsRegistry } from '../auth/registry.js';
-import { WebConfigStore } from '../workbench/web/web-config-store.js';
+import { AccountsRegistry, accountsPath } from '../auth/registry.js';
+import { WebConfigStore, webConfigPath, webKeyFilePath } from '../workbench/web/web-config-store.js';
 import { KeyStateStore } from '../workbench/web/key-state-store.js';
 import { ConsoleStateStore } from '../console/console-state-store.js';
-import type { AuthView } from './auth-view.js';
+import { credentialId, type AuthView } from './auth-view.js';
 import { dispatch } from './router.js';
 import { buildAuthHandlers, type AuthHandlerDeps } from './auth-handlers.js';
 
 let home: string;
+let originalHome: string | undefined;
+let originalUserProfile: string | undefined;
 const call = (handlers: ReturnType<typeof buildAuthHandlers>, method: string, params?: unknown) =>
   dispatch({ jsonrpc: '2.0', id: 1, method, params }, handlers);
 
@@ -26,8 +28,22 @@ function freshDeps(home: string): AuthHandlerDeps {
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'coa-authrpc-'));
+  // The write verbs (addCredential/renameCredential/etc.) key their web-service file
+  // writes off `os.homedir()`, exactly like the real daemon composition (session/daemon.ts
+  // roots all four stores at homedir()). Point homedir() at the same temp dir the stores
+  // above are rooted at, so the handler and the test observe the same files.
+  originalHome = process.env.HOME;
+  originalUserProfile = process.env.USERPROFILE;
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
 });
-afterEach(() => rmSync(home, { recursive: true, force: true }));
+afterEach(() => {
+  rmSync(home, { recursive: true, force: true });
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
+});
 
 describe('buildAuthHandlers', () => {
   it('currentAccount is empty initially, then reflects a per-provider use', async () => {
@@ -102,5 +118,310 @@ describe('buildAuthHandlers', () => {
     const handlers = buildAuthHandlers(deps);
     const view = (await handlers.authView!.handle(undefined)) as AuthView;
     expect(view.credentials.map((c) => c.label)).toContain('worm');
+  });
+});
+
+describe('auth write verbs', () => {
+  // --- write-first: the highest-care unit ------------------------------------------
+  it('renameCredential (service) moves the key file on disk and re-points the locator', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'old', secret: 'tv-secret' });
+    const oldPath = webKeyFilePath(home, 'old');
+    const newPath = webKeyFilePath(home, 'new');
+    expect(existsSync(oldPath)).toBe(true);
+
+    const view = (await h.renameCredential!.handle({
+      id: credentialId('tavily', 'old'),
+      label: 'new',
+    })) as AuthView;
+
+    expect(existsSync(oldPath)).toBe(false);
+    expect(existsSync(newPath)).toBe(true);
+    expect(view.credentials.find((c) => c.label === 'new')?.providerId).toBe('tavily');
+    expect(view.credentials.find((c) => c.label === 'old')).toBeUndefined();
+    // the secret content itself survived the move, unread and unmodified
+    expect(readFileSync(newPath, 'utf8')).toBe('tv-secret');
+    // both chains re-point (tavily serves both search and fetch)
+    expect(view.chains['search']).toContain('tavily');
+    expect(view.chains['fetch']).toContain('tavily');
+  });
+
+  it('renameCredential (service) preserves a benched credential\'s disabled state', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'old', secret: 'tv-secret' });
+    await h.setCredentialDisabled!.handle({ id: credentialId('tavily', 'old'), disabled: true });
+
+    const view = (await h.renameCredential!.handle({
+      id: credentialId('tavily', 'old'),
+      label: 'new',
+    })) as AuthView;
+
+    expect(view.credentials.find((c) => c.label === 'new')?.disabled).toBe(true);
+  });
+
+  it('renameCredential (backend) re-keys the registry, preserving locator + active status', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    d.accounts.setActive('a');
+    const h = buildAuthHandlers(d);
+
+    const view = (await h.renameCredential!.handle({
+      id: credentialId('claude', 'a'),
+      label: 'b',
+    })) as AuthView;
+
+    expect(view.credentials.map((c) => c.label)).toEqual(['b']);
+    expect(view.activeByProvider['claude']).toBe(credentialId('claude', 'b'));
+  });
+
+  // --- brief cases --------------------------------------------------------------------
+  it('addCredential writes a 0600 key file for a key-file backend and registers a pointer', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    await h.addCredential!.handle({ providerId: 'deepseek', label: 'ds', secret: 'sk-secret' });
+    const view = (await h.authView!.handle(undefined)) as AuthView;
+    expect(view.credentials.find((c) => c.label === 'ds')?.masked).toBe('••••');
+    expect(readFileSync(accountsPath(home), 'utf8')).not.toContain('sk-secret');
+  });
+
+  it('addCredential for claude registers a config-dir pointer (secret IS the directory, not a secret)', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const view = (await h.addCredential!.handle({
+      providerId: 'claude',
+      label: 'work',
+      secret: '/home/u/.claude-work',
+    })) as AuthView;
+    expect(view.credentials.find((c) => c.label === 'work')?.masked).toBe('/home/u/.claude-work');
+  });
+
+  it('addCredential for a service writes ONE key file shared across every chain it serves', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
+    const view = (await h.authView!.handle(undefined)) as AuthView;
+    expect(view.chains['search']).toEqual(['tavily']);
+    expect(view.chains['fetch']).toEqual(['tavily']);
+    expect(view.credentials.filter((c) => c.label === 'k1')).toHaveLength(1); // shared, appears once
+    expect(readFileSync(webConfigPath(home), 'utf8')).not.toContain('tv-key');
+  });
+
+  it('addCredential is a no-op for an unsupported provider (never crashes)', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const before = (await h.authView!.handle(undefined)) as AuthView;
+    const after = (await h.addCredential!.handle({
+      providerId: 'exa',
+      label: 'x',
+      secret: 'whatever',
+    })) as AuthView;
+    expect(after).toEqual(before);
+  });
+
+  it('benching the active login promotes an heir and never leaves disabled-but-active', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    d.accounts.add('b', { type: 'config-dir', dir: '~/.b' }, 'claude');
+    d.accounts.setActive('a');
+    const h = buildAuthHandlers(d);
+    const view = (await h.setCredentialDisabled!.handle({
+      id: credentialId('claude', 'a'),
+      disabled: true,
+    })) as AuthView;
+    expect(view.activeByProvider['claude']).toBe(credentialId('claude', 'b'));
+    expect(view.credentials.find((c) => c.label === 'a')?.disabled).toBe(true);
+  });
+
+  it('benching the active login with no heir falls back to ambient', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    d.accounts.setActive('a');
+    const h = buildAuthHandlers(d);
+    const view = (await h.setCredentialDisabled!.handle({
+      id: credentialId('claude', 'a'),
+      disabled: true,
+    })) as AuthView;
+    expect(view.activeByProvider['claude']).toBeUndefined();
+  });
+
+  it('setCredentialDisabled (service) benches a service key without touching the file', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'firecrawl', label: 'fc', secret: 'fc-key' });
+    const view = (await h.setCredentialDisabled!.handle({
+      id: credentialId('firecrawl', 'fc'),
+      disabled: true,
+    })) as AuthView;
+    expect(view.credentials.find((c) => c.label === 'fc')?.disabled).toBe(true);
+    expect(existsSync(webKeyFilePath(home, 'fc'))).toBe(true);
+  });
+
+  it('makeActive rejects a disabled login', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    d.accounts.add('b', { type: 'config-dir', dir: '~/.b' }, 'claude');
+    d.accounts.setActive('b');
+    const h = buildAuthHandlers(d);
+    await h.setCredentialDisabled!.handle({ id: credentialId('claude', 'a'), disabled: true });
+    const view = (await h.makeActive!.handle({ id: credentialId('claude', 'a') })) as AuthView;
+    expect(view.activeByProvider['claude']).toBe(credentialId('claude', 'b'));
+  });
+
+  it('makeActive switches to an enabled login', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    d.accounts.add('b', { type: 'config-dir', dir: '~/.b' }, 'claude');
+    d.accounts.setActive('a');
+    const h = buildAuthHandlers(d);
+    const view = (await h.makeActive!.handle({ id: credentialId('claude', 'b') })) as AuthView;
+    expect(view.activeByProvider['claude']).toBe(credentialId('claude', 'b'));
+  });
+
+  it('clearCooldown clears a service key breaker cooldown', async () => {
+    const d = freshDeps(home);
+    const path = webKeyFilePath(home, 'tavily-1');
+    d.web.addCredential('search', 'tavily', { type: 'key-file', path });
+    d.keys.markCooldown(`tavily:${path}`, Date.now() + 60_000);
+    const h = buildAuthHandlers(d);
+    await h.clearCooldown!.handle({ id: credentialId('tavily', 'tavily-1') });
+    expect(d.keys.isCoolingDown(`tavily:${path}`, Date.now())).toBe(false);
+  });
+
+  it('removeCredential (backend) removes the account, unlinks its key file, and promotes an heir', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'deepseek', label: 'a', secret: 'k-a' });
+    await h.addCredential!.handle({ providerId: 'deepseek', label: 'b', secret: 'k-b' });
+    d.accounts.setActive('a');
+    const aPath = d.accounts.listByProvider('deepseek').find((x) => x.label === 'a')?.locator;
+    const view = (await h.removeCredential!.handle({ id: credentialId('deepseek', 'a') })) as AuthView;
+    expect(view.credentials.map((c) => c.label)).toEqual(['b']);
+    expect(view.activeByProvider['deepseek']).toBe(credentialId('deepseek', 'b'));
+    if (aPath !== undefined && aPath.type === 'key-file') expect(existsSync(aPath.path)).toBe(false);
+  });
+
+  it('removeCredential (service) unlinks the key file when no chain references it anymore', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
+    const path = webKeyFilePath(home, 'k1');
+    expect(existsSync(path)).toBe(true);
+    const view = (await h.removeCredential!.handle({ id: credentialId('tavily', 'k1') })) as AuthView;
+    expect(view.credentials.find((c) => c.label === 'k1')).toBeUndefined();
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('removeCredential is a no-op for an unsupported provider', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const before = (await h.authView!.handle(undefined)) as AuthView;
+    const after = (await h.removeCredential!.handle({ id: credentialId('exa', 'x') })) as AuthView;
+    expect(after).toEqual(before);
+  });
+
+  it('replaceSecret (backend key-file) rewrites the same path and clears its cooldown', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'deepseek', label: 'ds', secret: 'old-secret' });
+    const path = (d.accounts.listByProvider('deepseek')[0]?.locator as { path: string }).path;
+    d.keys.markCooldown(`deepseek:${path}`, Date.now() + 60_000);
+
+    await h.replaceSecret!.handle({ id: credentialId('deepseek', 'ds'), secret: 'new-secret' });
+
+    expect(readFileSync(path, 'utf8')).toBe('new-secret');
+    expect(d.keys.isCoolingDown(`deepseek:${path}`, Date.now())).toBe(false);
+    expect(readFileSync(accountsPath(home), 'utf8')).not.toContain('new-secret');
+  });
+
+  it('replaceSecret (service) rewrites the same key file and clears its cooldown', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'old-key' });
+    const path = webKeyFilePath(home, 'k1');
+    d.keys.markCooldown(`tavily:${path}`, Date.now() + 60_000);
+
+    await h.replaceSecret!.handle({ id: credentialId('tavily', 'k1'), secret: 'new-key' });
+
+    expect(readFileSync(path, 'utf8')).toBe('new-key');
+    expect(d.keys.isCoolingDown(`tavily:${path}`, Date.now())).toBe(false);
+  });
+
+  it('replaceSecret is a no-op for a pointer credential (config-dir)', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    const h = buildAuthHandlers(d);
+    const view = (await h.replaceSecret!.handle({
+      id: credentialId('claude', 'a'),
+      secret: 'ignored',
+    })) as AuthView;
+    expect(view.credentials.find((c) => c.label === 'a')?.masked).toBe('~/.a');
+  });
+
+  it('addProvider records the provider as added', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const view = (await h.addProvider!.handle({ providerId: 'longcat' })) as AuthView;
+    expect(view.added).toContain('longcat');
+  });
+
+  it('removeProvider (backend) cascades: drops every credential and unlinks its key files', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addProvider!.handle({ providerId: 'deepseek' });
+    await h.addCredential!.handle({ providerId: 'deepseek', label: 'a', secret: 'k-a' });
+    const path = (d.accounts.listByProvider('deepseek')[0]?.locator as { path: string }).path;
+
+    const view = (await h.removeProvider!.handle({ providerId: 'deepseek' })) as AuthView;
+
+    expect(view.added).not.toContain('deepseek');
+    expect(view.credentials.some((c) => c.providerId === 'deepseek')).toBe(false);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('removeProvider (service) cascades across every chain it serves and unlinks the shared key', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
+    const path = webKeyFilePath(home, 'k1');
+
+    const view = (await h.removeProvider!.handle({ providerId: 'tavily' })) as AuthView;
+
+    expect(view.chains['search']).not.toContain('tavily');
+    expect(view.chains['fetch']).not.toContain('tavily');
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('setProviderEnabled (backend) benches the whole provider via console state', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addProvider!.handle({ providerId: 'deepseek' });
+    const view = (await h.setProviderEnabled!.handle({
+      providerId: 'deepseek',
+      on: false,
+    })) as AuthView;
+    expect(view.enabled['deepseek']).toBe(false);
+  });
+
+  // REQUIRED (carried from Task 5's review): locks in the assembler's service-bench branch.
+  it('setProviderEnabled (service) round-trips: benching tavily reports enabled === false', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
+    const view = (await h.setProviderEnabled!.handle({
+      providerId: 'tavily',
+      on: false,
+    })) as AuthView;
+    expect(view.enabled['tavily']).toBe(false);
+  });
+
+  it('setProviderEnabled is a no-op for an unsupported provider', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const before = (await h.authView!.handle(undefined)) as AuthView;
+    const after = (await h.setProviderEnabled!.handle({ providerId: 'exa', on: false })) as AuthView;
+    expect(after).toEqual(before);
+  });
+
+  it('refresh just re-projects the current view', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
+    const h = buildAuthHandlers(d);
+    const view = (await h.refresh!.handle(undefined)) as AuthView;
+    expect(view.credentials.map((c) => c.label)).toContain('a');
   });
 });
