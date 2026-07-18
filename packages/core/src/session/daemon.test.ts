@@ -277,7 +277,13 @@ describe('createDaemonCore', () => {
         web: {
           search: {
             providers: [
-              { kind: 'parallel', credentials: [{ type: 'env-var', name: 'PARALLEL_API_KEY' }] },
+              {
+                kind: 'parallel',
+                disabled: false,
+                credentials: [
+                  { locator: { type: 'env-var', name: 'PARALLEL_API_KEY' }, disabled: false },
+                ],
+              },
             ],
           },
         },
@@ -307,7 +313,13 @@ describe('createDaemonCore', () => {
         web: {
           search: {
             providers: [
-              { kind: 'parallel', credentials: [{ type: 'env-var', name: 'MISSING_KEY_VAR' }] },
+              {
+                kind: 'parallel',
+                disabled: false,
+                credentials: [
+                  { locator: { type: 'env-var', name: 'MISSING_KEY_VAR' }, disabled: false },
+                ],
+              },
             ],
           },
         },

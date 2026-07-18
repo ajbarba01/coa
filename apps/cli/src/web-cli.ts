@@ -97,7 +97,7 @@ function runList(chain: WebChain, store: WebConfigStore, io: CliIo): number {
   const block = chain === 'search' ? config.search : config.fetch;
   for (const provider of block?.providers ?? []) {
     for (const cred of provider.credentials) {
-      io.out(`${provider.kind}\t${describeLocator(cred)}`);
+      io.out(`${provider.kind}\t${describeLocator(cred.locator)}`);
     }
   }
   return 0;

@@ -29,7 +29,11 @@ describe('WebConfigStore', () => {
     store.addCredential('search', 'tavily', { type: 'env-var', name: 'TAVILY_KEY_1' });
     const cfg = store.read();
     expect(cfg.search?.providers).toEqual([
-      { kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] },
+      {
+        kind: 'tavily',
+        disabled: false,
+        credentials: [{ locator: { type: 'env-var', name: 'TAVILY_KEY_1' }, disabled: false }],
+      },
     ]);
     expect(cfg.fetch).toBeUndefined();
   });
@@ -39,8 +43,8 @@ describe('WebConfigStore', () => {
     store.addCredential('fetch', 'firecrawl', { type: 'env-var', name: 'FC1' });
     store.addCredential('fetch', 'firecrawl', { type: 'env-var', name: 'FC2' });
     expect(store.read().fetch?.providers[0]?.credentials).toEqual([
-      { type: 'env-var', name: 'FC1' },
-      { type: 'env-var', name: 'FC2' },
+      { locator: { type: 'env-var', name: 'FC1' }, disabled: false },
+      { locator: { type: 'env-var', name: 'FC2' }, disabled: false },
     ]);
   });
 

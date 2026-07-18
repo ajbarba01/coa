@@ -30,6 +30,25 @@ describe('webConfigSchema', () => {
     expect(cfg.search?.providers[0]?.kind).toBe('tavily');
     expect(cfg.search?.quotaCooldown).toBe('next-midnight');
   });
+
+  it('migrates an old bare-locator credential to the structured shape', () => {
+    const parsed = webConfigSchema.parse({
+      search: { providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }] },
+    });
+    expect(parsed.search?.providers[0]).toEqual({
+      kind: 'tavily',
+      disabled: false,
+      credentials: [{ locator: { type: 'env-var', name: 'TAVILY_KEY_1' }, disabled: false }],
+    });
+  });
+
+  it('accepts the new structured shape verbatim', () => {
+    const parsed = webConfigSchema.parse({
+      search: { providers: [{ kind: 'tavily', disabled: true, credentials: [{ locator: { type: 'env-var', name: 'X' }, disabled: true }] }] },
+    });
+    expect(parsed.search?.providers[0]?.disabled).toBe(true);
+    expect(parsed.search?.providers[0]?.credentials[0]?.disabled).toBe(true);
+  });
 });
 
 describe('buildWebToolDeps', () => {
