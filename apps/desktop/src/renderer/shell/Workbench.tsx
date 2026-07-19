@@ -7,6 +7,7 @@ import {
 } from '@coa/console-kit';
 import { useState } from 'react';
 import { Center } from './Center.js';
+import { LoginDialog } from '../panels/LoginFlow.js';
 import { useConsoleState } from './consoleStore.js';
 import { chordFromEvent, conflictFor, isBindable, rebind } from './keybinds.js';
 import { useGlobalKeys, useKeybinds } from './keys.js';
@@ -90,6 +91,9 @@ export function Workbench(): React.JSX.Element {
       <Palette />
       <NewSessionDialog />
       <SettingsDialog />
+      {/* The driven login/relogin flow — mounted at the frame so a re-login triggered from the
+          always-visible account HUD renders regardless of the current surface. */}
+      <LoginDialog />
       {shortcutsOpen && (
         <ShortcutsOverlay
           keybinds={keybinds}

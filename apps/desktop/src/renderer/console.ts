@@ -20,6 +20,8 @@ import {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
+import { useMockAuth } from './panels/mockAuth.js';
+import { useMockModels, visibleModelsForPickers } from './panels/mockModels.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { configKey } from './panels/banners.js';
@@ -226,11 +228,23 @@ export async function startConsole(
     push();
   }
 
-  async function loadModels(): Promise<void> {
-    const models = await settle(() => bridge.listModels());
-    state = { ...state, data: { ...state.data, models } };
+  // MOCKUP — editable-model-list SOT: the user's per-provider list is the single source of
+  // truth for BOTH the in-chat model chip and the agent-config picker. The live `listModels()`
+  // fetch is demoted to enrichment, so here we project the editable mock catalog straight into
+  // `state.data.models`; editing the list in the auth model editor updates both pickers live
+  // (via the subscription below). Real impl: the effective-list assembler over models.yaml.
+  function loadModels(): void {
+    const added = useMockAuth.getState().added;
+    const value: ModelDescriptor[] = visibleModelsForPickers(
+      useMockModels.getState().lists,
+      added,
+    ).map((m) => ({ id: m.id, displayName: m.label, provider: m.provider }));
+    state = { ...state, data: { ...state.data, models: { status: 'ok', value } } };
     push();
   }
+  // Live-update both pickers whenever the editable list changes.
+  const unsubscribeModels = useMockModels.subscribe(() => loadModels());
+  const unsubscribeAdded = useMockAuth.subscribe(() => loadModels());
 
   async function loadCatalogue(): Promise<void> {
     const [roles, packages] = await Promise.all([
@@ -771,6 +785,8 @@ export async function startConsole(
     toggleRaw,
     dispose: () => {
       unsubscribePush();
+      unsubscribeModels();
+      unsubscribeAdded();
     },
   };
 }

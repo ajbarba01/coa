@@ -33,8 +33,10 @@ import {
   isPointerLocator,
   providerById,
   type ProviderDescriptor,
-  type ProviderModel,
 } from './providers.js';
+import { ModelsSection } from './ModelEditor.js';
+import { LoginDialog, SignInButton, useStartRelogin } from './LoginFlow.js';
+import { providerAttention, useMockLogin, type Health } from './mockLogin.js';
 import { SurfaceEmpty } from './surfaceStates.js';
 import { useAuthUi } from './surfaceUi.js';
 import { useNarrow } from './useNarrow.js';
@@ -151,6 +153,15 @@ export function AuthSurface(): React.JSX.Element {
     void useMockAuth.getState().hydrate().catch(() => {});
   }, []);
 
+  // MOCKUP: once credentials are known, seed a demo login-health state so the attention
+  // badges have something to show (one Claude login flipped to needs-relogin). The real
+  // health comes from an idle `supportedModels()` probe per account — never the token file.
+  const credentials = useMockAuth((s) => s.credentials);
+  const activeByProvider = useMockAuth((s) => s.activeByProvider);
+  useEffect(() => {
+    if (credentials.length > 0) useMockLogin.getState().seedDemoHealth(credentials, activeByProvider);
+  }, [credentials, activeByProvider]);
+
   // Becoming narrow always lands on the LIST: a selection made while both panes were
   // visible must not reopen as a drill-down you never chose to enter. The strip mirrors
   // the measurement so it can wear the back control.
@@ -226,7 +237,6 @@ export function AuthSurface(): React.JSX.Element {
 
       <AddProviderDialog open={adding} onClose={() => setAdding(false)} onAdded={select} />
       <RemoveProviderDialog />
-      <ModelsDialog />
     </div>
   );
 }
@@ -363,8 +373,11 @@ function ProviderRow({
   const enabled = useMockAuth((s) => s.enabled[provider.id] ?? true);
   const activeByProvider = useMockAuth((s) => s.activeByProvider);
   const setProviderEnabled = useMockAuth((s) => s.setProviderEnabled);
+  const loginHealth = useMockLogin((s) => s.health);
   const credentials = credentialsOf(all, provider.id);
   const health = poolHealth(credentials);
+  // The generic attention channel: logins on this provider needing relogin (badge surface #2).
+  const attention = providerAttention(all, provider.id, loginHealth);
   // What this provider is CURRENTLY logging in as — the answer to the question the row is asked
   // most often, so it belongs on the row rather than one click inside it.
   const active = credentials.find((c) => activeByProvider[provider.id] === c.id);
@@ -394,7 +407,10 @@ function ProviderRow({
             <span className="block truncate font-mono text-meta text-s7">{active.label}</span>
           )}
         </span>
-        {health.cooling > 0 && <StatusDot status="needs-you" />}
+        {/* Attention (needs-relogin) reads amber — the everyday "you need to do something"
+            signal (indicator law). It sits before the count so a badged row is scannable. */}
+        {attention > 0 && <StatusDot status="needs-you" />}
+        {health.cooling > 0 && attention === 0 && <StatusDot status="needs-you" />}
         {credentials.length > 0 && (
           <span className="font-mono text-meta text-s7">{credentials.length}</span>
         )}
@@ -461,6 +477,10 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
               />
             </Tooltip>
             <RowMenu label={`${provider.label} actions`}>
+              {/* The advanced manual path — for a dir that's already logged in. */}
+              {provider.locator === 'config-dir' && (
+                <MenuItem onClick={() => setAdding(true)}>point at an existing config dir…</MenuItem>
+              )}
               {/* Removal takes every credential with it — big enough to ask first. */}
               <MenuItem onClick={() => confirmRemove(providerId)}>
                 <span className="text-crit">remove provider…</span>
@@ -496,9 +516,22 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
             {provider.noun === 'login' ? 'logins' : 'keys'}
           </CapsLabel>
           <span className="ml-2 font-mono text-meta text-s7">{credentials.length}</span>
-          <Button variant="text" className="ml-auto" onClick={() => setAdding(true)}>
-            + add {provider.noun}
-          </Button>
+          {/* A config-dir backend (Claude) is DRIVEN: coa runs the login itself, so the primary
+              add path is "sign in", not "point at a directory". The manual path stays reachable
+              in the provider menu (strict-superset — a power user with a logged-in dir isn't
+              forced through the driven flow). */}
+          {provider.locator === 'config-dir' ? (
+            <span className="ml-auto">
+              <SignInButton
+                provider={provider}
+                label={`${provider.label}-${credentials.length + 1}`}
+              />
+            </span>
+          ) : (
+            <Button variant="text" className="ml-auto" onClick={() => setAdding(true)}>
+              + add {provider.noun}
+            </Button>
+          )}
         </div>
 
         {/* Adding a credential to the provider you are already LOOKING at is inline — a modal
@@ -535,136 +568,15 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
           ))}
         </AnimatePresence>
 
-        {(provider.models?.length ?? 0) > 0 && <ModelsSection provider={provider} />}
+        {provider.group === 'backend' && <ModelsSection provider={provider} />}
       </div>
     </div>
   );
 }
 
 /* ----------------------------------- the models ----------------------------------- */
-
-/** Past this many, the rest live behind "all N models…" (the OpenRouter problem: a list
- *  that long stops being a glance, so the long tail moves to a filterable dialog). */
-const MODELS_SHOWN = 6;
-
-/** What this backend can run, and which of it the picker shows. Hiding is a VIEW
- *  preference — the model stays runnable by id — so the toggle mirrors the bench switch
- *  vocabulary without ever meaning capability. */
-function ModelsSection({ provider }: { provider: ProviderDescriptor }): React.JSX.Element {
-  const hiddenModels = useMockAuth((s) => s.hiddenModels);
-  const openAll = useShell((s) => s.setModelsDialogProvider);
-  const models = provider.models ?? [];
-  const hiddenCount = models.filter((m) => hiddenModels.includes(m.id)).length;
-  const shown = models.slice(0, MODELS_SHOWN);
-
-  return (
-    <>
-      <div className="mt-7 mb-1.5 flex items-baseline border-b border-s3 pb-1.5">
-        <CapsLabel className="px-0 pt-0">models</CapsLabel>
-        <span className="ml-2 font-mono text-meta text-s7">{models.length}</span>
-        {hiddenCount > 0 && (
-          <span className="ml-2 font-mono text-meta text-s7">{hiddenCount} hidden</span>
-        )}
-      </div>
-      {shown.map((m) => (
-        <ModelRow key={m.id} model={m} />
-      ))}
-      {models.length > MODELS_SHOWN && (
-        <button
-          type="button"
-          onClick={() => openAll(provider.id)}
-          className="slip flex w-full cursor-pointer items-center rounded-r3 px-3 py-1.5 text-left font-mono text-meta text-s8 hover:bg-s2 hover:text-s11"
-        >
-          all {models.length} models…
-        </button>
-      )}
-    </>
-  );
-}
-
-function ModelRow({ model }: { model: ProviderModel }): React.JSX.Element {
-  const hidden = useMockAuth((s) => s.hiddenModels.includes(model.id));
-  const setModelHidden = useMockAuth((s) => s.setModelHidden);
-  return (
-    <div className="slip group flex items-center gap-3 rounded-r3 px-3 py-1.5 hover:bg-s2">
-      <span className={cx('min-w-0 flex-1 truncate text-sec', hidden ? 'text-s7' : 'text-s10')}>
-        {model.label}
-      </span>
-      <span className="truncate font-mono text-meta text-s7">{model.id}</span>
-      {/* Same reveal contract as the bench switch: out of the way until approached,
-          visible while OFF because that IS the state worth seeing. */}
-      <Tooltip
-        label={hidden ? 'show in the model picker' : 'hide from the model picker'}
-        side="top"
-      >
-        <span
-          className={cx(
-            'slip flex',
-            !hidden && 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
-          )}
-        >
-          <Toggle
-            on={!hidden}
-            onChange={(on) => setModelHidden(model.id, !on)}
-            aria-label={`${model.label} in the picker`}
-          />
-        </span>
-      </Tooltip>
-    </div>
-  );
-}
-
-/** The full model list, filterable — where a long tail goes to be found. The same rows,
- *  the same toggles: the dialog is a bigger window onto the SAME list, not a second UI. */
-function ModelsDialog(): React.JSX.Element {
-  const providerId = useShell((s) => s.modelsDialogProvider);
-  const setOpen = useShell((s) => s.setModelsDialogProvider);
-  const [query, setQuery] = useState('');
-  const provider = providerId === undefined ? undefined : providerById(providerId);
-  const close = (): void => setOpen(undefined);
-
-  // A fresh open is a fresh search — yesterday's filter is not a preference.
-  useEffect(() => {
-    if (providerId !== undefined) setQuery('');
-  }, [providerId]);
-
-  const models = (provider?.models ?? []).filter((m) =>
-    `${m.label} ${m.id}`.toLowerCase().includes(query.trim().toLowerCase()),
-  );
-
-  return (
-    <ModalShell open={provider !== undefined} onClose={close} aria-label="models" className="w-124">
-      {provider !== undefined && (
-        <>
-          <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
-            <BrandMark spec={provider.mark} />
-            <span className="text-sec font-semibold text-s11">{provider.label} models</span>
-            <span className="font-mono text-meta text-s7">{provider.models?.length}</span>
-          </div>
-          <div className="px-4 pt-3">
-            <Field
-              autoFocus
-              value={query}
-              onChange={setQuery}
-              placeholder="filter models…"
-              className="w-full"
-            />
-          </div>
-          <div className="max-h-100 overflow-y-auto px-4 pt-2 pb-4">
-            {models.map((m) => (
-              <ModelRow key={m.id} model={m} />
-            ))}
-            {models.length === 0 && (
-              <div className="py-6 text-center text-sec text-s7">
-                no model matches &ldquo;{query}&rdquo;
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </ModalShell>
-  );
-}
+/* The per-provider model editor lives in ./ModelEditor (ModelsSection), driven by the
+ * editable-model-list mock spine (useMockModels). */
 
 function CredentialRow({
   credential,
@@ -679,6 +591,9 @@ function CredentialRow({
   const setCredentialDisabled = useMockAuth((s) => s.setCredentialDisabled);
   const removeCredential = useMockAuth((s) => s.removeCredential);
   const clearCooldown = useMockAuth((s) => s.clearCooldown);
+  const health: Health | undefined = useMockLogin((s) => s.health[credential.id]);
+  const startRelogin = useStartRelogin();
+  const needsRelogin = health === 'needs-relogin';
   const [replacing, setReplacing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -779,24 +694,42 @@ function CredentialRow({
 
       {/* "use" appears on approach for a row you could switch to: the affordance says what the
           click does, so activating never requires opening a menu to discover it. */}
-      {selectable && (
+      {selectable && !needsRelogin && (
         <span className="pointer-events-none relative flex-none font-mono text-meta text-s8 opacity-0 group-hover:opacity-100">
           use
         </span>
       )}
+      {/* Re-login is the badge's primary action — one click into the driven relogin flow. It
+          rides above the row's stretched link (its own pointer events), always visible while
+          the login is broken because that IS the state that needs acting on. */}
+      {needsRelogin && (
+        <button
+          type="button"
+          onClick={() => startRelogin(provider, credential.label, credential.id)}
+          className="slip relative flex-none cursor-pointer rounded-r1 border border-warn/40 px-1.5 py-0.5 font-mono text-meta text-warn hover:border-warn/70 hover:bg-warn/10"
+        >
+          re-login
+        </button>
+      )}
       <span
         className={cx(
           'pointer-events-none relative flex-none font-mono text-meta',
-          status === 'active'
-            ? 'text-ok'
-            : status === 'cooling'
-              ? 'text-warn'
-              : status === 'expired'
-                ? 'text-crit'
-                : 'text-s7',
+          needsRelogin
+            ? 'text-warn'
+            : status === 'active'
+              ? 'text-ok'
+              : status === 'cooling'
+                ? 'text-warn'
+                : status === 'expired'
+                  ? 'text-crit'
+                  : 'text-s7',
         )}
       >
-        {statusText(credential, status)}
+        {needsRelogin
+          ? status === 'active'
+            ? 'active · needs relogin'
+            : 'needs relogin'
+          : statusText(credential, status)}
       </span>
 
       <span
@@ -835,10 +768,18 @@ function CredentialRow({
               replaced — an add that supersedes. A pointer's secret lives with the provider,
               so its only recovery act is re-login, and only expiry calls for it. */}
           {isPointerLocator(provider.locator) ? (
-            status === 'expired' && (
-              <MenuItem onClick={() => setReplacing(true)}>
-                {provider.locator === 'config-dir' ? 're-login…' : 'replace…'}
-              </MenuItem>
+            provider.locator === 'config-dir' ? (
+              // A config-dir login re-logins through the DRIVEN flow (coa runs it), offered on
+              // expiry or a needs-relogin health flip. An env-var pointer still replaces inline.
+              (status === 'expired' || needsRelogin) && (
+                <MenuItem onClick={() => startRelogin(provider, credential.label, credential.id)}>
+                  re-login…
+                </MenuItem>
+              )
+            ) : (
+              status === 'expired' && (
+                <MenuItem onClick={() => setReplacing(true)}>replace…</MenuItem>
+              )
             )
           ) : (
             <MenuItem onClick={() => setReplacing(true)}>replace {provider.noun}…</MenuItem>
