@@ -170,3 +170,33 @@ export const AuthViewSchema = z
   })
   .strip();
 export type AuthView = z.infer<typeof AuthViewSchema>;
+
+/** A model entry as the editor needs it — mirrors the M0 shape; the renderer
+ *  cannot import `@coa/shared`'s server modules, so the edge schema lives here. */
+export const ReasoningProfileSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('inherit') }),
+  z.object({ kind: z.literal('none') }),
+  z.object({ kind: z.literal('effort'), max: z.enum(['low', 'medium', 'high', 'xhigh', 'max']) }),
+  z.object({ kind: z.literal('thinking') }),
+  z.object({ kind: z.literal('budget'), tokens: z.number().int().positive() }),
+]);
+export type ReasoningProfile = z.infer<typeof ReasoningProfileSchema>;
+
+export const ModelEntrySchema = z
+  .object({
+    id: z.string(),
+    label: z.string().optional(),
+    hidden: z.boolean().optional(),
+    origin: z.enum(['default', 'custom']),
+    reasoning: ReasoningProfileSchema.optional(),
+  })
+  .strip();
+export type ModelEntry = z.infer<typeof ModelEntrySchema>;
+
+export const ModelCatalogViewSchema = z
+  .object({
+    lists: z.record(z.string(), z.array(ModelEntrySchema)),
+    catalog: z.record(z.string(), z.array(ModelEntrySchema)),
+  })
+  .strip();
+export type ModelCatalogView = z.infer<typeof ModelCatalogViewSchema>;

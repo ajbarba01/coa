@@ -287,6 +287,10 @@ export { SignalBus, type SignalEvent } from './signal-bus.js';
 export { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
 export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
 export { buildAuthHandlers } from './rpc/auth-handlers.js';
+export { ModelCatalogStore, modelsPath } from './models/model-catalog-store.js';
+export { defaultCatalog, catalogDescriptor } from './models/default-catalog.js';
+export { effectiveModels } from './models/effective-models.js';
+export { buildModelHandlers, MODEL_PROVIDERS, type ModelCatalogView } from './rpc/model-handlers.js';
 export { type WebConfig } from './workbench/web/web-config.js';
 export {
   WebConfigStore,

@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ModelDescriptor, RpcParams } from '@coa/shared';
 import { pushSchema } from '@coa/shared';
@@ -6,12 +7,16 @@ import {
   bindDaemon,
   buildConversationHandlers,
   buildDaemonConsoleHandlers,
+  buildModelHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
   connectClient,
   createConversationStore,
   defaultDaemonPath,
+  effectiveModels,
   LiveSessionRegistry,
+  MODEL_PROVIDERS,
+  ModelCatalogStore,
   packageSummaries,
   roleSummaries,
   type ModelCache,
@@ -179,6 +184,36 @@ export async function listMergedModels(
   return lists.flat();
 }
 
+/**
+ * The SOT projection `listModels` now serves: the user's per-provider list
+ * (models.yaml, catalog-seeded), enriched by that provider's live fetch. The
+ * fetch is demoted to enrichment — it can fail (degrading to shipped caps)
+ * without emptying the list; an emptied list is served empty (the picker falls
+ * back to the backend default — never-cage).
+ */
+export async function listEffectiveModels(
+  catalog: ModelCatalogStore,
+  models: ModelCache,
+  accounts: ModelCacheAccount[],
+  logErr: (line: string) => void = (line) => console.error(line),
+): Promise<ModelDescriptor[]> {
+  // One live list per provider (an account pins the fetch; extra accounts on the
+  // same provider add nothing to the SOT projection).
+  const byProvider = new Map<string, ModelCacheAccount>();
+  for (const account of accounts) byProvider.set(account.provider ?? 'claude', account);
+  const lists = await Promise.all(
+    [...byProvider.entries()].map(async ([provider, account]) => {
+      const live = await models.list(account).catch((error: unknown): ModelDescriptor[] => {
+        const message = error instanceof Error ? error.message : String(error);
+        logErr(`listModels: ${account.label} (${provider}) failed: ${message}`);
+        return [];
+      });
+      return effectiveModels(provider, catalog.listFor(provider), live);
+    }),
+  );
+  return lists.flat();
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   const path = options.path ?? defaultDaemonPath();
   const walPath = options.walPath ?? join('.coa', 'wal', 'log.ndjson');
@@ -190,6 +225,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     root: process.cwd(),
   });
   const consoleHandlers = buildDaemonConsoleHandlers(handle);
+  // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
+  const modelCatalog = new ModelCatalogStore(homedir());
   // The agent-assembly catalogue the console picker reads (starter registry today).
   const registryHandlers = buildRegistryHandlers({
     listRoles: () => roleSummaries(),
@@ -241,11 +278,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...conversationHandlers,
     ...shutdownHandlers,
     ...buildSessionHandlers(deps, connection, store, registry),
-    // Every provider's models + per-model reasoning levels, merged into one list
-    // (cached, fetched lazily; a provider that fails to fetch is logged + skipped
-    // for this call, not fatal — it self-heals on the next call since the failure
-    // is never cached).
-    listModels: { handle: () => listMergedModels(models, modelAccounts(), options.err) },
+    ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
+    // The SOT projection: the user's editable list, enriched (never defined) by
+    // each provider's live fetch — both pickers read this one feed.
+    listModels: { handle: () => listEffectiveModels(modelCatalog, models, modelAccounts(), options.err) },
   }));
   options.out(`coa daemon listening on ${path}`);
   return bound.server;

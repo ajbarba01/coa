@@ -427,6 +427,18 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('subscribeSession', params);
     case 'listModels':
       return proxyDaemon('listModels');
+    case 'modelCatalog':
+      return proxyDaemon('modelCatalog');
+    case 'addModels':
+      return proxyDaemon('addModels', params);
+    case 'addCustomModel':
+      return proxyDaemon('addCustomModel', params);
+    case 'editModel':
+      return proxyDaemon('editModel', params);
+    case 'removeModel':
+      return proxyDaemon('removeModel', params);
+    case 'setModelHidden':
+      return proxyDaemon('setModelHidden', params);
     case 'listRoles':
       return proxyDaemon('listRoles');
     case 'listPackages':

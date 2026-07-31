@@ -7,9 +7,10 @@ import {
   createDaemonCore,
   listen,
   ModelCache,
+  ModelCatalogStore,
   type RpcServer,
 } from '@coa/core';
-import { runCli, startDaemon, listMergedModels } from './cli.js';
+import { runCli, startDaemon, listMergedModels, listEffectiveModels } from './cli.js';
 
 let n = 0;
 function testPath(): string {
@@ -111,5 +112,38 @@ describe('listMergedModels — a provider that fails to fetch is logged and skip
     const second = await listMergedModels(cache, [account], (line) => logged.push(line));
     expect(second).toEqual([{ id: 'deepseek-chat' }]);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('listEffectiveModels', () => {
+  let home: string;
+  beforeEach(() => (home = mkdtempSync(join(tmpdir(), 'coa-eff-'))));
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
+
+  it('serves the user list enriched by the live fetch, per provider', async () => {
+    const store = new ModelCatalogStore(home);
+    store.setHidden('claude', 'claude-haiku-3-5', true);
+    const cache = {
+      list: vi.fn().mockResolvedValue([{ id: 'claude-fable-5', supportsEffort: true }]),
+    } as unknown as ModelCache;
+    const out = await listEffectiveModels(store, cache, [{ label: 'a', provider: 'claude' }]);
+    expect(out.some((m) => m.id === 'claude-haiku-3-5')).toBe(false); // hidden dropped
+    expect(out.find((m) => m.id === 'claude-fable-5')?.supportsEffort).toBe(true); // enriched
+    expect(out.find((m) => m.id === 'claude-sonnet-4-6')).toBeDefined(); // catalog id not in live fetch still served
+  });
+
+  it('a failed live fetch degrades to the catalog tier, never empty', async () => {
+    const store = new ModelCatalogStore(home);
+    const cache = { list: vi.fn().mockRejectedValue(new Error('down')) } as unknown as ModelCache;
+    const out = await listEffectiveModels(store, cache, [{ label: 'a', provider: 'claude' }], () => {});
+    expect(out.length).toBeGreaterThan(0);
+  });
+
+  it('an account provider with an emptied list contributes nothing (backend default)', async () => {
+    const store = new ModelCatalogStore(home);
+    for (const m of store.listFor('claude')) store.remove('claude', m.id);
+    const cache = { list: vi.fn().mockResolvedValue([{ id: 'live' }]) } as unknown as ModelCache;
+    const out = await listEffectiveModels(store, cache, [{ label: 'a', provider: 'claude' }]);
+    expect(out).toEqual([]);
   });
 });

@@ -5,7 +5,9 @@ import {
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
+  ModelCatalogViewSchema,
   PackageSummaryListSchema,
+  ReasoningProfileSchema,
   RoleSummaryListSchema,
   SessionListSchema,
   TimelineSchema,
@@ -159,6 +161,12 @@ export type MethodName =
   | 'steerSession'
   | 'subscribeSession'
   | 'listModels'
+  | 'modelCatalog'
+  | 'addModels'
+  | 'addCustomModel'
+  | 'editModel'
+  | 'removeModel'
+  | 'setModelHidden'
   | 'listRoles'
   | 'listPackages'
   | 'openPath'
@@ -233,6 +241,34 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     result: z.object({ subscribed: z.boolean() }),
   },
   listModels: { result: z.array(modelDescriptorSchema) },
+  modelCatalog: { result: ModelCatalogViewSchema },
+  addModels: {
+    params: z.object({ providerId: z.string(), ids: z.array(z.string()) }),
+    result: ModelCatalogViewSchema,
+  },
+  addCustomModel: {
+    params: z.object({
+      providerId: z.string(),
+      id: z.string(),
+      label: z.string().optional(),
+      reasoning: ReasoningProfileSchema.optional(),
+    }),
+    result: ModelCatalogViewSchema,
+  },
+  editModel: {
+    params: z.object({
+      providerId: z.string(),
+      id: z.string(),
+      label: z.string().optional(),
+      reasoning: ReasoningProfileSchema.optional(),
+    }),
+    result: ModelCatalogViewSchema,
+  },
+  removeModel: { params: z.object({ providerId: z.string(), id: z.string() }), result: ModelCatalogViewSchema },
+  setModelHidden: {
+    params: z.object({ providerId: z.string(), id: z.string(), hidden: z.boolean() }),
+    result: ModelCatalogViewSchema,
+  },
   listRoles: { result: RoleSummaryListSchema },
   listPackages: { result: PackageSummaryListSchema },
   openPath: { params: OpenPathParamsSchema, result: OpenPathResultSchema },

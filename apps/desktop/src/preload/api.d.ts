@@ -5,10 +5,12 @@ import type {
   CapState,
   Checkpoint,
   FeedView,
+  ModelCatalogView,
   ModelDescriptor,
   ModelSelection,
   PackageSummary,
   PersistedTurnWire,
+  ReasoningProfile,
   RoleSummary,
   SessionSummary,
 } from '@coa/console-viewmodel';
@@ -77,6 +79,22 @@ declare global {
        *  immediately hydrates this connection with the session's CURRENT run-status. */
       subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
       listModels(): Promise<ModelDescriptor[]>;
+      modelCatalog(): Promise<ModelCatalogView>;
+      addModels(params: { providerId: string; ids: string[] }): Promise<ModelCatalogView>;
+      addCustomModel(params: {
+        providerId: string;
+        id: string;
+        label?: string;
+        reasoning?: ReasoningProfile;
+      }): Promise<ModelCatalogView>;
+      editModel(params: {
+        providerId: string;
+        id: string;
+        label?: string;
+        reasoning?: ReasoningProfile;
+      }): Promise<ModelCatalogView>;
+      removeModel(params: { providerId: string; id: string }): Promise<ModelCatalogView>;
+      setModelHidden(params: { providerId: string; id: string; hidden: boolean }): Promise<ModelCatalogView>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;
       /** Reveal a touched file in the editor/OS at an optional line (a tool card's path
