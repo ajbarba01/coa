@@ -1,3 +1,4 @@
+import { isAbsolute, join, relative } from 'node:path';
 import type { AccountsRegistry } from './registry.js';
 import { mintAccountId } from './registry.js';
 
@@ -10,6 +11,20 @@ import { mintAccountId } from './registry.js';
  * channel: SC-1 means a broken account is flagged (`needs-relogin`), never
  * auto-switched or blocked.
  */
+
+/**
+ * Pure: whether `dir` is a login directory coa itself created — inside its own
+ * `~/.coa/logins` root, and not the root itself.
+ *
+ * The boundary that makes deleting-on-removal safe (docs/adr/0023). An account added by
+ * pointing at an existing config dir is the user's own data; coa may forget the row, but it
+ * has no business deleting the directory. Anything it cannot positively claim it created is
+ * left alone, so the failure mode is always "kept", never "destroyed".
+ */
+export function isManagedLoginDir(home: string, dir: string): boolean {
+  const rel = relative(join(home, '.coa', 'logins'), dir);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
 
 export type LoginPhase =
   | 'launching'

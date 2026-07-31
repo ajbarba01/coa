@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountsRegistry } from './registry.js';
-import { LoginManager, type LoginDriverPort } from './login-manager.js';
+import { isManagedLoginDir, LoginManager, type LoginDriverPort } from './login-manager.js';
 
 /** A hand-cranked driver: tests fire url/exit and script the probe queue. */
 function fakeDriver(
@@ -347,6 +347,28 @@ describe('isolated browser sessions', () => {
         manager.resolveMismatch('retry');
         expect(cleared).toEqual(['a@b.org']);
       });
+  });
+});
+
+describe('isManagedLoginDir', () => {
+  /** coa may delete what it created. An account added by pointing at an existing config dir
+   *  is the user's own data and must survive the row being removed (docs/adr/0023). */
+  it('claims only the dirs coa made under its own logins root', () => {
+    expect(isManagedLoginDir('/home/z', '/home/z/.coa/logins/a-b-org'.replaceAll('/', sep))).toBe(
+      true,
+    );
+  });
+
+  it('never claims a config dir the user pointed at', () => {
+    expect(isManagedLoginDir('/home/z', '/home/z/.claude-school'.replaceAll('/', sep))).toBe(false);
+    expect(isManagedLoginDir('/home/z', '/etc'.replaceAll('/', sep))).toBe(false);
+  });
+
+  it('never claims the logins root itself, nor a path that escapes it', () => {
+    expect(isManagedLoginDir('/home/z', '/home/z/.coa/logins'.replaceAll('/', sep))).toBe(false);
+    expect(isManagedLoginDir('/home/z', '/home/z/.coa/logins/../../x'.replaceAll('/', sep))).toBe(
+      false,
+    );
   });
 });
 

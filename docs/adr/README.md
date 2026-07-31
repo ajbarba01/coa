@@ -48,6 +48,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0020](0020-courier-shim-relays-the-self-completing-url.md) — The `BROWSER` shim is a courier: it relays the self-completing authorize url
 - [0021](0021-browser-profiles-keyed-by-identity.md) — Browser profiles are keyed by identity, not by account row
 - [0022](0022-a-login-is-a-transition-not-a-state.md) — A login is a transition, not a state
+- [0023](0023-removal-deletes-the-login-coa-created.md) — Removing an account deletes the login coa created for it
 
 ---
 

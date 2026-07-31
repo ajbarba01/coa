@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -622,6 +622,41 @@ describe('browser session over the auth verbs', () => {
 
     await h.removeCredential!.handle({ id: credentialId('claude', 'c@d.org'), removeProfile: true });
     expect(browser.removed).toEqual(['c@d.org']);
+  });
+
+  /** Removal means removal for what coa created: leaving the sign-in behind is what let a
+   *  re-added account silently resurrect a session the user thought they had removed
+   *  (docs/adr/0023). */
+  it('deletes the login dir coa created, along with the row', async () => {
+    const deps = freshDeps(home);
+    const dir = join(home, '.coa', 'logins', 'a-b-org');
+    mkdirSync(dir, { recursive: true });
+    deps.accounts.add('a@b.org', { type: 'config-dir', dir }, 'claude', 'a@b.org', 'aaa111aaa111');
+    const h = buildAuthHandlers(deps);
+    await h.removeCredential!.handle({ id: credentialId('claude', 'a@b.org') });
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  /** The boundary: an account added by pointing at an existing config dir is the user's own
+   *  data. coa forgets the row and touches nothing on disk. */
+  it('never deletes a config dir the user pointed at', async () => {
+    const deps = freshDeps(home);
+    const dir = join(home, 'my-own-claude');
+    mkdirSync(dir, { recursive: true });
+    deps.accounts.add('mine', { type: 'config-dir', dir }, 'claude', 'm@b.org', 'bbb222bbb222');
+    const h = buildAuthHandlers(deps);
+    await h.removeCredential!.handle({ id: credentialId('claude', 'mine') });
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it('takes managed login dirs with a removed provider too', async () => {
+    const deps = freshDeps(home);
+    const dir = join(home, '.coa', 'logins', 'c-d-org');
+    mkdirSync(dir, { recursive: true });
+    deps.accounts.add('c@d.org', { type: 'config-dir', dir }, 'claude', 'c@d.org', 'ccc333ccc333');
+    const h = buildAuthHandlers(deps);
+    await h.removeProvider!.handle({ providerId: 'claude' });
+    expect(existsSync(dir)).toBe(false);
   });
 
   /** One jar can back several rows once it is keyed by identity — a Claude and a Codex login

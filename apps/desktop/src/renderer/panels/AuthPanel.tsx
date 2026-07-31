@@ -354,8 +354,8 @@ function RemoveCredentialDialog(): React.JSX.Element {
           </div>
           <div className="flex flex-col gap-3 px-4 py-4 text-code leading-relaxed text-s9">
             <span>
-              coa forgets this login. The login itself stays where it lives — nothing is touched at
-              the provider.
+              coa forgets this login and deletes the sign-in it created for it. A config directory
+              you pointed at yourself is left alone. Nothing is touched at the provider.
             </span>
             {credential.profileShared === true ? (
               // The jar belongs to an identity, not to this row, and another login still

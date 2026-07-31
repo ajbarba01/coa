@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import {
@@ -11,7 +11,7 @@ import {
 } from '@coa/shared';
 import { z } from 'zod';
 import type { AccountsRegistry } from '../auth/registry.js';
-import type { LoginManager } from '../auth/login-manager.js';
+import { isManagedLoginDir, type LoginManager } from '../auth/login-manager.js';
 import { isProfileShared, type BrowserSessionView } from '../auth/browser-session.js';
 import {
   FETCH_KINDS,
@@ -109,6 +109,24 @@ function splitId(id: string): { providerId: string; label: string } {
 }
 
 /** Unlink a key file, tolerating one that's already gone (never a secret read-back). */
+/**
+ * Delete the sign-in coa created for an account, when it created one.
+ *
+ * Removal has to mean removal at both layers, or a re-added account silently resurrects a
+ * session the user believed they had removed (docs/adr/0023). The boundary is ownership, not
+ * convenience: a config dir the USER pointed at is their data and is never touched — coa
+ * forgets the row and leaves the directory exactly where it found it.
+ */
+function removeManagedLogin(locator: Locator): void {
+  if (locator.type !== 'config-dir') return;
+  if (!isManagedLoginDir(homedir(), locator.dir)) return;
+  try {
+    rmSync(locator.dir, { recursive: true, force: true });
+  } catch {
+    // A dir we cannot delete is a disk-space problem, never a failed removal.
+  }
+}
+
 function safeUnlink(path: string): void {
   try {
     unlinkSync(path);
@@ -304,6 +322,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       if (group === 'backend') {
         for (const account of deps.accounts.listByProvider(p.providerId as Provider)) {
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
+          removeManagedLogin(account.locator);
           deps.accounts.remove(account.label);
           // Read AFTER the removal, so the row going away is not counted as sharing its own
           // jar — but an account under a DIFFERENT provider signing in as the same identity
@@ -384,6 +403,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           const activeBefore = deps.accounts.getActive(provider);
           const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === label;
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
+          removeManagedLogin(account.locator);
           deps.accounts.remove(label);
           // The email has to be read BEFORE the removal — afterwards there is no row to ask.
           // The jar is only this row's to delete if no surviving account shares the identity
