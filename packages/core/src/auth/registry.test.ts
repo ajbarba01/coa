@@ -34,6 +34,7 @@ describe('AccountsRegistry', () => {
         provider: 'claude',
         locator: { type: 'config-dir', dir: '/home/u/.claude-work' },
         disabled: false,
+        id: expect.stringMatching(/^[0-9a-f]{12}$/),
       },
     });
   });
@@ -96,7 +97,13 @@ describe('AccountsRegistry', () => {
     reg.setActive('work');
     reg.setDisabled('work', true);
     expect(reg.list()).toEqual([
-      { label: 'work', provider: 'claude', locator: { type: 'config-dir', dir: '/d' }, disabled: true },
+      {
+        label: 'work',
+        provider: 'claude',
+        locator: { type: 'config-dir', dir: '/d' },
+        disabled: true,
+        id: expect.stringMatching(/^[0-9a-f]{12}$/),
+      },
     ]);
     expect(reg.getActive('claude')).toMatchObject({ account: { label: 'work', disabled: true } });
 
@@ -133,5 +140,45 @@ describe('AccountsRegistry', () => {
     );
     const reg = new AccountsRegistry(home);
     expect(reg.getActive('claude')).toMatchObject({ account: { label: 'personal' } });
+  });
+});
+
+describe('account ids', () => {
+  it('mints an id for every account it registers', () => {
+    const registry = new AccountsRegistry(home);
+    registry.add('a@b.org', { type: 'ambient' });
+    const id = registry.list()[0]?.id;
+    expect(id).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it('accepts an id minted by the caller (a login flow keys its profile before it lands)', () => {
+    const registry = new AccountsRegistry(home);
+    registry.add('a@b.org', { type: 'ambient' }, 'claude', 'a@b.org', 'deadbeef0000');
+    expect(registry.list()[0]?.id).toBe('deadbeef0000');
+  });
+
+  it('gives every account its OWN id', () => {
+    const registry = new AccountsRegistry(home);
+    registry.add('a@b.org', { type: 'ambient' });
+    registry.add('c@d.org', { type: 'ambient' });
+    const [first, second] = registry.list();
+    expect(first?.id).not.toBe(second?.id);
+  });
+
+  it('backfills an id onto a legacy account, once, and persists it', () => {
+    mkdirSync(dirname(accountsPath(home)), { recursive: true });
+    writeFileSync(
+      accountsPath(home),
+      'active: {}\naccounts:\n  - label: legacy\n    provider: claude\n    locator: {type: ambient}\n',
+    );
+    const registry = new AccountsRegistry(home);
+    const id = registry.ensureId('legacy');
+    expect(id).toMatch(/^[0-9a-f]{12}$/);
+    expect(registry.ensureId('legacy')).toBe(id);
+    expect(new AccountsRegistry(home).list()[0]?.id).toBe(id);
+  });
+
+  it('has no id to ensure for an account that is not there', () => {
+    expect(new AccountsRegistry(home).ensureId('ghost')).toBeUndefined();
   });
 });

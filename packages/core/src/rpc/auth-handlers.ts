@@ -158,7 +158,7 @@ function renameBackendCredential(
   const activeBefore = accounts.getActive(providerId);
   const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === oldLabel;
   accounts.remove(oldLabel);
-  accounts.add(newLabel, account.locator, providerId);
+  accounts.add(newLabel, account.locator, providerId, undefined, account.id);
   if (account.disabled) accounts.setDisabled(newLabel, true);
   if (wasActive) accounts.setActive(newLabel);
 }

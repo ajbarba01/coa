@@ -204,6 +204,7 @@ describe('auth write verbs', () => {
     const d = freshDeps(home);
     d.accounts.add('a', { type: 'config-dir', dir: '~/.a' }, 'claude');
     d.accounts.setActive('a');
+    const idBefore = d.accounts.list().find((a) => a.label === 'a')?.id;
     const h = buildAuthHandlers(d);
 
     const view = (await h.renameCredential!.handle({
@@ -213,6 +214,9 @@ describe('auth write verbs', () => {
 
     expect(view.credentials.map((c) => c.label)).toEqual(['b']);
     expect(view.activeByProvider['claude']).toBe(credentialId('claude', 'b'));
+    // the id keys the account's browser profile dir (docs/adr/0018) — a rename must not
+    // re-mint it, or the renamed account orphans its existing profile
+    expect(d.accounts.list().find((a) => a.label === 'b')?.id).toBe(idBefore);
   });
 
   // --- brief cases --------------------------------------------------------------------

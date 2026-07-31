@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'yaml';
@@ -30,6 +31,13 @@ export function accountsPath(home: string): string {
 
 const EMPTY: AccountsFile = { active: {}, accounts: [] };
 
+/** A stable, opaque account id. Random rather than derived: an id derived from the email
+ *  or label inherits their collisions and dies on a rename, and per-account side state
+ *  (a browser profile) is keyed by this — see docs/adr/0018. */
+export function mintAccountId(): string {
+  return randomBytes(6).toString('hex');
+}
+
 export class AccountsRegistry {
   readonly #home: string;
 
@@ -55,12 +63,25 @@ export class AccountsRegistry {
     return account ? { kind: 'account', account } : { kind: 'ambient' };
   }
 
-  add(label: string, locator: Locator, provider: Provider = 'claude', email?: string): void {
+  add(
+    label: string,
+    locator: Locator,
+    provider: Provider = 'claude',
+    email?: string,
+    id: string = mintAccountId(),
+  ): void {
     const file = this.#read();
     if (file.accounts.some((a) => a.label === label)) {
       throw new Error(`account already exists: ${label}`);
     }
-    file.accounts.push({ label, provider, locator, disabled: false, ...(email !== undefined ? { email } : {}) });
+    file.accounts.push({
+      label,
+      provider,
+      locator,
+      disabled: false,
+      id,
+      ...(email !== undefined ? { email } : {}),
+    });
     this.#write(file);
   }
 
@@ -108,6 +129,21 @@ export class AccountsRegistry {
     if (account === undefined) throw new Error(`unknown account: ${label}`);
     file.accounts[index] = { ...account, email };
     this.#write(file);
+  }
+
+  /** The account's id, minting and persisting one if it predates ids. `undefined` only
+   *  when there is no such account. Lazy on purpose: a registry read stays a read, and
+   *  an untouched legacy row is never rewritten just for being looked at. */
+  ensureId(label: string): string | undefined {
+    const file = this.#read();
+    const index = file.accounts.findIndex((a) => a.label === label);
+    const account = file.accounts[index];
+    if (account === undefined) return undefined;
+    if (account.id !== undefined) return account.id;
+    const id = mintAccountId();
+    file.accounts[index] = { ...account, id };
+    this.#write(file);
+    return id;
   }
 
   #read(): AccountsFile {
