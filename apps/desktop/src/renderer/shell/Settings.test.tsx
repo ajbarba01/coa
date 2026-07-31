@@ -5,7 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMockAuth } from '../panels/mockAuth.js';
 import { makeState } from '../panels/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
-import { BrowserPathRow, IsolatedBrowserRow, SettingsDialog } from './Settings.js';
+import {
+  BrowserPathRow,
+  IsolatedBrowserRow,
+  ReclaimProfilesRow,
+  SettingsDialog,
+} from './Settings.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -60,7 +65,7 @@ describe('login settings rows', () => {
   it('reflects the daemon toggle and flips it', async () => {
     const setIsolated = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({
-      browserSession: { enabled: false, available: true },
+      browserSession: { enabled: false, available: true, reclaimable: [] },
       setIsolatedBrowserLogins: setIsolated,
     });
     render(<IsolatedBrowserRow />);
@@ -68,8 +73,48 @@ describe('login settings rows', () => {
     expect(setIsolated).toHaveBeenCalledWith(true);
   });
 
+  /** Under identity keying an orphan can only appear when an account's email is renamed, so
+   *  the ordinary state is "none" — and the row stays visible saying so, rather than hiding
+   *  and leaving the concept undiscoverable (docs/adr/0024). */
+  it('says none when nothing is reclaimable, rather than disappearing', () => {
+    useMockAuth.setState({
+      browserSession: { enabled: true, available: true, reclaimable: [] },
+    });
+    render(<ReclaimProfilesRow />);
+    expect(screen.getByText('none')).toBeTruthy();
+  });
+
+  it('lists jars behind a review action and deletes one by name', async () => {
+    const reclaim = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({
+      browserSession: {
+        enabled: true,
+        available: true,
+        reclaimable: ['ghost-a-1a2b3c', 'ghost-b-4d5e6f'],
+      },
+      reclaimBrowserProfiles: reclaim,
+    });
+    render(<ReclaimProfilesRow />);
+    await userEvent.click(screen.getByText('review 2'));
+    expect(screen.getByText('ghost-a-1a2b3c')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /remove browser profile ghost-a/ }));
+    expect(reclaim).toHaveBeenCalledWith(['ghost-a-1a2b3c']);
+  });
+
+  it('offers one action for the whole list', async () => {
+    const reclaim = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({
+      browserSession: { enabled: true, available: true, reclaimable: ['a-1a2b3c', 'b-4d5e6f'] },
+      reclaimBrowserProfiles: reclaim,
+    });
+    render(<ReclaimProfilesRow />);
+    await userEvent.click(screen.getByText('review 2'));
+    await userEvent.click(screen.getByText('remove all 2'));
+    expect(reclaim).toHaveBeenCalledWith(['a-1a2b3c', 'b-4d5e6f']);
+  });
+
   it('says so when no browser was found instead of hiding the control', () => {
-    useMockAuth.setState({ browserSession: { enabled: true, available: false } });
+    useMockAuth.setState({ browserSession: { enabled: true, available: false, reclaimable: [] } });
     render(<IsolatedBrowserRow />);
     expect(screen.getByText(/no browser found/i)).toBeTruthy();
     expect(screen.getByRole('switch')).toBeTruthy();
@@ -78,7 +123,7 @@ describe('login settings rows', () => {
   it('prefills the override from detection and commits an edit', async () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({
-      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe' },
+      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe', reclaimable: [] },
       setBrowserPath: setPath,
     });
     render(<BrowserPathRow />);
@@ -92,7 +137,7 @@ describe('login settings rows', () => {
   it('does not pin auto-detection as an override when Enter is pressed without editing', async () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({
-      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe' },
+      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe', reclaimable: [] },
       setBrowserPath: setPath,
     });
     render(<BrowserPathRow />);

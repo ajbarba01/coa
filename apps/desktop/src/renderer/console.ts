@@ -140,6 +140,8 @@ export const rpcSetIsolatedBrowserLogins = (on: boolean): Promise<AuthView> =>
   window.coa.setIsolatedBrowserLogins({ on });
 export const rpcSetBrowserPath = (path: string): Promise<AuthView> =>
   window.coa.setBrowserPath({ path });
+export const rpcReclaimBrowserProfiles = (names: string[]): Promise<AuthView> =>
+  window.coa.reclaimBrowserProfiles({ names });
 export const rpcSetProviderEnabled = (providerId: string, on: boolean): Promise<AuthView> =>
   window.coa.setProviderEnabled({ providerId, on });
 export const rpcSetCredentialDisabled = (id: string, disabled: boolean): Promise<AuthView> =>

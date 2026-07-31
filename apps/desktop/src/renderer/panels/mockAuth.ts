@@ -12,6 +12,7 @@ import {
   rpcRemoveProvider,
   rpcRenameCredential,
   rpcReplaceSecret,
+  rpcReclaimBrowserProfiles,
   rpcSetBrowserPath,
   rpcSetCredentialDisabled,
   rpcSetIsolatedBrowserLogins,
@@ -75,7 +76,14 @@ export interface MockAuthState {
   chains: Record<string, string[]>;
   /** The isolated-browser-login capability, daemon-owned: the global toggle, whether a
    *  browser was found, and the detected/overridden binary. */
-  browserSession: { enabled: boolean; available: boolean; detectedPath?: string; path?: string };
+  browserSession: {
+    enabled: boolean;
+    available: boolean;
+    detectedPath?: string;
+    path?: string;
+    /** Profile dirs no account resolves to (docs/adr/0024). Normally empty. */
+    reclaimable: string[];
+  };
   /** Reads `authView` and reprojects it. Idempotent — safe to call on every surface mount. */
   hydrate: () => Promise<void>;
   addProvider: (providerId: string) => Promise<void>;
@@ -99,6 +107,8 @@ export interface MockAuthState {
   setIsolatedBrowserLogins: (on: boolean) => Promise<void>;
   /** An empty path clears the override back to auto-detection. */
   setBrowserPath: (path: string) => Promise<void>;
+  /** Delete the named jars. Never called except from a click (docs/adr/0018). */
+  reclaimBrowserProfiles: (names: string[]) => Promise<void>;
 }
 
 /** A daemon `CredentialView`'s optional fields are `T | undefined` (zod's `.optional()`);
@@ -128,7 +138,11 @@ function toCredential(c: AuthView['credentials'][number]): Credential {
 /** Same omission discipline as {@link toCredential}, applied to the nested
  *  `browserSession` block's own optional fields. */
 function toBrowserSession(b: AuthView['browserSession']): MockAuthState['browserSession'] {
-  const session: MockAuthState['browserSession'] = { enabled: b.enabled, available: b.available };
+  const session: MockAuthState['browserSession'] = {
+    enabled: b.enabled,
+    available: b.available,
+    reclaimable: b.reclaimable,
+  };
   if (b.detectedPath !== undefined) session.detectedPath = b.detectedPath;
   if (b.path !== undefined) session.path = b.path;
   return session;
@@ -154,7 +168,7 @@ export const useMockAuth = create<MockAuthState>((set) => ({
   activeByProvider: {},
   enabled: {},
   chains: {},
-  browserSession: { enabled: false, available: false },
+  browserSession: { enabled: false, available: false, reclaimable: [] },
 
   hydrate: async () => apply(set)(await rpcAuthView()),
   addProvider: async (providerId) => apply(set)(await rpcAddProvider(providerId)),
@@ -179,6 +193,7 @@ export const useMockAuth = create<MockAuthState>((set) => ({
   probeHealth: async () => apply(set)(await rpcProbeHealth()),
   setIsolatedBrowserLogins: async (on) => apply(set)(await rpcSetIsolatedBrowserLogins(on)),
   setBrowserPath: async (path) => apply(set)(await rpcSetBrowserPath(path)),
+  reclaimBrowserProfiles: async (names) => apply(set)(await rpcReclaimBrowserProfiles(names)),
 }));
 
 /* ------------------------------ pure selectors ------------------------------ */

@@ -263,7 +263,13 @@ everything else the new design overwrites.
   [0018](docs/adr/0018-isolated-browser-login-sessions.md). Profiles are keyed by **identity**
   (an email slug plus a digest), not by account row, so a relogin reuses the session it already
   established and two providers signed in as the same person share one jar —
-  [ADR-0021](docs/adr/0021-browser-profiles-keyed-by-identity.md).
+  [ADR-0021](docs/adr/0021-browser-profiles-keyed-by-identity.md). Every jar now shares **one**
+  Chrome user-data-dir (`~/.coa/browser-session/profiles`), isolated by `--profile-directory` —
+  ~90% of a profile is not the login, and the model store, Safe Browsing database and component
+  cache live at the root, so they are paid once instead of once per identity. Launches carry disk
+  flags (measured 67 MB → 10 MB), Safe Browsing deliberately kept. Jars no account resolves to are
+  listed in settings and deleted on request, never swept —
+  [ADR-0024](docs/adr/0024-browser-profiles-share-one-user-data-dir.md), superseding 0021's layout.
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).

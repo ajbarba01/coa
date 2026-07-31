@@ -102,7 +102,7 @@ describe.skipIf(!process.env['COA_LIVE'] || process.platform !== 'win32')(
       // page load, so it proves the identical property (the `&`-carrying query string
       // arrived intact) without firing a real request at Anthropic's production auth server.
       const url = `https://example.invalid/oauth/authorize?code=1&state=${marker}&scope=user`;
-      const args = browserArgs(join(dir, 'profile'), url);
+      const args = browserArgs(join(dir, 'profiles'), 'live-probe', url);
 
       // argv only — no `shell: true` — is the exact thing under test: the CLI's escaping
       // bug only exists because a shell sits between the caller and the browser. Removing

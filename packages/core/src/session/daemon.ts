@@ -175,8 +175,7 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
     },
     {
       browserSession: {
-        launcherFor: (email, legacyAccountId) =>
-          browser.launcherFor('claude', email, legacyAccountId),
+        launcherFor: (email) => browser.launcherFor('claude', email),
         // Fire-and-forget: the open waits briefly for the shim's relayed url, and a login
         // must never block on a browser window (docs/adr/0020).
         openUrl: (email, url) => void browser.openUrl('claude', email, url),

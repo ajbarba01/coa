@@ -69,6 +69,7 @@ const benchParams = z.object({ id: z.string().min(1), disabled: z.boolean() });
 const enableParams = z.object({ providerId: z.string().min(1), on: z.boolean() });
 const browserToggleParams = z.object({ on: z.boolean() });
 const browserPathParams = z.object({ path: z.string() });
+const reclaimParams = z.object({ names: z.array(z.string()) });
 const removeCredParams = z.object({ id: z.string().min(1), removeProfile: z.boolean().optional() });
 const removeProviderParams = z.object({
   providerId: z.string().min(1),
@@ -314,6 +315,23 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
 
     setBrowserPath: rpcMethod(browserPathParams, (p) => {
       deps.console.setBrowserPath(p.path);
+      return assembleAuthView(viewDeps);
+    }),
+
+    /** Delete jars no account resolves to. ADR-0018 still binds — coa never sweeps on its
+     *  own initiative, so this only ever runs because a user clicked. Each name is deleted
+     *  independently: one that is locked must not abandon the rest, and it simply appears in
+     *  the returned view again (docs/adr/0024). */
+    reclaimBrowserProfiles: rpcMethod(reclaimParams, (p) => {
+      const offered = new Set(
+        deps.browser?.listReclaimable(deps.accounts.list().map((a) => a.email)) ?? [],
+      );
+      // Only ever delete something the view itself offered. A name that arrived from
+      // anywhere else — a stale renderer, a hand-written request — is not this verb's to act
+      // on, and the guard keeps a live account's jar unreachable from here by construction.
+      for (const name of p.names) {
+        if (offered.has(name)) deps.browser?.reclaimProfile(name);
+      }
       return assembleAuthView(viewDeps);
     }),
 

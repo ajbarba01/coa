@@ -407,6 +407,8 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('setIsolatedBrowserLogins', params);
     case 'setBrowserPath':
       return proxyDaemon('setBrowserPath', params);
+    case 'reclaimBrowserProfiles':
+      return proxyDaemon('reclaimBrowserProfiles', params);
     case 'refresh':
       return proxyDaemon('refresh');
     case 'startSession':

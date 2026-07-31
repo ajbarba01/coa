@@ -51,6 +51,11 @@ export interface AuthView {
     available: boolean;
     detectedPath?: string;
     path?: string;
+    /** Jars in the shared root no account resolves to — normally empty, because under
+     *  identity keying the only way to mint one is renaming an account's email
+     *  (docs/adr/0024). Names only: no sizes, which is what keeps this cheap enough to
+     *  ride every read of the view. */
+    reclaimable: string[];
   };
 }
 
@@ -219,6 +224,9 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
     available: deps.browser?.available() ?? false,
     ...(detectedPath !== undefined ? { detectedPath } : {}),
     ...(overridePath !== undefined ? { path: overridePath } : {}),
+    // Every account's email, including other providers': one jar can back several rows, and
+    // a jar any of them resolves to must never be offered for deletion (docs/adr/0021).
+    reclaimable: deps.browser?.listReclaimable(deps.accounts.list().map((a) => a.email)) ?? [],
   };
 
   return { added, credentials, activeByProvider, enabled, chains, browserSession };

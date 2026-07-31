@@ -56,6 +56,9 @@ declare global {
       setIsolatedBrowserLogins(params: { on: boolean }): Promise<AuthView>;
       /** The browser-binary override; an empty path clears it back to auto-detection. */
       setBrowserPath(params: { path: string }): Promise<AuthView>;
+      /** Delete browser profiles no account resolves to. Only ever runs on a user's click —
+       *  coa never sweeps profiles on its own initiative (docs/adr/0018). */
+      reclaimBrowserProfiles(params: { names: string[] }): Promise<AuthView>;
       /** Re-read every pointer locator — identity, expiry, limits — on demand. */
       refresh(): Promise<AuthView>;
       startSession(params: {

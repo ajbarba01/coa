@@ -94,6 +94,63 @@ export function BrowserPathRow(): React.JSX.Element {
   );
 }
 
+/**
+ * Browser profiles no account resolves to, and the one door that deletes them.
+ *
+ * ADR-0018 still binds: coa never deletes a profile on its own initiative, so nothing here
+ * happens without a click. Names only — no sizes, no dates — because under identity keying
+ * this list is normally empty, and when it is not, the name already says whose jar it is
+ * (docs/adr/0024).
+ *
+ * Lives here rather than on the auth surface because an orphan has no account row to hang
+ * off, and the auth panel is organized by account row (AUTH-1).
+ */
+export function ReclaimProfilesRow(): React.JSX.Element {
+  const reclaimable = useMockAuth((s) => s.browserSession.reclaimable);
+  const reclaim = useMockAuth((s) => s.reclaimBrowserProfiles);
+  const [open, setOpen] = useState(false);
+  const run = (names: string[]): void => void reclaim(names).catch(() => {});
+
+  if (reclaimable.length === 0) {
+    return <span className="flex-none font-mono text-code text-s7">none</span>;
+  }
+  return (
+    <span className="flex flex-none flex-col items-end gap-1.5">
+      <button
+        type="button"
+        className="font-mono text-code text-s8 underline-offset-2 hover:underline"
+        onClick={() => setOpen((was) => !was)}
+      >
+        {open ? 'hide' : `review ${reclaimable.length}`}
+      </button>
+      {open && (
+        <span className="flex flex-col items-stretch gap-1">
+          {reclaimable.map((name) => (
+            <span key={name} className="flex items-center justify-between gap-3">
+              <span className="font-mono text-meta text-s7">{name}</span>
+              <button
+                type="button"
+                className="font-mono text-meta text-s7 hover:text-s9"
+                aria-label={`remove browser profile ${name}`}
+                onClick={() => run([name])}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            className="self-end font-mono text-meta text-s7 underline-offset-2 hover:underline"
+            onClick={() => run([...reclaimable])}
+          >
+            {`remove all ${reclaimable.length}`}
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 const SECTIONS: SectionSpec[] = [
   {
     id: 'appearance',
@@ -148,6 +205,12 @@ const SECTIONS: SectionSpec[] = [
         name: 'Browser',
         desc: 'Which browser those profiles open in. Detected automatically — set a path only to correct it.',
         render: () => <BrowserPathRow />,
+      },
+      {
+        id: 'reclaim-profiles',
+        name: 'Unused browser profiles',
+        desc: 'Sign-in jars no login uses any more. coa never deletes one on its own — review them and choose.',
+        render: () => <ReclaimProfilesRow />,
       },
     ],
   },

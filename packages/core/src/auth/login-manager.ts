@@ -77,9 +77,7 @@ export interface LoginDriverPort {
  *  implementation treats as a FALLBACK — it prefers the url the `BROWSER` shim relayed,
  *  which completes without a pasted code (docs/adr/0020). Fire-and-forget by contract. */
 export interface BrowserSessionPort {
-  /** `legacyAccountId` lets the implementation adopt a jar built before profiles were keyed
-   *  by identity, instead of stranding it (docs/adr/0021). */
-  launcherFor(email: string, legacyAccountId?: string): string | undefined;
+  launcherFor(email: string): string | undefined;
   openUrl(email: string, url: string): void;
   /** Drops the identity's jar. Used when a retry must not inherit the session that just
    *  landed the wrong account. */
@@ -156,11 +154,11 @@ export class LoginManager {
     this.#clearFlow();
     const dir = this.#resolveDir(args.email, args.credentialId);
     const mode: 'new' | 'relogin' = args.credentialId !== undefined ? 'relogin' : 'new';
-    // The account's id has to exist BEFORE the handshake: the browser profile is keyed by
-    // it, and a new account is only registered once the login lands. A new flow mints one
-    // and carries it to registration; a relogin reuses (or backfills) the account's own.
+    // The account's id has to exist BEFORE the handshake: a new account is only registered
+    // once the login lands. A new flow mints one and carries it to registration; a relogin
+    // reuses (or backfills) the account's own.
     const accountId = this.#resolveAccountId(args.credentialId);
-    const launcher = this.#browser?.launcherFor(args.email, accountId);
+    const launcher = this.#browser?.launcherFor(args.email);
     const handle = this.#driver.start({
       dir,
       email: args.email,

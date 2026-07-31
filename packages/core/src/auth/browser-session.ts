@@ -1,8 +1,31 @@
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, win32 } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, win32 } from 'node:path';
 import { supportsIsolatedBrowserSession } from '@coa/shared';
+import {
+  browserProfileDir,
+  browserUserDataDir,
+  courierPath,
+  isSafeProfileKey,
+  launcherPath,
+  profileKey,
+} from './browser-paths.js';
+import {
+  listReclaimable,
+  nodeReclaimDeps,
+  reclaimProfile,
+  type ReclaimDeps,
+} from './browser-reclaim.js';
+
+export {
+  browserProfileDir,
+  browserSessionRoot,
+  browserUserDataDir,
+  courierPath,
+  isSafeProfileKey,
+  launcherPath,
+  profileKey,
+} from './browser-paths.js';
 
 /**
  * Isolated browser sessions for driven logins (docs/adr/0018). coa cannot own the
@@ -36,6 +59,23 @@ import { supportsIsolatedBrowserSession } from '@coa/shared';
  *  default-browser prompts over the sign-in the user came for. */
 const CHROMIUM_FLAGS = ['--no-first-run', '--no-default-browser-check'];
 
+/**
+ * Flags that keep a single-purpose OAuth window from downloading a browser's worth of
+ * machine learning. Component updates bring the text-to-speech engine, the omnibox suggest
+ * model and the component extension cache; the optimization guide brings a ~49 MB model
+ * store; the shader cache is pure GPU warm-up. None of them serve a window whose only job
+ * is one sign-in, and each one measurably occupied the profile root (docs/adr/0024).
+ *
+ * Safe Browsing is deliberately NOT disabled. It is the second-largest item on disk and
+ * also the phishing database guarding a window where a password gets typed — the wrong
+ * thing to trade for megabytes, and the shared root already pays for it only once.
+ */
+const DISK_FLAGS = [
+  '--disable-component-update',
+  '--disable-features=OptimizationHints,OptimizationGuideModelDownloading',
+  '--disable-gpu-shader-disk-cache',
+];
+
 /** Install locations, most-likely first. Chrome outranks Edge everywhere: the browser a
  *  person signs into outranks the one Windows ships with. Env keys are read as Windows
  *  spells them — `process.env` is case-insensitive there, and tests pass the same keys. */
@@ -67,14 +107,6 @@ export function detectBrowser(
   return browserCandidates(platform, env).find(exists);
 }
 
-/** Pure: a key safe to spend as ONE path segment. {@link profileKey} produces these by
- *  construction, so this guards the legacy account ids migration still reads out of a
- *  hand-editable `accounts.yaml` — anything that could escape the profile root gets no
- *  isolation rather than a sanitized approximation. */
-export function isSafeProfileKey(key: string): boolean {
-  return /^[A-Za-z0-9_-]{1,64}$/.test(key);
-}
-
 /** Pure: whether any of `otherEmails` resolves to the same jar as `email`. Keying by identity
  *  means one jar can back several account rows — a Claude and a Codex login as the same
  *  person, say — so deleting it on one row's removal would sign the others out too
@@ -88,36 +120,6 @@ export function isProfileShared(
   return otherEmails.some((other) => other !== undefined && profileKey(other) === key);
 }
 
-/** Keeps the readable half of a key bounded so a long address cannot produce a path no
- *  filesystem will take. */
-const KEY_SLUG_MAX = 48;
-const KEY_HASH_LENGTH = 6;
-
-/**
- * Pure: the profile key for an identity — a readable slug plus a short digest of the
- * normalized address, e.g. `wormsegment1000-gmail-com-4f9a2c`.
- *
- * Keyed by IDENTITY rather than by account row (docs/adr/0021). The consequences are the
- * point: a relogin reuses the jar it already signed into, two providers signed in as the
- * same person share one jar, and removing an account row no longer strands a directory
- * nothing can name again.
- *
- * The digest is what makes this safe where a bare slug was not — slugging collapses every
- * non-alphanumeric run, so `a.b@c.com`, `a-b@c.com`, and `a+b@c.com` would otherwise share
- * one cookie jar. The slug survives only so the profile root stays inspectable by a human.
- */
-export function profileKey(email: string): string | undefined {
-  const normalized = email.trim().toLowerCase();
-  if (normalized === '') return undefined;
-  const slug = normalized
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, KEY_SLUG_MAX)
-    .replace(/-+$/, '');
-  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, KEY_HASH_LENGTH);
-  return slug === '' ? digest : `${slug}-${digest}`;
-}
-
 /** Pure: guards a path before it is trusted as something to launch. A `"`, a `%`, or a
  *  newline in a hand-edited override is copy-paste damage or tampering, not a real install
  *  path — real chrome.exe/msedge.exe locations never contain them (docs/adr/0018) — so
@@ -126,24 +128,6 @@ export function profileKey(email: string): string | undefined {
  *  normalizer. */
 export function isSafeBrowserPath(path: string): boolean {
   return !/["%\r\n]/.test(path);
-}
-
-/** Pure: an identity's browser profile (its own cookie jar), keyed by {@link profileKey}. */
-export function browserProfileDir(home: string, key: string): string {
-  return join(home, '.coa', 'browser-profiles', key);
-}
-
-/** Pure: the shim `BROWSER` points at. Beside the profile dir, not inside it, so removing
- *  an identity's profile takes its launcher with it. */
-export function launcherPath(home: string, key: string, platform: string): string {
-  const ext = platform === 'win32' ? '.cmd' : '.sh';
-  return join(home, '.coa', 'browser-profiles', `${key}${ext}`);
-}
-
-/** Pure: where the shim writes the url it was handed. Beside the profile dir, keyed the same
- *  way, so removing an identity takes its relayed url with it. */
-export function courierPath(home: string, key: string): string {
-  return join(home, '.coa', 'browser-profiles', `${key}.url`);
 }
 
 /**
@@ -191,9 +175,18 @@ const COURIER_INTERVAL_MS = 120;
 
 /** Pure: the argv for a direct browser launch — one element per flag, url last. No shell
  *  sits between this array and the OS, so there is no quoting step for an authorize url's
- *  `&` to be lost in (the failure mode {@link suppressorScript} exists to route around). */
-export function browserArgs(profileDir: string, url: string): string[] {
-  return [`--user-data-dir=${profileDir}`, ...CHROMIUM_FLAGS, url];
+ *  `&` to be lost in (the failure mode the courier shim exists to route around).
+ *
+ *  The root/key split is the isolation: one user-data-dir shared by every identity, one
+ *  profile-directory per identity (docs/adr/0024). */
+export function browserArgs(userDataDir: string, key: string, url: string): string[] {
+  return [
+    `--user-data-dir=${userDataDir}`,
+    `--profile-directory=${key}`,
+    ...CHROMIUM_FLAGS,
+    ...DISK_FLAGS,
+    url,
+  ];
 }
 
 /** The global toggle plus the optional binary override, read fresh on every use so a
@@ -216,6 +209,8 @@ export interface BrowserSessionDeps {
   /** Contents of a file, or `undefined` when it is not there yet. */
   read?(path: string): string | undefined;
   rename?(from: string, to: string): void;
+  /** Subdirectory names of a path — the reclaim enumeration's one filesystem read. */
+  listDirs?(path: string): string[];
   /** Injected so the bounded wait for the relayed url costs tests no real time. */
   delay?(ms: number): Promise<void>;
 }
@@ -230,6 +225,10 @@ export interface BrowserSessionView {
   /** Keyed by identity, so both take the account's declared email (docs/adr/0021). */
   hasProfile(email: string): boolean;
   removeProfile(email: string): void;
+  /** Jars no account resolves to, and the door that deletes one. Reads and deletes only —
+   *  still launcher-free, so the seam's guarantee holds (docs/adr/0024). */
+  listReclaimable(knownEmails: readonly (string | undefined)[]): string[];
+  reclaimProfile(key: string): void;
 }
 
 /** A shim is executable in its own right on POSIX; 0700 keeps it to its owner. */
@@ -318,29 +317,17 @@ export class BrowserSession implements BrowserSessionView {
     return this.#exists(browserProfileDir(this.#deps.home, key));
   }
 
-  /** Best-effort adoption of a jar built before the key became the identity: rename it into
-   *  place rather than strand it and make the user sign in again (docs/adr/0021). Skipped
-   *  entirely once the identity has its own jar; a failure here is silently a fresh jar. */
-  #adoptLegacyProfile(key: string, legacyAccountId: string | undefined): void {
-    if (legacyAccountId === undefined || !isSafeProfileKey(legacyAccountId)) return;
-    const target = browserProfileDir(this.#deps.home, key);
-    if (this.#exists(target)) return;
-    const legacy = browserProfileDir(this.#deps.home, legacyAccountId);
-    if (!this.#exists(legacy)) return;
-    try {
-      (this.#deps.rename ?? renameSync)(legacy, target);
-    } catch {
-      // A jar we cannot adopt costs one sign-in, never the login.
-    }
-  }
-
   /**
    * The launcher `BROWSER` should point at for this login, or `undefined` when isolation
    * does not apply — setting off, provider without the capability, no browser, an id that
    * could escape the profile root, or an unwritable launcher. Every one of those is a
    * plain fallback to the copy-link + paste-code path, never an error (SC-1).
+   *
+   * No legacy adoption: jars from before the shared root are not carried over. Adopting one
+   * would import the old layout into the new, which the clean break rejects — they are the
+   * reclaim surface's business now, not this one's (docs/adr/0024).
    */
-  launcherFor(provider: string, email: string, legacyAccountId?: string): string | undefined {
+  launcherFor(provider: string, email: string): string | undefined {
     try {
       if (!this.enabled()) return undefined;
       if (!supportsIsolatedBrowserSession(provider)) return undefined;
@@ -348,7 +335,6 @@ export class BrowserSession implements BrowserSessionView {
       if (key === undefined || !isSafeProfileKey(key)) return undefined;
       const browserPath = this.browser();
       if (browserPath === undefined) return undefined;
-      this.#adoptLegacyProfile(key, legacyAccountId);
       const path = launcherPath(this.#deps.home, key, this.#deps.platform);
       const courier = courierPath(this.#deps.home, key);
       // A url left by an earlier attempt names a localhost port that died with it. Clearing
@@ -408,10 +394,40 @@ export class BrowserSession implements BrowserSessionView {
       const relayed = await this.#relayedUrl(key);
       (this.#deps.launch ?? launchBrowser)(
         browserPath,
-        browserArgs(browserProfileDir(this.#deps.home, key), relayed ?? printedUrl),
+        browserArgs(browserUserDataDir(this.#deps.home), key, relayed ?? printedUrl),
       );
     } catch {
       // SC-1: a failed open is a no-op, never an error into the login flow.
+    }
+  }
+
+  /** The reclaim module's deps, built from this session's own injected ones so a test that
+   *  fakes the filesystem here fakes it there too. */
+  #reclaimDeps(): ReclaimDeps {
+    const node = nodeReclaimDeps(this.#deps.home, this.#deps.platform);
+    return {
+      ...node,
+      exists: (path) => this.#exists(path),
+      ...(this.#deps.rename !== undefined ? { rename: this.#deps.rename } : {}),
+      ...(this.#deps.remove !== undefined ? { remove: this.#deps.remove } : {}),
+      ...(this.#deps.listDirs !== undefined ? { listDirs: this.#deps.listDirs } : {}),
+    };
+  }
+
+  listReclaimable(knownEmails: readonly (string | undefined)[]): string[] {
+    try {
+      return listReclaimable(this.#reclaimDeps(), knownEmails);
+    } catch {
+      // A profile root that cannot be read reports nothing to reclaim, never an error.
+      return [];
+    }
+  }
+
+  reclaimProfile(key: string): void {
+    try {
+      reclaimProfile(this.#reclaimDeps(), key);
+    } catch {
+      // A jar we cannot delete is a disk-space problem, never a failed action.
     }
   }
 

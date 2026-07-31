@@ -1,6 +1,6 @@
 # 0021 — Browser profiles are keyed by identity, not by account row
 
-- Status: accepted
+- Status: superseded (layout only) by [0024](0024-browser-profiles-share-one-user-data-dir.md)
 - Date: 2026-07-31
 
 Amends [0018](0018-isolated-browser-login-sessions.md)'s "profile dirs are keyed by account

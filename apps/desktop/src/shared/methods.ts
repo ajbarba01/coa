@@ -152,6 +152,7 @@ export type MethodName =
   | 'clearCooldown'
   | 'setIsolatedBrowserLogins'
   | 'setBrowserPath'
+  | 'reclaimBrowserProfiles'
   | 'refresh'
   | 'startSession'
   | 'newSession'
@@ -223,6 +224,7 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   clearCooldown: { params: z.object({ id: z.string() }), result: AuthViewSchema },
   setIsolatedBrowserLogins: { params: z.object({ on: z.boolean() }), result: AuthViewSchema },
   setBrowserPath: { params: z.object({ path: z.string() }), result: AuthViewSchema },
+  reclaimBrowserProfiles: { params: z.object({ names: z.array(z.string()) }), result: AuthViewSchema },
   refresh: { result: AuthViewSchema },
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },

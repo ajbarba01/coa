@@ -553,10 +553,17 @@ describe('login verbs', () => {
 });
 
 describe('browser session over the auth verbs', () => {
-  function browserStub(): { removed: string[]; view: BrowserSessionView } {
+  function browserStub(reclaimable: string[] = []): {
+    removed: string[];
+    reclaimed: string[];
+    view: BrowserSessionView;
+  } {
     const removed: string[] = [];
+    const reclaimed: string[] = [];
+    const jars = [...reclaimable];
     return {
       removed,
+      reclaimed,
       view: {
         enabled: () => true,
         available: () => true,
@@ -564,6 +571,11 @@ describe('browser session over the auth verbs', () => {
         override: () => undefined,
         hasProfile: () => true,
         removeProfile: (email: string) => void removed.push(email),
+        listReclaimable: () => [...jars],
+        reclaimProfile: (key: string) => {
+          reclaimed.push(key);
+          jars.splice(jars.indexOf(key), 1);
+        },
       },
     };
   }
@@ -575,13 +587,40 @@ describe('browser session over the auth verbs', () => {
       enabled: true,
       available: true,
       detectedPath: 'C:\\chrome.exe',
+      reclaimable: [],
     });
+  });
+
+  it('surfaces jars no account resolves to, and deletes the ones asked for', async () => {
+    const stub = browserStub(['ghost-a-1a2b3c', 'ghost-b-4d5e6f']);
+    const h = buildAuthHandlers({ ...freshDeps(home), browser: stub.view });
+    const before = (await h.authView!.handle(undefined)) as AuthView;
+    expect(before.browserSession.reclaimable).toEqual(['ghost-a-1a2b3c', 'ghost-b-4d5e6f']);
+
+    const after = (await h.reclaimBrowserProfiles!.handle({ names: ['ghost-a-1a2b3c'] })) as AuthView;
+    expect(stub.reclaimed).toEqual(['ghost-a-1a2b3c']);
+    expect(after.browserSession.reclaimable).toEqual(['ghost-b-4d5e6f']);
+  });
+
+  /** The verb only ever acts on something the view itself offered, so a name from a stale
+   *  renderer — or a hand-written request naming a live account's jar — reaches nothing. */
+  it('ignores a name the view never offered', async () => {
+    const stub = browserStub(['ghost-a-1a2b3c']);
+    const h = buildAuthHandlers({ ...freshDeps(home), browser: stub.view });
+    await h.reclaimBrowserProfiles!.handle({ names: ['some-live-jar-9z8y7x'] });
+    expect(stub.reclaimed).toEqual([]);
+  });
+
+  it('has nothing to reclaim when no browser session is wired at all', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const view = (await h.reclaimBrowserProfiles!.handle({ names: ['anything'] })) as AuthView;
+    expect(view.browserSession.reclaimable).toEqual([]);
   });
 
   it('floors the browser session when the daemon has none', async () => {
     const h = buildAuthHandlers(freshDeps(home));
     const view = (await h.authView!.handle(undefined)) as AuthView;
-    expect(view.browserSession).toEqual({ enabled: false, available: false });
+    expect(view.browserSession).toEqual({ enabled: false, available: false, reclaimable: [] });
   });
 
   it('persists the toggle and reads it back', async () => {

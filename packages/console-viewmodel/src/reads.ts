@@ -206,9 +206,12 @@ export const AuthViewSchema = z
         available: z.boolean(),
         detectedPath: z.string().optional(),
         path: z.string().optional(),
+        /** Jars no account resolves to. Defaulted, so a daemon that predates the reclaim
+         *  surface reads as "nothing to reclaim" rather than failing the whole view. */
+        reclaimable: z.array(z.string()).default([]),
       })
       .strip()
-      .default({ enabled: false, available: false }),
+      .default({ enabled: false, available: false, reclaimable: [] }),
   })
   .strip();
 export type AuthView = z.infer<typeof AuthViewSchema>;

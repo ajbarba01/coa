@@ -5,6 +5,7 @@ import {
   browserArgs,
   browserCandidates,
   browserProfileDir,
+  browserUserDataDir,
   courierPath,
   courierScript,
   detectBrowser,
@@ -94,15 +95,23 @@ describe('profile keying', () => {
     expect(profileKey('   ')).toBeUndefined();
   });
 
-  it('keys the profile dir by that key under the coa home', () => {
+  it('keys the profile dir by that key inside the shared user-data-dir', () => {
     expect(browserProfileDir('/home/z', '9f2c')).toBe(
-      ['', 'home', 'z', '.coa', 'browser-profiles', '9f2c'].join(sep),
+      ['', 'home', 'z', '.coa', 'browser-session', 'profiles', '9f2c'].join(sep),
     );
   });
 
-  it('parks the launcher beside the profile dir it opens', () => {
+  it('holds every jar in ONE user-data-dir, so the heavy half is paid once', () => {
+    expect(browserProfileDir('/home/z', 'a')).toContain(browserUserDataDir('/home/z'));
+    expect(browserProfileDir('/home/z', 'b')).toContain(browserUserDataDir('/home/z'));
+  });
+
+  it('parks the launcher outside the user-data-dir, so coa files never mix with chrome ones', () => {
     expect(launcherPath('/home/z', '9f2c', 'win32').endsWith('9f2c.cmd')).toBe(true);
     expect(launcherPath('/home/z', '9f2c', 'linux').endsWith('9f2c.sh')).toBe(true);
+    expect(launcherPath('/home/z', '9f2c', 'win32').startsWith(browserUserDataDir('/home/z'))).toBe(
+      false,
+    );
   });
 });
 
@@ -141,9 +150,9 @@ describe('courier script', () => {
     );
   });
 
-  it('parks the relayed url beside the profile dir it belongs to', () => {
+  it('parks the relayed url beside the launcher it belongs to', () => {
     expect(courierPath('/home/z', '9f2c')).toBe(
-      ['', 'home', 'z', '.coa', 'browser-profiles', '9f2c.url'].join(sep),
+      ['', 'home', 'z', '.coa', 'browser-session', '9f2c.url'].join(sep),
     );
   });
 });
@@ -171,12 +180,34 @@ describe('unwrapCourierUrl', () => {
 
 describe('browser args', () => {
   it('builds one argv element per flag, url last — nothing for a shell to mis-split', () => {
-    expect(browserArgs('C:\\p\\9f2c', 'https://x/y?a=1&b=2')).toEqual([
-      '--user-data-dir=C:\\p\\9f2c',
+    expect(browserArgs('C:\\p', '9f2c', 'https://x/y?a=1&b=2')).toEqual([
+      '--user-data-dir=C:\\p',
+      '--profile-directory=9f2c',
       '--no-first-run',
       '--no-default-browser-check',
+      '--disable-component-update',
+      '--disable-features=OptimizationHints,OptimizationGuideModelDownloading',
+      '--disable-gpu-shader-disk-cache',
       'https://x/y?a=1&b=2',
     ]);
+  });
+
+  /** The disk lever: the root every identity shares, the profile-directory that isolates
+   *  them (docs/adr/0024). Same root, different jar. */
+  it('isolates by profile-directory while sharing the user-data-dir', () => {
+    const alice = browserArgs('/root', 'alice', 'https://x');
+    const bob = browserArgs('/root', 'bob', 'https://x');
+    expect(alice).toContain('--user-data-dir=/root');
+    expect(bob).toContain('--user-data-dir=/root');
+    expect(alice).toContain('--profile-directory=alice');
+    expect(bob).toContain('--profile-directory=bob');
+  });
+
+  /** Safe Browsing is the second-largest thing on disk AND the phishing database guarding a
+   *  window where a password is typed. The shared root makes it cheap; disabling it would
+   *  trade the wrong thing for megabytes. */
+  it('never disables safe browsing', () => {
+    expect(browserArgs('/root', 'k', 'https://x').join(' ')).not.toMatch(/safe.?browsing/i);
   });
 });
 
@@ -213,13 +244,13 @@ function harness(
 
 const EMAIL = 'a.b@c.com';
 const KEY = profileKey(EMAIL)!;
-const ROOT = 'C:\\home\\.coa\\browser-profiles';
-const PROFILE = `${ROOT}\\${KEY}`;
-const SHIM = `${PROFILE}.cmd`;
-const COURIER = `${PROFILE}.url`;
-/** An account id from before the jar was keyed by identity (docs/adr/0021). */
-const LEGACY_ID = '9f2c1ab30d44';
-const LEGACY_DIR = `${ROOT}\\${LEGACY_ID}`;
+const ROOT = 'C:\\home\\.coa\\browser-session';
+/** The jar sits inside the shared user-data-dir; the shim and url beside it (docs/adr/0024). */
+const PROFILE = `${ROOT}\\profiles\\${KEY}`;
+const SHIM = `${ROOT}\\${KEY}.cmd`;
+const COURIER = `${ROOT}\\${KEY}.url`;
+/** A directory from the layout before the shared root — reclaim's business, not the launcher's. */
+const LEGACY_DIR = 'C:\\home\\.coa\\browser-profiles\\9f2c1ab30d44';
 
 describe('BrowserSession', () => {
   it('writes a courier launcher for a capable provider when the setting is on', () => {
@@ -239,41 +270,13 @@ describe('BrowserSession', () => {
     expect(files.has(COURIER)).toBe(false);
   });
 
-  /** The jar an account already built is worth more than a clean slate: reusing it is what
-   *  makes a relogin skip the identity provider entirely. Best-effort — a failed rename just
-   *  means a fresh jar, never a failed login. */
-  it('adopts a pre-identity profile dir instead of stranding it', () => {
+  /** Jars from before the shared root are NOT carried over (docs/adr/0024). Adopting one
+   *  would import the old layout into the new, which the clean break rejects — a pre-shared-
+   *  root directory is the reclaim surface's business now, not the launcher's. */
+  it('never renames a legacy jar into place when issuing a launcher', () => {
     const { session, renamed } = harness({ enabled: true }, [CHROME, LEGACY_DIR]);
-    session.launcherFor('claude', EMAIL, LEGACY_ID);
-    expect(renamed).toEqual([{ from: LEGACY_DIR, to: PROFILE }]);
-  });
-
-  it('leaves the legacy dir alone once the identity already has a jar', () => {
-    const { session, renamed } = harness({ enabled: true }, [CHROME, LEGACY_DIR, PROFILE]);
-    session.launcherFor('claude', EMAIL, LEGACY_ID);
+    session.launcherFor('claude', EMAIL);
     expect(renamed).toEqual([]);
-  });
-
-  it('does not migrate when there is no legacy dir to adopt', () => {
-    const { session, renamed } = harness({ enabled: true });
-    session.launcherFor('claude', EMAIL, LEGACY_ID);
-    expect(renamed).toEqual([]);
-  });
-
-  it('still issues a launcher when the migration itself fails', () => {
-    const session = new BrowserSession({
-      home: 'C:\\home',
-      platform: 'win32',
-      env: WIN_ENV,
-      settings: () => ({ enabled: true }),
-      exists: (path) => path === CHROME || path === LEGACY_DIR,
-      write: () => {},
-      remove: () => {},
-      rename: () => {
-        throw new Error('EBUSY');
-      },
-    });
-    expect(session.launcherFor('claude', EMAIL, LEGACY_ID)).toBe(SHIM);
   });
 
   it('honors an override browser over detection when deciding availability', () => {
@@ -395,12 +398,7 @@ describe('BrowserSession.openUrl', () => {
   /** What the CLI hands `BROWSER`: same handshake, localhost callback, so it completes
    *  itself and no code is ever shown. */
   const RELAYED = 'https://claude.com/cai/oauth/authorize?code=true&redirect_uri=localhost&state=2';
-  const argsFor = (url: string): string[] => [
-    `--user-data-dir=${PROFILE}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    url,
-  ];
+  const argsFor = (url: string): string[] => browserArgs(`${ROOT}\\profiles`, KEY, url);
 
   it('prefers the relayed url, so the sign-in completes without a pasted code', async () => {
     const files = new Map([[COURIER, `"\\"${RELAYED}\\""`]]);

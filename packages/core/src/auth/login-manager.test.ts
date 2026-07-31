@@ -305,17 +305,18 @@ describe('isolated browser sessions', () => {
     expect(registry.list()[0]?.id).toBeDefined();
   });
 
-  /** The account's old id still travels, so a jar built before identity keying can be adopted
-   *  rather than stranded. */
-  it('offers the existing account id so a pre-identity jar can be adopted', () => {
+  /** The identity is the ONLY thing that names a jar (docs/adr/0021). The account's old id
+   *  no longer travels: pre-shared-root directories are not adopted, they are reclaimed
+   *  (docs/adr/0024). */
+  it('identifies the jar by email alone, never by the account id', () => {
     const driver = fakeDriver(home);
     const registry = new AccountsRegistry(home);
     registry.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'feedface0001');
-    const seen: Array<{ email: string; legacy: string | undefined }> = [];
+    const seen: string[] = [];
     const manager = new LoginManager(registry, driver, {
       browserSession: {
-        launcherFor: (email, legacy) => {
-          seen.push({ email, legacy });
+        launcherFor: (email) => {
+          seen.push(email);
           return undefined;
         },
         openUrl: () => {},
@@ -323,7 +324,7 @@ describe('isolated browser sessions', () => {
       },
     });
     manager.startLogin({ email: 'a@b.org', credentialId: 'claude:a@b.org' });
-    expect(seen).toEqual([{ email: 'a@b.org', legacy: 'feedface0001' }]);
+    expect(seen).toEqual(['a@b.org']);
   });
 
   /** A retry exists because the wrong identity landed. Under identity keying it gets the same
