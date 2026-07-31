@@ -1,6 +1,12 @@
 import type { TurnFrame } from '@coa/shared';
 import type { CanUseTool, RuntimeUsage, StopPredicate, ToolCatalogue } from '@coa/spi';
-import type { CompleteFn, CompletionDelta, CompletionResult, DriverMessage, ToolDef } from './complete.js';
+import type {
+  CompleteFn,
+  CompletionDelta,
+  CompletionResult,
+  DriverMessage,
+  ToolDef,
+} from './complete.js';
 
 /**
  * The coa-owned governed loop driver (dual-backend spec C2) — the ReAct loop the

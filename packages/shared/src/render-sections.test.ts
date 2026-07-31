@@ -3,7 +3,9 @@ import { renderSections } from './render-sections.js';
 import type { Piece } from './piece.js';
 
 const p = (name: string, body: string, slot?: Piece['slot']): Piece => ({
-  name, description: name, body,
+  name,
+  description: name,
+  body,
   axes: { delivery: 'push', salience: 'never', provenance: 'authored' },
   ...(slot ? { slot } : {}),
 });

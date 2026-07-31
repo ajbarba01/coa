@@ -7,9 +7,12 @@ describe('resultText — the full tool-result text the model saw', () => {
   });
 
   it('flattens an array of text parts to their joined text', () => {
-    expect(resultText([{ type: 'text', text: 'line1\n' }, { type: 'text', text: 'line2' }])).toBe(
-      'line1\nline2',
-    );
+    expect(
+      resultText([
+        { type: 'text', text: 'line1\n' },
+        { type: 'text', text: 'line2' },
+      ]),
+    ).toBe('line1\nline2');
   });
 
   it('drops array parts with no text field', () => {

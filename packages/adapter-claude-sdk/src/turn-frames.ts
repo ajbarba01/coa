@@ -59,7 +59,8 @@ function streamEventFrames(message: SDKMessage): TurnFrame[] {
   const ev = (message as unknown as StreamEvent).event;
   if (ev?.type !== 'content_block_delta') return [];
   if (ev.delta?.type === 'text_delta') return [{ t: 'text-delta', text: ev.delta.text ?? '' }];
-  if (ev.delta?.type === 'thinking_delta') return [{ t: 'thinking-delta', text: ev.delta.thinking ?? '' }];
+  if (ev.delta?.type === 'thinking_delta')
+    return [{ t: 'thinking-delta', text: ev.delta.thinking ?? '' }];
   return [];
 }
 

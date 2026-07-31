@@ -153,7 +153,10 @@ describe('renderNative — layering on the claude_code preset (dropping preset-c
       config({
         prefixHead: [
           ordered(piece('baseline-identity', 'ID-BODY', { slot: 'identity' }), 0),
-          ordered(piece('baseline-model', 'You are running as claude/claude-opus-4', { slot: 'model' }), 1),
+          ordered(
+            piece('baseline-model', 'You are running as claude/claude-opus-4', { slot: 'model' }),
+            1,
+          ),
         ],
       }),
     );

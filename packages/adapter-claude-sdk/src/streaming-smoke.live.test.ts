@@ -36,16 +36,16 @@ import {
  *
  *   COA_LIVE=1 pnpm vitest run packages/adapter-claude-sdk/src/streaming-smoke.live.test.ts
  */
-describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-input smoke (real backend)', () => {
-  let locator: Locator;
+describe.skipIf(!process.env['COA_LIVE'])(
+  'ClaudeSdkAdapter — live streaming-input smoke (real backend)',
+  () => {
+    let locator: Locator;
 
-  beforeAll(() => {
-    locator = resolveLiveLocator();
-  });
+    beforeAll(() => {
+      locator = resolveLiveLocator();
+    });
 
-  it(
-    'holds one query open across turns, shares memory, queues a follow-up pushed mid-turn, and terminates cleanly on close',
-    async () => {
+    it('holds one query open across turns, shares memory, queues a follow-up pushed mid-turn, and terminates cleanly on close', async () => {
       const frames: TurnFrame[] = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-smoke-'));
@@ -112,8 +112,12 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
       expect(turn3Text).toMatch(/alpha/i);
       expect(turn3Text).toMatch(/omega/i);
       // FIFO order preserved: the queued OMEGA turn runs strictly after ALPHA's.
-      const alphaAt = frames.findIndex((f, i) => i >= beforeTurn3 && f.t === 'text' && /alpha/i.test(f.text));
-      const omegaAt = frames.findIndex((f, i) => i >= beforeTurn3 && f.t === 'text' && /omega/i.test(f.text));
+      const alphaAt = frames.findIndex(
+        (f, i) => i >= beforeTurn3 && f.t === 'text' && /alpha/i.test(f.text),
+      );
+      const omegaAt = frames.findIndex(
+        (f, i) => i >= beforeTurn3 && f.t === 'text' && /omega/i.test(f.text),
+      );
       expect(alphaAt).toBeGreaterThanOrEqual(0);
       expect(omegaAt).toBeGreaterThan(alphaAt);
 
@@ -125,13 +129,9 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
         'runLoop did not resolve within 20s of queue.close() — the query may not be terminating on input-iterable close',
       );
       expect(await isPending(runLoopPromise)).toBe(false);
-    },
-    120_000,
-  );
+    }, 120_000);
 
-  it(
-    'aborts an in-flight turn promptly (adapter-level interrupt)',
-    async () => {
+    it('aborts an in-flight turn promptly (adapter-level interrupt)', async () => {
       const frames: TurnFrame[] = [];
       const queue = createPushQueue();
       const worktree = mkdtempSync(join(tmpdir(), 'coa-live-smoke-interrupt-'));
@@ -182,8 +182,6 @@ describe.skipIf(!process.env['COA_LIVE'])('ClaudeSdkAdapter — live streaming-i
       await runLoopPromise.catch(() => undefined);
 
       queue.close();
-    },
-    60_000,
-  );
-});
-
+    }, 60_000);
+  },
+);

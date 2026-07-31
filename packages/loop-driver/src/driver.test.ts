@@ -146,10 +146,19 @@ describe('runGovernedLoop', () => {
       yield { kind: 'reasoning', text: 'ink' };
       yield { kind: 'text', text: 'Hel' };
       yield { kind: 'text', text: 'lo' };
-      return { text: 'Hello', reasoning: 'think', toolCalls: [], usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 } };
+      return {
+        text: 'Hello',
+        reasoning: 'think',
+        toolCalls: [],
+        usage: { tokensIn: 1, tokensOut: 1, costUsd: 0 },
+      };
     }
     await runGovernedLoop({
-      sessionId: 's', complete: streamingComplete, catalogue: [], systemPrompt: '', input: 'hi',
+      sessionId: 's',
+      complete: streamingComplete,
+      catalogue: [],
+      systemPrompt: '',
+      input: 'hi',
       canUseTool: async () => ({ behavior: 'allow' }) as never,
       gate: async () => ({ allow: true }),
       onTurn: (f) => frames.push(f),
@@ -177,7 +186,11 @@ describe('runGovernedLoop', () => {
       throw Object.assign(new Error('aborted'), { name: 'AbortError' });
     }
     await runGovernedLoop({
-      sessionId: 's', complete: streamThenAbort, catalogue: [], systemPrompt: '', input: 'hi',
+      sessionId: 's',
+      complete: streamThenAbort,
+      catalogue: [],
+      systemPrompt: '',
+      input: 'hi',
       canUseTool: async () => ({ behavior: 'allow' }) as never,
       gate: async () => ({ allow: true }),
       signal: controller.signal,
@@ -331,9 +344,13 @@ describe('runGovernedLoop', () => {
     // eslint-disable-next-line require-yield
     const complete: GovernedLoopDeps['complete'] = vi.fn(async function* () {
       n += 1;
-      return n === 1 ? { text: 'ok', toolCalls: [], usage: USAGE } : { text: 'done', toolCalls: [], usage: USAGE };
+      return n === 1
+        ? { text: 'ok', toolCalls: [], usage: USAGE }
+        : { text: 'done', toolCalls: [], usage: USAGE };
     });
-    const gate = vi.fn(async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const);
+    const gate = vi.fn(
+      async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const,
+    );
     const steer = ['actually, also do X'];
     const drainSteer = vi.fn(() => steer.splice(0, steer.length));
     await runGovernedLoop(
@@ -515,7 +532,9 @@ describe('runGovernedLoop', () => {
     });
 
     await expect(
-      runGovernedLoop(deps({ catalogue: [tool('get_symbol')], complete, input: 'do it', onSettle })),
+      runGovernedLoop(
+        deps({ catalogue: [tool('get_symbol')], complete, input: 'do it', onSettle }),
+      ),
     ).rejects.toThrow('connection dropped');
 
     // Usage accrued for the completed first round-trip is still charged, even though the
@@ -552,7 +571,9 @@ describe('runGovernedLoop', () => {
       return { text: 'done', toolCalls: [], usage: USAGE };
     });
     // Allow the turn to end only on the SECOND round-trip, so the steer lands between them.
-    const gate = vi.fn(async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const);
+    const gate = vi.fn(
+      async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const,
+    );
     const steer = ['actually, also do X'];
     const drainSteer = vi.fn(() => steer.splice(0, steer.length));
     await runGovernedLoop(deps({ complete, gate, drainSteer, input: 'do it' }));
@@ -572,7 +593,7 @@ describe('runGovernedLoop', () => {
       seen.push(structuredClone(messages));
       return { text: answers[i++]!, reasoning: '', toolCalls: [], usage: USAGE };
     });
-    const gate = vi.fn(() => ({ allow: true }));       // model wants to stop each time
+    const gate = vi.fn(() => ({ allow: true })); // model wants to stop each time
     const queued = ['also do X'];
     const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
     await runGovernedLoop(deps({ complete, gate, drainQueuedSteer, input: 'do it' }));

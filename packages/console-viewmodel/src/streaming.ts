@@ -25,7 +25,8 @@ function isStreamingChannel(
 function openBlockIndex(turns: readonly TurnFrame[], kind: TextKind, role: string): number {
   for (let i = turns.length - 1; i >= 0; i -= 1) {
     const f = turns[i]!;
-    if (isStreamingChannel(f) && f.kind === kind && f.role === role && f.streaming === true) return i;
+    if (isStreamingChannel(f) && f.kind === kind && f.role === role && f.streaming === true)
+      return i;
   }
   return -1;
 }
@@ -47,14 +48,15 @@ function lastBlockIndex(turns: readonly TurnFrame[], kind: TextKind, role: strin
  *  settled text, so the flag would otherwise stay set through the whole output). */
 function settleOpenThinking(turns: readonly TurnFrame[]): readonly TurnFrame[] {
   if (!turns.some((t) => t.kind === 'thinking' && t.streaming === true)) return turns;
-  return turns.map((t) => (t.kind === 'thinking' && t.streaming === true ? { ...t, streaming: false } : t));
+  return turns.map((t) =>
+    t.kind === 'thinking' && t.streaming === true ? { ...t, streaming: false } : t,
+  );
 }
 
 /** Fold one incoming frame into the turn list with streaming reconciliation. */
 export function appendStreamingFrame(turns: readonly TurnFrame[], frame: TurnFrame): TurnFrame[] {
   // Agent/subagent output text ends the reasoning phase (see settleOpenThinking).
-  const base =
-    frame.kind === 'text' && frame.role !== 'you' ? settleOpenThinking(turns) : turns;
+  const base = frame.kind === 'text' && frame.role !== 'you' ? settleOpenThinking(turns) : turns;
   if (!isStreamingChannel(frame)) return [...base, frame];
 
   const openIdx = openBlockIndex(base, frame.kind, frame.role);

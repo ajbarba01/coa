@@ -36,15 +36,18 @@ function sseBody(...events: string[]): AsyncIterable<Uint8Array> {
  *  request/result assertions below stay meaningful now that `complete()` reads `res.body`. */
 function toSseBody(response: unknown): AsyncIterable<Uint8Array> {
   const msg =
-    (response as { choices?: Array<{ message?: Record<string, unknown> }> }).choices?.[0]?.message ??
-    {};
+    (response as { choices?: Array<{ message?: Record<string, unknown> }> }).choices?.[0]
+      ?.message ?? {};
   const usage = (response as { usage?: unknown }).usage;
   const events: string[] = [];
   const push = (obj: unknown): number => events.push(`data: ${JSON.stringify(obj)}\n\n`);
   if (typeof msg['reasoning_content'] === 'string')
     push({ choices: [{ delta: { reasoning_content: msg['reasoning_content'] } }] });
-  if (typeof msg['content'] === 'string') push({ choices: [{ delta: { content: msg['content'] } }] });
-  const toolCalls = (msg['tool_calls'] as Array<{ id: string; function: { name: string; arguments: string } }>) ?? [];
+  if (typeof msg['content'] === 'string')
+    push({ choices: [{ delta: { content: msg['content'] } }] });
+  const toolCalls =
+    (msg['tool_calls'] as Array<{ id: string; function: { name: string; arguments: string } }>) ??
+    [];
   toolCalls.forEach((tc, index) =>
     push({ choices: [{ delta: { tool_calls: [{ index, id: tc.id, function: tc.function }] } }] }),
   );
@@ -251,7 +254,12 @@ describe('makeDeepSeekComplete', () => {
         'data: [DONE]\n\n',
       ),
     });
-    const complete = makeDeepSeekComplete({ apiKey: 'k', model: 'deepseek-chat', fetchImpl, prices: {} });
+    const complete = makeDeepSeekComplete({
+      apiKey: 'k',
+      model: 'deepseek-chat',
+      fetchImpl,
+      prices: {},
+    });
     const deltas: CompletionDelta[] = [];
     const it = complete([{ role: 'user', content: 'hi' }], [], undefined);
     let step = await it.next();

@@ -84,10 +84,22 @@ describe('agent list parsing', () => {
   it('parseAgents keeps a complete icon/color and degrades unknown names via .catch', () => {
     const parsed = parseAgents([
       { ref: 'roles/reviewer', name: 'reviewer', scope: 'project' },
-      { ref: 'personal/scrap', name: 'scrap', icon: 'octopus', color: 'chartreuse', scope: 'personal' },
+      {
+        ref: 'personal/scrap',
+        name: 'scrap',
+        icon: 'octopus',
+        color: 'chartreuse',
+        scope: 'personal',
+      },
     ]);
     expect(parsed).toHaveLength(2);
-    expect(parsed[0]).toEqual({ ref: 'roles/reviewer', name: 'reviewer', icon: 'bot', color: 'slate', scope: 'project' });
+    expect(parsed[0]).toEqual({
+      ref: 'roles/reviewer',
+      name: 'reviewer',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+    });
     expect(parsed[1]).toEqual({
       ref: 'personal/scrap',
       name: 'scrap',
@@ -109,7 +121,10 @@ describe('agent list parsing', () => {
     expect(parsePersistedAgents({ schema_version: 1, agents: [] })).toEqual([]);
     expect(parsePersistedAgents({ schema_version: 1 })).toEqual([]);
     expect(
-      parsePersistedAgents({ schema_version: 1, agents: [{ ref: 'r', name: 'n', scope: 'project' }] }),
+      parsePersistedAgents({
+        schema_version: 1,
+        agents: [{ ref: 'r', name: 'n', scope: 'project' }],
+      }),
     ).toEqual([{ ref: 'r', name: 'n', icon: 'bot', color: 'slate', scope: 'project' }]);
   });
 

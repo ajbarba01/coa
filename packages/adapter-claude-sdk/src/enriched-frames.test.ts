@@ -20,7 +20,10 @@ describe('messageToEnrichedFrames', () => {
   });
 
   it('emits a plain frame (no full) for a text/assistant message', () => {
-    const msg = { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } } as never;
+    const msg = {
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'hi' }] },
+    } as never;
     expect(messageToEnrichedFrames(msg)).toEqual([{ frame: { t: 'text', text: 'hi' } }]);
   });
 });

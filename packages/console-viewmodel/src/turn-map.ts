@@ -56,14 +56,22 @@ export function pushToBanner(push: Push): Banner | undefined {
 }
 
 const TODO_STATUS: Record<string, 'pending' | 'in-progress' | 'done'> = {
-  pending: 'pending', in_progress: 'in-progress', completed: 'done',
+  pending: 'pending',
+  in_progress: 'in-progress',
+  completed: 'done',
 };
 
 function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame | undefined {
   const d = depth === undefined ? {} : { depth };
   switch (frame.t) {
     case 'text':
-      return { id, role: frame.role === 'user' ? 'you' : 'agent', kind: 'text', text: frame.text, ...d };
+      return {
+        id,
+        role: frame.role === 'user' ? 'you' : 'agent',
+        kind: 'text',
+        text: frame.text,
+        ...d,
+      };
     case 'text-delta':
       // A streaming chunk (Piece B): the shell accumulates it into the live agent block,
       // then the settled `text` frame replaces it (docs/adr/0013).
@@ -84,12 +92,37 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
             ...d,
           };
     case 'error':
-      return { id, role: 'agent', kind: 'error', message: frame.message, origin: frame.origin, ...d };
+      return {
+        id,
+        role: 'agent',
+        kind: 'error',
+        message: frame.message,
+        origin: frame.origin,
+        ...d,
+      };
     case 'tool_use':
-      if (frame.tool === 'TodoWrite') return { id, role: 'agent', kind: 'plan', items: toPlanItems(frame.input), ...d };
-      return { id, role: 'agent', kind: 'tool-use', tool: frame.tool, input: JSON.stringify(frame.input), handle: frame.handle, ...d };
+      if (frame.tool === 'TodoWrite')
+        return { id, role: 'agent', kind: 'plan', items: toPlanItems(frame.input), ...d };
+      return {
+        id,
+        role: 'agent',
+        kind: 'tool-use',
+        tool: frame.tool,
+        input: JSON.stringify(frame.input),
+        handle: frame.handle,
+        ...d,
+      };
     case 'tool_result':
-      return { id, role: 'agent', kind: 'tool-result', tool: '', output: frame.pointer, ok: frame.ok, handle: frame.handle, ...d };
+      return {
+        id,
+        role: 'agent',
+        kind: 'tool-result',
+        tool: '',
+        output: frame.pointer,
+        ok: frame.ok,
+        handle: frame.handle,
+        ...d,
+      };
     case 'subagent':
       return { id, kind: 'subagent', childWorktree: frame.childWorktree, event: frame.event, ...d };
     case 'interrupted':
@@ -99,8 +132,12 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
   }
 }
 
-function toPlanItems(input: Record<string, unknown>): { text: string; status: 'pending' | 'in-progress' | 'done' }[] {
-  const todos = Array.isArray((input as { todos?: unknown }).todos) ? (input as { todos: unknown[] }).todos : [];
+function toPlanItems(
+  input: Record<string, unknown>,
+): { text: string; status: 'pending' | 'in-progress' | 'done' }[] {
+  const todos = Array.isArray((input as { todos?: unknown }).todos)
+    ? (input as { todos: unknown[] }).todos
+    : [];
   return todos.flatMap((t) => {
     if (typeof t !== 'object' || t === null) return [];
     const { content, status } = t as { content?: unknown; status?: unknown };

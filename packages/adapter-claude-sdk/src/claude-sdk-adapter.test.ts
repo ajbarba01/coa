@@ -125,7 +125,11 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
       prompt: AsyncIterable<{ message: { content: string } }>;
     }): AsyncGenerator<unknown> {
       for await (const msg of arg.prompt) delivered.push(msg.message.content);
-      yield { type: 'assistant', session_id: 'srv-1', message: { content: [{ type: 'text', text: 'ok' }] } };
+      yield {
+        type: 'assistant',
+        session_id: 'srv-1',
+        message: { content: [{ type: 'text', text: 'ok' }] },
+      };
       yield {
         type: 'result',
         session_id: 'srv-1',
