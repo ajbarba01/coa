@@ -41,9 +41,9 @@ export interface LoginDriverHandle {
 }
 
 export interface LoginDriverPort {
-  /** `browserLauncher`, when present, is a command the rented CLI should open the
-   *  authorize URL with instead of the default browser (docs/adr/0018). Absent ⇒ the
-   *  spawn is exactly today's. */
+  /** `browserLauncher`, when present, is the no-op shim that suppresses the rented CLI's
+   *  own default-browser open, so only coa's profiled launch puts up a window
+   *  (docs/adr/0019). Absent ⇒ the spawn is exactly today's. */
   start(opts: { dir: string; email: string; browserLauncher?: string }): LoginDriverHandle;
   probe(
     dir: string,
@@ -53,9 +53,12 @@ export interface LoginDriverPort {
 }
 
 /** The isolation seam. Core asks; the composition root decides (setting, provider
- *  capability, detected browser) and never explains itself here. */
+ *  capability, detected browser) and never explains itself here. `openUrl` is the real
+ *  open — the `BROWSER` shim can no longer be trusted to relay the url (docs/adr/0019) —
+ *  so core hands it the url it captures itself once a launcher was actually issued. */
 export interface BrowserSessionPort {
   launcherFor(accountId: string): string | undefined;
+  openUrl(accountId: string, url: string): void;
 }
 
 type Identity = { email?: string; plan?: string };
@@ -73,6 +76,15 @@ interface Flow {
   graceTimer?: ReturnType<typeof setTimeout>;
   probing: boolean;
   done: boolean;
+  /** Whether a launcher was actually issued for THIS flow — the one thing that decides
+   *  whether `openUrl` should ever fire. Carried here rather than re-asked of the port,
+   *  because the port is free to answer differently on a later call (setting flipped
+   *  mid-flow, say) and the flow must stay bound to what it started with. */
+  isolated: boolean;
+  /** Open-at-most-once guard: the CLI prints the authorize url more than once (once as
+   *  "opening browser…", again as "if the browser didn't open, visit: …"), and both
+   *  reach `onUrl`. A second open would put up a second window. */
+  opened: boolean;
   /** Stashed on mismatch so `resolveMismatch('keep')` can finalize with the same plan. */
   mismatchStatus?: { loggedIn: boolean; email?: string; subscriptionType?: string };
 }
@@ -140,6 +152,8 @@ export class LoginManager {
       snapshot,
       probing: false,
       done: false,
+      isolated: launcher !== undefined,
+      opened: false,
       ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     };
     this.#flow = flow;
@@ -147,6 +161,16 @@ export class LoginManager {
     handle.onUrl((url) => {
       if (flow.done) return;
       flow.snapshot = { ...flow.snapshot, phase: 'awaiting', oauthUrl: url };
+      if (flow.isolated && !flow.opened) {
+        // Set before the call, not after: the "at most once" guarantee has to hold even
+        // if the port itself throws (SC-1 — see the catch below).
+        flow.opened = true;
+        try {
+          this.#browser?.openUrl(flow.accountId, url);
+        } catch {
+          // A failed open is a no-op into the flow — copy-link + paste-code still works.
+        }
+      }
     });
     handle.onExit((code) => {
       if (flow.done) return;

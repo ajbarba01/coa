@@ -13,8 +13,8 @@ import { delimiter, join, posix, win32 } from 'node:path';
  * auto-opens and completion still lands via the probe poll — only the in-app
  * copy-link affordance goes dark (`ptyCaptured: false` tells the UI to say so).
  *
- * When isolated, the spawn may redirect the browser-open through `BROWSER`; when
- * not isolated, this changes nothing.
+ * When isolated, the spawn suppresses the CLI's own browser-open via `BROWSER` and coa
+ * opens the profiled browser itself; when not isolated, this changes nothing.
  */
 
 /** A filesystem-safe slug for an email: lowercase, non-alphanumeric runs → '-'. */
@@ -32,11 +32,27 @@ export function managedLoginDir(home: string, email: string): string {
 
 // eslint-disable-next-line no-control-regex -- ANSI escapes are control chars by definition
 const ANSI = /\x1b\[[0-9;]*m/g;
+/**
+ * OSC sequences — introducer through terminator (`ESC \` or BEL), payload included.
+ *
+ * The CLI prints the authorize url as an OSC 8 hyperlink whenever it is on a TTY, which the
+ * PTY branch always is: `ESC]8;;URL ESC\ URL ESC]8;;ESC\`. The url therefore arrives TWICE,
+ * once as the link target and once as the link text, separated by a terminator that contains
+ * no whitespace — so a url pattern built on `\S*` runs straight through it and captures both
+ * copies plus the trailing terminator. That spliced string then rides into the launched
+ * browser inside the FIRST url's `login_hint`, which is what the sign-in page fills its email
+ * box from. Dropping the whole sequence leaves the link text, which is the same url, clean.
+ *
+ * Escape handling is load-bearing here only because coa now opens the browser from its own
+ * capture rather than delegating to the CLI (docs/adr/0019).
+ */
+// eslint-disable-next-line no-control-regex -- ditto
+const OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const OAUTH_URL = /https:\/\/claude\.(?:com|ai)\/\S*oauth\S*/;
 
 /** Pure: the first OAuth authorize URL in a chunk of terminal output. */
 export function extractOauthUrl(chunk: string): string | undefined {
-  const match = OAUTH_URL.exec(chunk.replace(ANSI, ''));
+  const match = OAUTH_URL.exec(chunk.replace(OSC, '').replace(ANSI, ''));
   return match?.[0];
 }
 
@@ -94,10 +110,10 @@ function claudeCommand(): string {
 
 /**
  * Pure: the environment the login spawn runs under. `CLAUDE_CONFIG_DIR` is what keeps the
- * login inside coa's managed dir; `BROWSER` is how the CLI is told to hand the authorize
- * URL to coa's profiled launcher instead of opening the default browser (docs/adr/0018).
- * No launcher ⇒ the variable is not touched at all, so an unisolated login is byte-for-byte
- * today's (D85).
+ * login inside coa's managed dir; `BROWSER` points the CLI at a no-op shim so its own
+ * default-browser open is suppressed and only coa's profiled launch puts up a window
+ * (docs/adr/0019). No launcher ⇒ the variable is not touched at all, so an unisolated login
+ * is byte-for-byte today's (D85).
  */
 export function loginEnv(
   base: NodeJS.ProcessEnv,

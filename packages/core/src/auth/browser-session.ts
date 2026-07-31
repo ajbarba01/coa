@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, win32 } from 'node:path';
 import { supportsIsolatedBrowserSession } from '@coa/shared';
@@ -11,8 +12,19 @@ import { supportsIsolatedBrowserSession } from '@coa/shared';
  * (`isolatedBrowserSession`), this module owns the mechanism, and the Claude adapter is
  * one consumer.
  *
- * Everything here is an affordance (SC-1): every failure path returns "no launcher", and
- * the login falls back to the copy-link + paste-code flow that already works.
+ * The open is two pieces, not one (docs/adr/0019). `BROWSER` still points the rented CLI at
+ * a shim ({@link suppressorScript}), but the shim now opens nothing — the CLI escapes the
+ * authorize url POSIX-style before handing it to the shim, and `cmd`'s batch argument
+ * tokenizer splits on `=`, so `%1` arrives truncated at the url's first one. That hop is
+ * unrecoverable from inside a batch file, so coa doesn't use it:
+ * {@link BrowserSession.openUrl} performs the real open itself, from the url coa captures
+ * directly off the CLI's own output, launched as argv with no shell in the path — which is
+ * immune to this class of bug entirely. The shim's only remaining job is to suppress the
+ * CLI's default-browser fallback, so exactly one window opens.
+ *
+ * Everything here is an affordance (SC-1): every failure path returns "no launcher" (or,
+ * for `openUrl`, simply launches nothing), and the login falls back to the copy-link +
+ * paste-code flow that already works.
  */
 
 /** Flags shared by every Chromium: a throwaway profile must not run first-run or
@@ -57,11 +69,12 @@ export function isSafeAccountId(id: string): boolean {
   return /^[A-Za-z0-9_-]{1,64}$/.test(id);
 }
 
-/** Pure: guards a path about to be embedded verbatim in a generated shell script. A `"`
- *  breaks the shim's own quoting, a `%` on win32 triggers cmd variable expansion, and a
- *  newline lets one settings value smuggle in a second command. Detection never produces
- *  any of these (real chrome.exe/msedge.exe install paths) — only a hand-edited override
- *  can, so this is a guard against that input, not a normalizer. */
+/** Pure: guards a path before it is trusted as something to launch. A `"`, a `%`, or a
+ *  newline in a hand-edited override is copy-paste damage or tampering, not a real install
+ *  path — real chrome.exe/msedge.exe locations never contain them (docs/adr/0018) — so
+ *  this refuses it rather than launch something unexpected. Detection never produces any
+ *  of these; only a hand-edited override can, so this is a guard against that input, not a
+ *  normalizer. */
 export function isSafeBrowserPath(path: string): boolean {
   return !/["%\r\n]/.test(path);
 }
@@ -80,24 +93,26 @@ export function launcherPath(home: string, accountId: string, platform: string):
 }
 
 /**
- * Pure: the shim's contents. It is run as `<launcher> <authorize-url>` by the rented CLI,
- * and it re-launches that URL in the profiled browser.
- *
- * Two details are load-bearing on win32: `start ""` returns immediately (a fresh profile
- * keeps `chrome.exe` in the foreground until the window closes, and the CLI may be waiting
- * on this process), and `"%~1"` re-quotes the URL (an authorize URL carries `&`, which cmd
- * would otherwise read as a command separator).
+ * Pure: the shim's contents. It is still run as `<shim> <authorize-url>` by the rented
+ * CLI, but it no longer does anything with that argument — the CLI's own escaping of the
+ * url cannot survive a win32 shell hop intact (see the module doc), so relaying it from
+ * inside a generated batch/shell file is not recoverable. A no-op that exits clean is the
+ * correct content: it suppresses the CLI's default-browser open (so no second, wrong
+ * window appears) and steps aside for {@link BrowserSession.openUrl}, which performs the
+ * real launch from the url coa captured independently.
  */
-export function launcherScript(opts: {
-  platform: string;
-  browserPath: string;
-  profileDir: string;
-}): string {
-  const flags = `--user-data-dir="${opts.profileDir}" ${CHROMIUM_FLAGS.join(' ')}`;
-  if (opts.platform === 'win32') {
-    return ['@echo off', `start "" "${opts.browserPath}" ${flags} "%~1"`, ''].join('\r\n');
+export function suppressorScript(platform: string): string {
+  if (platform === 'win32') {
+    return ['@echo off', 'exit /b 0', ''].join('\r\n');
   }
-  return ['#!/bin/sh', `"${opts.browserPath}" ${flags} "$1" >/dev/null 2>&1 &`, ''].join('\n');
+  return ['#!/bin/sh', 'exit 0', ''].join('\n');
+}
+
+/** Pure: the argv for a direct browser launch — one element per flag, url last. No shell
+ *  sits between this array and the OS, so there is no quoting step for an authorize url's
+ *  `&` to be lost in (the failure mode {@link suppressorScript} exists to route around). */
+export function browserArgs(profileDir: string, url: string): string[] {
+  return [`--user-data-dir=${profileDir}`, ...CHROMIUM_FLAGS, url];
 }
 
 /** The global toggle plus the optional binary override, read fresh on every use so a
@@ -112,10 +127,11 @@ export interface BrowserSessionDeps {
   platform: string;
   env: Record<string, string | undefined>;
   settings(): BrowserSessionSettings;
-  /** Injected so the whole module is testable without a filesystem. */
+  /** Injected so the whole module is testable without a filesystem or a real process. */
   exists?(path: string): boolean;
   write?(path: string, contents: string): void;
   remove?(path: string): void;
+  launch?(command: string, args: string[]): void;
 }
 
 /** What a READER of browser sessions needs (the auth view, the remove verbs) — no
@@ -133,6 +149,15 @@ export interface BrowserSessionView {
 function writeExecutable(path: string, contents: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, contents, { encoding: 'utf8', mode: 0o700 });
+}
+
+/** Detached and stdio-ignored: a login flow must never block on the browser window
+ *  closing, mirroring why the old shim needed `start ""` for the same reason one level
+ *  down. No `shell: true` — argv reaching the OS untouched is the entire point
+ *  (docs/adr/0019). */
+function launchBrowser(command: string, args: string[]): void {
+  const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+  child.unref();
 }
 
 export class BrowserSession implements BrowserSessionView {
@@ -206,17 +231,33 @@ export class BrowserSession implements BrowserSessionView {
       const browserPath = this.browser();
       if (browserPath === undefined) return undefined;
       const path = launcherPath(this.#deps.home, accountId, this.#deps.platform);
-      (this.#deps.write ?? writeExecutable)(
-        path,
-        launcherScript({
-          platform: this.#deps.platform,
-          browserPath,
-          profileDir: browserProfileDir(this.#deps.home, accountId),
-        }),
-      );
+      (this.#deps.write ?? writeExecutable)(path, suppressorScript(this.#deps.platform));
       return path;
     } catch {
       return undefined;
+    }
+  }
+
+  /**
+   * Opens the profiled browser directly at `url` — the real open, now that the `BROWSER`
+   * shim can no longer be trusted to relay it (see the module doc and
+   * {@link suppressorScript}). Same guards as {@link launcherFor}, and the same SC-1
+   * contract: any failure here is silent, and the copy-link + paste-code path is what the
+   * user sees instead. Fire-and-forget — the login flow does not wait on the window.
+   */
+  openUrl(provider: string, accountId: string, url: string): void {
+    try {
+      if (!this.enabled()) return;
+      if (!supportsIsolatedBrowserSession(provider)) return;
+      if (!isSafeAccountId(accountId)) return;
+      const browserPath = this.browser();
+      if (browserPath === undefined) return;
+      (this.#deps.launch ?? launchBrowser)(
+        browserPath,
+        browserArgs(browserProfileDir(this.#deps.home, accountId), url),
+      );
+    } catch {
+      // SC-1: a failed open is a no-op, never an error into the login flow.
     }
   }
 

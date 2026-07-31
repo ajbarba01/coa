@@ -1,7 +1,10 @@
 # Browser-profile login isolation — design
 
-**Status:** implemented (2026-07-30 design; shipped on `main`). The attended `BROWSER`
-replace-vs-supplement confirmation is the one open item — see ADR-0018's follow-up.
+**Status:** implemented (2026-07-30 design; shipped on `main`). The launch model below was
+revised after the design shipped: a live sign-in proved shim-forwarding of the authorize url
+cannot work on win32 (see "Spike results" and "Launch model"). The attended confirmation that
+coa's own launch lands the right identity end to end is the one open item — see ADR-0018's
+follow-up.
 
 **Goal.** Let coa sign each account in through a **real browser launched with a dedicated
 profile directory**, so each account has its own cookie jar and a sign-in — including
@@ -46,16 +49,24 @@ Verified live on the maintainer's machine (win32, `claude` 2.1.220):
 2. **No suppress flag exists** on `claude auth login` (only `--claudeai`, `--console`,
    `--email`, `--sso`). The Claude Code docs' `--no-browser` refers to the first-run/remote
    login flow, not this subcommand.
-3. **The CLI respects `BROWSER`.** Spawning `claude auth login` with `BROWSER` set to a shim
-   caused the CLI to invoke `<BROWSER> <authorize-url>` **instead of** opening the default
-   browser (shim returned success; no default browser appeared). This is the mechanism this
-   design uses. Tested against a throwaway `CLAUDE_CONFIG_DIR`; the login was never completed,
-   so no credentials were written.
-
-**One trivial attended-run confirmation remains:** that `BROWSER` *replaces* rather than
-*supplements* the default open (near-certain — standard `$BROWSER` semantics, the shim
-returned exit 0, no default window observed). Not a blocker; the fallback below covers the
-"supplements" case anyway.
+3. **The CLI respects `BROWSER`, replacing rather than supplementing the default open.**
+   Spawning `claude auth login` with `BROWSER` set to a shim caused the CLI to invoke
+   `<BROWSER> <authorize-url>` **instead of** opening the default browser (shim returned
+   success; no default browser appeared) — a later live sign-in with a recorder shim
+   confirmed exactly one invocation, settling this for good. Tested against a throwaway
+   `CLAUDE_CONFIG_DIR`; the login was never completed, so no credentials were written.
+4. **The url does NOT arrive intact through a shim relay on win32.** A later live sign-in,
+   pointing `BROWSER` at a recorder shim and running a real `claude auth login`, captured:
+   ```
+   FIRST_ARG_IS "\"https://claude.com/cai/oauth/authorize?code
+   ```
+   The CLI escapes the authorize url POSIX-style (`\"…\"`) before handing it to the shim, and
+   Windows' `cmd` does not honor that quoting — the url's `&` becomes a command separator, and
+   everything after the first `&` is eaten by `cmd` as separate commands *before the batch file
+   runs*. No shim-side fix exists. The same run showed the CLI prints the full authorize url
+   even through a plain pipe (not only a PTY), so capturing it independently — and launching
+   the browser directly from that captured url, with no shell in the path — is reliable. This
+   superseded the plan below of relaying the url through the shim; see "Launch model".
 
 ---
 
@@ -69,27 +80,33 @@ returned exit 0, no default window observed). Not a blocker; the fallback below 
   "Claude is its first consumer, not its owner.")
 - **A neutral `browser-session` module** owns the mechanism, at the auth layer (where a
   provider already declares its locator kind), **not** in the Claude adapter. Responsibilities:
-  browser-binary detection, profile-directory management, and building the launch command.
+  browser-binary detection, profile-directory management, the suppressor shim, and building the
+  direct-launch argv.
 - **The Claude adapter consumes it**: when isolation is on and the provider declares the
-  capability, the login spawn sets `BROWSER` to the launcher the module produces.
+  capability, the login spawn sets `BROWSER` to the suppressor shim, and core hands the module
+  the authorize url it captures off the CLI's own output so it can open the profiled browser
+  directly.
 
-### Launch model — `BROWSER` redirection
+### Launch model — suppressor shim + coa's own argv launch
 
-When isolation is ON for a driven login:
+`BROWSER` redirection alone does not work: see spike result 4 above. The open is two pieces:
 
-1. coa resolves the account's profile dir (`~/.coa/browser-profiles/<account-id>/`) and the
-   detected browser binary.
-2. coa spawns `claude auth login --claudeai --email <email>` with `CLAUDE_CONFIG_DIR=<managed
-   dir>` **and** `BROWSER=<launcher>`, where the launcher opens
-   `<browser> --user-data-dir=<profile> --no-first-run --no-default-browser-check <url>`.
-3. The CLI hands the authorize URL to the launcher; the **profiled** browser opens; the user
-   completes there. The code returns via the existing paste-code path (proven end-to-end), so
-   no localhost-callback interception is needed.
+1. `BROWSER` still points the `claude auth login` spawn at a coa-generated shim
+   (`~/.coa/browser-profiles/<account-id>.cmd`/`.sh`), but the shim is now a **no-op
+   suppressor** — it exits clean without touching its argument. Its only job is to swallow the
+   CLI's default-browser fallback, so a second, wrong window never opens.
+2. coa captures the authorize url directly off the CLI's own stdout (the CLI prints it even
+   through a plain pipe — spike result 4) and **launches the profiled browser itself**:
+   `<browser> --user-data-dir=<profile> --no-first-run --no-default-browser-check <url>`,
+   spawned as an argv array with no shell in the path, so there is no quoting step for the
+   url's `&` to be lost in.
+3. The user completes the sign-in in that window. The code also returns via the existing
+   paste-code path (proven end-to-end), so no localhost-callback interception is needed either
+   way.
 
-The launcher is a coa-generated command the OS can run as `<launcher> <url>` (e.g. a
-per-login shim that encodes browser + profile dir and forwards argv). Exact shim shape and the
-URL-quoting details (the authorize URL contains `&`) are implementation concerns for the plan;
-the spike confirmed the URL arrives intact.
+Both pieces are owned by the neutral `browser-session` module: the suppressor shim's contents
+and the direct-launch argv are both pure functions, and the direct launch is fire-and-forget —
+the login flow never waits on the browser window.
 
 ### Profile lifecycle
 
@@ -113,7 +130,7 @@ the spike confirmed the URL arrives intact.
 
 ### Fallback (SC-1)
 
-Setting off, no browser detected, provider without the capability, or `BROWSER` not honored →
+Setting off, no browser detected, provider without the capability, or a failed open →
 today's copy-link + paste-code path, always available. Isolation is an affordance, never a
 dependency; a broken path degrades, never blocks.
 
@@ -130,13 +147,14 @@ not the primary guarantee.
 
 ## Testing
 
-Pure and TDD'd: binary detection, profile-dir keying, launcher command-building, and the
-descriptor-capability plumbing. The actual browser spawn + OAuth handshake is **attended** —
-verified in a live run like today's PTY login, never in CI.
+Pure and TDD'd: binary detection, profile-dir keying, the suppressor shim's contents, the
+direct-launch argv, and the descriptor-capability plumbing. The actual browser spawn + OAuth
+handshake is **attended** — verified in a live run like today's PTY login, never in CI. A
+`COA_LIVE`-gated round-trip test proves a direct argv spawn delivers an `&`-carrying url intact.
 
-Attended-run checklist item: confirm `BROWSER` replaces (not supplements) the default open, and
-that a real CLI-generated authorize URL loads in the profiled window (the spike loaded
-`claude.ai/login` and a captured URL separately; confirm the end-to-end path once).
+Attended-run checklist item: confirm exactly one profiled window opens on the full authorize
+url, no default-browser window appears alongside it, and the sign-in completes as the declared
+email — the end-to-end confirmation ADR-0018's follow-up is still waiting on.
 
 ---
 
@@ -146,4 +164,4 @@ that a real CLI-generated authorize URL loads in the profiled window (the spike 
 - Any change to the credential-blind invariant, the probe, or the deny channel.
 - Localhost-callback interception (paste-code return makes it unnecessary).
 
-_Last reviewed: 2026-07-30_
+_Last reviewed: 2026-07-31_

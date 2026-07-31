@@ -254,6 +254,7 @@ describe('isolated browser sessions', () => {
           seen.push(accountId);
           return `L:${accountId}`;
         },
+        openUrl: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
@@ -271,7 +272,7 @@ describe('isolated browser sessions', () => {
   it('starts a plain login when the session declines to isolate', () => {
     const driver = fakeDriver(home);
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
-      browserSession: { launcherFor: () => undefined },
+      browserSession: { launcherFor: () => undefined, openUrl: () => {} },
     });
     manager.startLogin({ email: 'a@b.org' });
     expect(driver.starts[0] && 'browserLauncher' in driver.starts[0]).toBe(false);
@@ -288,6 +289,7 @@ describe('isolated browser sessions', () => {
           keyed = accountId;
           return undefined;
         },
+        openUrl: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
@@ -307,9 +309,93 @@ describe('isolated browser sessions', () => {
           seen.push(accountId);
           return undefined;
         },
+        openUrl: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org', credentialId: 'claude:a@b.org' });
     expect(seen).toEqual(['feedface0001']);
+  });
+});
+
+describe('isolated browser sessions — opening the captured url', () => {
+  it('hands the captured url to openUrl, keyed by the flow’s own account id', () => {
+    const driver = fakeDriver(home);
+    let keyedId: string | undefined;
+    const opened: Array<{ accountId: string; url: string }> = [];
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      browserSession: {
+        launcherFor: (accountId) => {
+          keyedId = accountId;
+          return `L:${accountId}`;
+        },
+        openUrl: (accountId, url) => opened.push({ accountId, url }),
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    driver.fireUrl('https://claude.com/cai/oauth/x&code=1');
+    expect(opened).toEqual([{ accountId: keyedId, url: 'https://claude.com/cai/oauth/x&code=1' }]);
+  });
+
+  it('opens at most once per flow, even when the CLI prints the url a second time', () => {
+    const driver = fakeDriver(home);
+    const opened: string[] = [];
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      browserSession: {
+        launcherFor: (accountId) => `L:${accountId}`,
+        openUrl: (_accountId, url) => opened.push(url),
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    driver.fireUrl('https://claude.com/cai/oauth/x');
+    // The CLI's own "if the browser didn't open, visit: <url>" reprints the same url.
+    driver.fireUrl('https://claude.com/cai/oauth/x');
+    expect(opened).toHaveLength(1);
+  });
+
+  it('never opens when the session declined to isolate (no launcher issued for this flow)', () => {
+    const driver = fakeDriver(home);
+    const opened: string[] = [];
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      browserSession: {
+        launcherFor: () => undefined,
+        openUrl: (_accountId, url) => opened.push(url),
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    driver.fireUrl('https://claude.com/cai/oauth/x');
+    expect(opened).toHaveLength(0);
+  });
+
+  it('no browser session port at all ⇒ no open attempt, and the flow still advances', () => {
+    const driver = fakeDriver(home);
+    const manager = new LoginManager(new AccountsRegistry(home), driver);
+    manager.startLogin({ email: 'a@b.org' });
+    driver.fireUrl('https://claude.com/cai/oauth/x');
+    expect(manager.snapshot()).toMatchObject({
+      phase: 'awaiting',
+      oauthUrl: 'https://claude.com/cai/oauth/x',
+    });
+  });
+
+  it('an openUrl that throws does not break the flow — the paste-code path still advances', async () => {
+    const driver = fakeDriver(home);
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      pollMs: 100,
+      browserSession: {
+        launcherFor: (accountId) => `L:${accountId}`,
+        openUrl: () => {
+          throw new Error('boom');
+        },
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    expect(() => driver.fireUrl('https://claude.com/cai/oauth/x')).not.toThrow();
+    expect(manager.snapshot()).toMatchObject({
+      phase: 'awaiting',
+      oauthUrl: 'https://claude.com/cai/oauth/x',
+    });
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org' });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(manager.snapshot()?.phase).toBe('registered');
   });
 });

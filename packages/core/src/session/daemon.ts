@@ -173,7 +173,12 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
         };
       },
     },
-    { browserSession: { launcherFor: (accountId) => browser.launcherFor('claude', accountId) } },
+    {
+      browserSession: {
+        launcherFor: (accountId) => browser.launcherFor('claude', accountId),
+        openUrl: (accountId, url) => browser.openUrl('claude', accountId, url),
+      },
+    },
   );
   return {
     ...buildConsoleHandlers({

@@ -66,6 +66,20 @@ describe('extractOauthUrl', () => {
     );
     expect(extractOauthUrl('see https://docs.claude.com/help')).toBeUndefined();
   });
+  /** On a TTY — which the PTY branch always is — the CLI prints the url as an OSC 8
+   *  hyperlink (`ESC]8;;URL ESC\ URL ESC]8;;ESC\`), so the url arrives TWICE with only a
+   *  non-whitespace terminator between the copies. Stripping SGR alone left that intact and
+   *  `\S*` swallowed all of it, splicing the second copy into the first url's `login_hint`
+   *  and prefilling the sign-in page's email box with `<email>\https://…`. Invisible to the
+   *  pipe branch, which gets no hyperlinks. */
+  it('captures one url from an OSC 8 hyperlink, not both copies', () => {
+    const url = 'https://claude.com/cai/oauth/authorize?code=true&state=ab&login_hint=z%40e.com';
+    expect(extractOauthUrl(`visit: \x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\\r\n`)).toBe(url);
+  });
+  it('handles a BEL-terminated hyperlink too', () => {
+    const url = 'https://claude.ai/cai/oauth/authorize?code=true&state=cd';
+    expect(extractOauthUrl(`\x1b]8;;${url}\x07${url}\x1b]8;;\x07`)).toBe(url);
+  });
 });
 
 describe('resolveClaudeCommand', () => {

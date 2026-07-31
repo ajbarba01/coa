@@ -1,6 +1,6 @@
 # 0018 — Isolated browser login sessions, keyed by account, at the provider-descriptor layer
 
-- Status: accepted
+- Status: superseded by [0019](0019-coa-opens-the-profiled-browser.md)
 - Date: 2026-07-30
 
 ## Context and problem

@@ -2,13 +2,14 @@ import { sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   BrowserSession,
+  browserArgs,
   browserCandidates,
   browserProfileDir,
   detectBrowser,
   isSafeAccountId,
   isSafeBrowserPath,
   launcherPath,
-  launcherScript,
+  suppressorScript,
   type BrowserSessionSettings,
 } from './browser-session.js';
 
@@ -93,26 +94,26 @@ describe('override path safety', () => {
   });
 });
 
-describe('launcher script', () => {
-  const opts = { browserPath: 'C:\\b\\chrome.exe', profileDir: 'C:\\p\\9f2c' };
-
-  it('opens the profiled browser and re-quotes the url on win32', () => {
-    const script = launcherScript({ platform: 'win32', ...opts });
-    expect(script).toContain('"C:\\b\\chrome.exe"');
-    expect(script).toContain('--user-data-dir="C:\\p\\9f2c"');
-    expect(script).toContain('--no-first-run');
-    expect(script).toContain('--no-default-browser-check');
-    // The authorize URL carries `&`, which cmd would otherwise read as a command
-    // separator, and `start ""` is what keeps the shim from blocking on the window.
-    expect(script).toContain('"%~1"');
-    expect(script).toContain('start ""');
+describe('suppressor script', () => {
+  it('opens nothing and exits clean on win32 — coa performs the real open itself', () => {
+    const script = suppressorScript('win32');
+    expect(script).toBe('@echo off\r\nexit /b 0\r\n');
   });
 
-  it('backgrounds the profiled browser on a posix shell', () => {
-    const script = launcherScript({ platform: 'linux', ...opts });
-    expect(script.startsWith('#!/bin/sh')).toBe(true);
-    expect(script).toContain('"$1"');
-    expect(script.trimEnd().endsWith('&')).toBe(true);
+  it('opens nothing and exits clean on posix', () => {
+    const script = suppressorScript('linux');
+    expect(script).toBe('#!/bin/sh\nexit 0\n');
+  });
+});
+
+describe('browser args', () => {
+  it('builds one argv element per flag, url last — nothing for a shell to mis-split', () => {
+    expect(browserArgs('C:\\p\\9f2c', 'https://x/y?a=1&b=2')).toEqual([
+      '--user-data-dir=C:\\p\\9f2c',
+      '--no-first-run',
+      '--no-default-browser-check',
+      'https://x/y?a=1&b=2',
+    ]);
   });
 });
 
@@ -121,6 +122,7 @@ const CHROME = 'C:\\Users\\z\\AppData\\Local\\Google\\Chrome\\Application\\chrom
 function harness(settings: BrowserSessionSettings, installed: string[] = [CHROME]) {
   const written = new Map<string, string>();
   const removed: string[] = [];
+  const launched: { command: string; args: string[] }[] = [];
   const session = new BrowserSession({
     home: 'C:\\home',
     platform: 'win32',
@@ -129,28 +131,27 @@ function harness(settings: BrowserSessionSettings, installed: string[] = [CHROME
     exists: (path) => installed.includes(path) || written.has(path),
     write: (path, contents) => void written.set(path, contents),
     remove: (path) => void removed.push(path),
+    launch: (command, args) => void launched.push({ command, args }),
   });
-  return { session, written, removed };
+  return { session, written, removed, launched };
 }
 
 describe('BrowserSession', () => {
-  it('writes a launcher for a capable provider when the setting is on', () => {
+  it('writes a suppressor launcher for a capable provider when the setting is on', () => {
     const { session, written } = harness({ enabled: true });
     const launcher = session.launcherFor('claude', '9f2c');
     expect(launcher).toBe('C:\\home\\.coa\\browser-profiles\\9f2c.cmd');
-    expect(written.get(launcher!)).toContain(
-      '--user-data-dir="C:\\home\\.coa\\browser-profiles\\9f2c"',
-    );
-    expect(written.get(launcher!)).toContain(CHROME);
+    expect(written.get(launcher!)).toBe(suppressorScript('win32'));
   });
 
-  it('honors an override browser over detection', () => {
+  it('honors an override browser over detection when deciding availability', () => {
     const { session, written } = harness({ enabled: true, browserPath: 'D:\\brave.exe' }, [
       CHROME,
       'D:\\brave.exe',
     ]);
     const launcher = session.launcherFor('claude', '9f2c');
-    expect(written.get(launcher!)).toContain('D:\\brave.exe');
+    expect(session.browser()).toBe('D:\\brave.exe');
+    expect(written.get(launcher!)).toBe(suppressorScript('win32'));
   });
 
   it('treats an override that does not exist as unavailable, never substituting the detected browser', () => {
@@ -239,5 +240,63 @@ describe('BrowserSession', () => {
     expect(session.hasProfile('9f2c')).toBe(true);
     expect(session.hasProfile('beef')).toBe(false);
     expect(session.hasProfile('../../etc')).toBe(false);
+  });
+});
+
+describe('BrowserSession.openUrl', () => {
+  const URL = 'https://claude.com/oauth/authorize?code=1&state=2';
+
+  it('launches the profiled browser directly with the captured url intact', () => {
+    const { session, launched } = harness({ enabled: true });
+    session.openUrl('claude', '9f2c', URL);
+    expect(launched).toEqual([
+      {
+        command: CHROME,
+        args: [
+          '--user-data-dir=C:\\home\\.coa\\browser-profiles\\9f2c',
+          '--no-first-run',
+          '--no-default-browser-check',
+          URL,
+        ],
+      },
+    ]);
+  });
+
+  it('does nothing when the setting is off — today\u2019s spawn, byte for byte', () => {
+    const { session, launched } = harness({ enabled: false });
+    session.openUrl('claude', '9f2c', URL);
+    expect(launched).toEqual([]);
+  });
+
+  it('does nothing for a provider that never declared the capability', () => {
+    const { session, launched } = harness({ enabled: true });
+    session.openUrl('deepseek', '9f2c', URL);
+    expect(launched).toEqual([]);
+  });
+
+  it('does nothing for an id that could escape the profile root', () => {
+    const { session, launched } = harness({ enabled: true });
+    session.openUrl('claude', '../../etc', URL);
+    expect(launched).toEqual([]);
+  });
+
+  it('does nothing when no browser is available', () => {
+    const { session, launched } = harness({ enabled: true }, []);
+    session.openUrl('claude', '9f2c', URL);
+    expect(launched).toEqual([]);
+  });
+
+  it('swallows a launch failure instead of throwing into the login flow', () => {
+    const session = new BrowserSession({
+      home: 'C:\\home',
+      platform: 'win32',
+      env: WIN_ENV,
+      settings: () => ({ enabled: true }),
+      exists: (path) => path === CHROME,
+      launch: () => {
+        throw new Error('ENOENT');
+      },
+    });
+    expect(() => session.openUrl('claude', '9f2c', URL)).not.toThrow();
   });
 });
