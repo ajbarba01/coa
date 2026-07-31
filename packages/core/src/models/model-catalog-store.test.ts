@@ -21,10 +21,10 @@ describe('ModelCatalogStore', () => {
   });
 
   it('the first write materialises the catalog, then mutates (seeding B)', () => {
-    store.setHidden('claude', 'claude-haiku-3-5', true);
+    store.setHidden('claude', 'claude-haiku-4-5', true);
     const list = store.listFor('claude');
     expect(list.length).toBe(defaultCatalog('claude').length);
-    expect(list.find((m) => m.id === 'claude-haiku-3-5')?.hidden).toBe(true);
+    expect(list.find((m) => m.id === 'claude-haiku-4-5')?.hidden).toBe(true);
     const onDisk = parse(readFileSync(modelsPath(home), 'utf8')) as { providers: Record<string, unknown[]> };
     expect(onDisk.providers['claude']?.length).toBe(list.length);
   });

@@ -25,14 +25,20 @@ export type PriceTable = z.infer<typeof priceTableSchema>;
 
 export const PRICES_ENV_VAR = 'COA_DEEPSEEK_PRICES';
 
-/** Load the config-overridable price table; a missing/malformed var ⇒ the empty (zero-floor) table. */
+/** The published V4 rates coa ships by default; overridable per model via {@link PRICES_ENV_VAR}. */
+export const DEFAULT_PRICES: PriceTable = {
+  'deepseek-v4-flash': { inPerMillion: 0.14, outPerMillion: 0.28, cacheInPerMillion: 0.0028 },
+  'deepseek-v4-pro': { inPerMillion: 0.435, outPerMillion: 0.87, cacheInPerMillion: 0.003625 },
+};
+
+/** Load the config-overridable price table; a missing/malformed var ⇒ the shipped rates. */
 export function loadPriceTable(env: Record<string, string | undefined> = process.env): PriceTable {
   const raw = env[PRICES_ENV_VAR];
-  if (raw === undefined || raw === '') return {};
+  if (raw === undefined || raw === '') return { ...DEFAULT_PRICES };
   try {
-    return priceTableSchema.parse(JSON.parse(raw));
+    return { ...DEFAULT_PRICES, ...priceTableSchema.parse(JSON.parse(raw)) };
   } catch {
-    return {};
+    return { ...DEFAULT_PRICES };
   }
 }
 

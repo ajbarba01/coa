@@ -19,26 +19,29 @@ interface CatalogRow {
 
 const FULL_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = { supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] as ClaudeEffort[] };
 
+/** The pre-xhigh range: xhigh arrived with opus 4.7, so 4.6-era models stop at max. */
+const PRE_XHIGH_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = { supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'max'] as ClaudeEffort[] };
+
 const CATALOG: Record<string, CatalogRow[]> = {
   claude: [
     { id: 'claude-fable-5', label: 'fable 5', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
     { id: 'claude-opus-4-8', label: 'opus 4.8', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
     { id: 'claude-sonnet-5', label: 'sonnet 5', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
     { id: 'claude-haiku-4-5', label: 'haiku 4.5', caps: { supportsThinking: true } },
-    { id: 'claude-opus-4-7', label: 'opus 4.7', caps: { ...FULL_EFFORT } },
-    { id: 'claude-sonnet-4-6', label: 'sonnet 4.6', caps: { supportsThinking: true } },
+    { id: 'claude-opus-4-7', label: 'opus 4.7', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
+    { id: 'claude-sonnet-4-6', label: 'sonnet 4.6', caps: { ...PRE_XHIGH_EFFORT, supportsAdaptiveThinking: true } },
     { id: 'claude-opus-4-1', label: 'opus 4.1', caps: { supportsThinking: true } },
     { id: 'claude-sonnet-4-0', label: 'sonnet 4', caps: { supportsThinking: true } },
-    { id: 'claude-haiku-3-5', label: 'haiku 3.5' },
   ],
+  // V4 ids: `deepseek-chat`/`deepseek-reasoner` are deprecated 2026-07-24 15:59 UTC and
+  // error after it. Thinking is DeepSeek's default mode on both tiers, not a variant.
   deepseek: [
-    { id: 'deepseek-chat', label: 'deepseek chat' },
-    { id: 'deepseek-reasoner', label: 'deepseek reasoner', caps: { supportsThinking: true } },
+    { id: 'deepseek-v4-flash', label: 'deepseek v4 flash', caps: { supportsThinking: true } },
+    { id: 'deepseek-v4-pro', label: 'deepseek v4 pro', caps: { supportsThinking: true } },
   ],
-  longcat: [
-    { id: 'longcat-flash-chat', label: 'longcat flash chat' },
-    { id: 'longcat-flash-thinking', label: 'longcat flash thinking', caps: { supportsThinking: true } },
-  ],
+  // The id LongCat's own platform documents — and the one its price table keys, so a
+  // mismatch here silently bills every LongCat turn at the zero floor.
+  longcat: [{ id: 'LongCat-2.0', label: 'longcat 2.0', caps: { supportsThinking: true } }],
 };
 
 /** The default entries a provider's list seeds from (fresh copies every call). */

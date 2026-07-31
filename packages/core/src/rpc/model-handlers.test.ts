@@ -25,7 +25,7 @@ describe('buildModelHandlers', () => {
   it('modelCatalog returns every provider list + its default catalog', async () => {
     const view = await call('modelCatalog');
     expect(view.lists['claude']).toEqual(defaultCatalog('claude'));
-    expect(view.catalog['deepseek']?.map((m) => m.id)).toContain('deepseek-chat');
+    expect(view.catalog['deepseek']?.map((m) => m.id)).toContain('deepseek-v4-flash');
   });
 
   it('addCustomModel → the view carries the new entry; removeModel deletes it', async () => {
