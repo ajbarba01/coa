@@ -168,7 +168,18 @@ export type CredentialView = z.infer<typeof CredentialViewSchema>;
  *  `idle` is the flow-less answer — a state, never an error. */
 export const LoginSnapshotSchema = z
   .object({
-    phase: z.enum(['idle', 'launching', 'awaiting', 'watching', 'registered', 'mismatch', 'failed']),
+    phase: z.enum([
+      'idle',
+      'launching',
+      'awaiting',
+      'watching',
+      'registered',
+      // The dir was already signed in before the flow began, so nothing this attempt did
+      // can be credited for it — a decision, not a success (docs/adr/0017).
+      'preexisting',
+      'mismatch',
+      'failed',
+    ]),
     mode: z.enum(['new', 'relogin']).optional(),
     email: z.string().optional(),
     credentialId: z.string().optional(),

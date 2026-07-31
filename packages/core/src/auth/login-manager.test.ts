@@ -350,6 +350,72 @@ describe('isolated browser sessions', () => {
   });
 });
 
+/** Removing an account forgets the row but deliberately leaves the login where it lives, and
+ *  the managed dir is derived from the email — so re-adding the same address lands back on
+ *  credentials that are still valid. Finalizing on `loggedIn` alone made coa report a
+ *  handshake the user never performed (closed the browser tab, still got signed in). */
+describe('a login dir that was already signed in', () => {
+  it('does not claim a handshake it never performed', async () => {
+    const driver = fakeDriver(home);
+    const registry = new AccountsRegistry(home);
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
+    const manager = new LoginManager(registry, driver, { pollMs: 1 });
+    manager.startLogin({ email: 'a@b.org' });
+    await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('preexisting'));
+    expect(manager.snapshot()?.landedEmail).toBe('a@b.org');
+    expect(registry.list()).toHaveLength(0);
+  });
+
+  it('registers it only once the user says to use it', async () => {
+    const driver = fakeDriver(home);
+    const registry = new AccountsRegistry(home);
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
+    const manager = new LoginManager(registry, driver, { pollMs: 1 });
+    manager.startLogin({ email: 'a@b.org' });
+    await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('preexisting'));
+    manager.resolveMismatch('keep');
+    expect(manager.snapshot()?.phase).toBe('registered');
+    expect(registry.list()).toHaveLength(1);
+  });
+
+  it('stops the CLI rather than leaving a handshake running for a decision', async () => {
+    const driver = fakeDriver(home);
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org' });
+    const manager = new LoginManager(new AccountsRegistry(home), driver, { pollMs: 1 });
+    manager.startLogin({ email: 'a@b.org' });
+    await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('preexisting'));
+    expect(driver.killed).toBe(true);
+  });
+
+  /** Killing the CLI fires its exit, and the exit path runs a grace probe of its own — which
+   *  reached `#finalize` without ever consulting the baseline. The decision has to hold on
+   *  EVERY path to completion, not just the poll. */
+  it('holds the decision when the killed CLI exits behind it', async () => {
+    const driver = fakeDriver(home);
+    const registry = new AccountsRegistry(home);
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
+    const manager = new LoginManager(registry, driver, { pollMs: 1 });
+    manager.startLogin({ email: 'a@b.org' });
+    await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('preexisting'));
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
+    driver.fireExit(0);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(manager.snapshot()?.phase).toBe('preexisting');
+    expect(registry.list()).toHaveLength(0);
+  });
+
+  /** The regression guard: a dir that starts clean must still register normally. */
+  it('still registers a genuine handshake', async () => {
+    const driver = fakeDriver(home);
+    const registry = new AccountsRegistry(home);
+    const manager = new LoginManager(registry, driver, { pollMs: 1 });
+    manager.startLogin({ email: 'a@b.org' });
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
+    await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('registered'));
+    expect(registry.list()).toHaveLength(1);
+  });
+});
+
 describe('isolated browser sessions — opening the captured url', () => {
   it('hands the captured url to openUrl, keyed by the flow’s own identity', () => {
     const driver = fakeDriver(home);

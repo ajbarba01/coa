@@ -47,6 +47,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0019](0019-coa-opens-the-profiled-browser.md) — coa opens the profiled browser itself; `BROWSER` only suppresses the CLI's open (superseded by 0020)
 - [0020](0020-courier-shim-relays-the-self-completing-url.md) — The `BROWSER` shim is a courier: it relays the self-completing authorize url
 - [0021](0021-browser-profiles-keyed-by-identity.md) — Browser profiles are keyed by identity, not by account row
+- [0022](0022-a-login-is-a-transition-not-a-state.md) — A login is a transition, not a state
 
 ---
 

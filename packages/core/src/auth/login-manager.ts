@@ -16,6 +16,9 @@ export type LoginPhase =
   | 'awaiting'
   | 'watching'
   | 'registered'
+  /** The dir was ALREADY authenticated when the flow started, so nothing this attempt did
+   *  can be credited for it. Surfaced for a decision instead of reported as success. */
+  | 'preexisting'
   | 'mismatch'
   | 'failed';
 export type Health = 'healthy' | 'needs-relogin';
@@ -27,7 +30,7 @@ export interface LoginSnapshot {
   credentialId?: string; // relogin target
   oauthUrl?: string; // captured; absent while unknown or degraded
   ptyCaptured: boolean; // false ⇒ show "link unavailable" copy
-  landedEmail?: string; // set on mismatch
+  landedEmail?: string; // set on mismatch, and on preexisting (whoever the dir holds)
   identity?: string; // "email · plan" on registered
   error?: string; // set on failed
 }
@@ -94,6 +97,11 @@ interface Flow {
   opened: boolean;
   /** Stashed on mismatch so `resolveMismatch('keep')` can finalize with the same plan. */
   mismatchStatus?: { loggedIn: boolean; email?: string; subscriptionType?: string };
+  /** What the login dir looked like BEFORE this attempt touched it. A completion is only
+   *  this attempt's to claim if the dir started `clean` — otherwise `loggedIn` is just the
+   *  state a previous login left behind, which is not evidence of anything the user did
+   *  here. `unknown` until the baseline probe answers; the poll waits for it. */
+  baseline: 'unknown' | 'clean' | 'preexisting';
 }
 
 function unref(timer: { unref?: () => void }): void {
@@ -161,6 +169,7 @@ export class LoginManager {
       done: false,
       isolated: launcher !== undefined,
       opened: false,
+      baseline: 'unknown',
       ...(args.credentialId !== undefined ? { credentialId: args.credentialId } : {}),
     };
     this.#flow = flow;
@@ -184,6 +193,7 @@ export class LoginManager {
       this.#onExit(flow, code);
     });
 
+    this.#establishBaseline(flow);
     this.#startPolling(flow);
     return { ...flow.snapshot };
   }
@@ -198,8 +208,15 @@ export class LoginManager {
 
   resolveMismatch(action: 'keep' | 'retry'): LoginSnapshot | undefined {
     const flow = this.#flow;
-    if (flow === undefined || flow.snapshot.phase !== 'mismatch') return this.snapshot();
+    const phase = flow?.snapshot.phase;
+    if (flow === undefined || (phase !== 'mismatch' && phase !== 'preexisting')) {
+      return this.snapshot();
+    }
     const landedEmail = flow.snapshot.landedEmail;
+    // Retrying a dir that is already signed in would land the same credentials again — the
+    // way out is to keep it or cancel, not to loop. Signing that dir out is the user's own
+    // action, deliberately not coa's (docs/adr/0017).
+    if (action === 'retry' && phase === 'preexisting') return this.snapshot();
     if (action === 'retry') {
       // The jar now holds the session that landed the WRONG account, so a retry that reused
       // it would land the same one again. Keying by identity means the retry gets the same
@@ -293,6 +310,49 @@ export class LoginManager {
     return mintAccountId();
   }
 
+  /**
+   * Probe the login dir once, concurrently with the spawn, to learn whether it was already
+   * authenticated before this attempt began. Racing the spawn is safe: the only way the CLI
+   * could beat this probe is by completing a browser handshake in less time than one
+   * `auth status` call, which a human cannot do.
+   *
+   * A dir that is already signed in ends the flow then and there — the CLI is killed so no
+   * handshake is left running for a decision, and the browser open is suppressed. Nothing is
+   * registered until the user says to use it.
+   */
+  #establishBaseline(flow: Flow): void {
+    void this.#driver
+      .probe(flow.dir)
+      .then((status) => {
+        if (flow.done || flow.baseline !== 'unknown') return;
+        if (status?.loggedIn !== true) {
+          flow.baseline = 'clean';
+          return;
+        }
+        flow.baseline = 'preexisting';
+        // Nothing is waiting on the handshake now, and an unattended CLI would keep a
+        // browser window alive for a login the user has not agreed to.
+        flow.opened = true;
+        this.#stopPolling(flow);
+        try {
+          flow.handle.kill();
+        } catch {
+          // A CLI we cannot kill is a stray process, never a failed flow (SC-1).
+        }
+        flow.mismatchStatus = status;
+        flow.snapshot = {
+          ...flow.snapshot,
+          phase: 'preexisting',
+          ...(status.email !== undefined ? { landedEmail: status.email } : {}),
+        };
+      })
+      .catch(() => {
+        // A baseline we cannot establish must not strand the flow: treat the dir as clean
+        // and let the poll behave exactly as it did before (SC-1).
+        if (flow.baseline === 'unknown') flow.baseline = 'clean';
+      });
+  }
+
   #startPolling(flow: Flow): void {
     const timer = setInterval(() => {
       void this.#pollOnce(flow);
@@ -307,11 +367,15 @@ export class LoginManager {
     try {
       const status = await this.#driver.probe(flow.dir);
       if (flow.done) return;
-      if (status?.loggedIn === true) {
+      // Only a dir that STARTED clean can credit this attempt for being logged in now.
+      // `unknown` means the baseline probe has not answered yet — wait for it rather than
+      // finalize on a state that may predate the flow entirely.
+      if (status?.loggedIn === true && flow.baseline === 'clean') {
         this.#stopPolling(flow);
         this.#finalize(flow, status);
         return;
       }
+      if (flow.baseline === 'preexisting') return;
       // The probe didn't finalize the flow. Refresh ptyCaptured from the live handle:
       // the real driver's capture flips true ASYNCHRONOUSLY (a dynamic `import('node-pty')`
       // resolving after spawn), so a snapshot taken at start can be stale.
@@ -370,10 +434,18 @@ export class LoginManager {
     this.#startPolling(flow);
   }
 
+  /**
+   * The single funnel every probe-driven completion passes through — the poll, and the grace
+   * probe the CLI's exit schedules. The baseline verdict is enforced HERE rather than at each
+   * caller: guarding only the poll left the exit path free to register a session that predated
+   * the flow, which is the bug this shape exists to prevent (docs/adr/0022). The user's
+   * explicit "use it" goes to {@link #complete} directly and is deliberately unaffected.
+   */
   #finalize(
     flow: Flow,
     status: { loggedIn: boolean; email?: string; subscriptionType?: string },
   ): void {
+    if (flow.baseline !== 'clean') return;
     if (status.email !== undefined && status.email !== flow.email) {
       flow.done = true;
       flow.snapshot = { ...flow.snapshot, phase: 'mismatch', landedEmail: status.email };

@@ -104,6 +104,29 @@ describe('the driven login dialog', () => {
     expect(screen.getByText('copy link')).toBeInTheDocument();
   });
 
+  /** Removing an account leaves the login's credentials on disk, so re-adding the same email
+   *  can find a dir that is ALREADY signed in. Reporting that as a successful handshake was
+   *  the defect — the user had closed the browser without authorizing. It is a decision now,
+   *  and the copy has to say that nothing was just signed in. */
+  it('a pre-existing session asks to be used instead of claiming a login', () => {
+    useLogin.setState({
+      flow: {
+        phase: 'preexisting',
+        mode: 'new',
+        email: 'a@x.org',
+        landedEmail: 'old@x.org',
+        ptyCaptured: true,
+      },
+    });
+    render(<LoginDialog />);
+    expect(screen.getByText(/already signed in as old@x.org/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing was signed in just now/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /use old@x.org/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toBeInTheDocument();
+    // Retrying would land the same credentials again — it is not offered.
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
+  });
+
   it('degraded capture says so instead of showing an empty link box', () => {
     useLogin.setState({
       flow: { phase: 'awaiting', mode: 'new', email: 'a@x.org', ptyCaptured: false },

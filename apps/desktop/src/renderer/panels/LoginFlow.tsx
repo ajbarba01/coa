@@ -191,7 +191,8 @@ function EmailStep({
 function dotFor(flow: LoginSnapshot): 'running' | 'needs-you' | 'done' | 'critical' {
   if (flow.phase === 'registered') return 'done';
   if (flow.phase === 'failed') return 'critical';
-  if (flow.phase === 'awaiting' || flow.phase === 'mismatch') return 'needs-you';
+  if (flow.phase === 'awaiting' || flow.phase === 'mismatch' || flow.phase === 'preexisting')
+    return 'needs-you';
   return 'running';
 }
 
@@ -305,6 +306,13 @@ function FlowBody({
               />
             )}
 
+            {flow.phase === 'preexisting' && (
+              <Step
+                heading={`already signed in as ${flow.landedEmail ?? 'another account'}`}
+                body="This login still holds a session from before — nothing was signed in just now. Use it, or cancel and sign that login out first."
+              />
+            )}
+
             {flow.phase === 'mismatch' && (
               <Step
                 heading={`signed in as ${flow.landedEmail ?? 'a different account'}`}
@@ -360,6 +368,17 @@ function FlowBody({
             </Button>
             <Button variant="quiet" onClick={() => void resolveMismatch('keep').catch(() => {})}>
               keep {flow.landedEmail ?? 'this account'}
+            </Button>
+          </>
+        ) : flow.phase === 'preexisting' ? (
+          // Nothing was signed in here — this login was ALREADY signed in. Offering "use it"
+          // rather than reporting success is the whole point: the choice is the user's.
+          <>
+            <Button variant="outline" onClick={onClose}>
+              cancel
+            </Button>
+            <Button variant="quiet" onClick={() => void resolveMismatch('keep').catch(() => {})}>
+              use {flow.landedEmail ?? 'this login'}
             </Button>
           </>
         ) : (
