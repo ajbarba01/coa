@@ -15,6 +15,8 @@ import {
 } from '@coa/console-kit';
 import type { FeedView } from '@coa/console-viewmodel';
 import { useMemo, useRef, useState } from 'react';
+import { useStartRelogin } from '../panels/LoginFlow.js';
+import { activeNeedsRelogin, totalAttention } from '../panels/loginStore.js';
 import { useMockAuth } from '../panels/mockAuth.js';
 import { accountUsage, hudChoices, hudRows, usd, useUsageHud } from '../panels/mockUsage.js';
 import { providerById } from '../panels/providers.js';
@@ -55,6 +57,10 @@ export function Nav(): React.JSX.Element {
   const setSettingsOpen = useShell((s) => s.setSettingsOpen);
   const flags = useConsoleState((s) => s?.data.flags);
   const crit = critCount(flags);
+  // The generic attention channel on the auth tab: logins the probe flagged (badge
+  // surface #1). Amber — the everyday needs-you, one severity below the flags red.
+  const credentials = useMockAuth((s) => s.credentials);
+  const authAttention = totalAttention(credentials);
 
   return (
     <div className="flex flex-none flex-col border-r border-s4 bg-s2" style={{ width: navWidth }}>
@@ -84,6 +90,13 @@ export function Nav(): React.JSX.Element {
             {s.label}
             {s.id === 'flags' && crit > 0 && (
               <span className="mr-2 ml-auto font-mono text-code text-crit">{crit}</span>
+            )}
+            {/* Dot for state, count for magnitude (indicator law); zero renders nothing. */}
+            {s.id === 'auth' && authAttention > 0 && (
+              <span className="mr-2 ml-auto flex items-center gap-1.5 font-mono text-code text-warn">
+                <StatusDot status="needs-you" />
+                {authAttention}
+              </span>
             )}
             {/* active surface: the canvas cuts a notch through the sidebar border —
                 the hairline follows the notch's two slanted edges */}
@@ -533,6 +546,9 @@ function Tick({ on }: { on: boolean }): React.JSX.Element {
 }
 
 function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
+  const activeByProvider = useMockAuth((s) => s.activeByProvider);
+  const credentials = useMockAuth((s) => s.credentials);
+  const startRelogin = useStartRelogin();
   const accounts = state?.data.accounts;
   if (accounts === undefined || accounts.status === 'loading')
     return <Unresolved text="reading accounts…" />;
@@ -541,9 +557,29 @@ function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.E
   if (active.length === 0) return <Unresolved text="ambient credentials" />;
   return (
     <>
-      {active.map(([provider, label]) => (
-        <Kv key={provider} k={provider} v={label} />
-      ))}
+      {active.map(([provider, label]) => {
+        // A broken ACTIVE login is FLAGGED here too, its re-login one click away — never
+        // swapped out from under you (badge surface #3, SC-1).
+        const broken = activeNeedsRelogin(activeByProvider, provider, credentials);
+        if (!broken) return <Kv key={provider} k={provider} v={label} />;
+        const cred = credentials.find((c) => c.id === activeByProvider[provider]);
+        return (
+          <div key={provider} className="flex items-center gap-2 px-4 py-0.75 text-code">
+            <StatusDot status="needs-you" />
+            <span className="text-s8">{provider}</span>
+            <span className="truncate font-mono text-meta text-warn">needs relogin</span>
+            {cred !== undefined && (
+              <button
+                type="button"
+                onClick={() => startRelogin(cred)}
+                className="slip ml-auto cursor-pointer rounded-r1 border border-warn/40 px-1.5 font-mono text-meta text-warn hover:border-warn/70 hover:bg-warn/10"
+              >
+                re-login
+              </button>
+            )}
+          </div>
+        );
+      })}
     </>
   );
 }

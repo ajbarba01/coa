@@ -6,7 +6,10 @@ import { AccountsRegistry } from './registry.js';
 import { LoginManager, type LoginDriverPort } from './login-manager.js';
 
 /** A hand-cranked driver: tests fire url/exit and script the probe queue. */
-function fakeDriver(home: string): LoginDriverPort & {
+function fakeDriver(
+  home: string,
+  opts?: { ptyCaptured?: boolean },
+): LoginDriverPort & {
   fireUrl: (u: string) => void;
   fireExit: (code?: number) => void;
   probeQueue: (ReturnType<LoginDriverPort['probe']> extends Promise<infer T> ? T : never)[];
@@ -15,6 +18,7 @@ function fakeDriver(home: string): LoginDriverPort & {
 } {
   let urlFn: (u: string) => void = () => {};
   let exitFn: (c: number | undefined) => void = () => {};
+  const ptyCaptured = opts?.ptyCaptured ?? true;
   const self = {
     home,
     killed: false,
@@ -29,7 +33,7 @@ function fakeDriver(home: string): LoginDriverPort & {
         self.killed = true;
         self.killCount += 1;
       },
-      ptyCaptured: true,
+      ptyCaptured,
     }),
     probe: () => Promise.resolve(self.probeQueue.shift()),
     fireUrl: (u: string) => urlFn(u),
@@ -118,6 +122,27 @@ describe('LoginManager — the driven flow', () => {
     driver.probeQueue.push({ loggedIn: true, email: 'a@x.org' });
     await vi.advanceTimersByTimeAsync(150);
     expect(manager.snapshot()?.phase).toBe('registered');
+  });
+
+  it('a degraded driver (no pty) advances launching → awaiting on the first poll tick, with no url', async () => {
+    const degradedDriver = fakeDriver(home, { ptyCaptured: false });
+    const degradedManager = new LoginManager(registry, degradedDriver, { pollMs: 100 });
+    degradedManager.startLogin({ email: 'alex@barba.org' });
+    expect(degradedManager.snapshot()?.phase).toBe('launching');
+    degradedDriver.probeQueue.push({ loggedIn: false });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(degradedManager.snapshot()).toMatchObject({ phase: 'awaiting', ptyCaptured: false });
+    expect(degradedManager.snapshot()?.oauthUrl).toBeUndefined();
+    degradedDriver.probeQueue.push({ loggedIn: true, email: 'alex@barba.org' });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(degradedManager.snapshot()?.phase).toBe('registered');
+  });
+
+  it('a non-degraded driver stays launching on a not-logged-in poll tick (no url yet)', async () => {
+    manager.startLogin({ email: 'alex@barba.org' });
+    driver.probeQueue.push({ loggedIn: false });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(manager.snapshot()?.phase).toBe('launching');
   });
 
   it('resolveMismatch("retry") kills the driver exactly once and restarts a fresh flow at the same email', async () => {

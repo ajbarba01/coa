@@ -43,6 +43,14 @@ vi.mock('../console.js', () => ({
   rpcSetModelHidden: vi.fn(),
   notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
   onModelsChanged: vi.fn(),
+  // The driven-login flow (LoginFlow + loginStore) rides the surface too.
+  rpcStartLogin: vi.fn(),
+  rpcLoginState: vi.fn(),
+  rpcSubmitLoginCode: vi.fn(),
+  rpcCancelLogin: vi.fn().mockResolvedValue({ phase: 'idle' }),
+  rpcResolveLoginMismatch: vi.fn(),
+  rpcProbeHealth: vi.fn(),
+  rpcReportAuthFailure: vi.fn(),
 }));
 
 import {
@@ -51,13 +59,16 @@ import {
   rpcAuthView,
   rpcClearCooldown,
   rpcMakeActive,
+  rpcProbeHealth,
   rpcRemoveCredential,
   rpcRemoveProvider,
   rpcRenameCredential,
   rpcReplaceSecret,
   rpcSetCredentialDisabled,
   rpcSetProviderEnabled,
+  rpcStartLogin,
 } from '../console.js';
+import { useLogin } from './loginStore.js';
 
 // The store is module-level (it feeds the surface AND the rail HUD), so each test starts from
 // the same empty shape rather than its predecessor's leftovers. The shell store joins the
@@ -71,6 +82,7 @@ beforeEach(() => {
   useAuthUi.setState(UI_SEED, true);
   useShell.setState(SHELL_SEED, true);
   useModels.setState({ lists: {}, catalog: {} });
+  useLogin.setState({ flow: undefined });
 });
 
 /** Mirrors the real `~/.coa` shape (3 claude logins, keyed backends, a fat tavily pool with
@@ -626,5 +638,82 @@ describe('AuthSurface', () => {
     expect(rpcSetProviderEnabled).toHaveBeenCalledWith('tavily', false);
     await waitFor(() => expect(useMockAuth.getState().enabled['tavily']).toBe(false));
     expect(useMockAuth.getState().credentials.length).toBe(before);
+  });
+});
+
+describe('login health on the surface', () => {
+  /** The fixture with the ACTIVE claude login flagged by the probe — the headline case:
+   *  flagged, never auto-switched (SC-1). */
+  const FLAGGED_VIEW: AuthView = {
+    ...FIXTURE_VIEW,
+    credentials: FIXTURE_VIEW.credentials.map((c) =>
+      c.id === 'c1'
+        ? { ...c, email: 'wormsegment1000@gmail.com', health: 'needs-relogin' as const }
+        : c,
+    ),
+  };
+
+  it('probes login health on mount — the surface never trusts yesterday’s verdict', async () => {
+    vi.mocked(rpcProbeHealth).mockResolvedValue(FLAGGED_VIEW);
+    await renderAuth();
+    expect(rpcProbeHealth).toHaveBeenCalled();
+    // The probe's view reprojects: the flagged row appears without a manual refresh.
+    await waitFor(() =>
+      expect(useMockAuth.getState().credentials.find((c) => c.id === 'c1')?.health).toBe(
+        'needs-relogin',
+      ),
+    );
+  });
+
+  it('a needs-relogin row wears the amber state and a one-click re-login', async () => {
+    vi.mocked(rpcProbeHealth).mockResolvedValue(FLAGGED_VIEW);
+    await renderAuth(FLAGGED_VIEW);
+    expect(await screen.findByText('active · needs relogin')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 're-login' })).toBeTruthy();
+  });
+
+  it('re-login starts the driven flow with the credential’s known email — no pre-step', async () => {
+    const user = userEvent.setup();
+    vi.mocked(rpcProbeHealth).mockResolvedValue(FLAGGED_VIEW);
+    vi.mocked(rpcStartLogin).mockResolvedValue({
+      phase: 'launching',
+      mode: 'relogin',
+      email: 'wormsegment1000@gmail.com',
+    });
+    await renderAuth(FLAGGED_VIEW);
+    await user.click(await screen.findByRole('button', { name: 're-login' }));
+    expect(rpcStartLogin).toHaveBeenCalledWith({
+      email: 'wormsegment1000@gmail.com',
+      credentialId: 'c1',
+    });
+  });
+
+  it('a config-dir backend’s add path is the driven sign-in, email-first', async () => {
+    await renderAuth();
+    // The claude detail is the default (first backend) — its logins header carries the
+    // driven entry point, not the manual "+ add login".
+    expect(await screen.findByText('sign in with claude')).toBeTruthy();
+    fireEvent.click(screen.getByText('sign in with claude'));
+    expect(useShell.getState().loginEmailFor).toEqual({ providerId: 'claude' });
+  });
+
+  it('an email-defined login renders email-first; a nickname keeps the email in view', async () => {
+    const view: AuthView = {
+      ...FIXTURE_VIEW,
+      credentials: FIXTURE_VIEW.credentials.map((c) =>
+        c.id === 'c2'
+          ? { ...c, label: 'school', email: 'alex@barba.edu', identity: 'alex@barba.edu · pro' }
+          : c.id === 'c1'
+            ? { ...c, label: 'worm@x.org', email: 'worm@x.org' }
+            : c,
+      ),
+    };
+    await renderAuth(view);
+    // label === email ⇒ the email IS the first line (no doubled identity). It also rides
+    // the provider list row's active-label slot, so multiple hits are expected.
+    expect((await screen.findAllByText('worm@x.org')).length).toBeGreaterThan(0);
+    // label differs ⇒ nickname first, the probe identity (carrying the email) beneath.
+    expect(screen.getByText('school')).toBeTruthy();
+    expect(screen.getByText('alex@barba.edu · pro')).toBeTruthy();
   });
 });

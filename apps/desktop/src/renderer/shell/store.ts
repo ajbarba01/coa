@@ -44,6 +44,12 @@ export interface ShellState {
   addModelsProvider?: string | undefined;
   /** The custom model the remove-confirm dialog is asking about (undefined = closed). */
   confirmRemoveModel?: { providerId: string; id: string } | undefined;
+  /** The provider whose driven-login EMAIL pre-step is open (undefined = closed). Only the
+   *  renderer-local pre-step joins the exclusive set — once the daemon owns a flow, the
+   *  dialog projects daemon state and is dismissed only by an explicit cancel (killing a
+   *  running CLI login must never be a side effect of opening another dialog). A relogin
+   *  that lost its email carries the credential it aims at. */
+  loginEmailFor?: { providerId: string; credentialId?: string } | undefined;
   /** Bumped whenever the composer should take focus — opening a session, or Enter pressed
    *  anywhere in the conversation. A nonce rather than a flag: two consecutive requests to
    *  focus are two events, and the composer must answer both. */
@@ -87,6 +93,7 @@ export interface ShellState {
   setConfirmRemoveProvider: (providerId: string | undefined) => void;
   setAddModelsProvider: (providerId: string | undefined) => void;
   setConfirmRemoveModel: (target: { providerId: string; id: string } | undefined) => void;
+  setLoginEmailFor: (target: { providerId: string; credentialId?: string } | undefined) => void;
   /** Put the caret in the composer — whatever the user types next is a message. */
   focusComposer: () => void;
   setDaemon: (daemon: DaemonStatus) => void;
@@ -107,6 +114,7 @@ const CLOSE_ALL_DIALOGS = {
   confirmRemoveProvider: undefined,
   addModelsProvider: undefined,
   confirmRemoveModel: undefined,
+  loginEmailFor: undefined,
 } as const;
 
 export const useShell = create<ShellState>((set, get) => ({
@@ -128,6 +136,7 @@ export const useShell = create<ShellState>((set, get) => ({
   confirmRemoveProvider: undefined,
   addModelsProvider: undefined,
   confirmRemoveModel: undefined,
+  loginEmailFor: undefined,
   composerFocus: 0,
   daemon: 'stopped',
   maximized: false,
@@ -216,6 +225,12 @@ export const useShell = create<ShellState>((set, get) => ({
       target !== undefined
         ? { ...CLOSE_ALL_DIALOGS, confirmRemoveModel: target }
         : { confirmRemoveModel: undefined },
+    ),
+  setLoginEmailFor: (target) =>
+    set(
+      target !== undefined
+        ? { ...CLOSE_ALL_DIALOGS, loginEmailFor: target }
+        : { loginEmailFor: undefined },
     ),
   focusComposer: () => set((s) => ({ composerFocus: s.composerFocus + 1 })),
   setDaemon: (daemon) => set({ daemon }),

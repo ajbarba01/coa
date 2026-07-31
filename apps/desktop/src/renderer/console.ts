@@ -10,6 +10,7 @@ import {
   type CapState,
   type Checkpoint,
   type FeedView,
+  type LoginSnapshot,
   type ModelCatalogView,
   type ModelDescriptor,
   type ModelSelection,
@@ -22,6 +23,9 @@ import {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
+// Cycle-safe on purpose: mockAuth imports this module's rpc wrappers, and both sides
+// touch the other only at runtime (inside functions), never during module init.
+import { useMockAuth } from './panels/mockAuth.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { configKey } from './panels/banners.js';
@@ -147,6 +151,24 @@ export const rpcClearCooldown = (id: string): Promise<AuthView> =>
 export const rpcRefreshAuth = (): Promise<AuthView> => window.coa.refresh();
 
 /**
+ * The driven-login flow's RPC callers, mirroring the block above — the `loginStore`
+ * (`panels/loginStore.ts`) reaches the preload bridge only through these.
+ */
+export const rpcStartLogin = (params: {
+  email: string;
+  credentialId?: string;
+}): Promise<LoginSnapshot> => window.coa.startLogin(params);
+export const rpcLoginState = (): Promise<LoginSnapshot> => window.coa.loginState();
+export const rpcSubmitLoginCode = (code: string): Promise<LoginSnapshot> =>
+  window.coa.submitLoginCode({ code });
+export const rpcCancelLogin = (): Promise<LoginSnapshot> => window.coa.cancelLogin();
+export const rpcResolveLoginMismatch = (action: 'keep' | 'retry'): Promise<LoginSnapshot> =>
+  window.coa.resolveLoginMismatch({ action });
+export const rpcProbeHealth = (): Promise<AuthView> => window.coa.probeHealth();
+export const rpcReportAuthFailure = (credentialId: string): Promise<AuthView> =>
+  window.coa.reportAuthFailure({ credentialId });
+
+/**
  * The model catalog surface's RPC callers, mirroring the `rpcAuthView` block above — the
  * `modelsStore` (`panels/modelsStore.ts`) reaches the preload bridge only through these.
  */
@@ -172,6 +194,28 @@ export const rpcSetModelHidden = (p: {
   id: string;
   hidden: boolean;
 }): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
+
+/** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose (SC-1):
+ *  a false hit costs an amber dot the next probe clears, never a block — so the net is
+ *  wide (401s, OAuth, login wording) but only ever reads ERROR frames, never chat. */
+const AUTH_FAILURE = /auth|401|unauthorized|oauth|logged? ?in|login/i;
+
+/** Pure: whether a batch of pushed frames carries an auth failure. Exported for tests. */
+export function detectAuthFailure(frames: TurnFrame[]): boolean {
+  return frames.some((f) => f.kind === 'error' && AUTH_FAILURE.test(f.message));
+}
+
+/** The live-session signal — the strongest health evidence there is (stronger than any
+ *  probe: the loop just FAILED to authenticate). Flags the active claude login daemon-side
+ *  and reprojects the auth store so the badges light in the same breath. Fire-and-forget:
+ *  mis-detection costs an amber dot, never a block. */
+function reportActiveClaudeAuthFailure(): void {
+  const activeId = useMockAuth.getState().activeByProvider['claude'];
+  if (activeId === undefined) return;
+  void rpcReportAuthFailure(activeId)
+    .then(() => useMockAuth.getState().hydrate())
+    .catch(() => {});
+}
 
 /** The models-changed hook: the controller registers its `loadModels` here so a
  *  catalog edit refreshes the chip/agent-picker feed in the same breath. */
@@ -617,7 +661,13 @@ export async function startConsole(
       push();
       return;
     }
-    if ('sessionId' in data) appendTurns(data.sessionId, pushToViewFrames(data));
+    if ('sessionId' in data) {
+      const frames = pushToViewFrames(data);
+      // The live-failure hook: an auth-shaped error frame flags the active claude login
+      // (advisory — the badge lights; nothing blocks, nothing switches).
+      if (detectAuthFailure(frames)) reportActiveClaudeAuthFailure();
+      appendTurns(data.sessionId, frames);
+    }
   });
 
   const sendMessage = (text: string): void => {

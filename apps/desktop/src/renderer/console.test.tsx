@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { modelSwitchNoteText, startConsole, type ConsoleBridge } from './console.js';
-import type { AgentSummary } from '@coa/console-viewmodel';
+import { detectAuthFailure, modelSwitchNoteText, startConsole, type ConsoleBridge } from './console.js';
+import type { AgentSummary, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleState } from './panels/state.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
 import { deserializeAgents, serializeAgents } from '../main/agentsStore.js';
@@ -104,6 +104,27 @@ describe('modelSwitchNoteText', () => {
         { id: 'opus', provider: 'claude', displayName: 'Opus', description: 'Opus 4.8 · smart' },
       ]),
     ).toBe('switched to Opus 4.8');
+  });
+});
+
+describe('detectAuthFailure', () => {
+  const err = (message: string): TurnFrame => ({
+    id: 'e1',
+    role: 'agent',
+    kind: 'error',
+    message,
+  });
+
+  it('spots auth-shaped error frames and ignores everything else', () => {
+    expect(detectAuthFailure([err('401 Unauthorized')])).toBe(true);
+    expect(detectAuthFailure([err('OAuth token revoked')])).toBe(true);
+    expect(detectAuthFailure([err('Not logged in — run claude auth login')])).toBe(true);
+    // A text frame that merely TALKS about auth is conversation, not a failure signal.
+    expect(
+      detectAuthFailure([{ id: 't', role: 'agent', kind: 'text', text: 'auth 401 login' }]),
+    ).toBe(false);
+    expect(detectAuthFailure([err('rate limit exceeded')])).toBe(false);
+    expect(detectAuthFailure([])).toBe(false);
   });
 });
 

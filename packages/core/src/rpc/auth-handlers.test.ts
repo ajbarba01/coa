@@ -9,6 +9,7 @@ import { ConsoleStateStore } from '../console/console-state-store.js';
 import { credentialId, type AuthView } from './auth-view.js';
 import { dispatch } from './router.js';
 import { buildAuthHandlers, type AuthHandlerDeps } from './auth-handlers.js';
+import { LoginManager, type LoginDriverPort } from '../auth/login-manager.js';
 
 let home: string;
 let originalHome: string | undefined;
@@ -24,6 +25,26 @@ function freshDeps(home: string): AuthHandlerDeps {
     keys: new KeyStateStore(home),
     console: new ConsoleStateStore(home),
   };
+}
+
+/** A hand-cranked driver (Task-4 pattern): tests script the probe queue; no real spawn/pty. */
+function fakeLoginDriver(home: string): LoginDriverPort & {
+  probeQueue: ({ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined)[];
+} {
+  const self = {
+    home,
+    probeQueue: [] as ({ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined)[],
+    dirFor: (email: string) => join(home, '.coa', 'logins', email.replace(/[^a-z0-9]+/gi, '-')),
+    start: () => ({
+      onUrl: () => {},
+      onExit: () => {},
+      writeCode: () => {},
+      kill: () => {},
+      ptyCaptured: true,
+    }),
+    probe: () => Promise.resolve(self.probeQueue.shift()),
+  };
+  return self;
 }
 
 beforeEach(() => {
@@ -471,5 +492,57 @@ describe('auth write verbs', () => {
     const h = buildAuthHandlers(d);
     const view = (await h.refresh!.handle(undefined)) as AuthView;
     expect(view.credentials.map((c) => c.label)).toContain('a');
+  });
+});
+
+describe('login verbs', () => {
+  it('startLogin → loginState reflects the flow; cancelLogin returns idle', async () => {
+    const d = freshDeps(home);
+    const loginManager = new LoginManager(d.accounts, fakeLoginDriver(home));
+    const h = buildAuthHandlers({ ...d, loginManager });
+
+    const started = await h.startLogin!.handle({ email: 'a@x.org' });
+    expect(started).toMatchObject({ phase: 'launching', email: 'a@x.org' });
+    expect(await h.loginState!.handle(undefined)).toMatchObject({ phase: 'launching' });
+    expect(await h.cancelLogin!.handle(undefined)).toEqual({ phase: 'idle' });
+  });
+
+  it('probeHealth probes every claude dir and returns the health-threaded view', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('work', { type: 'config-dir', dir: join(home, 'claude-work') }, 'claude');
+    const driver = fakeLoginDriver(home);
+    driver.probeQueue.push({ loggedIn: false }); // scripted: needs a fresh login
+    const loginManager = new LoginManager(d.accounts, driver);
+    const h = buildAuthHandlers({ ...d, loginManager });
+
+    const view = (await h.probeHealth!.handle(undefined)) as AuthView;
+    expect(view.credentials.find((c) => c.id === 'claude:work')?.health).toBe('needs-relogin');
+  });
+
+  it('reportAuthFailure flips the account and returns the fresh view', async () => {
+    const d = freshDeps(home);
+    d.accounts.add('work', { type: 'config-dir', dir: join(home, 'claude-work') }, 'claude');
+    const loginManager = new LoginManager(d.accounts, fakeLoginDriver(home));
+    const h = buildAuthHandlers({ ...d, loginManager });
+
+    const view = (await h.reportAuthFailure!.handle({ credentialId: 'claude:work' })) as AuthView;
+    expect(view.credentials.find((c) => c.id === 'claude:work')?.health).toBe('needs-relogin');
+  });
+
+  it('without a manager every login verb degrades to idle, never throws', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    expect(await h.startLogin!.handle({ email: 'a@x.org' })).toEqual({ phase: 'idle' });
+    expect(await h.loginState!.handle(undefined)).toEqual({ phase: 'idle' });
+    expect(await h.submitLoginCode!.handle({ code: '123456' })).toEqual({ phase: 'idle' });
+    expect(await h.cancelLogin!.handle(undefined)).toEqual({ phase: 'idle' });
+    expect(await h.resolveLoginMismatch!.handle({ action: 'keep' })).toEqual({ phase: 'idle' });
+    const view = (await h.probeHealth!.handle(undefined)) as AuthView;
+    expect(view.credentials).toEqual(expect.any(Array));
+  });
+
+  it('bad params on a login verb are an invalid-params error over the router', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const res = await call(h, 'startLogin', { email: 'ab' });
+    expect(res).toMatchObject({ error: { code: -32602 } });
   });
 });

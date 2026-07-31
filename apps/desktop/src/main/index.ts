@@ -474,6 +474,20 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
     case 'writeAgents':
       writeJson(agentsFile(), serializeAgents(params));
       return undefined;
+    case 'startLogin':
+      return proxyDaemon('startLogin', params);
+    case 'loginState':
+      return proxyDaemon('loginState');
+    case 'submitLoginCode':
+      return proxyDaemon('submitLoginCode', params);
+    case 'cancelLogin':
+      return proxyDaemon('cancelLogin');
+    case 'resolveLoginMismatch':
+      return proxyDaemon('resolveLoginMismatch', params);
+    case 'probeHealth':
+      return proxyDaemon('probeHealth');
+    case 'reportAuthFailure':
+      return proxyDaemon('reportAuthFailure', params);
     case 'saveSettings': {
       // Recolor the native chrome *before* the disk write so the pre-paint background
       // tracks the renderer's (instant) CSS as closely as the IPC hop allows.

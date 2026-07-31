@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeedView } from '@coa/console-viewmodel';
 import { makeState } from '../panels/fixtures.js';
+import { useMockAuth } from '../panels/mockAuth.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { Nav, critCount } from './Nav.js';
 import { useShell } from './store.js';
@@ -114,5 +115,34 @@ describe('Nav', () => {
     render(<Nav />);
     const btn = screen.getByRole('button', { name: /coa/ });
     expect(btn.className).not.toContain('w-full');
+  });
+
+  it('wears the amber attention count on auth when a login needs re-login — zero renders nothing', () => {
+    const { rerender } = render(<Nav />);
+    const nav = screen.getByRole('navigation');
+    // No flagged logins — no badge on the auth row.
+    expect(within(nav).getByRole('button', { name: /auth/ }).textContent).toBe('⬡auth');
+    useMockAuth.setState({
+      credentials: [
+        {
+          id: 'claude:a',
+          providerId: 'claude',
+          label: 'a',
+          masked: '~/.coa/logins/a',
+          disabled: false,
+          health: 'needs-relogin',
+        },
+        {
+          id: 'claude:b',
+          providerId: 'claude',
+          label: 'b',
+          masked: '~/.coa/logins/b',
+          disabled: false,
+          health: 'healthy',
+        },
+      ],
+    });
+    rerender(<Nav />);
+    expect(within(nav).getByRole('button', { name: /auth/ }).textContent).toContain('1');
   });
 });

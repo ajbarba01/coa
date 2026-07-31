@@ -34,6 +34,8 @@ import {
   providerById,
   type ProviderDescriptor,
 } from './providers.js';
+import { SignInButton, useStartRelogin } from './LoginFlow.js';
+import { providerAttention } from './loginStore.js';
 import { ModelsSection } from './ModelEditor.js';
 import { SurfaceEmpty } from './surfaceStates.js';
 import { useAuthUi } from './surfaceUi.js';
@@ -116,12 +118,19 @@ export function AuthStrip(): React.JSX.Element {
       </div>
       <div className="flex-1" />
       {/* Logins change behind coa's back (a `claude login` in a terminal) — re-read on
-          demand. A frame-level act over the whole surface, so it lives in the strip. */}
+          demand. A frame-level act over the whole surface, so it lives in the strip.
+          Sequenced, not concurrent: each RPC reprojects the FULL view it returns, so two
+          in-flight reads would race on whose response lands last. The probe rides the same
+          ⟳ — re-reading logins without re-judging their health would show half the truth. */}
       <Tooltip label="re-read logins" side="bottom">
         <button
           type="button"
           aria-label="re-read logins"
-          onClick={() => void refresh().catch(() => {})}
+          onClick={() =>
+            void refresh()
+              .then(() => useMockAuth.getState().probeHealth())
+              .catch(() => {})
+          }
           className="slip flex cursor-pointer items-center px-3.5 text-[15px] text-s7 hover:text-s10"
           style={NO_DRAG}
         >
@@ -146,9 +155,15 @@ export function AuthSurface(): React.JSX.Element {
 
   // Live daemon read on every mount (idempotent) — mirrors how the account selector
   // triggers `listAccounts`. The surface starts empty and hydrates in. Advisory (SC-1):
-  // a failed read degrades to the empty state, never an unhandled rejection.
+  // a failed read degrades to the empty state, never an unhandled rejection. The health
+  // probe follows the hydrate (sequenced — both reprojects the full view): surfacing the
+  // logins without their probe-judged health would show yesterday's verdict as today's.
   useEffect(() => {
-    void useMockAuth.getState().hydrate().catch(() => {});
+    void useMockAuth
+      .getState()
+      .hydrate()
+      .then(() => useMockAuth.getState().probeHealth())
+      .catch(() => {});
   }, []);
 
   // Becoming narrow always lands on the LIST: a selection made while both panes were
@@ -364,6 +379,9 @@ function ProviderRow({
   const setProviderEnabled = useMockAuth((s) => s.setProviderEnabled);
   const credentials = credentialsOf(all, provider.id);
   const health = poolHealth(credentials);
+  // The generic attention channel: logins on this provider the probe flagged (badge
+  // surface #2 — the nav tab counts the whole surface, this dot marks the aisle).
+  const attention = providerAttention(all, provider.id);
   // What this provider is CURRENTLY logging in as — the answer to the question the row is asked
   // most often, so it belongs on the row rather than one click inside it.
   const active = credentials.find((c) => activeByProvider[provider.id] === c.id);
@@ -393,7 +411,9 @@ function ProviderRow({
             <span className="block truncate font-mono text-meta text-s7">{active.label}</span>
           )}
         </span>
-        {health.cooling > 0 && <StatusDot status="needs-you" />}
+        {/* One amber dot per row, whatever earned it (needs-relogin outranks cooling —
+            same hue, and doubling the dot would be counting, which is the number's job). */}
+        {(attention > 0 || health.cooling > 0) && <StatusDot status="needs-you" />}
         {credentials.length > 0 && (
           <span className="font-mono text-meta text-s7">{credentials.length}</span>
         )}
@@ -460,6 +480,11 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
               />
             </Tooltip>
             <RowMenu label={`${provider.label} actions`}>
+              {/* The advanced manual path — for a dir that's already logged in
+                  (strict-superset: the driven flow is primary, never the only door). */}
+              {provider.locator === 'config-dir' && (
+                <MenuItem onClick={() => setAdding(true)}>point at an existing config dir…</MenuItem>
+              )}
               {/* Removal takes every credential with it — big enough to ask first. */}
               <MenuItem onClick={() => confirmRemove(providerId)}>
                 <span className="text-crit">remove provider…</span>
@@ -495,9 +520,18 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
             {provider.noun === 'login' ? 'logins' : 'keys'}
           </CapsLabel>
           <span className="ml-2 font-mono text-meta text-s7">{credentials.length}</span>
-          <Button variant="text" className="ml-auto" onClick={() => setAdding(true)}>
-            + add {provider.noun}
-          </Button>
+          {/* A config-dir backend is DRIVEN: coa runs the login itself, so the primary add
+              path is "sign in" (email-first), not "point at a directory". The manual path
+              stays reachable in the provider menu — strict-superset, never a cage. */}
+          {provider.locator === 'config-dir' ? (
+            <span className="ml-auto">
+              <SignInButton provider={provider} />
+            </span>
+          ) : (
+            <Button variant="text" className="ml-auto" onClick={() => setAdding(true)}>
+              + add {provider.noun}
+            </Button>
+          )}
         </div>
 
         {/* Adding a credential to the provider you are already LOOKING at is inline — a modal
@@ -556,6 +590,10 @@ function CredentialRow({
   const setCredentialDisabled = useMockAuth((s) => s.setCredentialDisabled);
   const removeCredential = useMockAuth((s) => s.removeCredential);
   const clearCooldown = useMockAuth((s) => s.clearCooldown);
+  const startRelogin = useStartRelogin();
+  // Probe-derived: the login behind this pointer no longer answers. Flagged, never
+  // auto-switched (SC-1) — the row keeps its place and gains the one act that heals it.
+  const needsRelogin = credential.health === 'needs-relogin';
   const [replacing, setReplacing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -639,41 +677,68 @@ function CredentialRow({
           <StatusDot status={STATUS_DOT[status]} />
         )}
         <span className="min-w-0 flex-1">
+          {/* Email-first: an email-defined login IS its email, so that's the first line.
+              A nickname (label ≠ email) keeps rank, with the probe identity — which
+              carries the email — beneath it; the raw pointer is the floor. */}
           <span
             className={cx(
               'block truncate text-sec',
               status === 'active' ? 'text-s12' : dim ? 'text-s7' : 'text-s10',
             )}
           >
-            {credential.label}
+            {credential.email !== undefined && credential.label === credential.email
+              ? credential.email
+              : credential.label}
           </span>
           {/* The mask is all a read may return — there is no secret here to reveal. */}
           <span className="block truncate font-mono text-meta text-s7">
-            {credential.identity ?? credential.masked}
+            {credential.identity ??
+              (credential.label === credential.email ? credential.masked : credential.email) ??
+              credential.masked}
           </span>
         </span>
       </span>
 
       {/* "use" appears on approach for a row you could switch to: the affordance says what the
           click does, so activating never requires opening a menu to discover it. */}
-      {selectable && (
+      {selectable && !needsRelogin && (
         <span className="pointer-events-none relative flex-none font-mono text-meta text-s8 opacity-0 group-hover:opacity-100">
           use
         </span>
       )}
+      {/* Re-login is the badge's primary act — one click into the driven flow. It rides
+          ABOVE the stretched link (its own pointer events) and stays visible while the
+          login is broken, because that IS the state that needs acting on. */}
+      {needsRelogin && (
+        <button
+          type="button"
+          onClick={() => startRelogin(credential)}
+          className="slip relative flex-none cursor-pointer rounded-r1 border border-warn/40 px-1.5 py-0.5 font-mono text-meta text-warn hover:border-warn/70 hover:bg-warn/10"
+        >
+          re-login
+        </button>
+      )}
       <span
         className={cx(
           'pointer-events-none relative flex-none font-mono text-meta',
-          status === 'active'
-            ? 'text-ok'
-            : status === 'cooling'
-              ? 'text-warn'
-              : status === 'expired'
-                ? 'text-crit'
-                : 'text-s7',
+          needsRelogin
+            ? 'text-warn'
+            : status === 'active'
+              ? 'text-ok'
+              : status === 'cooling'
+                ? 'text-warn'
+                : status === 'expired'
+                  ? 'text-crit'
+                  : 'text-s7',
         )}
       >
-        {statusText(credential, status)}
+        {/* An ACTIVE broken login says both facts — it stays active (never auto-switched),
+            and it needs you. Anything else flagged just needs you. */}
+        {needsRelogin
+          ? status === 'active'
+            ? 'active · needs relogin'
+            : 'needs relogin'
+          : statusText(credential, status)}
       </span>
 
       <span
@@ -710,12 +775,17 @@ function CredentialRow({
           <MenuItem onClick={() => setEditing(true)}>edit…</MenuItem>
           {/* A SECRET is never edited (coa cannot show what it cannot read): a key is
               replaced — an add that supersedes. A pointer's secret lives with the provider,
-              so its only recovery act is re-login, and only expiry calls for it. */}
+              so its only recovery act is re-login — the DRIVEN flow for a config dir
+              (offered on expiry or a probe flag), an inline replace for an env-var. */}
           {isPointerLocator(provider.locator) ? (
-            status === 'expired' && (
-              <MenuItem onClick={() => setReplacing(true)}>
-                {provider.locator === 'config-dir' ? 're-login…' : 'replace…'}
-              </MenuItem>
+            provider.locator === 'config-dir' ? (
+              (status === 'expired' || needsRelogin) && (
+                <MenuItem onClick={() => startRelogin(credential)}>re-login…</MenuItem>
+              )
+            ) : (
+              status === 'expired' && (
+                <MenuItem onClick={() => setReplacing(true)}>replace…</MenuItem>
+              )
             )
           ) : (
             <MenuItem onClick={() => setReplacing(true)}>replace {provider.noun}…</MenuItem>

@@ -5,6 +5,7 @@ import type {
   CapState,
   Checkpoint,
   FeedView,
+  LoginSnapshot,
   ModelCatalogView,
   ModelDescriptor,
   ModelSelection,
@@ -119,6 +120,21 @@ declare global {
       listAgents(): Promise<unknown>;
       /** Persist the full, mutated agent list (console-validated `Agent[]`). */
       writeAgents(params: unknown): Promise<void>;
+      /** Kick off the driven-login flow (a fresh add, or a relogin against an
+       *  existing credential) — proxies the daemon `startLogin`. */
+      startLogin(params: { email: string; credentialId?: string }): Promise<LoginSnapshot>;
+      /** Poll the in-flight login flow's current snapshot — proxies `loginState`. */
+      loginState(): Promise<LoginSnapshot>;
+      /** Submit the OAuth code pasted back by the user — proxies `submitLoginCode`. */
+      submitLoginCode(params: { code: string }): Promise<LoginSnapshot>;
+      /** Abandon the in-flight login flow — proxies `cancelLogin`. */
+      cancelLogin(): Promise<LoginSnapshot>;
+      /** Resolve an email/identity mismatch surfaced mid-flow — proxies `resolveLoginMismatch`. */
+      resolveLoginMismatch(params: { action: 'keep' | 'retry' }): Promise<LoginSnapshot>;
+      /** Re-probe every credential's health on demand — proxies `probeHealth`. */
+      probeHealth(): Promise<AuthView>;
+      /** Report a credential's auth failure observed mid-session — proxies `reportAuthFailure`. */
+      reportAuthFailure(params: { credentialId: string }): Promise<AuthView>;
       /** Subscribe to the daemon push stream; returns an unsubscribe. */
       onPush(listener: (payload: unknown) => void): () => void;
       /** The open project (name + root), derived by main from the daemon's cwd. */

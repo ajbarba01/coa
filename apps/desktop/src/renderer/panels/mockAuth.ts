@@ -6,6 +6,7 @@ import {
   rpcAuthView,
   rpcClearCooldown,
   rpcMakeActive,
+  rpcProbeHealth,
   rpcRefreshAuth,
   rpcRemoveCredential,
   rpcRemoveProvider,
@@ -38,9 +39,14 @@ export interface Credential {
   label: string;
   /** All a read may ever return. The secret itself left the process when it was pasted. */
   masked: string;
+  /** The DECLARED identity — the email a driven login pre-fills. Distinct from `identity`,
+   *  which is what the probe actually saw. */
+  email?: string;
   /** config-dir logins carry an identity the provider told us about. */
   identity?: string;
   plan?: string;
+  /** Probe-derived login health. Absent ⇒ never probed (unknown is not a verdict). */
+  health?: 'healthy' | 'needs-relogin';
   /** Benched by the operator — still configured, just not used. */
   disabled: boolean;
   /** The login is gone/stale at the pointer; coa can't read limits for it. */
@@ -77,6 +83,9 @@ export interface MockAuthState {
   /** Re-read every pointer locator — identity, expiry, limits can all change behind
    *  coa's back (a `claude login` in a terminal). The strip's ⟳ runs this. */
   refresh: () => Promise<void>;
+  /** Probe every claude login's health (`claude auth status --json` daemon-side) and
+   *  reproject the health-threaded view. Runs on surface mount and from the ⟳. */
+  probeHealth: () => Promise<void>;
 }
 
 /** A daemon `CredentialView`'s optional fields are `T | undefined` (zod's `.optional()`);
@@ -91,8 +100,10 @@ function toCredential(c: AuthView['credentials'][number]): Credential {
     masked: c.masked,
     disabled: c.disabled,
   };
+  if (c.email !== undefined) cred.email = c.email;
   if (c.identity !== undefined) cred.identity = c.identity;
   if (c.plan !== undefined) cred.plan = c.plan;
+  if (c.health !== undefined) cred.health = c.health;
   if (c.expired !== undefined) cred.expired = c.expired;
   if (c.coolingSec !== undefined) cred.coolingSec = c.coolingSec;
   if (c.lastUsed !== undefined) cred.lastUsed = c.lastUsed;
@@ -137,6 +148,7 @@ export const useMockAuth = create<MockAuthState>((set) => ({
   clearCooldown: async (credentialId) => apply(set)(await rpcClearCooldown(credentialId)),
 
   refresh: async () => apply(set)(await rpcRefreshAuth()),
+  probeHealth: async () => apply(set)(await rpcProbeHealth()),
 }));
 
 /* ------------------------------ pure selectors ------------------------------ */

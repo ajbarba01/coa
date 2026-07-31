@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   AuthViewSchema,
   CheckpointSchema,
+  CredentialViewSchema,
   FeedViewSchema,
+  LoginSnapshotSchema,
   TimelineSchema,
   TurnFrameSchema,
   TurnStreamSchema,
@@ -84,5 +86,54 @@ describe('auth view schema', () => {
       chains: { search: ['tavily'], fetch: [] },
     });
     expect(v.credentials[0]?.identity).toBeUndefined();
+  });
+
+  it('accepts a credential carrying email + health and strips unknown fields', () => {
+    const c = CredentialViewSchema.parse({
+      id: 'claude:worm',
+      providerId: 'claude',
+      label: 'worm',
+      masked: '~/.claude',
+      disabled: false,
+      email: 'worm@example.com',
+      health: 'needs-relogin',
+      bogus: 'nope',
+    });
+    expect(c).toEqual({
+      id: 'claude:worm',
+      providerId: 'claude',
+      label: 'worm',
+      masked: '~/.claude',
+      disabled: false,
+      email: 'worm@example.com',
+      health: 'needs-relogin',
+    });
+  });
+});
+
+describe('login snapshot schema', () => {
+  it('accepts the idle phase as a state, never an error', () => {
+    const snap = LoginSnapshotSchema.parse({ phase: 'idle' });
+    expect(snap).toEqual({ phase: 'idle' });
+  });
+
+  it('accepts an in-flight snapshot and strips unknown fields', () => {
+    const snap = LoginSnapshotSchema.parse({
+      phase: 'awaiting',
+      mode: 'new',
+      email: 'worm@example.com',
+      oauthUrl: 'https://example.com/authorize',
+      bogus: 'nope',
+    });
+    expect(snap).toEqual({
+      phase: 'awaiting',
+      mode: 'new',
+      email: 'worm@example.com',
+      oauthUrl: 'https://example.com/authorize',
+    });
+  });
+
+  it('rejects an unknown phase', () => {
+    expect(() => LoginSnapshotSchema.parse({ phase: 'bogus' })).toThrow();
   });
 });

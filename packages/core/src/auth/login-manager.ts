@@ -202,6 +202,19 @@ export class LoginManager {
       if (status?.loggedIn === true) {
         this.#stopPolling(flow);
         this.#finalize(flow, status);
+        return;
+      }
+      // The probe didn't finalize the flow. Refresh ptyCaptured from the live handle:
+      // the real driver's capture flips true ASYNCHRONOUSLY (a dynamic `import('node-pty')`
+      // resolving after spawn), so a snapshot taken at start can be stale.
+      flow.snapshot = { ...flow.snapshot, ptyCaptured: flow.handle.ptyCaptured };
+      // A degraded driver (no pty) never fires onUrl — the CLI has no pipe to print the
+      // OAuth URL to. But the spike confirms the browser still auto-opens even degraded,
+      // so once we know capture failed, "awaiting" with no URL is the honest state: it's
+      // what lets the renderer show its degraded "link unavailable" copy instead of
+      // sitting silently at "launching" forever.
+      if (flow.snapshot.phase === 'launching' && !flow.handle.ptyCaptured) {
+        flow.snapshot = { ...flow.snapshot, phase: 'awaiting' };
       }
     } finally {
       flow.probing = false;

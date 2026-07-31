@@ -156,9 +156,28 @@ export const CredentialViewSchema = z
     plan: z.string().optional(),
     expired: z.boolean().optional(),
     lastUsed: z.string().optional(),
+    email: z.string().optional(),
+    health: z.enum(['healthy', 'needs-relogin']).optional(),
   })
   .strip();
 export type CredentialView = z.infer<typeof CredentialViewSchema>;
+
+/** The driven-login flow snapshot the renderer polls while its dialog is open.
+ *  `idle` is the flow-less answer — a state, never an error. */
+export const LoginSnapshotSchema = z
+  .object({
+    phase: z.enum(['idle', 'launching', 'awaiting', 'watching', 'registered', 'mismatch', 'failed']),
+    mode: z.enum(['new', 'relogin']).optional(),
+    email: z.string().optional(),
+    credentialId: z.string().optional(),
+    oauthUrl: z.string().optional(),
+    ptyCaptured: z.boolean().optional(),
+    landedEmail: z.string().optional(),
+    identity: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .strip();
+export type LoginSnapshot = z.infer<typeof LoginSnapshotSchema>;
 
 export const AuthViewSchema = z
   .object({

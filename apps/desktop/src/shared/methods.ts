@@ -5,6 +5,7 @@ import {
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
+  LoginSnapshotSchema,
   ModelCatalogViewSchema,
   PackageSummaryListSchema,
   ReasoningProfileSchema,
@@ -179,7 +180,14 @@ export type MethodName =
   | 'getSettings'
   | 'saveSettings'
   | 'listAgents'
-  | 'writeAgents';
+  | 'writeAgents'
+  | 'startLogin'
+  | 'loginState'
+  | 'submitLoginCode'
+  | 'cancelLogin'
+  | 'resolveLoginMismatch'
+  | 'probeHealth'
+  | 'reportAuthFailure';
 
 export const METHODS: Record<MethodName, MethodSpec> = {
   capState: { result: CapStateSchema },
@@ -284,6 +292,19 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   saveSettings: { params: ConsoleSettingsSchema, result: z.void() },
   listAgents: { result: AgentListSchema },
   writeAgents: { params: AgentListSchema, result: z.void() },
+  startLogin: {
+    params: z.object({ email: z.string(), credentialId: z.string().optional() }),
+    result: LoginSnapshotSchema,
+  },
+  loginState: { result: LoginSnapshotSchema },
+  submitLoginCode: { params: z.object({ code: z.string() }), result: LoginSnapshotSchema },
+  cancelLogin: { result: LoginSnapshotSchema },
+  resolveLoginMismatch: {
+    params: z.object({ action: z.enum(['keep', 'retry']) }),
+    result: LoginSnapshotSchema,
+  },
+  probeHealth: { result: AuthViewSchema },
+  reportAuthFailure: { params: z.object({ credentialId: z.string() }), result: AuthViewSchema },
 };
 
 /** The ipcRenderer/ipcMain channel name for a verb. */

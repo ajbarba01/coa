@@ -363,6 +363,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@coa/adapter-claude-sdk':
+        specifier: workspace:*
+        version: link:../adapter-claude-sdk
       '@coa/adapter-deepseek':
         specifier: workspace:*
         version: link:../adapter-deepseek

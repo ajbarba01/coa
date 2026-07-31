@@ -11,6 +11,7 @@ import {
 } from '@coa/shared';
 import { z } from 'zod';
 import type { AccountsRegistry } from '../auth/registry.js';
+import type { LoginManager } from '../auth/login-manager.js';
 import {
   FETCH_KINDS,
   SEARCH_KINDS,
@@ -45,6 +46,13 @@ const addParams = z.object({
 const useParams = z.object({ label: z.string().min(1), provider: providerSchema.optional() });
 const labelParams = z.object({ label: z.string().min(1) });
 const noParams = z.unknown().optional();
+
+// --- the driven-login verbs: params ------------------------------------------------
+const IDLE = { phase: 'idle' } as const;
+const startLoginParams = z.object({ email: z.string().min(3), credentialId: z.string().optional() });
+const codeParams = z.object({ code: z.string().min(1) });
+const mismatchParams = z.object({ action: z.enum(['keep', 'retry']) });
+const failureParams = z.object({ credentialId: z.string().min(1) });
 
 // --- the auth write verbs: params ---------------------------------------------------
 const providerIdParams = z.object({ providerId: z.string().min(1) });
@@ -233,11 +241,18 @@ function accountsView(registry: AccountsRegistry): {
   };
 }
 
-/** The `buildAuthHandlers` deps — the same four-store shape `assembleAuthView` reads. */
-export type AuthHandlerDeps = AuthViewDeps;
+/** The `buildAuthHandlers` deps — the four-store shape `assembleAuthView` reads, plus the
+ * optional driven-login manager (absent ⇒ every login verb degrades to idle/plain view, SC-1). */
+export type AuthHandlerDeps = AuthViewDeps & { loginManager?: LoginManager };
 
 export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
   const registry = deps.accounts;
+  // Thread the manager into every assembleAuthView call site as the `login` reader port
+  // (it already satisfies that port structurally) — one place, never repeated per call.
+  const viewDeps: AuthViewDeps = {
+    ...deps,
+    ...(deps.loginManager !== undefined ? { login: deps.loginManager } : {}),
+  };
   return {
     listAccounts: rpcMethod(noParams, () => accountsView(registry)),
     currentAccount: rpcMethod(noParams, () => ({ active: activeByProvider(registry) })),
@@ -258,12 +273,12 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       registry.remove(p.label);
       return accountsView(registry);
     }),
-    authView: rpcMethod(noParams, () => assembleAuthView(deps)),
+    authView: rpcMethod(noParams, () => assembleAuthView(viewDeps)),
 
     // --- the auth write verbs: every one returns the fresh AuthView -----------------
     addProvider: rpcMethod(providerIdParams, (p) => {
       deps.console.addProvider(p.providerId);
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     removeProvider: rpcMethod(providerIdParams, (p) => {
@@ -277,7 +292,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         removeServiceProviderCredentials(deps, p.providerId);
       }
       deps.console.removeProvider(p.providerId);
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     addCredential: rpcMethod(addCredParams, (p) => {
@@ -294,7 +309,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         }
       }
       // unsupported: no-op — no store recognizes this provider id
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     replaceSecret: rpcMethod(replaceSecretParams, (p) => {
@@ -314,7 +329,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         writeFileSync(path, p.secret, { mode: 0o600 });
         deps.keys.clear(`${providerId}:${path}`);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     renameCredential: rpcMethod(renameParams, (p) => {
@@ -325,7 +340,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       } else if (group === 'service') {
         renameServiceCredential(deps, providerId, oldLabel, p.label);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     removeCredential: rpcMethod(idParams, (p) => {
@@ -349,7 +364,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         // future same-label key never inherits a stale breaker cooling state
         deps.keys.clear(`${providerId}:${webKeyFilePath(homedir(), label)}`);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     setProviderEnabled: rpcMethod(enableParams, (p) => {
@@ -359,7 +374,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       } else if (group === 'service') {
         for (const chain of chainOf(p.providerId)) deps.web.setProviderDisabled(chain, p.providerId, !p.on);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     setCredentialDisabled: rpcMethod(benchParams, (p) => {
@@ -378,7 +393,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       } else if (group === 'service') {
         for (const chain of chainOf(providerId)) deps.web.setCredentialDisabled(chain, label, p.disabled);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     makeActive: rpcMethod(idParams, (p) => {
@@ -389,7 +404,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           .find((a) => a.label === label);
         if (account !== undefined && !account.disabled) deps.accounts.setActive(label);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
     clearCooldown: rpcMethod(idParams, (p) => {
@@ -398,9 +413,39 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         const path = webKeyFilePath(homedir(), label);
         deps.keys.clear(`${providerId}:${path}`);
       }
-      return assembleAuthView(deps);
+      return assembleAuthView(viewDeps);
     }),
 
-    refresh: rpcMethod(noParams, () => assembleAuthView(deps)),
+    refresh: rpcMethod(noParams, () => assembleAuthView(viewDeps)),
+
+    // --- the driven-login verbs (SC-1: absent manager ⇒ idle, never a throw) --------
+    startLogin: rpcMethod(startLoginParams, (p) =>
+      deps.loginManager === undefined
+        ? IDLE
+        : deps.loginManager.startLogin({
+            email: p.email,
+            ...(p.credentialId !== undefined ? { credentialId: p.credentialId } : {}),
+          }),
+    ),
+    loginState: rpcMethod(noParams, () => deps.loginManager?.snapshot() ?? IDLE),
+    submitLoginCode: rpcMethod(codeParams, (p) => {
+      deps.loginManager?.submitCode(p.code);
+      return deps.loginManager?.snapshot() ?? IDLE;
+    }),
+    cancelLogin: rpcMethod(noParams, () => {
+      deps.loginManager?.cancelLogin();
+      return IDLE;
+    }),
+    resolveLoginMismatch: rpcMethod(mismatchParams, (p) =>
+      deps.loginManager?.resolveMismatch(p.action) ?? IDLE,
+    ),
+    probeHealth: rpcMethod(noParams, async () => {
+      await deps.loginManager?.probeAll();
+      return assembleAuthView(viewDeps);
+    }),
+    reportAuthFailure: rpcMethod(failureParams, (p) => {
+      deps.loginManager?.reportAuthFailure(p.credentialId);
+      return assembleAuthView(viewDeps);
+    }),
   };
 }
