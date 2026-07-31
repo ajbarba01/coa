@@ -1299,6 +1299,70 @@ Google does, (b) whether the CLI's own browser-open can be suppressed so it does
 embedded window (and how that differs on win32), (c) whether the handshake returns via a localhost
 callback or code-paste. Must degrade to today's system-browser path (SC-1).
 
+*SPIKE RESULT (2026-07-21) — the blocking question is answered: NOT blocked.* An Electron
+`BrowserWindow` on `session.fromPartition('persist:…')` loads `https://claude.ai/login` and renders
+the real sign-in (title "Sign in - Claude", email field + affordances present, no
+`disallowed_useragent` / unsupported-browser copy) under a stock Electron UA
+(`…Chrome/132.0.6834.210 Electron/34.5.8…`). Screenshot captured. So the per-account cookie-jar
+approach is viable in principle.
+
+*Three qualifications, none of them fatal but none of them resolved:*
+
+1. **Google SSO is the likely blocker.** The login page offers "Continue with Google", and that hop
+   lands on `accounts.google.com`, which is the canonical rejecter of embedded user agents. A
+   Claude account reached via Google (or `--sso`) would probably fail inside the partition even
+   though Claude's own page does not. **Mitigation is the existing escape hatch, not new
+   machinery:** keep the copy-link + code-paste path (now proven working) as the always-available
+   fallback, so a blocked provider degrades to today's behavior (SC-1).
+2. **The URL tested was `claude.ai/login`, NOT the CLI's generated authorize URL.** Same origin,
+   same product, so the same policy is *expected* — but that is inference. Confirming needs a live
+   login to capture a real authorize URL and load THAT in the partition.
+3. **A `did-fail-load` code -3 (ABORTED) fired during load** while the page rendered normally.
+   Almost certainly a cancelled subresource/redirect, but it is recorded rather than filtered.
+
+*What the earlier code-paste finding changes:* because copy-link → paste-code is now proven to work
+end to end, a partitioned window does **not** need to intercept a localhost callback. It only has to
+render the page and let the user complete; the code returns through the field that already works.
+That removes the hardest piece of the original design.
+
+*SPIKE PIVOT + RESOLUTION (2026-07-21): launched browser profile, NOT an embedded partition.*
+The maintainer signs into Claude **with Google**, which makes the Electron-partition result above
+moot for the actual path: the Claude page renders fine embedded, but "Continue with Google" leaves
+for `accounts.google.com`, the canonical rejecter of embedded user agents
+(`disallowed_useragent`). UA spoofing was considered and **rejected** — Google actively counters it,
+it breaks unpredictably, and it means defeating a security control to reach one's own account.
+
+**The mechanism instead: launch a REAL browser with a dedicated profile dir.** Chromium's
+`--user-data-dir=<path>` yields a standalone browser with its own cookie jar, so Google's policy is
+satisfied honestly rather than evaded, and per-account isolation still holds.
+
+**Verified live 2026-07-21:** Chrome detected at the standard win32 path (Edge present too, same
+flag); launched with `--user-data-dir=<dir> --no-first-run --no-default-browser-check` onto
+`claude.ai/login`; a full profile tree with its own `Default/Network/Cookies` was created. The
+maintainer confirmed both checks in the launched window: **it is signed out of Google (isolation
+holds), and "Continue with Google" completes there (the blocked path is unblocked).** The
+`--no-first-run` pair also removes the fresh-profile onboarding that was listed as a cost.
+
+**Design that falls out** (build-time, not built here):
+- **Setting** — "use a dedicated browser profile for logins", OFF by default: with it off, behavior
+  is byte-identical to today (D85 strict-superset).
+- **Binary** — auto-detected per platform with an optional override pre-filled from detection; never
+  a required configuration step. Chrome/Edge/any Chromium share the flag.
+- **Profile per account** — one dir keyed by **account id, not email**, which also sidesteps the
+  ledgered `emailSlug` collision Minor. Removing an account should offer to remove its profile
+  (a Chrome profile is tens of MB and they accumulate).
+- **Fallback** — copy-link + paste-code stays as the always-available path, so a missing browser or
+  an unsupported provider degrades to current behavior (SC-1).
+- **Generality (maintainer constraint, satisfied by construction)** — this isolates ANY
+  cookie-session sign-in, not just OAuth and not just Claude; it belongs at the auth /
+  provider-descriptor layer, with Claude as its first consumer.
+
+**Consequence for the email pre-step (the original D3 defect): it SURVIVES and becomes honest.**
+With a per-account profile the declared email genuinely selects the session rather than inheriting
+whatever the default browser held, so "email-defined accounts" stops being aspirational. The
+observe-then-name inversion is therefore NOT needed. **This amends ADR-0017's premise and wants an
+ADR at build time** — the mechanism, not just the flow, is the durable decision.
+
 *Maintainer constraint on the remedy (2026-07-21):* **the partition mechanism must not be
 Claude-specific.** Design it as a general "isolated, persistent browser session keyed by account"
 capability that any provider needing session-scoped sign-in can use — Claude is its first consumer,
