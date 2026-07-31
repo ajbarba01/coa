@@ -209,11 +209,15 @@ everything else the new design overwrites.
   the daemon owns the decision). Session tabs + the ⌕ session-browser morph run over the real session list
   (sort/group; dividers floor). Acceptance: a live governed turn streams end-to-end in the new skin with
   steer/interrupt intact.
-- **W3 — Surfaces in the new language [M].** Redraw flags / timeline / cost as center surfaces per the
-  design laws; wire the right column's session state to what the daemon already serves (agent tree with the
-  run-status it pushes, worktree/record floors honestly labeled); HUD content (usage/account/flags). The
-  flags nav item wears the app's only red count. Acceptance: every nav surface renders real reads
-  states-first (loading/error/empty included).
+- **W3 — Surfaces in the new language [M]. ✅ Done.** Flags / timeline / cost redrawn as center surfaces on
+  the sand language, states-first (loading/error/empty/ok) via a shared `surfaceStates` module (skeleton /
+  role=alert error / quiet empty), dropping the old `console-ui` `Pane` chrome (the surface name lives in the
+  title strip). The right column now shows the session's real state — the root agent row and the agent's
+  plan checklist (Claude-only seam: `plan` frames come from the SDK `TodoWrite` tool; a session without one
+  shows a "no plan yet" line) — with subagents / changes / worktree / record / session-cost as honestly
+  labeled "not tracked yet" floors (their data is deferred, items E/I). The flags nav item keeps the app's
+  only red count. The nav HUD content (usage/account/flags mini-states) was deferred out of this arc — see
+  "Someday / ideas".
 - **W4 — Orphan homes [M].** The redesigned **agents editor** (role/package picker, thinking toggles,
   scope, pin) lands as its designed home in the new IA; drift/cache **notices** ship in indicator-law form
   (one quiet line docked to the composer: dot + name + inline action); per-provider **account management**
@@ -247,6 +251,10 @@ Captured from prior scratch notes; none of these are planned or sized yet:
   package, proving the packaging machinery ahead of the full skills system.
 - **P3 — Claude-Code behavior mirroring** *(deferred, maintainer-driven)* — the maintainer supplies
   the specific CC leaked-prompt behaviors to mirror; scoped into its own later plan once supplied.
+- **Nav HUD mini-states** *(deferred out of the W3 UX arc, 2026-07-12)* — the left-nav foot HUD
+  (usage / account / flags at-a-glance content). The scaffold + the flags red count exist in `Nav.tsx`;
+  what each mini-state should actually show is an open design question, so it's held out of the rebuild
+  arc rather than guessed at. Pick it up as its own small design pass once the shape is decided.
 - **Conversation naming** — auto-name conversations instead of leaving them titled by their first
   message.
 - **Constraint → flag authoring** — a lighter-weight authoring path for turning an observed
@@ -292,4 +300,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-07-10_
+_Last reviewed: 2026-07-12_

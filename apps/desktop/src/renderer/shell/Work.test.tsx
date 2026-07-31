@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { TurnFrame } from '@coa/console-viewmodel';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { makeState } from '../panels/fixtures.js';
@@ -22,6 +23,16 @@ function publish(runStatus: Record<string, { since: number }> = {}): void {
       ui: { activeSessionId: 'c1', runStatus },
     }),
   );
+}
+
+function renderWorkWithTurns(turns: TurnFrame[]): void {
+  publishConsoleState(
+    makeState({
+      data: { sessions: { status: 'ok', value: [SESSION] }, turns: { status: 'ok', value: turns } },
+      ui: { activeSessionId: 'c1' },
+    }),
+  );
+  render(<Work />);
 }
 
 beforeEach(() => {
@@ -55,5 +66,26 @@ describe('Work', () => {
     publish();
     render(<Work />);
     expect(screen.getByRole('button', { name: 'close' })).toBeTruthy();
+  });
+
+  it('shows the agent plan checklist from the active session plan frame', () => {
+    renderWorkWithTurns([
+      {
+        id: 'p1',
+        role: 'agent',
+        kind: 'plan',
+        items: [
+          { text: 'wire the surface', status: 'in-progress' },
+          { text: 'read the spec', status: 'done' },
+        ],
+      },
+    ]);
+    expect(screen.getByText('wire the surface')).toBeTruthy();
+    expect(screen.getByText('read the spec')).toBeTruthy();
+  });
+
+  it('labels the un-backed sections as floors, not fake data', () => {
+    renderWorkWithTurns([]);
+    expect(screen.getAllByText(/not tracked yet/i).length).toBeGreaterThan(0);
   });
 });
