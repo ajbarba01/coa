@@ -39,9 +39,15 @@ const fetchConfigSchema = z
     providers: z.array(fetchProviderSchema).default([]),
     freeFloor: z.boolean().default(true),
     summarizer: z
-      .object({ provider: z.literal('deepseek'), model: z.string().min(1), credential: locatorSchema })
+      .object({
+        provider: z.literal('deepseek'),
+        model: z.string().min(1),
+        credential: locatorSchema,
+      })
       .optional(),
-    quotaCooldown: z.union([z.literal('next-midnight'), z.number().positive()]).default('next-midnight'),
+    quotaCooldown: z
+      .union([z.literal('next-midnight'), z.number().positive()])
+      .default('next-midnight'),
   })
   .strip();
 
@@ -53,7 +59,9 @@ const searchProviderSchema = z.object({
 const searchConfigSchema = z
   .object({
     providers: z.array(searchProviderSchema).default([]),
-    quotaCooldown: z.union([z.literal('next-midnight'), z.number().positive()]).default('next-midnight'),
+    quotaCooldown: z
+      .union([z.literal('next-midnight'), z.number().positive()])
+      .default('next-midnight'),
   })
   .strip();
 
@@ -115,7 +123,8 @@ function buildFetchChain(
       const apiKey = resolveKey(cred, env);
       if (apiKey === undefined) continue;
       providers.push({
-        provider: provider.kind === 'tavily' ? makeTavilyFetch({ apiKey }) : makeFirecrawlFetch({ apiKey }),
+        provider:
+          provider.kind === 'tavily' ? makeTavilyFetch({ apiKey }) : makeFirecrawlFetch({ apiKey }),
         keyStateId: `${provider.kind}:${locatorId(cred)}`,
       });
     }
@@ -135,7 +144,10 @@ function buildFetchChain(
 }
 
 /** Build one search adapter for a provider kind (credential-blind — the key is passed in). */
-function makeSearchAdapter(kind: 'tavily' | 'firecrawl' | 'parallel', apiKey: string): SearchProvider {
+function makeSearchAdapter(
+  kind: 'tavily' | 'firecrawl' | 'parallel',
+  apiKey: string,
+): SearchProvider {
   if (kind === 'tavily') return makeTavilySearch({ apiKey });
   if (kind === 'firecrawl') return makeFirecrawlSearch({ apiKey });
   return makeParallelSearch({ apiKey });

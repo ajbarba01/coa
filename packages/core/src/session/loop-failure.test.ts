@@ -12,7 +12,9 @@ describe('isTransientNetworkError', () => {
   });
 
   it('flags a top-level error with a transient code and no telling message', () => {
-    expect(isTransientNetworkError(Object.assign(new Error('boom'), { code: 'ETIMEDOUT' }))).toBe(true);
+    expect(isTransientNetworkError(Object.assign(new Error('boom'), { code: 'ETIMEDOUT' }))).toBe(
+      true,
+    );
   });
 
   it('does not flag an ordinary application error', () => {

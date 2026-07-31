@@ -23,7 +23,9 @@ describe('webConfigSchema', () => {
 
   it('parses a search block with a provider union and default quotaCooldown', () => {
     const cfg = webConfigSchema.parse({
-      search: { providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }] },
+      search: {
+        providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }],
+      },
     });
     expect(cfg.search?.providers[0]?.kind).toBe('tavily');
     expect(cfg.search?.quotaCooldown).toBe('next-midnight');
@@ -47,10 +49,22 @@ describe('buildWebToolDeps', () => {
 
   it('routes a Tavily search key and marks its credential-blind cooldown id on quota', async () => {
     const marks: Array<{ id: string; until: number }> = [];
-    const store: CooldownStore = { isCoolingDown: () => false, markCooldown: (id, until) => marks.push({ id, until }), clear: () => {} };
-    vi.stubGlobal('fetch', async () => ({ ok: false, status: 432, headers: { get: () => null }, json: async () => ({}), text: async () => '' }));
+    const store: CooldownStore = {
+      isCoolingDown: () => false,
+      markCooldown: (id, until) => marks.push({ id, until }),
+      clear: () => {},
+    };
+    vi.stubGlobal('fetch', async () => ({
+      ok: false,
+      status: 432,
+      headers: { get: () => null },
+      json: async () => ({}),
+      text: async () => '',
+    }));
     const cfg = webConfigSchema.parse({
-      search: { providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }] },
+      search: {
+        providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }],
+      },
     });
     const deps = buildWebToolDeps(cfg, { TAVILY_KEY_1: 'tvly-secret' }, { store, now: () => 0 });
     const res = await deps.searchChain({ query: 'q' });
@@ -88,7 +102,9 @@ describe('buildWebToolDeps', () => {
     }));
     const cfg = webConfigSchema.parse({
       fetch: {
-        providers: [{ kind: 'firecrawl', credentials: [{ type: 'env-var', name: 'FIRECRAWL_KEY_1' }] }],
+        providers: [
+          { kind: 'firecrawl', credentials: [{ type: 'env-var', name: 'FIRECRAWL_KEY_1' }] },
+        ],
         freeFloor: false,
       },
     });
@@ -100,7 +116,11 @@ describe('buildWebToolDeps', () => {
 
   it('routes a Tavily fetch key and marks its credential-blind cooldown id on quota', async () => {
     const marks: Array<{ id: string; until: number }> = [];
-    const store: CooldownStore = { isCoolingDown: () => false, markCooldown: (id, until) => marks.push({ id, until }), clear: () => {} };
+    const store: CooldownStore = {
+      isCoolingDown: () => false,
+      markCooldown: (id, until) => marks.push({ id, until }),
+      clear: () => {},
+    };
     vi.stubGlobal('fetch', async () => ({
       ok: false,
       status: 432,
@@ -109,7 +129,10 @@ describe('buildWebToolDeps', () => {
       text: async () => '',
     }));
     const cfg = webConfigSchema.parse({
-      fetch: { providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }], freeFloor: false },
+      fetch: {
+        providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }],
+        freeFloor: false,
+      },
     });
     const deps = buildWebToolDeps(cfg, { TAVILY_KEY_1: 'tvly-secret' }, { store, now: () => 0 });
     const res = await deps.fetchChain('https://x.test');
@@ -122,10 +145,23 @@ describe('buildWebToolDeps', () => {
     const keyPath = join(dir, 'web-fc1');
     writeFileSync(keyPath, 'fc-saved-secret\n'); // trailing newline is trimmed on read
     const marks: Array<{ id: string }> = [];
-    const store: CooldownStore = { isCoolingDown: () => false, markCooldown: (id) => marks.push({ id }), clear: () => {} };
-    vi.stubGlobal('fetch', async () => ({ ok: false, status: 429, headers: { get: () => null }, json: async () => ({}), text: async () => '' }));
+    const store: CooldownStore = {
+      isCoolingDown: () => false,
+      markCooldown: (id) => marks.push({ id }),
+      clear: () => {},
+    };
+    vi.stubGlobal('fetch', async () => ({
+      ok: false,
+      status: 429,
+      headers: { get: () => null },
+      json: async () => ({}),
+      text: async () => '',
+    }));
     const cfg = webConfigSchema.parse({
-      fetch: { providers: [{ kind: 'firecrawl', credentials: [{ type: 'key-file', path: keyPath }] }], freeFloor: false },
+      fetch: {
+        providers: [{ kind: 'firecrawl', credentials: [{ type: 'key-file', path: keyPath }] }],
+        freeFloor: false,
+      },
     });
     const deps = buildWebToolDeps(cfg, {}, { store, now: () => 0 });
     const res = await deps.fetchChain('https://x.test');
@@ -137,7 +173,11 @@ describe('buildWebToolDeps', () => {
 
   it('includes the injected summarizer when provided', () => {
     const summarizer = { summarize: async () => 'summary' };
-    const deps = buildWebToolDeps(webConfigSchema.parse({}), {}, { summarizer, store: noopStore, now: () => 0 });
+    const deps = buildWebToolDeps(
+      webConfigSchema.parse({}),
+      {},
+      { summarizer, store: noopStore, now: () => 0 },
+    );
     expect(deps.summarizer).toBe(summarizer);
   });
 });

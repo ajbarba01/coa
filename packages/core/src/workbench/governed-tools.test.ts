@@ -140,7 +140,11 @@ function baseDeps(): BaseToolDeps {
 
 describe('buildGovernedTools — web-tool gate', () => {
   const webDeps = () => ({
-    searchChain: async () => ({ status: 'ok' as const, value: [{ title: 'T', url: 'https://x.test', snippet: 'S' }], clean: true }),
+    searchChain: async () => ({
+      status: 'ok' as const,
+      value: [{ title: 'T', url: 'https://x.test', snippet: 'S' }],
+      clean: true,
+    }),
     fetchChain: async () => ({ status: 'ok' as const, value: 'hi', clean: false }),
   });
 
@@ -151,18 +155,16 @@ describe('buildGovernedTools — web-tool gate', () => {
   });
 
   it('includes WebSearch/WebFetch when deps.web is set', () => {
-    const names = buildGovernedTools({ ...makeDeps(), web: webDeps() }, { includeWebTools: true }).map(
-      (t) => t.name,
-    );
+    const names = buildGovernedTools(
+      { ...makeDeps(), web: webDeps() },
+      { includeWebTools: true },
+    ).map((t) => t.name);
     expect(names).toContain('WebSearch');
     expect(names).toContain('WebFetch');
   });
 
   it('awaits the async WebSearch dispatch so enrich sees the resolved response, not a Promise', async () => {
-    const tools = buildGovernedTools(
-      { ...makeDeps(), web: webDeps() },
-      { includeWebTools: true },
-    );
+    const tools = buildGovernedTools({ ...makeDeps(), web: webDeps() }, { includeWebTools: true });
     const tool = tools.find((t) => t.name === 'WebSearch');
     const res = await tool!.invoke({ query: 'q' });
     expect(res.result).toEqual({ results: [{ title: 'T', url: 'https://x.test', snippet: 'S' }] });
@@ -176,14 +178,18 @@ describe('buildGovernedTools — base-tool gate', () => {
   });
 
   it('includes the six base tools when includeBaseTools is set', () => {
-    const names = buildGovernedTools({ ...makeDeps(), base: baseDeps() }, { includeBaseTools: true }).map(
-      (t) => t.name,
-    );
+    const names = buildGovernedTools(
+      { ...makeDeps(), base: baseDeps() },
+      { includeBaseTools: true },
+    ).map((t) => t.name);
     for (const n of BASE_NAMES) expect(names).toContain(n);
   });
 
   it('a base tool invoke returns an unapplied result on a bad path (SC-1, never throws)', async () => {
-    const tools = buildGovernedTools({ ...makeDeps(), base: baseDeps() }, { includeBaseTools: true });
+    const tools = buildGovernedTools(
+      { ...makeDeps(), base: baseDeps() },
+      { includeBaseTools: true },
+    );
     const read = tools.find((t) => t.name === 'Read');
     const res = await read?.invoke({ path: '../escape' });
     expect((res?.result as { found: boolean }).found).toBe(false);

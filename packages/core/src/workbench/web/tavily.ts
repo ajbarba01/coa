@@ -18,7 +18,9 @@ const tavilyExtractResponseSchema = z.object({
 
 const tavilySearchResponseSchema = z.object({
   results: z
-    .array(z.object({ title: z.string().default(''), url: z.string(), content: z.string().default('') }))
+    .array(
+      z.object({ title: z.string().default(''), url: z.string(), content: z.string().default('') }),
+    )
     .default([]),
 });
 
@@ -79,7 +81,11 @@ export function makeTavilySearch(config: {
         if (!res.ok) return { status: 'error', reason: `tavily-http-${res.status}` };
         const parsed = tavilySearchResponseSchema.safeParse(await res.json());
         if (!parsed.success) return { status: 'error', reason: 'tavily-malformed' };
-        const value = parsed.data.results.map((r) => ({ title: r.title, url: r.url, snippet: r.content }));
+        const value = parsed.data.results.map((r) => ({
+          title: r.title,
+          url: r.url,
+          snippet: r.content,
+        }));
         return { status: 'ok', value, clean: true };
       } catch (err) {
         return { status: 'error', reason: `tavily-throw: ${String(err)}` };

@@ -113,7 +113,8 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
  */
 export function repairUnpairedToolCalls(messages: readonly BackendMessage[]): BackendMessage[] {
   const answered = new Set<string>();
-  for (const m of messages) if (m.role === 'tool' && m.toolCallId !== undefined) answered.add(m.toolCallId);
+  for (const m of messages)
+    if (m.role === 'tool' && m.toolCallId !== undefined) answered.add(m.toolCallId);
   const out: BackendMessage[] = [];
   for (const m of messages) {
     out.push(m);

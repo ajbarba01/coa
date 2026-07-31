@@ -30,7 +30,10 @@ describe('ModelCache — account-keyed model capability cache', () => {
     const fetch = vi.fn().mockResolvedValue(MODELS);
     const cache = new ModelCache({ fetch });
 
-    const [a, b] = await Promise.all([cache.list({ label: 'work' }), cache.list({ label: 'work' })]);
+    const [a, b] = await Promise.all([
+      cache.list({ label: 'work' }),
+      cache.list({ label: 'work' }),
+    ]);
     expect(a).toBe(b);
     expect(fetch).toHaveBeenCalledTimes(1);
   });

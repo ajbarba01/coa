@@ -8,7 +8,13 @@ const DEFAULT_BASE_URL = 'https://api.parallel.ai/v1beta/search';
 // are provisional and will be validated at the live smoke against the actual API docs.
 const parallelResponseSchema = z.object({
   results: z
-    .array(z.object({ title: z.string().default(''), url: z.string(), excerpts: z.array(z.string()).default([]) }))
+    .array(
+      z.object({
+        title: z.string().default(''),
+        url: z.string(),
+        excerpts: z.array(z.string()).default([]),
+      }),
+    )
     .default([]),
 });
 
@@ -40,7 +46,11 @@ export function makeParallelSearch(config: {
         if (!res.ok) return { status: 'error', reason: `parallel-http-${res.status}` };
         const parsed = parallelResponseSchema.safeParse(await res.json());
         if (!parsed.success) return { status: 'error', reason: 'parallel-malformed' };
-        const value = parsed.data.results.map((r) => ({ title: r.title, url: r.url, snippet: r.excerpts.join('\n') }));
+        const value = parsed.data.results.map((r) => ({
+          title: r.title,
+          url: r.url,
+          snippet: r.excerpts.join('\n'),
+        }));
         return { status: 'ok', value, clean: true };
       } catch (err) {
         return { status: 'error', reason: `parallel-throw: ${String(err)}` };

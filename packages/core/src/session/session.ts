@@ -9,7 +9,13 @@ import type {
   Session,
   TurnFrame,
 } from '@coa/shared';
-import type { RuntimeAdapter, RuntimeUsage, StopDecision, ToolCatalogue, TurnInterrupt } from '@coa/spi';
+import type {
+  RuntimeAdapter,
+  RuntimeUsage,
+  StopDecision,
+  ToolCatalogue,
+  TurnInterrupt,
+} from '@coa/spi';
 import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
 
 /**

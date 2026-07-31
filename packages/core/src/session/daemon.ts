@@ -293,7 +293,11 @@ function ignoreGlobsFor(worktreeRoot: string): string[] {
  * plus anything the worktree's `.gitignore` names. Exported for focused unit
  * testing without a full `baseToolDeps`/kernel setup.
  */
-export function listFilesFor(pattern: string, baseAbsolute: string, worktreeRoot?: string): string[] {
+export function listFilesFor(
+  pattern: string,
+  baseAbsolute: string,
+  worktreeRoot?: string,
+): string[] {
   const ignore = ignoreGlobsFor(worktreeRoot ?? baseAbsolute);
   return globSync(pattern, { cwd: baseAbsolute, absolute: true, dot: false, ignore });
 }
@@ -333,7 +337,10 @@ function buildBaseCatalogue(
  * cost recorded to the M7 ledger. Absent config or an unresolved key ⇒ `undefined`
  * (D85 raw-markdown floor). Runs only on non-clean content (the handler decides).
  */
-export function buildFetchSummarizer(web: WebConfig, governance: Governance): Summarizer | undefined {
+export function buildFetchSummarizer(
+  web: WebConfig,
+  governance: Governance,
+): Summarizer | undefined {
   const cfg = web.fetch?.summarizer;
   if (cfg === undefined || cfg.provider !== 'deepseek') return undefined;
   const apiKey = resolveEnvVar(cfg.credential);
@@ -356,7 +363,11 @@ function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
   const worktreeRoot = root.replace(/\\/g, '/');
   // Resolve the Bash shell once per session: Git Bash on Windows when present, so the
   // model's POSIX one-liners run against a POSIX shell instead of cmd.exe (Claude Code parity).
-  const { shell } = resolveShell({ platform: process.platform, env: process.env, fileExists: existsSync });
+  const { shell } = resolveShell({
+    platform: process.platform,
+    env: process.env,
+    fileExists: existsSync,
+  });
   return {
     worktreeRoot,
     worktree: 'main',

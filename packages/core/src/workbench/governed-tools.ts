@@ -61,7 +61,10 @@ export interface GovernedToolDeps {
  */
 export interface ToolSpec {
   shape: z.ZodRawShape;
-  dispatch: (args: unknown, deps: GovernedToolDeps) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
+  dispatch: (
+    args: unknown,
+    deps: GovernedToolDeps,
+  ) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
   refOf?: (args: unknown) => SymbolRef | undefined;
 }
 

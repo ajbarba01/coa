@@ -81,11 +81,9 @@ export function assembleAgent(
   const defaultIds = all.filter((pkg) => pkg.inclusion === 'default').map((pkg) => pkg.id);
 
   const rolePackageIds = spec.roles.flatMap((r) => r.packageIds);
-  const includedIds = dedupe([
-    ...defaultIds,
-    ...rolePackageIds,
-    ...(spec.packageIds ?? []),
-  ]).filter((id) => registry.has(id) && !excluded.has(id));
+  const includedIds = dedupe([...defaultIds, ...rolePackageIds, ...(spec.packageIds ?? [])]).filter(
+    (id) => registry.has(id) && !excluded.has(id),
+  );
   const included = includedIds
     .map((id) => registry.get(id))
     .filter((pkg): pkg is AgentPackage => pkg !== undefined);
@@ -141,9 +139,7 @@ export function createRegistryAssemblePieces(deps: {
       model: modelPromptOf(ctx),
     };
     const ids = ctx.roles ?? (ctx.role !== undefined && ctx.role !== '' ? [ctx.role] : []);
-    const roles = ids
-      .map((id) => deps.roles.get(id))
-      .filter((r): r is Role => r !== undefined);
+    const roles = ids.map((id) => deps.roles.get(id)).filter((r): r is Role => r !== undefined);
     if (roles.length === 0) {
       return { pieces: baselinePieces(baselineCtx), frame: { allow: [], deny: [] } };
     }

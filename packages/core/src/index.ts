@@ -248,7 +248,12 @@ export {
   type AgentSpec,
   type AgentAssembly,
 } from './session/assemble-agent.js';
-export { resolveShell, shellLabel, type ShellResolution, type ShellProbe } from './session/shell.js';
+export {
+  resolveShell,
+  shellLabel,
+  type ShellResolution,
+  type ShellProbe,
+} from './session/shell.js';
 export {
   STARTER_PACKAGES,
   STARTER_ROLES,

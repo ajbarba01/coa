@@ -33,7 +33,10 @@ describe.skipIf(!hasFirecrawl)('firecrawl fetch live smoke', () => {
 
 describe.skipIf(!hasTavily)('tavily live smoke', () => {
   it('WebSearch returns real hits from Tavily', async () => {
-    const outcome = await makeTavilySearch({ apiKey: process.env.TAVILY_KEY_1! }).search({ query: 'anthropic claude api pricing', maxResults: 3 });
+    const outcome = await makeTavilySearch({ apiKey: process.env.TAVILY_KEY_1! }).search({
+      query: 'anthropic claude api pricing',
+      maxResults: 3,
+    });
     expect(outcome.status).toBe('ok');
     if (outcome.status === 'ok') {
       expect(outcome.value.length).toBeGreaterThan(0);
@@ -42,7 +45,9 @@ describe.skipIf(!hasTavily)('tavily live smoke', () => {
   }, 20_000);
 
   it('WebFetch extracts clean markdown from Tavily', async () => {
-    const outcome = await makeTavilyFetch({ apiKey: process.env.TAVILY_KEY_1! }).fetch('https://example.com');
+    const outcome = await makeTavilyFetch({ apiKey: process.env.TAVILY_KEY_1! }).fetch(
+      'https://example.com',
+    );
     expect(outcome.status).toBe('ok');
     if (outcome.status === 'ok') expect(outcome.value.length).toBeGreaterThan(0);
   }, 30_000);
@@ -50,7 +55,10 @@ describe.skipIf(!hasTavily)('tavily live smoke', () => {
 
 describe.skipIf(!hasFirecrawl)('firecrawl search live smoke', () => {
   it('WebSearch returns real hits from Firecrawl', async () => {
-    const outcome = await makeFirecrawlSearch({ apiKey: process.env.FIRECRAWL_KEY_1! }).search({ query: 'anthropic claude api pricing', maxResults: 3 });
+    const outcome = await makeFirecrawlSearch({ apiKey: process.env.FIRECRAWL_KEY_1! }).search({
+      query: 'anthropic claude api pricing',
+      maxResults: 3,
+    });
     expect(outcome.status).toBe('ok');
     if (outcome.status === 'ok') expect(outcome.value.length).toBeGreaterThan(0);
   }, 20_000);

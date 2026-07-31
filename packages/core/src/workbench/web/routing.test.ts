@@ -69,7 +69,13 @@ describe('runChain', () => {
     let ran = false;
     const res = await runChain(
       [
-        { keyStateId: 'a', run: async () => { ran = true; return { status: 'ok', value: 'x', clean: true }; } },
+        {
+          keyStateId: 'a',
+          run: async () => {
+            ran = true;
+            return { status: 'ok', value: 'x', clean: true };
+          },
+        },
         entry('b', { status: 'ok', value: 'floor', clean: false }),
       ],
       store,
@@ -106,7 +112,10 @@ describe('runChain', () => {
       0,
       MIDNIGHT,
     );
-    expect(store.marks).toEqual([{ id: 'a', until: 1_000_000 }, { id: 'b', until: 1_000_000 }]);
+    expect(store.marks).toEqual([
+      { id: 'a', until: 1_000_000 },
+      { id: 'b', until: 1_000_000 },
+    ]);
   });
 
   it('on an error, tries the next entry WITHOUT setting a cooldown', async () => {

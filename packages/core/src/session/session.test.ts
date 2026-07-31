@@ -222,7 +222,10 @@ describe('createSession', () => {
 
     const h = harness({
       catalogue: [{ name: 'edit_symbol' } as RegisteredTool],
-      baseCatalogue: [{ name: 'edit_symbol' } as RegisteredTool, { name: 'Read' } as RegisteredTool],
+      baseCatalogue: [
+        { name: 'edit_symbol' } as RegisteredTool,
+        { name: 'Read' } as RegisteredTool,
+      ],
     });
 
     await createSession(

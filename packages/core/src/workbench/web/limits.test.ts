@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseRetryAfterHeader, firecrawlLimit, tavilyLimit } from './limits.js';
 
-const headers = (retryAfter?: string) => ({ get: (n: string) => (n.toLowerCase() === 'retry-after' ? retryAfter ?? null : null) });
+const headers = (retryAfter?: string) => ({
+  get: (n: string) => (n.toLowerCase() === 'retry-after' ? (retryAfter ?? null) : null),
+});
 
 describe('parseRetryAfterHeader', () => {
   it('parses delta-seconds to milliseconds', () => {
@@ -15,7 +17,10 @@ describe('parseRetryAfterHeader', () => {
 
 describe('firecrawlLimit', () => {
   it('maps 429 to rate-limit with Retry-After when present', () => {
-    expect(firecrawlLimit(429, headers('12'))).toEqual({ kind: 'rate-limit', retryAfterMs: 12_000 });
+    expect(firecrawlLimit(429, headers('12'))).toEqual({
+      kind: 'rate-limit',
+      retryAfterMs: 12_000,
+    });
   });
   it('maps 429 with no Retry-After to a bare rate-limit', () => {
     expect(firecrawlLimit(429, headers())).toEqual({ kind: 'rate-limit' });

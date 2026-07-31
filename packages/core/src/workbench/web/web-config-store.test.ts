@@ -52,7 +52,10 @@ describe('WebConfigStore', () => {
 
   it('is credential-blind — the written YAML holds only the pointer, never a secret', () => {
     const store = new WebConfigStore(home);
-    store.addCredential('search', 'firecrawl', { type: 'key-file', path: webKeyFilePath(home, 'fc1') });
+    store.addCredential('search', 'firecrawl', {
+      type: 'key-file',
+      path: webKeyFilePath(home, 'fc1'),
+    });
     const yaml = readFileSync(webConfigPath(home), 'utf8');
     expect(yaml).toContain('web-fc1'); // the pointer (path) is stored
     expect(yaml).toContain('key-file');

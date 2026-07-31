@@ -46,7 +46,10 @@ describe('makeFirecrawlFetch', () => {
     expect(capturedUrl).toBe('https://api.firecrawl.dev/v2/scrape');
     expect(capturedInit.method).toBe('POST');
     expect(capturedInit.headers?.authorization).toBe('Bearer fc-secret');
-    expect(JSON.parse(capturedInit.body!)).toEqual({ url: 'https://x.test', formats: ['markdown'] });
+    expect(JSON.parse(capturedInit.body!)).toEqual({
+      url: 'https://x.test',
+      formats: ['markdown'],
+    });
   });
 
   it('maps 429 to a rate-limit, reading Retry-After seconds into retryAfterMs', async () => {
@@ -73,7 +76,10 @@ describe('makeFirecrawlFetch', () => {
 
   it('maps another non-ok status to an error', async () => {
     const provider = makeFirecrawlFetch({ apiKey: 'k', fetchImpl: fakeFetch({ status: 500 }) });
-    expect(await provider.fetch('https://x.test')).toEqual({ status: 'error', reason: 'firecrawl-http-500' });
+    expect(await provider.fetch('https://x.test')).toEqual({
+      status: 'error',
+      reason: 'firecrawl-http-500',
+    });
   });
 
   it('maps a malformed/empty body to an error', async () => {
@@ -97,7 +103,13 @@ describe('makeFirecrawlSearch', () => {
   it('maps data.web[] to neutral SearchHits (description → snippet)', async () => {
     const provider = makeFirecrawlSearch({
       apiKey: 'k',
-      fetchImpl: fakeFetch({ status: 200, json: { success: true, data: { web: [{ title: 'T', url: 'https://x.test', description: 'desc' }] } } }),
+      fetchImpl: fakeFetch({
+        status: 200,
+        json: {
+          success: true,
+          data: { web: [{ title: 'T', url: 'https://x.test', description: 'desc' }] },
+        },
+      }),
     });
     expect(await provider.search({ query: 'q' })).toEqual({
       status: 'ok',
@@ -112,20 +124,42 @@ describe('makeFirecrawlSearch', () => {
     const fetchImpl = (async (u: string, i: typeof init) => {
       url = u;
       init = i;
-      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ success: true, data: { web: [] } }), text: async () => '' };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ success: true, data: { web: [] } }),
+        text: async () => '',
+      };
     }) as unknown as typeof fetch;
     await makeFirecrawlSearch({ apiKey: 'k', fetchImpl }).search({ query: 'hello', maxResults: 4 });
     expect(url).toBe('https://api.firecrawl.dev/v2/search');
-    expect(JSON.parse(init.body!)).toMatchObject({ query: 'hello', limit: 4, sources: [{ type: 'web' }] });
+    expect(JSON.parse(init.body!)).toMatchObject({
+      query: 'hello',
+      limit: 4,
+      sources: [{ type: 'web' }],
+    });
   });
 
   it('maps 429→rate-limit and 402→quota', async () => {
-    expect(await makeFirecrawlSearch({ apiKey: 'k', fetchImpl: fakeFetch({ status: 429 }) }).search({ query: 'q' })).toEqual({ status: 'limit', kind: 'rate-limit' });
-    expect(await makeFirecrawlSearch({ apiKey: 'k', fetchImpl: fakeFetch({ status: 402 }) }).search({ query: 'q' })).toEqual({ status: 'limit', kind: 'quota' });
+    expect(
+      await makeFirecrawlSearch({ apiKey: 'k', fetchImpl: fakeFetch({ status: 429 }) }).search({
+        query: 'q',
+      }),
+    ).toEqual({ status: 'limit', kind: 'rate-limit' });
+    expect(
+      await makeFirecrawlSearch({ apiKey: 'k', fetchImpl: fakeFetch({ status: 402 }) }).search({
+        query: 'q',
+      }),
+    ).toEqual({ status: 'limit', kind: 'quota' });
   });
 
   it('SC-1: a throw becomes an error outcome', async () => {
-    const fetchImpl = (async () => { throw new Error('dns'); }) as unknown as typeof fetch;
-    expect(await makeFirecrawlSearch({ apiKey: 'k', fetchImpl }).search({ query: 'q' })).toMatchObject({ status: 'error' });
+    const fetchImpl = (async () => {
+      throw new Error('dns');
+    }) as unknown as typeof fetch;
+    expect(
+      await makeFirecrawlSearch({ apiKey: 'k', fetchImpl }).search({ query: 'q' }),
+    ).toMatchObject({ status: 'error' });
   });
 });

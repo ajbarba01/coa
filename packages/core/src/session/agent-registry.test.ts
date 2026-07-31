@@ -22,7 +22,14 @@ describe('agent-registry summaries — the picker projections', () => {
       name: 'SWE',
       description: 'writes code',
       packageIds: ['coding', 'planning'],
-      pieces: [{ name: 'p', description: 'd', body: 'b', axes: { delivery: 'push', salience: 'never', provenance: 'authored' } }],
+      pieces: [
+        {
+          name: 'p',
+          description: 'd',
+          body: 'b',
+          axes: { delivery: 'push', salience: 'never', provenance: 'authored' },
+        },
+      ],
     });
 
     expect(summary).toEqual({
@@ -41,7 +48,14 @@ describe('agent-registry summaries — the picker projections', () => {
       description: 'floor',
       inclusion: 'default',
       advise: true,
-      pieces: [{ name: 'p', description: 'd', body: 'b', axes: { delivery: 'push', salience: 'never', provenance: 'authored' } }],
+      pieces: [
+        {
+          name: 'p',
+          description: 'd',
+          body: 'b',
+          axes: { delivery: 'push', salience: 'never', provenance: 'authored' },
+        },
+      ],
       toolRefs: ['Read', 'Grep'],
     });
 

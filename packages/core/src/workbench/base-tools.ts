@@ -89,7 +89,8 @@ export function readFileTool(
   deps: BaseToolDeps,
 ): ToolResponse<ReadResult> {
   const confined = confine(req.path, deps);
-  if (!confined.ok) return wrap({ found: false, reason: confined.error.code }, 'read:rejected', req.path);
+  if (!confined.ok)
+    return wrap({ found: false, reason: confined.error.code }, 'read:rejected', req.path);
   let text: string;
   try {
     text = deps.readFile(confined.path);
@@ -98,9 +99,17 @@ export function readFileTool(
   }
   if (isBinary(text)) {
     const bytes = Buffer.byteLength(text, 'utf8');
-    return wrap({ found: true, content: `[coa: binary file (${bytes} bytes), not displayed]` }, `read:${req.path}`, req.path);
+    return wrap(
+      { found: true, content: `[coa: binary file (${bytes} bytes), not displayed]` },
+      `read:${req.path}`,
+      req.path,
+    );
   }
-  return wrap({ found: true, content: numberLines(text, req.offset, req.limit) }, `read:${req.path}`, req.path);
+  return wrap(
+    { found: true, content: numberLines(text, req.offset, req.limit) },
+    `read:${req.path}`,
+    req.path,
+  );
 }
 
 /** Hard ceiling on `Glob` matches returned to the model (a huge repo can still blow past ignores). */
@@ -209,7 +218,10 @@ export type WriteResult =
 const sha256 = (bytes: string): string => createHash('sha256').update(bytes).digest('hex');
 
 /** `Write` — confined whole-file create/overwrite, emitted through the M1 spine (P7). */
-export function write(req: { path: string; content: string }, deps: BaseToolDeps): ToolResponse<WriteResult> {
+export function write(
+  req: { path: string; content: string },
+  deps: BaseToolDeps,
+): ToolResponse<WriteResult> {
   const confined = confine(req.path, deps);
   if (!confined.ok) return fail(confined.error);
   const existed = deps.fileExists(confined.path);
@@ -224,7 +236,13 @@ export function write(req: { path: string; content: string }, deps: BaseToolDeps
   } catch (err) {
     return fail({ code: 'write-failed', message: `could not write ${req.path}: ${String(err)}` });
   }
-  const seq = emitFileChange(req.path, existed ? 'modify' : 'create', existed ? source : null, req.content, deps);
+  const seq = emitFileChange(
+    req.path,
+    existed ? 'modify' : 'create',
+    existed ? source : null,
+    req.content,
+    deps,
+  );
   return {
     result: { applied: true, path: req.path, seq, created: !existed },
     handle: `write:${req.path}@${seq}`,
@@ -253,7 +271,11 @@ export function edit(
     return fail({ code: 'write-failed', message: `could not write ${req.path}: ${String(err)}` });
   }
   const seq = emitFileChange(req.path, 'modify', source, applied.bytes, deps);
-  return { result: { applied: true, path: req.path, seq, created: false }, handle: `edit:${req.path}@${seq}`, pointer: req.path };
+  return {
+    result: { applied: true, path: req.path, seq, created: false },
+    handle: `edit:${req.path}@${seq}`,
+    pointer: req.path,
+  };
 }
 
 /** Build + emit one file change-event and refresh projections (the shared Write/Edit spine step). */
@@ -321,12 +343,32 @@ export function bash(
 
 /** The pure-API base-tool catalogue — always-loaded (kernel), tagged by capability group. */
 export const BASE_TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
-  { name: 'Read', partition: 'kernel', group: 'read', description: 'read a file from the worktree' },
+  {
+    name: 'Read',
+    partition: 'kernel',
+    group: 'read',
+    description: 'read a file from the worktree',
+  },
   { name: 'Glob', partition: 'kernel', group: 'read', description: 'find files by glob pattern' },
-  { name: 'Grep', partition: 'kernel', group: 'read', description: 'search file contents (ripgrep)' },
+  {
+    name: 'Grep',
+    partition: 'kernel',
+    group: 'read',
+    description: 'search file contents (ripgrep)',
+  },
   { name: 'Write', partition: 'kernel', group: 'write', description: 'create or overwrite a file' },
-  { name: 'Edit', partition: 'kernel', group: 'write', description: 'string-replacement edit of a file' },
-  { name: 'Bash', partition: 'kernel', group: 'exec', description: 'run a shell command in the worktree' },
+  {
+    name: 'Edit',
+    partition: 'kernel',
+    group: 'write',
+    description: 'string-replacement edit of a file',
+  },
+  {
+    name: 'Bash',
+    partition: 'kernel',
+    group: 'exec',
+    description: 'run a shell command in the worktree',
+  },
 ];
 
 /**
@@ -340,8 +382,9 @@ export function baseToolSpecs(): Record<string, ToolSpec> {
     return deps.base;
   };
   return {
-    Read: spec({ path: z.string(), offset: z.number().optional(), limit: z.number().optional() }, (a, d) =>
-      readFileTool(a, b(d)),
+    Read: spec(
+      { path: z.string(), offset: z.number().optional(), limit: z.number().optional() },
+      (a, d) => readFileTool(a, b(d)),
     ),
     Glob: spec({ pattern: z.string(), path: z.string().optional() }, (a, d) => glob(a, b(d))),
     Grep: spec(
@@ -355,11 +398,17 @@ export function baseToolSpecs(): Record<string, ToolSpec> {
     ),
     Write: spec({ path: z.string(), content: z.string() }, (a, d) => write(a, b(d))),
     Edit: spec(
-      { path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() },
+      {
+        path: z.string(),
+        old_string: z.string(),
+        new_string: z.string(),
+        replace_all: z.boolean().optional(),
+      },
       (a, d) => edit(a, b(d)),
     ),
-    Bash: spec({ command: z.string(), timeout: z.number().optional(), description: z.string().optional() }, (a, d) =>
-      bash(a, b(d)),
+    Bash: spec(
+      { command: z.string(), timeout: z.number().optional(), description: z.string().optional() },
+      (a, d) => bash(a, b(d)),
     ),
   };
 }
@@ -372,10 +421,20 @@ export function applyReplace(
   replaceAll: boolean,
 ): { ok: true; bytes: string } | { ok: false; error: CoaError } {
   const first = source.indexOf(oldStr);
-  if (first === -1) return { ok: false, error: { code: 'edit-no-match', message: `old_string not found: ${oldStr}` } };
+  if (first === -1)
+    return {
+      ok: false,
+      error: { code: 'edit-no-match', message: `old_string not found: ${oldStr}` },
+    };
   if (replaceAll) return { ok: true, bytes: source.split(oldStr).join(newStr) };
   if (source.indexOf(oldStr, first + oldStr.length) !== -1) {
-    return { ok: false, error: { code: 'edit-ambiguous', message: `old_string is not unique; pass replace_all: ${oldStr}` } };
+    return {
+      ok: false,
+      error: {
+        code: 'edit-ambiguous',
+        message: `old_string is not unique; pass replace_all: ${oldStr}`,
+      },
+    };
   }
   return { ok: true, bytes: source.slice(0, first) + newStr + source.slice(first + oldStr.length) };
 }

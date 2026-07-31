@@ -22,9 +22,7 @@ type WriteResult =
   | { applied: false; error: CoaError };
 type ExecResult = { stdout: string; stderr: string; exitCode: number };
 type SearchHit = { title: string; url: string; snippet: string };
-type WebSearchResult =
-  | { results: readonly SearchHit[] }
-  | { results: readonly []; reason: string };
+type WebSearchResult = { results: readonly SearchHit[] } | { results: readonly []; reason: string };
 type WebFetchResult =
   | { fetched: true; content: string; summarized: boolean }
   | { fetched: false; reason: string };
@@ -233,7 +231,10 @@ function renderChecks(r: FeedView): string {
 
 function renderWhy(r: WhyResult): string {
   if (r.decisions.length === 0) return `no recorded rationale for ${r.target}`;
-  return renderLines(r.decisions.map((d) => d.entry), '');
+  return renderLines(
+    r.decisions.map((d) => d.entry),
+    '',
+  );
 }
 
 function renderDecision(r: GetDecisionResult): string {

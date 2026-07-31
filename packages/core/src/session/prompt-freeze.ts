@@ -68,7 +68,9 @@ export function frozenModelMatches(
 ): boolean {
   const f = frozen.model;
   if (f === undefined) return false;
-  return f.provider === current.provider && f.model === current.model && f.effort === current.effort;
+  return (
+    f.provider === current.provider && f.model === current.model && f.effort === current.effort
+  );
 }
 
 /**

@@ -276,7 +276,8 @@ function makeStreamAccumulator(): StreamAccumulator {
       }
     },
     stamp: (frame) => {
-      if (frame.t !== 'thinking' || frame.durationMs !== undefined || startMs === undefined) return frame;
+      if (frame.t !== 'thinking' || frame.durationMs !== undefined || startMs === undefined)
+        return frame;
       const durationMs = (endMs ?? startMs) - startMs;
       resetClock();
       return { ...frame, durationMs };
@@ -285,7 +286,11 @@ function makeStreamAccumulator(): StreamAccumulator {
       const out: TurnFrame[] = [];
       if (thinking !== '') {
         const durationMs = startMs !== undefined ? (endMs ?? startMs) - startMs : undefined;
-        out.push({ t: 'thinking', text: thinking, ...(durationMs !== undefined ? { durationMs } : {}) });
+        out.push({
+          t: 'thinking',
+          text: thinking,
+          ...(durationMs !== undefined ? { durationMs } : {}),
+        });
         thinking = '';
       }
       if (text !== '') {
@@ -434,7 +439,17 @@ export function buildSessionHandlers(
       seqBox.value += 1;
     }
 
-    return { persistIn, role, provider, model, modelKey, currentConfig, plan, frozen, promptVersion };
+    return {
+      persistIn,
+      role,
+      provider,
+      model,
+      modelKey,
+      currentConfig,
+      plan,
+      frozen,
+      promptVersion,
+    };
   }
 
   /**
@@ -510,14 +525,26 @@ export function buildSessionHandlers(
       // so the read-time fold and cross-turn memory are unchanged (opencode #11329).
       if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
         const s = seqBox.value++;
-        session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+        session.emit({
+          kind: 'turn',
+          sessionId: started.id,
+          worktree: started.worktree,
+          seq: s,
+          frame,
+        });
         return;
       }
       // A settled `thinking` frame is stamped with the reasoning wall-clock (persisted so a
       // reload shows "Thought for Ns" identically); every other frame passes through unchanged.
       const settled = acc.stamp(frame);
       const s = seqBox.value++;
-      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame: settled });
+      session.emit({
+        kind: 'turn',
+        sessionId: started.id,
+        worktree: started.worktree,
+        seq: s,
+        frame: settled,
+      });
       if (prep.persistIn !== undefined) {
         prep.persistIn.store.append(prep.persistIn.convId, [
           { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
@@ -545,7 +572,13 @@ export function buildSessionHandlers(
           drainQueuedSteer: () => queueSteer.splice(0, queueSteer.length),
           onStart: (s) => {
             started = s;
-            session.control = { controller, steer, queueSteer, interrupted: false, mode: 'per-turn' };
+            session.control = {
+              controller,
+              steer,
+              queueSteer,
+              interrupted: false,
+              mode: 'per-turn',
+            };
             // A user stop settles whatever the model streamed (so it persists and a reload reads
             // the same transcript), records the interrupt marker, THEN aborts the loop. Flushing
             // before the abort is what keeps the partial from being lost — deltas are never
@@ -561,7 +594,8 @@ export function buildSessionHandlers(
             // alongside the running-aware idle timer in live-registry.ts.
             registry.touch(session.id);
             // Hydration reflects the true first status ('running') — this fires AFTER setState.
-            if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
+            if (meta?.subscribe !== undefined)
+              unsubscribers.push(session.subscribe(meta.subscribe));
             meta?.onReady?.(s);
           },
           onTurn: record,
@@ -582,7 +616,8 @@ export function buildSessionHandlers(
       // session id captured but this turn's transcript unsaved — a resume on the next
       // send would replay a phantom server session. Drop the token so the next send
       // replays the last-good transcript instead (fail-safe, not resume).
-      if (prep.persistIn !== undefined) prep.persistIn.store.clearBackendSession(prep.persistIn.convId);
+      if (prep.persistIn !== undefined)
+        prep.persistIn.store.clearBackendSession(prep.persistIn.convId);
       const interrupted = session.control?.interrupted === true;
       session.control = undefined;
       session.setInterruptClosure(undefined);
@@ -614,7 +649,9 @@ export function buildSessionHandlers(
     // start handle its long-lived record closure and its per-turn user-append both use.
     let held: HeldQuery | undefined;
     const heldSeqBox = { value: 0 };
-    const heldStarted: { current: { id: string; worktree: string } | undefined } = { current: undefined };
+    const heldStarted: { current: { id: string; worktree: string } | undefined } = {
+      current: undefined,
+    };
 
     const closeHeld = async (): Promise<void> => {
       if (held === undefined) return;
@@ -645,12 +682,21 @@ export function buildSessionHandlers(
       // the session usable). (2) its pinned prompt-shaping config + model DIFFER from this
       // turn's — a mid-conversation model/role/scope switch can't ride the pinned query
       // (R4; docs/adr/0012).
-      if (held !== undefined && (held.terminated || held.configKey !== configKey)) await closeHeld();
+      if (held !== undefined && (held.terminated || held.configKey !== configKey))
+        await closeHeld();
 
       if (held === undefined) {
-        await establishHeldQuery(turn, session, configKey, persistentStore, heldSeqBox, heldStarted, (q) => {
-          held = q;
-        });
+        await establishHeldQuery(
+          turn,
+          session,
+          configKey,
+          persistentStore,
+          heldSeqBox,
+          heldStarted,
+          (q) => {
+            held = q;
+          },
+        );
       } else {
         await continueHeldQuery(turn, session, held, heldSeqBox, heldStarted);
       }
@@ -714,7 +760,13 @@ export function buildSessionHandlers(
       // append-only log (docs/adr/0010) holds only settled frames (opencode #11329).
       if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
         const s = seqBox.value++;
-        session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
+        session.emit({
+          kind: 'turn',
+          sessionId: started.id,
+          worktree: started.worktree,
+          seq: s,
+          frame,
+        });
         return;
       }
       // SC-1: an interrupted turn's terminal result (from a barge-in `interrupt()`) must
@@ -727,7 +779,13 @@ export function buildSessionHandlers(
       // reload shows "Thought for Ns" identically); every other frame passes through unchanged.
       const settled = acc.stamp(frame);
       const s = seqBox.value++;
-      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame: settled });
+      session.emit({
+        kind: 'turn',
+        sessionId: started.id,
+        worktree: started.worktree,
+        seq: s,
+        frame: settled,
+      });
       if (prep.persistIn !== undefined) {
         prep.persistIn.store.append(prep.persistIn.convId, [
           { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
@@ -771,8 +829,15 @@ export function buildSessionHandlers(
       if (started === undefined) return;
       const s = seqBox.value++;
       const frame: TurnFrame = { t: 'text', text: steerText, role: 'user' };
-      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
-      if (prep.persistIn !== undefined) prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+      session.emit({
+        kind: 'turn',
+        sessionId: started.id,
+        worktree: started.worktree,
+        seq: s,
+        frame,
+      });
+      if (prep.persistIn !== undefined)
+        prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
     };
 
     // NOT awaited: this createSession spans the whole live session. Its promise settles
@@ -795,7 +860,13 @@ export function buildSessionHandlers(
         },
         onStart: (s) => {
           startedRef.current = s;
-          session.control = { controller, steer, queueSteer: [], interrupted: false, mode: 'held-open' };
+          session.control = {
+            controller,
+            steer,
+            queueSteer: [],
+            interrupted: false,
+            mode: 'held-open',
+          };
           // A steer routes into THIS query's input feed (SDK streaming-input), not the
           // per-turn `drainSteer` queue. `barge-in` stops the running turn first (via the
           // reported interrupt handle) and injects a framed redirect; `queue` runs after
@@ -810,7 +881,10 @@ export function buildSessionHandlers(
               // swallows any residual boundary the abandoned turn does emit, so completion is
               // robust either way (docs/adr/0012 I3).
               query.barging += 1; // suppress the abandoned turn's error frame (SC-1)
-              dbgSteer('barge-in issued', { pendingTurns: query.pendingTurns, barging: query.barging });
+              dbgSteer('barge-in issued', {
+                pendingTurns: query.pendingTurns,
+                barging: query.barging,
+              });
               // Settle what the abandoned turn streamed BEFORE the redirect's user turn, so it
               // persists (deltas never do) and its reasoning block closes instead of streaming
               // forever. Drained before `awaitingRedirect` so these settled frames still record.
@@ -965,14 +1039,22 @@ export function buildSessionHandlers(
     query.boundary = undefined;
     pending?.resolve();
     if (err === undefined) return; // clean termination: the per-turn `'done'` already fired.
-    if (query.persistIn !== undefined) query.persistIn.store.clearBackendSession(query.persistIn.convId);
+    if (query.persistIn !== undefined)
+      query.persistIn.store.clearBackendSession(query.persistIn.convId);
     if (interrupted) return; // SC-1: `interruptSession` already emitted `'interrupted'`.
     const started = startedRef.current;
     if (started !== undefined) {
       const s = seqBox.value++;
       const frame: TurnFrame = { t: 'error', message: describeLoopFailure(err), origin: 'loop' };
-      session.emit({ kind: 'turn', sessionId: started.id, worktree: started.worktree, seq: s, frame });
-      if (query.persistIn !== undefined) query.persistIn.store.append(query.persistIn.convId, [{ seq: s, frame }]);
+      session.emit({
+        kind: 'turn',
+        sessionId: started.id,
+        worktree: started.worktree,
+        seq: s,
+        frame,
+      });
+      if (query.persistIn !== undefined)
+        query.persistIn.store.append(query.persistIn.convId, [{ seq: s, frame }]);
       emitStatus(session, started.worktree, 'error');
     }
   }
@@ -998,7 +1080,10 @@ export function buildSessionHandlers(
         ready = new Promise<string>((resolve) => {
           meta.onReady = (s) => resolve(s.worktree);
         });
-        void runLiveSession(session, makeRunTurn(params.conversationId !== undefined ? store : undefined));
+        void runLiveSession(
+          session,
+          makeRunTurn(params.conversationId !== undefined ? store : undefined),
+        );
       }
 
       session.enqueue(turn);

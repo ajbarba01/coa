@@ -64,7 +64,12 @@ describe('renderToolResult', () => {
 
     it('Write applied → Wrote <path>', () => {
       expect(
-        renderToolResult('Write', { applied: true, path: 'src/auth-error.ts', seq: 5, created: true }),
+        renderToolResult('Write', {
+          applied: true,
+          path: 'src/auth-error.ts',
+          seq: 5,
+          created: true,
+        }),
       ).toBe('Wrote src/auth-error.ts');
     });
 
@@ -271,7 +276,11 @@ describe('renderToolResult', () => {
         renderToolResult('outline', {
           path: 'src/auth.ts',
           symbols: [
-            { name: 'refreshToken', definedIn: 'src/auth.ts', signature: 'function refreshToken()' },
+            {
+              name: 'refreshToken',
+              definedIn: 'src/auth.ts',
+              signature: 'function refreshToken()',
+            },
             { name: 'mint', definedIn: 'src/auth.ts' },
           ],
         }),
@@ -306,14 +315,18 @@ describe('renderToolResult', () => {
 
     it('WebFetch fetched → the page content verbatim', () => {
       expect(
-        renderToolResult('WebFetch', { fetched: true, content: '# Title\n\nbody', summarized: false }),
+        renderToolResult('WebFetch', {
+          fetched: true,
+          content: '# Title\n\nbody',
+          summarized: false,
+        }),
       ).toBe('# Title\n\nbody');
     });
 
     it('WebFetch failed → the failure reason', () => {
-      expect(renderToolResult('WebFetch', { fetched: false, reason: 'no-provider-succeeded' })).toBe(
-        'no-provider-succeeded',
-      );
+      expect(
+        renderToolResult('WebFetch', { fetched: false, reason: 'no-provider-succeeded' }),
+      ).toBe('no-provider-succeeded');
     });
   });
 
@@ -352,7 +365,9 @@ describe('renderToolResult', () => {
 
     it('WebFetch fetched gate; WebSearch never fails on empty', () => {
       expect(toolResultOk('WebFetch', { fetched: false, reason: 'x' })).toBe(false);
-      expect(toolResultOk('WebFetch', { fetched: true, content: '', summarized: false })).toBe(true);
+      expect(toolResultOk('WebFetch', { fetched: true, content: '', summarized: false })).toBe(
+        true,
+      );
       expect(toolResultOk('WebSearch', { results: [], reason: 'none' })).toBe(true);
     });
 
