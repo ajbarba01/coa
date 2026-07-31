@@ -226,23 +226,20 @@ everything else the new design overwrites.
   push-store architecture was meant to kill are re-measured and closed or re-filed.
   **Account management is no longer part of W4** — credentials outgrew the ◐ foot button and became the
   `auth` surface (below), which also retired the old `AccountPanel`.
-- **W5 — Auth + Usage surfaces [M]. ✅ Designed + built mock-first.** Two new center surfaces
+- **W5 — Auth + Usage surfaces [M]. ✅ Auth backend wired + usage mock.** Two new center surfaces
   (`AUTH-*`/`USAGE-*` in the [M10 spec](docs/design/handoff/spec/M10.md)): **auth** (credentials only —
   master–detail over a provider **descriptor registry**, an add-flow that branches on **locator kind** so a
   new provider is a registry row and zero new UI, replace-never-edit for secrets (labels and pointer
-  locators edit normally — they are readable facts), and a
-  three-level bench) and **usage** (a providers/tools view toggle in the strip; the providers overview
-  reads aggregate-first — workspace spend chart, a needs-you exceptions block, aligned-meter account
-  rows — over a per-account dashboard and the rail HUD; tools get a key-health view; **no caps**).
-  Retires the `cost` surface and the ◐ account popover. New kit members: `BrandMark` + `Meter`; new theme tokens: the validated chart-`series` palette
-  ([ADR-0015](docs/adr/0015-brand-marks-and-series-palette.md)). **This closes the deferred "Nav HUD
-  mini-states" question for `usage`** — the HUD is a customizable projection of the usage reads.
-  **Remaining: the seven RPC verbs the design proved missing** — `addSecret`, `listWebKeys`/`addWebKey`/
-  `removeWebKey` (tool services have zero RPC today), an enable/disable verb, a usage read (identity +
-  limits + spend per account, via the one M9 port), an edit verb for the non-secret facts (rename a
-  label, re-point a config-dir/env-var locator), a model-visibility write (plus per-provider model
-  reads — only Claude's list exists live), and a refresh (re-read every pointer locator on demand).
-  Until they land, both surfaces render from a renderer-side mock.
+  locators edit normally — they are readable facts), and a three-level bench) **backend wired to real RPC**
+  (authView read + the write verbs `addProvider`/`removeProvider`/`addCredential`/`replaceSecret`/
+  `renameCredential`/`removeCredential`/`setProviderEnabled`/`setCredentialDisabled`/`makeActive`/
+  `clearCooldown`/`refresh`); **usage** (providers/tools view toggle; workspace spend chart + per-account
+  dashboard + rail HUD; key-health for tool services; **no caps**) and **model reads** remain Phase 2–3
+  (spike-gated, mock). Retires the `cost` surface and the ◐ account popover. New kit members: `BrandMark` +
+  `Meter`; new theme tokens: the validated chart-`series` palette ([ADR-0015](docs/adr/0015-brand-marks-and-series-palette.md)).
+  **This closes the deferred "Nav HUD mini-states" question for `usage`** — the HUD is a customizable projection
+  of the usage reads. The auth surface renders from live stores; usage surface renders from a renderer-side mock
+  until the Phase 2 RPC verbs land.
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).

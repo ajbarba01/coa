@@ -6,6 +6,7 @@ import {
   reconcileStreaming,
   reloadToViewFrames,
   type AgentSummary,
+  type AuthView,
   type CapState,
   type Checkpoint,
   type FeedView,
@@ -107,6 +108,41 @@ export interface ConsoleBridge {
   getSettings(): Promise<ConsoleSettings>;
   saveSettings(settings: ConsoleSettings): Promise<void>;
 }
+
+/**
+ * The auth surface's RPC callers. Unlike the rest of this module, these don't flow through
+ * `startConsole`'s injected `ConsoleBridge` — the auth store (`panels/mockAuth.ts`) is a
+ * standalone zustand store (shared by the auth surface, the usage surface, and the nav HUD),
+ * not part of the single `ConsoleState` pipeline, so it reaches the preload bridge directly.
+ * Exported (rather than inlined in the store) so a test can `vi.mock` this module and hand
+ * the store a fake — the store itself never talks to `window.coa`.
+ */
+export const rpcAuthView = (): Promise<AuthView> => window.coa.authView();
+export const rpcAddProvider = (providerId: string): Promise<AuthView> =>
+  window.coa.addProvider({ providerId });
+export const rpcRemoveProvider = (providerId: string): Promise<AuthView> =>
+  window.coa.removeProvider({ providerId });
+export const rpcAddCredential = (
+  providerId: string,
+  label: string,
+  secret: string,
+): Promise<AuthView> => window.coa.addCredential({ providerId, label, secret });
+export const rpcReplaceSecret = (id: string, secret: string): Promise<AuthView> =>
+  window.coa.replaceSecret({ id, secret });
+export const rpcRenameCredential = (id: string, label: string): Promise<AuthView> =>
+  window.coa.renameCredential({ id, label });
+export const rpcRemoveCredential = (id: string): Promise<AuthView> =>
+  window.coa.removeCredential({ id });
+export const rpcSetProviderEnabled = (providerId: string, on: boolean): Promise<AuthView> =>
+  window.coa.setProviderEnabled({ providerId, on });
+export const rpcSetCredentialDisabled = (id: string, disabled: boolean): Promise<AuthView> =>
+  window.coa.setCredentialDisabled({ id, disabled });
+export const rpcMakeActive = (id: string): Promise<AuthView> => window.coa.makeActive({ id });
+export const rpcClearCooldown = (id: string): Promise<AuthView> =>
+  window.coa.clearCooldown({ id });
+/** Named distinctly from `ConsoleController.refresh` (a different read entirely) — this
+ *  re-reads every pointer locator (identity, expiry, limits) for the auth surface's ⟳. */
+export const rpcRefreshAuth = (): Promise<AuthView> => window.coa.refresh();
 
 export interface ConsoleController {
   refresh(): Promise<void>;

@@ -381,6 +381,30 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('currentAccount');
     case 'useAccount':
       return proxyDaemon('useAccount', params);
+    case 'authView':
+      return proxyDaemon('authView');
+    case 'addProvider':
+      return proxyDaemon('addProvider', params);
+    case 'removeProvider':
+      return proxyDaemon('removeProvider', params);
+    case 'addCredential':
+      return proxyDaemon('addCredential', params);
+    case 'replaceSecret':
+      return proxyDaemon('replaceSecret', params);
+    case 'renameCredential':
+      return proxyDaemon('renameCredential', params);
+    case 'removeCredential':
+      return proxyDaemon('removeCredential', params);
+    case 'setProviderEnabled':
+      return proxyDaemon('setProviderEnabled', params);
+    case 'setCredentialDisabled':
+      return proxyDaemon('setCredentialDisabled', params);
+    case 'makeActive':
+      return proxyDaemon('makeActive', params);
+    case 'clearCooldown':
+      return proxyDaemon('clearCooldown', params);
+    case 'refresh':
+      return proxyDaemon('refresh');
     case 'startSession':
       return proxyDaemon('createSession', params);
     case 'newSession':

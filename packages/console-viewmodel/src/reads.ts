@@ -141,3 +141,32 @@ export type TurnFrame = z.infer<typeof TurnFrameSchema>;
 
 export const TurnStreamSchema = z.array(TurnFrameSchema);
 export type TurnStream = z.infer<typeof TurnStreamSchema>;
+
+/** A credential as the Auth surface needs it — matches the renderer's `Credential` interface.
+ *  Phase-2 fields (identity/plan/expired/lastUsed) are optional and unset until the usage read. */
+export const CredentialViewSchema = z
+  .object({
+    id: z.string(),
+    providerId: z.string(),
+    label: z.string(),
+    masked: z.string(),
+    disabled: z.boolean(),
+    coolingSec: z.number().optional(),
+    identity: z.string().optional(),
+    plan: z.string().optional(),
+    expired: z.boolean().optional(),
+    lastUsed: z.string().optional(),
+  })
+  .strip();
+export type CredentialView = z.infer<typeof CredentialViewSchema>;
+
+export const AuthViewSchema = z
+  .object({
+    added: z.array(z.string()),
+    credentials: z.array(CredentialViewSchema),
+    activeByProvider: z.record(z.string(), z.string()),
+    enabled: z.record(z.string(), z.boolean()),
+    chains: z.record(z.string(), z.array(z.string())),
+  })
+  .strip();
+export type AuthView = z.infer<typeof AuthViewSchema>;

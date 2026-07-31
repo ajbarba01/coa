@@ -121,7 +121,7 @@ export function AuthStrip(): React.JSX.Element {
         <button
           type="button"
           aria-label="re-read logins"
-          onClick={refresh}
+          onClick={() => void refresh().catch(() => {})}
           className="slip flex cursor-pointer items-center px-3.5 text-[15px] text-s7 hover:text-s10"
           style={NO_DRAG}
         >
@@ -143,6 +143,13 @@ export function AuthSurface(): React.JSX.Element {
   const setAdding = useShell((s) => s.setAddProviderOpen);
   const hostRef = useRef<HTMLDivElement>(null);
   const narrow = useNarrow(hostRef, NARROW_PX);
+
+  // Live daemon read on every mount (idempotent) — mirrors how the account selector
+  // triggers `listAccounts`. The surface starts empty and hydrates in. Advisory (SC-1):
+  // a failed read degrades to the empty state, never an unhandled rejection.
+  useEffect(() => {
+    void useMockAuth.getState().hydrate().catch(() => {});
+  }, []);
 
   // Becoming narrow always lands on the LIST: a selection made while both panes were
   // visible must not reopen as a drill-down you never chose to enter. The strip mirrors
@@ -265,7 +272,7 @@ function RemoveProviderDialog(): React.JSX.Element {
             <Button
               variant="quiet"
               onClick={() => {
-                removeProvider(provider.id);
+                void removeProvider(provider.id).catch(() => {});
                 close();
               }}
             >
@@ -405,7 +412,7 @@ function ProviderRow({
         >
           <Toggle
             on={enabled}
-            onChange={(on) => setProviderEnabled(provider.id, on)}
+            onChange={(on) => void setProviderEnabled(provider.id, on).catch(() => {})}
             aria-label={`${provider.label} enabled`}
           />
         </span>
@@ -449,7 +456,7 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
             <Tooltip label={enabled ? 'bench this provider' : 'un-bench this provider'} side="top">
               <Toggle
                 on={enabled}
-                onChange={(on) => setProviderEnabled(providerId, on)}
+                onChange={(on) => void setProviderEnabled(providerId, on).catch(() => {})}
                 aria-label={`${provider.label} enabled`}
               />
             </Tooltip>
@@ -733,7 +740,7 @@ function CredentialRow({
         <button
           type="button"
           aria-label={`use ${credential.label}`}
-          onClick={() => makeActive(credential.id)}
+          onClick={() => void makeActive(credential.id).catch(() => {})}
           className="absolute inset-0 cursor-pointer rounded-r3"
         />
       )}
@@ -810,12 +817,16 @@ function CredentialRow({
           {provider.group === 'backend' && (
             <MenuItem
               disabled={status === 'active' || status === 'disabled' || status === 'expired'}
-              onClick={() => makeActive(credential.id)}
+              onClick={() => void makeActive(credential.id).catch(() => {})}
             >
               make active
             </MenuItem>
           )}
-          <MenuItem onClick={() => setCredentialDisabled(credential.id, !credential.disabled)}>
+          <MenuItem
+            onClick={() =>
+              void setCredentialDisabled(credential.id, !credential.disabled).catch(() => {})
+            }
+          >
             {credential.disabled ? 'un-bench' : 'bench'}
           </MenuItem>
           {/* Edit touches only what coa can READ BACK — the label, a pointer's target. */}
@@ -833,9 +844,11 @@ function CredentialRow({
             <MenuItem onClick={() => setReplacing(true)}>replace {provider.noun}…</MenuItem>
           )}
           {status === 'cooling' && (
-            <MenuItem onClick={() => clearCooldown(credential.id)}>clear cooldown</MenuItem>
+            <MenuItem onClick={() => void clearCooldown(credential.id).catch(() => {})}>
+              clear cooldown
+            </MenuItem>
           )}
-          <MenuItem onClick={() => removeCredential(credential.id)}>
+          <MenuItem onClick={() => void removeCredential(credential.id).catch(() => {})}>
             <span className="text-crit">remove</span>
           </MenuItem>
         </RowMenu>
@@ -908,11 +921,11 @@ function AddCredentialRow({
 
   const commit = (): void => {
     if (secret.trim() === '') return;
-    addCredential(
+    void addCredential(
       provider.id,
       label.trim() === '' ? `${provider.label}-${existing + 1}` : label,
       secret,
-    );
+    ).catch(() => {});
     onDone();
   };
 
@@ -979,13 +992,17 @@ function EditCredentialRow({
   useDismissLayer(true, onDone);
 
   const commit = (): void => {
-    if (label.trim() !== '' && label.trim() !== credential.label) {
-      renameCredential(credential.id, label);
-    }
+    const renamed = label.trim() !== '' && label.trim() !== credential.label;
     // Re-pointing rides the replace path on purpose: a moved pointer clears what the old
     // target earned (cooldown, expiry), exactly like a fresh secret does.
-    if (pointer && target.trim() !== '' && target.trim() !== credential.masked) {
-      replaceSecret(credential.id, target);
+    const repointed = pointer && target.trim() !== '' && target.trim() !== credential.masked;
+    // Sequenced (not fired concurrently): each RPC reprojects the FULL view it returns, so
+    // two in-flight calls would race on which one's response lands last and gets applied.
+    if (renamed || repointed) {
+      void (async () => {
+        if (renamed) await renameCredential(credential.id, label);
+        if (repointed) await replaceSecret(credential.id, target);
+      })().catch(() => {});
     }
     onDone();
   };
@@ -1047,7 +1064,7 @@ function ReplaceSecretRow({
 
   const commit = (): void => {
     if (secret.trim() === '') return;
-    replaceSecret(credential.id, secret);
+    void replaceSecret(credential.id, secret).catch(() => {});
     onDone();
   };
   return (
@@ -1209,9 +1226,15 @@ function AddProviderDialog({
   };
   const commit = (): void => {
     if (picked === undefined || secret.trim() === '') return;
-    addProvider(picked.id);
-    addCredential(picked.id, label.trim() === '' ? picked.label : label, secret);
-    onAdded(picked.id);
+    const providerId = picked.id;
+    const chosenLabel = label.trim() === '' ? picked.label : label;
+    // The provider must exist server-side before its first credential can attach to it —
+    // sequenced, not fired concurrently.
+    void (async () => {
+      await addProvider(providerId);
+      await addCredential(providerId, chosenLabel, secret);
+    })().catch(() => {});
+    onAdded(providerId);
     close();
   };
 

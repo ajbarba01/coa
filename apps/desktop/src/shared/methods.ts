@@ -2,6 +2,7 @@ import {
   AccountsSchema,
   ActiveAccountSchema,
   AgentListSchema,
+  AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
   PackageSummaryListSchema,
@@ -135,6 +136,18 @@ export type MethodName =
   | 'listAccounts'
   | 'currentAccount'
   | 'useAccount'
+  | 'authView'
+  | 'addProvider'
+  | 'removeProvider'
+  | 'addCredential'
+  | 'replaceSecret'
+  | 'renameCredential'
+  | 'removeCredential'
+  | 'setProviderEnabled'
+  | 'setCredentialDisabled'
+  | 'makeActive'
+  | 'clearCooldown'
+  | 'refresh'
   | 'startSession'
   | 'newSession'
   | 'listSessions'
@@ -170,6 +183,21 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     params: z.object({ label: z.string(), provider: z.string().optional() }),
     result: ActiveAccountSchema,
   },
+  authView: { result: AuthViewSchema },
+  addProvider: { params: z.object({ providerId: z.string() }), result: AuthViewSchema },
+  removeProvider: { params: z.object({ providerId: z.string() }), result: AuthViewSchema },
+  addCredential: {
+    params: z.object({ providerId: z.string(), label: z.string(), secret: z.string() }),
+    result: AuthViewSchema,
+  },
+  replaceSecret: { params: z.object({ id: z.string(), secret: z.string() }), result: AuthViewSchema },
+  renameCredential: { params: z.object({ id: z.string(), label: z.string() }), result: AuthViewSchema },
+  removeCredential: { params: z.object({ id: z.string() }), result: AuthViewSchema },
+  setProviderEnabled: { params: z.object({ providerId: z.string(), on: z.boolean() }), result: AuthViewSchema },
+  setCredentialDisabled: { params: z.object({ id: z.string(), disabled: z.boolean() }), result: AuthViewSchema },
+  makeActive: { params: z.object({ id: z.string() }), result: AuthViewSchema },
+  clearCooldown: { params: z.object({ id: z.string() }), result: AuthViewSchema },
+  refresh: { result: AuthViewSchema },
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },

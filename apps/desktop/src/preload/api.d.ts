@@ -1,6 +1,7 @@
 import type {
   Accounts,
   ActiveAccount,
+  AuthView,
   CapState,
   Checkpoint,
   FeedView,
@@ -26,6 +27,27 @@ declare global {
       listAccounts(): Promise<Accounts>;
       currentAccount(): Promise<ActiveAccount>;
       useAccount(params: { label: string; provider?: string }): Promise<ActiveAccount>;
+      /** The auth surface's live read: providers added, their credentials, the active
+       *  login per backend, the benched flags, and the tool-service chains. */
+      authView(): Promise<AuthView>;
+      addProvider(params: { providerId: string }): Promise<AuthView>;
+      /** Removing a provider takes every credential under it with it. */
+      removeProvider(params: { providerId: string }): Promise<AuthView>;
+      addCredential(params: {
+        providerId: string;
+        label: string;
+        secret: string;
+      }): Promise<AuthView>;
+      /** The only write to an existing secret: an add that supersedes. Never an edit. */
+      replaceSecret(params: { id: string; secret: string }): Promise<AuthView>;
+      renameCredential(params: { id: string; label: string }): Promise<AuthView>;
+      removeCredential(params: { id: string }): Promise<AuthView>;
+      setProviderEnabled(params: { providerId: string; on: boolean }): Promise<AuthView>;
+      setCredentialDisabled(params: { id: string; disabled: boolean }): Promise<AuthView>;
+      makeActive(params: { id: string }): Promise<AuthView>;
+      clearCooldown(params: { id: string }): Promise<AuthView>;
+      /** Re-read every pointer locator — identity, expiry, limits — on demand. */
+      refresh(): Promise<AuthView>;
       startSession(params: {
         input: string;
         conversationId?: string;

@@ -10,7 +10,7 @@ import {
   useDismissLayer,
 } from '@coa/console-kit';
 import { AnimatePresence, motion } from 'motion/react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NO_DRAG } from '../shell/appRegion.js';
 import { useShell } from '../shell/store.js';
 import { RISE, SLIP_MOVE } from './motion.js';
@@ -197,6 +197,13 @@ export function UsageSurface(): React.JSX.Element {
   const opened = useUsageUi((s) => s.opened);
   const open = useUsageUi((s) => s.open);
   const accounts = useAccounts(range);
+
+  // Usage reads the SAME live credential store the auth surface hydrates — a mount here
+  // must not depend on the user having visited auth first (idempotent, mirrors AuthSurface).
+  // Advisory (SC-1): a failed read degrades to whatever the store already held.
+  useEffect(() => {
+    void useMockAuth.getState().hydrate().catch(() => {});
+  }, []);
   const account =
     view === 'providers' ? accounts.find((a) => a.credentialId === opened) : undefined;
 
