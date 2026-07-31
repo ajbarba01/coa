@@ -250,11 +250,12 @@ describe('isolated browser sessions', () => {
     const seen: string[] = [];
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
       browserSession: {
-        launcherFor: (accountId) => {
-          seen.push(accountId);
-          return `L:${accountId}`;
+        launcherFor: (email) => {
+          seen.push(email);
+          return `L:${email}`;
         },
         openUrl: () => {},
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
@@ -272,68 +273,97 @@ describe('isolated browser sessions', () => {
   it('starts a plain login when the session declines to isolate', () => {
     const driver = fakeDriver(home);
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
-      browserSession: { launcherFor: () => undefined, openUrl: () => {} },
+      browserSession: { launcherFor: () => undefined, openUrl: () => {}, removeProfile: () => {} },
     });
     manager.startLogin({ email: 'a@b.org' });
     expect(driver.starts[0] && 'browserLauncher' in driver.starts[0]).toBe(false);
   });
 
-  it('registers the new account under the SAME id its profile was keyed by', async () => {
+  /** The jar is keyed by the identity signing in, not by the row that will be written for it
+   *  — which is what lets a login that has not registered yet still reuse a jar, and what
+   *  stops a removed row from stranding one (docs/adr/0021). */
+  it('keys the profile by the declared identity, not by the account row', async () => {
     const driver = fakeDriver(home);
     const registry = new AccountsRegistry(home);
     let keyed: string | undefined;
     const manager = new LoginManager(registry, driver, {
       pollMs: 1,
       browserSession: {
-        launcherFor: (accountId) => {
-          keyed = accountId;
+        launcherFor: (email) => {
+          keyed = email;
           return undefined;
         },
         openUrl: () => {},
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
     driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
     await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('registered'));
-    expect(registry.list()[0]?.id).toBe(keyed);
+    expect(keyed).toBe('a@b.org');
+    // The row still gets its own id — it just no longer names a directory.
+    expect(registry.list()[0]?.id).toBeDefined();
   });
 
-  it('reuses the existing account id on a relogin', () => {
+  /** The account's old id still travels, so a jar built before identity keying can be adopted
+   *  rather than stranded. */
+  it('offers the existing account id so a pre-identity jar can be adopted', () => {
     const driver = fakeDriver(home);
     const registry = new AccountsRegistry(home);
     registry.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'feedface0001');
-    const seen: string[] = [];
+    const seen: Array<{ email: string; legacy: string | undefined }> = [];
     const manager = new LoginManager(registry, driver, {
       browserSession: {
-        launcherFor: (accountId) => {
-          seen.push(accountId);
+        launcherFor: (email, legacy) => {
+          seen.push({ email, legacy });
           return undefined;
         },
         openUrl: () => {},
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org', credentialId: 'claude:a@b.org' });
-    expect(seen).toEqual(['feedface0001']);
+    expect(seen).toEqual([{ email: 'a@b.org', legacy: 'feedface0001' }]);
+  });
+
+  /** A retry exists because the wrong identity landed. Under identity keying it gets the same
+   *  directory back, so the jar has to be emptied or it lands the same account again. */
+  it('clears the identity jar before retrying a mismatch', () => {
+    const driver = fakeDriver(home);
+    const cleared: string[] = [];
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      pollMs: 1,
+      browserSession: {
+        launcherFor: () => undefined,
+        openUrl: () => {},
+        removeProfile: (email) => void cleared.push(email),
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    driver.probeQueue.push({ loggedIn: true, email: 'other@b.org', subscriptionType: 'pro' });
+    return vi
+      .waitFor(() => expect(manager.snapshot()?.phase).toBe('mismatch'))
+      .then(() => {
+        manager.resolveMismatch('retry');
+        expect(cleared).toEqual(['a@b.org']);
+      });
   });
 });
 
 describe('isolated browser sessions — opening the captured url', () => {
-  it('hands the captured url to openUrl, keyed by the flow’s own account id', () => {
+  it('hands the captured url to openUrl, keyed by the flow’s own identity', () => {
     const driver = fakeDriver(home);
-    let keyedId: string | undefined;
-    const opened: Array<{ accountId: string; url: string }> = [];
+    const opened: Array<{ email: string; url: string }> = [];
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
       browserSession: {
-        launcherFor: (accountId) => {
-          keyedId = accountId;
-          return `L:${accountId}`;
-        },
-        openUrl: (accountId, url) => opened.push({ accountId, url }),
+        launcherFor: (email) => `L:${email}`,
+        openUrl: (email, url) => opened.push({ email, url }),
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
     driver.fireUrl('https://claude.com/cai/oauth/x&code=1');
-    expect(opened).toEqual([{ accountId: keyedId, url: 'https://claude.com/cai/oauth/x&code=1' }]);
+    expect(opened).toEqual([{ email: 'a@b.org', url: 'https://claude.com/cai/oauth/x&code=1' }]);
   });
 
   it('opens at most once per flow, even when the CLI prints the url a second time', () => {
@@ -341,8 +371,9 @@ describe('isolated browser sessions — opening the captured url', () => {
     const opened: string[] = [];
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
       browserSession: {
-        launcherFor: (accountId) => `L:${accountId}`,
-        openUrl: (_accountId, url) => opened.push(url),
+        launcherFor: (email) => `L:${email}`,
+        openUrl: (_email, url) => opened.push(url),
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
@@ -358,7 +389,8 @@ describe('isolated browser sessions — opening the captured url', () => {
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
       browserSession: {
         launcherFor: () => undefined,
-        openUrl: (_accountId, url) => opened.push(url),
+        openUrl: (_email, url) => opened.push(url),
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });
@@ -382,10 +414,11 @@ describe('isolated browser sessions — opening the captured url', () => {
     const manager = new LoginManager(new AccountsRegistry(home), driver, {
       pollMs: 100,
       browserSession: {
-        launcherFor: (accountId) => `L:${accountId}`,
+        launcherFor: (email) => `L:${email}`,
         openUrl: () => {
           throw new Error('boom');
         },
+        removeProfile: () => {},
       },
     });
     manager.startLogin({ email: 'a@b.org' });

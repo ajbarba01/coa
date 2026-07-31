@@ -12,7 +12,7 @@ import {
 import { z } from 'zod';
 import type { AccountsRegistry } from '../auth/registry.js';
 import type { LoginManager } from '../auth/login-manager.js';
-import type { BrowserSessionView } from '../auth/browser-session.js';
+import { isProfileShared, type BrowserSessionView } from '../auth/browser-session.js';
 import {
   FETCH_KINDS,
   SEARCH_KINDS,
@@ -304,10 +304,20 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       if (group === 'backend') {
         for (const account of deps.accounts.listByProvider(p.providerId as Provider)) {
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
-          if (p.removeProfiles === true && account.id !== undefined) {
-            deps.browser?.removeProfile(account.id);
-          }
           deps.accounts.remove(account.label);
+          // Read AFTER the removal, so the row going away is not counted as sharing its own
+          // jar — but an account under a DIFFERENT provider signing in as the same identity
+          // still is, and its session must survive this (docs/adr/0021).
+          if (
+            p.removeProfiles === true &&
+            account.email !== undefined &&
+            !isProfileShared(
+              account.email,
+              deps.accounts.list().map((other) => other.email),
+            )
+          ) {
+            deps.browser?.removeProfile(account.email);
+          }
         }
       } else if (group === 'service') {
         removeServiceProviderCredentials(deps, p.providerId);
@@ -375,9 +385,18 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === label;
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
           deps.accounts.remove(label);
-          // The id has to be read BEFORE the removal — afterwards there is no row to ask.
-          if (p.removeProfile === true && account.id !== undefined) {
-            deps.browser?.removeProfile(account.id);
+          // The email has to be read BEFORE the removal — afterwards there is no row to ask.
+          // The jar is only this row's to delete if no surviving account shares the identity
+          // (docs/adr/0021); the view flags that case so the prompt never offers it.
+          if (
+            p.removeProfile === true &&
+            account.email !== undefined &&
+            !isProfileShared(
+              account.email,
+              deps.accounts.list().map((other) => other.email),
+            )
+          ) {
+            deps.browser?.removeProfile(account.email);
           }
           applyHeirIfWasActive(deps.accounts, provider, label, wasActive);
         }

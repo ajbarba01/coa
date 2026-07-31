@@ -58,6 +58,9 @@ export interface Credential {
   lastUsed?: string;
   /** A dedicated browser profile exists for this login — what the removal prompt asks about. */
   hasProfile?: boolean;
+  /** Another login signs in as the same identity, so the profile is not this row's to delete
+   *  (docs/adr/0021) — the prompt says so instead of offering it. */
+  profileShared?: boolean;
 }
 
 export interface MockAuthState {
@@ -118,6 +121,7 @@ function toCredential(c: AuthView['credentials'][number]): Credential {
   if (c.coolingSec !== undefined) cred.coolingSec = c.coolingSec;
   if (c.lastUsed !== undefined) cred.lastUsed = c.lastUsed;
   if (c.hasProfile !== undefined) cred.hasProfile = c.hasProfile;
+  if (c.profileShared !== undefined) cred.profileShared = c.profileShared;
   return cred;
 }
 

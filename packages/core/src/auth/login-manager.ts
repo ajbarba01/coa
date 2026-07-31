@@ -59,8 +59,13 @@ export interface LoginDriverPort {
  *  implementation treats as a FALLBACK — it prefers the url the `BROWSER` shim relayed,
  *  which completes without a pasted code (docs/adr/0020). Fire-and-forget by contract. */
 export interface BrowserSessionPort {
-  launcherFor(accountId: string): string | undefined;
-  openUrl(accountId: string, url: string): void;
+  /** `legacyAccountId` lets the implementation adopt a jar built before profiles were keyed
+   *  by identity, instead of stranding it (docs/adr/0021). */
+  launcherFor(email: string, legacyAccountId?: string): string | undefined;
+  openUrl(email: string, url: string): void;
+  /** Drops the identity's jar. Used when a retry must not inherit the session that just
+   *  landed the wrong account. */
+  removeProfile(email: string): void;
 }
 
 type Identity = { email?: string; plan?: string };
@@ -132,7 +137,7 @@ export class LoginManager {
     // it, and a new account is only registered once the login lands. A new flow mints one
     // and carries it to registration; a relogin reuses (or backfills) the account's own.
     const accountId = this.#resolveAccountId(args.credentialId);
-    const launcher = this.#browser?.launcherFor(accountId);
+    const launcher = this.#browser?.launcherFor(args.email, accountId);
     const handle = this.#driver.start({
       dir,
       email: args.email,
@@ -168,7 +173,7 @@ export class LoginManager {
         // if the port itself throws (SC-1 — see the catch below).
         flow.opened = true;
         try {
-          this.#browser?.openUrl(flow.accountId, url);
+          this.#browser?.openUrl(flow.email, url);
         } catch {
           // A failed open is a no-op into the flow — copy-link + paste-code still works.
         }
@@ -196,6 +201,14 @@ export class LoginManager {
     if (flow === undefined || flow.snapshot.phase !== 'mismatch') return this.snapshot();
     const landedEmail = flow.snapshot.landedEmail;
     if (action === 'retry') {
+      // The jar now holds the session that landed the WRONG account, so a retry that reused
+      // it would land the same one again. Keying by identity means the retry gets the same
+      // directory back, so it has to be emptied rather than abandoned (docs/adr/0021).
+      try {
+        this.#browser?.removeProfile(flow.email);
+      } catch {
+        // A jar we cannot clear costs a repeat mismatch, never the login (SC-1).
+      }
       // #clearFlow (called by startLogin below) does the one kill — don't double-kill here.
       return this.startLogin({
         email: flow.email,

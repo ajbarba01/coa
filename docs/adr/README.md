@@ -46,6 +46,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0018](0018-isolated-browser-login-sessions.md) — Isolated browser login sessions, keyed by account, at the provider-descriptor layer (superseded by 0019)
 - [0019](0019-coa-opens-the-profiled-browser.md) — coa opens the profiled browser itself; `BROWSER` only suppresses the CLI's open (superseded by 0020)
 - [0020](0020-courier-shim-relays-the-self-completing-url.md) — The `BROWSER` shim is a courier: it relays the self-completing authorize url
+- [0021](0021-browser-profiles-keyed-by-identity.md) — Browser profiles are keyed by identity, not by account row
 
 ---
 

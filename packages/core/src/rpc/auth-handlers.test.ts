@@ -563,7 +563,7 @@ describe('browser session over the auth verbs', () => {
         detected: () => 'C:\\chrome.exe',
         override: () => undefined,
         hasProfile: () => true,
-        removeProfile: (accountId: string) => void removed.push(accountId),
+        removeProfile: (email: string) => void removed.push(email),
       },
     };
   }
@@ -621,7 +621,19 @@ describe('browser session over the auth verbs', () => {
     expect(browser.removed).toEqual([]);
 
     await h.removeCredential!.handle({ id: credentialId('claude', 'c@d.org'), removeProfile: true });
-    expect(browser.removed).toEqual(['def456def456']);
+    expect(browser.removed).toEqual(['c@d.org']);
+  });
+
+  /** One jar can back several rows once it is keyed by identity — a Claude and a Codex login
+   *  as the same person. Removing one must not sign the other out (docs/adr/0021). */
+  it('keeps a profile another account still signs in with', async () => {
+    const deps = freshDeps(home);
+    deps.accounts.add('mine', { type: 'config-dir', dir: 'D' }, 'claude', 'same@b.org', 'aaa111aaa111');
+    deps.accounts.add('theirs', { type: 'config-dir', dir: 'E' }, 'deepseek', 'same@b.org', 'bbb222bbb222');
+    const browser = browserStub();
+    const h = buildAuthHandlers({ ...deps, browser: browser.view });
+    await h.removeCredential!.handle({ id: credentialId('claude', 'mine'), removeProfile: true });
+    expect(browser.removed).toEqual([]);
   });
 
   it('deletes every profile a removed provider owned when asked', async () => {
@@ -630,7 +642,7 @@ describe('browser session over the auth verbs', () => {
     const browser = browserStub();
     const h = buildAuthHandlers({ ...deps, browser: browser.view });
     await h.removeProvider!.handle({ providerId: 'claude', removeProfiles: true });
-    expect(browser.removed).toEqual(['abc123abc123']);
+    expect(browser.removed).toEqual(['a@b.org']);
   });
 
   it('deletes no profile a removed provider owned when not asked', async () => {

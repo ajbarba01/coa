@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, win32 } from 'node:path';
 import { supportsIsolatedBrowserSession } from '@coa/shared';
 
@@ -66,11 +67,55 @@ export function detectBrowser(
   return browserCandidates(platform, env).find(exists);
 }
 
-/** Pure: an id safe to spend as ONE path segment. Ids are minted (hex), so this is a
- *  guard against a hand-edited `accounts.yaml`, not a normalizer — an id that could
- *  escape the profile root simply gets no isolation. */
-export function isSafeAccountId(id: string): boolean {
-  return /^[A-Za-z0-9_-]{1,64}$/.test(id);
+/** Pure: a key safe to spend as ONE path segment. {@link profileKey} produces these by
+ *  construction, so this guards the legacy account ids migration still reads out of a
+ *  hand-editable `accounts.yaml` — anything that could escape the profile root gets no
+ *  isolation rather than a sanitized approximation. */
+export function isSafeProfileKey(key: string): boolean {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(key);
+}
+
+/** Pure: whether any of `otherEmails` resolves to the same jar as `email`. Keying by identity
+ *  means one jar can back several account rows — a Claude and a Codex login as the same
+ *  person, say — so deleting it on one row's removal would sign the others out too
+ *  (docs/adr/0021). Callers pass every OTHER account's email. */
+export function isProfileShared(
+  email: string | undefined,
+  otherEmails: (string | undefined)[],
+): boolean {
+  const key = email === undefined ? undefined : profileKey(email);
+  if (key === undefined) return false;
+  return otherEmails.some((other) => other !== undefined && profileKey(other) === key);
+}
+
+/** Keeps the readable half of a key bounded so a long address cannot produce a path no
+ *  filesystem will take. */
+const KEY_SLUG_MAX = 48;
+const KEY_HASH_LENGTH = 6;
+
+/**
+ * Pure: the profile key for an identity — a readable slug plus a short digest of the
+ * normalized address, e.g. `wormsegment1000-gmail-com-4f9a2c`.
+ *
+ * Keyed by IDENTITY rather than by account row (docs/adr/0021). The consequences are the
+ * point: a relogin reuses the jar it already signed into, two providers signed in as the
+ * same person share one jar, and removing an account row no longer strands a directory
+ * nothing can name again.
+ *
+ * The digest is what makes this safe where a bare slug was not — slugging collapses every
+ * non-alphanumeric run, so `a.b@c.com`, `a-b@c.com`, and `a+b@c.com` would otherwise share
+ * one cookie jar. The slug survives only so the profile root stays inspectable by a human.
+ */
+export function profileKey(email: string): string | undefined {
+  const normalized = email.trim().toLowerCase();
+  if (normalized === '') return undefined;
+  const slug = normalized
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, KEY_SLUG_MAX)
+    .replace(/-+$/, '');
+  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, KEY_HASH_LENGTH);
+  return slug === '' ? digest : `${slug}-${digest}`;
 }
 
 /** Pure: guards a path before it is trusted as something to launch. A `"`, a `%`, or a
@@ -83,23 +128,22 @@ export function isSafeBrowserPath(path: string): boolean {
   return !/["%\r\n]/.test(path);
 }
 
-/** Pure: an account's browser profile (its own cookie jar), keyed by account id — never
- *  by email or label, both of which change and whose slugs collide. */
-export function browserProfileDir(home: string, accountId: string): string {
-  return join(home, '.coa', 'browser-profiles', accountId);
+/** Pure: an identity's browser profile (its own cookie jar), keyed by {@link profileKey}. */
+export function browserProfileDir(home: string, key: string): string {
+  return join(home, '.coa', 'browser-profiles', key);
 }
 
 /** Pure: the shim `BROWSER` points at. Beside the profile dir, not inside it, so removing
- *  an account's profile takes its launcher with it. */
-export function launcherPath(home: string, accountId: string, platform: string): string {
+ *  an identity's profile takes its launcher with it. */
+export function launcherPath(home: string, key: string, platform: string): string {
   const ext = platform === 'win32' ? '.cmd' : '.sh';
-  return join(home, '.coa', 'browser-profiles', `${accountId}${ext}`);
+  return join(home, '.coa', 'browser-profiles', `${key}${ext}`);
 }
 
 /** Pure: where the shim writes the url it was handed. Beside the profile dir, keyed the same
- *  way, so removing an account takes its relayed url with it. */
-export function courierPath(home: string, accountId: string): string {
-  return join(home, '.coa', 'browser-profiles', `${accountId}.url`);
+ *  way, so removing an identity takes its relayed url with it. */
+export function courierPath(home: string, key: string): string {
+  return join(home, '.coa', 'browser-profiles', `${key}.url`);
 }
 
 /**
@@ -171,6 +215,7 @@ export interface BrowserSessionDeps {
   launch?(command: string, args: string[]): void;
   /** Contents of a file, or `undefined` when it is not there yet. */
   read?(path: string): string | undefined;
+  rename?(from: string, to: string): void;
   /** Injected so the bounded wait for the relayed url costs tests no real time. */
   delay?(ms: number): Promise<void>;
 }
@@ -182,8 +227,9 @@ export interface BrowserSessionView {
   available(): boolean;
   detected(): string | undefined;
   override(): string | undefined;
-  hasProfile(accountId: string): boolean;
-  removeProfile(accountId: string): void;
+  /** Keyed by identity, so both take the account's declared email (docs/adr/0021). */
+  hasProfile(email: string): boolean;
+  removeProfile(email: string): void;
 }
 
 /** A shim is executable in its own right on POSIX; 0700 keeps it to its owner. */
@@ -266,9 +312,26 @@ export class BrowserSession implements BrowserSessionView {
     return this.browser() !== undefined;
   }
 
-  hasProfile(accountId: string): boolean {
-    if (!isSafeAccountId(accountId)) return false;
-    return this.#exists(browserProfileDir(this.#deps.home, accountId));
+  hasProfile(email: string): boolean {
+    const key = profileKey(email);
+    if (key === undefined || !isSafeProfileKey(key)) return false;
+    return this.#exists(browserProfileDir(this.#deps.home, key));
+  }
+
+  /** Best-effort adoption of a jar built before the key became the identity: rename it into
+   *  place rather than strand it and make the user sign in again (docs/adr/0021). Skipped
+   *  entirely once the identity has its own jar; a failure here is silently a fresh jar. */
+  #adoptLegacyProfile(key: string, legacyAccountId: string | undefined): void {
+    if (legacyAccountId === undefined || !isSafeProfileKey(legacyAccountId)) return;
+    const target = browserProfileDir(this.#deps.home, key);
+    if (this.#exists(target)) return;
+    const legacy = browserProfileDir(this.#deps.home, legacyAccountId);
+    if (!this.#exists(legacy)) return;
+    try {
+      (this.#deps.rename ?? renameSync)(legacy, target);
+    } catch {
+      // A jar we cannot adopt costs one sign-in, never the login.
+    }
   }
 
   /**
@@ -277,15 +340,17 @@ export class BrowserSession implements BrowserSessionView {
    * could escape the profile root, or an unwritable launcher. Every one of those is a
    * plain fallback to the copy-link + paste-code path, never an error (SC-1).
    */
-  launcherFor(provider: string, accountId: string): string | undefined {
+  launcherFor(provider: string, email: string, legacyAccountId?: string): string | undefined {
     try {
       if (!this.enabled()) return undefined;
       if (!supportsIsolatedBrowserSession(provider)) return undefined;
-      if (!isSafeAccountId(accountId)) return undefined;
+      const key = profileKey(email);
+      if (key === undefined || !isSafeProfileKey(key)) return undefined;
       const browserPath = this.browser();
       if (browserPath === undefined) return undefined;
-      const path = launcherPath(this.#deps.home, accountId, this.#deps.platform);
-      const courier = courierPath(this.#deps.home, accountId);
+      this.#adoptLegacyProfile(key, legacyAccountId);
+      const path = launcherPath(this.#deps.home, key, this.#deps.platform);
+      const courier = courierPath(this.#deps.home, key);
       // A url left by an earlier attempt names a localhost port that died with it. Clearing
       // it here — the one moment a login is known to be starting — is what keeps `openUrl`
       // from relaying a dead callback. Best-effort: if it cannot be cleared, the sign-in
@@ -305,8 +370,8 @@ export class BrowserSession implements BrowserSessionView {
   /** The url the shim relayed, waited for on a bounded poll. `undefined` means it never
    *  arrived in time, or arrived unusable — both are ordinary, and both mean "use the
    *  printed url instead". */
-  async #relayedUrl(accountId: string): Promise<string | undefined> {
-    const path = courierPath(this.#deps.home, accountId);
+  async #relayedUrl(key: string): Promise<string | undefined> {
+    const path = courierPath(this.#deps.home, key);
     const read = this.#deps.read ?? readIfPresent;
     const delay =
       this.#deps.delay ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -332,17 +397,18 @@ export class BrowserSession implements BrowserSessionView {
    * differ. Same guards as {@link launcherFor}, and the same SC-1 contract: any failure is
    * silent and the copy-link + paste-code path is what the user sees instead.
    */
-  async openUrl(provider: string, accountId: string, printedUrl: string): Promise<void> {
+  async openUrl(provider: string, email: string, printedUrl: string): Promise<void> {
     try {
       if (!this.enabled()) return;
       if (!supportsIsolatedBrowserSession(provider)) return;
-      if (!isSafeAccountId(accountId)) return;
+      const key = profileKey(email);
+      if (key === undefined || !isSafeProfileKey(key)) return;
       const browserPath = this.browser();
       if (browserPath === undefined) return;
-      const relayed = await this.#relayedUrl(accountId);
+      const relayed = await this.#relayedUrl(key);
       (this.#deps.launch ?? launchBrowser)(
         browserPath,
-        browserArgs(browserProfileDir(this.#deps.home, accountId), relayed ?? printedUrl),
+        browserArgs(browserProfileDir(this.#deps.home, key), relayed ?? printedUrl),
       );
     } catch {
       // SC-1: a failed open is a no-op, never an error into the login flow.
@@ -351,13 +417,14 @@ export class BrowserSession implements BrowserSessionView {
 
   /** Delete an account's cookie jar, its shim, and any url the shim relayed. Tolerant of any
    *  of them being gone already. */
-  removeProfile(accountId: string): void {
-    if (!isSafeAccountId(accountId)) return;
+  removeProfile(email: string): void {
+    const key = profileKey(email);
+    if (key === undefined || !isSafeProfileKey(key)) return;
     const remove = this.#deps.remove ?? removePath;
     for (const path of [
-      browserProfileDir(this.#deps.home, accountId),
-      launcherPath(this.#deps.home, accountId, this.#deps.platform),
-      courierPath(this.#deps.home, accountId),
+      browserProfileDir(this.#deps.home, key),
+      launcherPath(this.#deps.home, key, this.#deps.platform),
+      courierPath(this.#deps.home, key),
     ]) {
       try {
         remove(path);

@@ -791,4 +791,19 @@ describe('removing a login with a browser profile', () => {
     await user.click(screen.getByRole('button', { name: /remove login/i }));
     expect(remove).toHaveBeenCalledWith('claude:a@b.org', true);
   });
+
+  /** Keyed by identity, one jar can back several logins — so the option to delete it is not
+   *  this row's to offer, and the prompt says why rather than going quiet (docs/adr/0021). */
+  it('offers no profile deletion when another login shares the identity', async () => {
+    const user = userEvent.setup();
+    const remove = vi.fn().mockResolvedValue(undefined);
+    await renderAuth(claudeOnly({ hasProfile: true, profileShared: true }));
+    useMockAuth.setState({ removeCredential: remove });
+    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
+    await user.click(await screen.findByText('remove'));
+    expect(screen.queryByLabelText('also delete the browser profile')).toBeNull();
+    expect(screen.getByText(/another login signs in as the same person/i)).toBeTruthy();
+    await user.click(await screen.findByRole('button', { name: /remove login/i }));
+    expect(remove).toHaveBeenCalledWith('claude:a@b.org', false);
+  });
 });

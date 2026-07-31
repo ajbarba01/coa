@@ -159,6 +159,7 @@ export const CredentialViewSchema = z
     email: z.string().optional(),
     health: z.enum(['healthy', 'needs-relogin']).optional(),
     hasProfile: z.boolean().optional(),
+    profileShared: z.boolean().optional(),
   })
   .strip();
 export type CredentialView = z.infer<typeof CredentialViewSchema>;

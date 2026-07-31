@@ -4,7 +4,7 @@ import type { WebChain, WebConfigStore } from '../workbench/web/web-config-store
 import type { WebConfig } from '../workbench/web/web-config.js';
 import { locatorId, type KeyStateStore } from '../workbench/web/key-state-store.js';
 import type { ConsoleStateStore } from '../console/console-state-store.js';
-import type { BrowserSessionView } from '../auth/browser-session.js';
+import { isProfileShared, type BrowserSessionView } from '../auth/browser-session.js';
 
 /**
  * The pure read projection that assembles the unified auth view the renderer
@@ -32,6 +32,9 @@ export interface CredentialView {
   /** A dedicated browser profile exists for this account — the fact the removal prompt
    *  needs. Absent/false ⇒ nothing extra to delete. */
   hasProfile?: boolean;
+  /** Another account signs in as the same identity, so the profile is not this row's alone
+   *  to delete (docs/adr/0021). The removal prompt says so instead of offering the delete. */
+  profileShared?: boolean;
 }
 
 export interface AuthView {
@@ -157,8 +160,17 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
         ...(health !== undefined ? { health } : {}),
         ...(identity !== undefined ? { identity } : {}),
         ...(live?.plan !== undefined ? { plan: live.plan } : {}),
-        ...(account.id !== undefined && deps.browser?.hasProfile(account.id) === true
+        ...(account.email !== undefined && deps.browser?.hasProfile(account.email) === true
           ? { hasProfile: true }
+          : {}),
+        ...(isProfileShared(
+          account.email,
+          deps.accounts
+            .list()
+            .filter((other) => other.label !== account.label)
+            .map((other) => other.email),
+        )
+          ? { profileShared: true }
           : {}),
       });
     }

@@ -357,14 +357,23 @@ function RemoveCredentialDialog(): React.JSX.Element {
               coa forgets this login. The login itself stays where it lives — nothing is touched at
               the provider.
             </span>
-            <label className="flex items-center gap-2.5">
-              <Toggle
-                on={alsoProfile}
-                onChange={setAlsoProfile}
-                aria-label="also delete the browser profile"
-              />
-              <span>also delete the browser profile (its cookies and cache, tens of MB)</span>
-            </label>
+            {credential.profileShared === true ? (
+              // The jar belongs to an identity, not to this row, and another login still
+              // signs in with it — deleting it would sign that one out too (docs/adr/0021).
+              <span className="text-s8">
+                Its browser profile stays: another login signs in as the same person and still
+                uses it.
+              </span>
+            ) : (
+              <label className="flex items-center gap-2.5">
+                <Toggle
+                  on={alsoProfile}
+                  onChange={setAlsoProfile}
+                  aria-label="also delete the browser profile"
+                />
+                <span>also delete the browser profile (its cookies and cache, tens of MB)</span>
+              </label>
+            )}
           </div>
           <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
             <Button variant="outline" onClick={close}>

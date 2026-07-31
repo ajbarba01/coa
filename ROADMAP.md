@@ -260,7 +260,10 @@ everything else the new design overwrites.
   Chrome/Edge detection with an override; anything missing degrades to the copy-link + paste-code
   path — [ADR-0020](docs/adr/0020-courier-shim-relays-the-self-completing-url.md), superseding
   [0019](docs/adr/0019-coa-opens-the-profiled-browser.md) and
-  [0018](docs/adr/0018-isolated-browser-login-sessions.md).
+  [0018](docs/adr/0018-isolated-browser-login-sessions.md). Profiles are keyed by **identity**
+  (an email slug plus a digest), not by account row, so a relogin reuses the session it already
+  established and two providers signed in as the same person share one jar —
+  [ADR-0021](docs/adr/0021-browser-profiles-keyed-by-identity.md).
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).

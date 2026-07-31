@@ -8,9 +8,10 @@ import {
   courierPath,
   courierScript,
   detectBrowser,
-  isSafeAccountId,
   isSafeBrowserPath,
+  isSafeProfileKey,
   launcherPath,
+  profileKey,
   unwrapCourierUrl,
   type BrowserSessionSettings,
 } from './browser-session.js';
@@ -60,17 +61,40 @@ describe('browser detection', () => {
 });
 
 describe('profile keying', () => {
-  it('accepts a minted id and rejects anything that could escape the profile root', () => {
-    expect(isSafeAccountId('9f2c1ab30d44')).toBe(true);
-    expect(isSafeAccountId('a-b_C9')).toBe(true);
-    expect(isSafeAccountId('')).toBe(false);
-    expect(isSafeAccountId('..')).toBe(false);
-    expect(isSafeAccountId('a/b')).toBe(false);
-    expect(isSafeAccountId('a\\b')).toBe(false);
-    expect(isSafeAccountId('a@b.org')).toBe(false);
+  it('accepts a derived key and rejects anything that could escape the profile root', () => {
+    expect(isSafeProfileKey('a-b-c-com-4f9a2c')).toBe(true);
+    expect(isSafeProfileKey('9f2c1ab30d44')).toBe(true);
+    expect(isSafeProfileKey('')).toBe(false);
+    expect(isSafeProfileKey('..')).toBe(false);
+    expect(isSafeProfileKey('a/b')).toBe(false);
+    expect(isSafeProfileKey('a\\b')).toBe(false);
+    expect(isSafeProfileKey('a@b.org')).toBe(false);
   });
 
-  it('keys the profile dir by account id under the coa home', () => {
+  /** The jar belongs to an IDENTITY, not to an account row (docs/adr/0021). Keying it by
+   *  email is what lets a relogin reuse a signed-in session, lets Claude and a future Codex
+   *  account share one jar, and stops a deleted row from stranding its directory. */
+  it('derives the same key for the same identity however it was typed', () => {
+    expect(profileKey('  Wormsegment1000@Gmail.COM ')).toBe(profileKey('wormsegment1000@gmail.com'));
+  });
+
+  /** The reason a bare slug could not be the key: `emailSlug` collapses every non-alphanumeric
+   *  run to `-`, so these three collapse together and would have shared one cookie jar. */
+  it('separates identities a slug alone would collide', () => {
+    const keys = [profileKey('a.b@c.com'), profileKey('a-b@c.com'), profileKey('a+b@c.com')];
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it('stays readable, so the profile root can be inspected by a human', () => {
+    expect(profileKey('wormsegment1000@gmail.com')).toMatch(/^wormsegment1000-gmail-com-[0-9a-f]+$/);
+  });
+
+  it('has no key for an identity that is not one', () => {
+    expect(profileKey('')).toBeUndefined();
+    expect(profileKey('   ')).toBeUndefined();
+  });
+
+  it('keys the profile dir by that key under the coa home', () => {
     expect(browserProfileDir('/home/z', '9f2c')).toBe(
       ['', 'home', 'z', '.coa', 'browser-profiles', '9f2c'].join(sep),
     );
@@ -166,6 +190,7 @@ function harness(
   const written = new Map<string, string>();
   const removed: string[] = [];
   const launched: { command: string; args: string[] }[] = [];
+  const renamed: { from: string; to: string }[] = [];
   const session = new BrowserSession({
     home: 'C:\\home',
     platform: 'win32',
@@ -179,19 +204,28 @@ function harness(
     },
     launch: (command, args) => void launched.push({ command, args }),
     read: (path) => files.get(path),
+    rename: (from, to) => void renamed.push({ from, to }),
     // Tests must not spend real time waiting for a file that will never appear.
     delay: () => Promise.resolve(),
   });
-  return { session, written, removed, launched, files };
+  return { session, written, removed, launched, files, renamed };
 }
 
-const COURIER = 'C:\\home\\.coa\\browser-profiles\\9f2c.url';
+const EMAIL = 'a.b@c.com';
+const KEY = profileKey(EMAIL)!;
+const ROOT = 'C:\\home\\.coa\\browser-profiles';
+const PROFILE = `${ROOT}\\${KEY}`;
+const SHIM = `${PROFILE}.cmd`;
+const COURIER = `${PROFILE}.url`;
+/** An account id from before the jar was keyed by identity (docs/adr/0021). */
+const LEGACY_ID = '9f2c1ab30d44';
+const LEGACY_DIR = `${ROOT}\\${LEGACY_ID}`;
 
 describe('BrowserSession', () => {
   it('writes a courier launcher for a capable provider when the setting is on', () => {
     const { session, written } = harness({ enabled: true });
-    const launcher = session.launcherFor('claude', '9f2c');
-    expect(launcher).toBe('C:\\home\\.coa\\browser-profiles\\9f2c.cmd');
+    const launcher = session.launcherFor('claude', EMAIL);
+    expect(launcher).toBe(SHIM);
     expect(written.get(launcher!)).toBe(courierScript('win32', COURIER));
   });
 
@@ -200,9 +234,46 @@ describe('BrowserSession', () => {
   it('clears a stale relayed url when it writes the launcher', () => {
     const files = new Map([[COURIER, 'https://claude.com/cai/oauth/authorize?code=true&old=1']]);
     const { session, removed } = harness({ enabled: true }, [CHROME], files);
-    session.launcherFor('claude', '9f2c');
+    session.launcherFor('claude', EMAIL);
     expect(removed).toContain(COURIER);
     expect(files.has(COURIER)).toBe(false);
+  });
+
+  /** The jar an account already built is worth more than a clean slate: reusing it is what
+   *  makes a relogin skip the identity provider entirely. Best-effort — a failed rename just
+   *  means a fresh jar, never a failed login. */
+  it('adopts a pre-identity profile dir instead of stranding it', () => {
+    const { session, renamed } = harness({ enabled: true }, [CHROME, LEGACY_DIR]);
+    session.launcherFor('claude', EMAIL, LEGACY_ID);
+    expect(renamed).toEqual([{ from: LEGACY_DIR, to: PROFILE }]);
+  });
+
+  it('leaves the legacy dir alone once the identity already has a jar', () => {
+    const { session, renamed } = harness({ enabled: true }, [CHROME, LEGACY_DIR, PROFILE]);
+    session.launcherFor('claude', EMAIL, LEGACY_ID);
+    expect(renamed).toEqual([]);
+  });
+
+  it('does not migrate when there is no legacy dir to adopt', () => {
+    const { session, renamed } = harness({ enabled: true });
+    session.launcherFor('claude', EMAIL, LEGACY_ID);
+    expect(renamed).toEqual([]);
+  });
+
+  it('still issues a launcher when the migration itself fails', () => {
+    const session = new BrowserSession({
+      home: 'C:\\home',
+      platform: 'win32',
+      env: WIN_ENV,
+      settings: () => ({ enabled: true }),
+      exists: (path) => path === CHROME || path === LEGACY_DIR,
+      write: () => {},
+      remove: () => {},
+      rename: () => {
+        throw new Error('EBUSY');
+      },
+    });
+    expect(session.launcherFor('claude', EMAIL, LEGACY_ID)).toBe(SHIM);
   });
 
   it('honors an override browser over detection when deciding availability', () => {
@@ -210,7 +281,7 @@ describe('BrowserSession', () => {
       CHROME,
       'D:\\brave.exe',
     ]);
-    const launcher = session.launcherFor('claude', '9f2c');
+    const launcher = session.launcherFor('claude', EMAIL);
     expect(session.browser()).toBe('D:\\brave.exe');
     expect(written.get(launcher!)).toBe(courierScript('win32', COURIER));
   });
@@ -220,7 +291,7 @@ describe('BrowserSession', () => {
     expect(session.override()).toBeUndefined();
     expect(session.browser()).toBeUndefined();
     expect(session.available()).toBe(false);
-    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(session.launcherFor('claude', EMAIL)).toBeUndefined();
     expect(written.size).toBe(0);
   });
 
@@ -235,30 +306,32 @@ describe('BrowserSession', () => {
     const { session, written } = harness({ enabled: true, browserPath: evil }, [CHROME, evil]);
     expect(session.override()).toBeUndefined();
     expect(session.available()).toBe(false);
-    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(session.launcherFor('claude', EMAIL)).toBeUndefined();
     expect(written.size).toBe(0);
   });
 
   it('offers no launcher when the setting is off — today\u2019s spawn, byte for byte', () => {
     const { session, written } = harness({ enabled: false });
-    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(session.launcherFor('claude', EMAIL)).toBeUndefined();
     expect(written.size).toBe(0);
   });
 
   it('offers no launcher to a provider that never declared the capability', () => {
     const { session } = harness({ enabled: true });
-    expect(session.launcherFor('deepseek', '9f2c')).toBeUndefined();
+    expect(session.launcherFor('deepseek', EMAIL)).toBeUndefined();
   });
 
   it('offers no launcher when no browser is installed', () => {
     const { session } = harness({ enabled: true }, []);
-    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(session.launcherFor('claude', EMAIL)).toBeUndefined();
     expect(session.available()).toBe(false);
   });
 
-  it('offers no launcher for an id that could escape the profile root', () => {
+  /** No identity, no jar to key — an account that never declared an email simply gets the
+   *  unisolated path rather than a directory nothing can find again. */
+  it('offers no launcher without an identity to key the jar by', () => {
     const { session } = harness({ enabled: true });
-    expect(session.launcherFor('claude', '../../etc')).toBeUndefined();
+    expect(session.launcherFor('claude', '  ')).toBeUndefined();
   });
 
   it('degrades instead of throwing when the launcher cannot be written', () => {
@@ -273,7 +346,7 @@ describe('BrowserSession', () => {
       },
       remove: () => {},
     });
-    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(session.launcherFor('claude', EMAIL)).toBeUndefined();
   });
 
   it('reports detection and the override separately, so the UI can prefill', () => {
@@ -289,19 +362,29 @@ describe('BrowserSession', () => {
 
   it('removes a profile dir, its launcher, and any relayed url together', () => {
     const { session, removed } = harness({ enabled: true });
-    session.removeProfile('9f2c');
-    expect(removed).toEqual([
-      'C:\\home\\.coa\\browser-profiles\\9f2c',
-      'C:\\home\\.coa\\browser-profiles\\9f2c.cmd',
-      COURIER,
-    ]);
+    session.removeProfile(EMAIL);
+    expect(removed).toEqual([PROFILE, SHIM, COURIER]);
   });
 
-  it('reports whether an account has a profile, and never for an unsafe id', () => {
-    const { session } = harness({ enabled: true }, ['C:\\home\\.coa\\browser-profiles\\9f2c']);
-    expect(session.hasProfile('9f2c')).toBe(true);
-    expect(session.hasProfile('beef')).toBe(false);
-    expect(session.hasProfile('../../etc')).toBe(false);
+  it('removes nothing for an identity that is not one', () => {
+    const { session, removed } = harness({ enabled: true });
+    session.removeProfile('   ');
+    expect(removed).toEqual([]);
+  });
+
+  it('reports whether an identity has a profile', () => {
+    const { session } = harness({ enabled: true }, [PROFILE]);
+    expect(session.hasProfile(EMAIL)).toBe(true);
+    expect(session.hasProfile('nobody@nowhere.org')).toBe(false);
+    expect(session.hasProfile('')).toBe(false);
+  });
+
+  /** The point of identity keying: two providers signed in as the same person share one jar,
+   *  so signing into the second does not mean signing in again. */
+  it('gives the same jar to the same identity regardless of provider', () => {
+    const { session } = harness({ enabled: true }, [CHROME, PROFILE]);
+    expect(session.launcherFor('claude', EMAIL)).toBe(SHIM);
+    expect(session.hasProfile(EMAIL.toUpperCase())).toBe(true);
   });
 });
 
@@ -313,7 +396,7 @@ describe('BrowserSession.openUrl', () => {
    *  itself and no code is ever shown. */
   const RELAYED = 'https://claude.com/cai/oauth/authorize?code=true&redirect_uri=localhost&state=2';
   const argsFor = (url: string): string[] => [
-    '--user-data-dir=C:\\home\\.coa\\browser-profiles\\9f2c',
+    `--user-data-dir=${PROFILE}`,
     '--no-first-run',
     '--no-default-browser-check',
     url,
@@ -322,26 +405,26 @@ describe('BrowserSession.openUrl', () => {
   it('prefers the relayed url, so the sign-in completes without a pasted code', async () => {
     const files = new Map([[COURIER, `"\\"${RELAYED}\\""`]]);
     const { session, launched } = harness({ enabled: true }, [CHROME], files);
-    await session.openUrl('claude', '9f2c', PRINTED);
+    await session.openUrl('claude', EMAIL, PRINTED);
     expect(launched).toEqual([{ command: CHROME, args: argsFor(RELAYED) }]);
   });
 
   it('falls back to the printed url when no relay ever lands', async () => {
     const { session, launched } = harness({ enabled: true });
-    await session.openUrl('claude', '9f2c', PRINTED);
+    await session.openUrl('claude', EMAIL, PRINTED);
     expect(launched).toEqual([{ command: CHROME, args: argsFor(PRINTED) }]);
   });
 
   it('falls back to the printed url when the relayed file is unusable', async () => {
     const files = new Map([[COURIER, 'ECHO is off.']]);
     const { session, launched } = harness({ enabled: true }, [CHROME], files);
-    await session.openUrl('claude', '9f2c', PRINTED);
+    await session.openUrl('claude', EMAIL, PRINTED);
     expect(launched).toEqual([{ command: CHROME, args: argsFor(PRINTED) }]);
   });
 
   it('does nothing when the setting is off — today\u2019s spawn, byte for byte', async () => {
     const { session, launched } = harness({ enabled: false });
-    await session.openUrl('claude', '9f2c', PRINTED);
+    await session.openUrl('claude', EMAIL, PRINTED);
     expect(launched).toEqual([]);
   });
 
@@ -351,15 +434,15 @@ describe('BrowserSession.openUrl', () => {
     expect(launched).toEqual([]);
   });
 
-  it('does nothing for an id that could escape the profile root', async () => {
+  it('does nothing without an identity to key the jar by', async () => {
     const { session, launched } = harness({ enabled: true });
-    await session.openUrl('claude', '../../etc', PRINTED);
+    await session.openUrl('claude', '  ', PRINTED);
     expect(launched).toEqual([]);
   });
 
   it('does nothing when no browser is available', async () => {
     const { session, launched } = harness({ enabled: true }, []);
-    await session.openUrl('claude', '9f2c', PRINTED);
+    await session.openUrl('claude', EMAIL, PRINTED);
     expect(launched).toEqual([]);
   });
 
