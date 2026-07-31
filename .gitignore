@@ -34,3 +34,6 @@ Thumbs.db
 test-out.txt
 /TEMP.md
 /LOCAL.md
+
+# Local agent workspace: git worktrees, skills, settings — never committed
+.claude/

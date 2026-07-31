@@ -3,7 +3,17 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.config.*', '**/*.cjs', '**/*.d.ts'],
+    // `.claude/**` holds agent scratch AND git worktrees — separate checkouts of other
+    // branches. Linting those reports another branch's problems as if they were ours
+    // (and reports every shared file twice).
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/*.config.*',
+      '**/*.cjs',
+      '**/*.d.ts',
+      '.claude/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
