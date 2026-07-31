@@ -1256,3 +1256,111 @@ honors CLAUDE_CONFIG_DIR, reports loggedIn + email + subscription).
 git add docs/adr/NNNN-probe-derived-login-health.md ROADMAP.md
 git commit -m "docs: record the probe-derived login health decision"
 ```
+
+---
+
+## Attended run — deviations (2026-07-21)
+
+Maintainer drove the live run. Recorded before any fix, per the handoff process. Nothing below is
+fixed yet; each is triaged to a follow-up workstream at the end.
+
+**D1 — the sign-in affordance is shaped wrong (cosmetic).** `SignInButton` renders its own
+`sign in with {label}` affordance; it should look like the add-account button every other provider
+gets, and read `sign in`. The provider name is already the context.
+
+**D2 — the dialog copy is over-explained (cosmetic).** Flagged verbatim: *"Claude's own sign-in opens
+in your browser, pre-filled with this email. coa keeps a pointer to the login — never the token."*
+The same voice runs through the `launching`, `awaiting`, `watching`, and `registered` bodies, which
+re-assert credential-blindness at four separate phases. Credential-blindness is an architecture
+property, not a thing to keep telling the user. Wanted: professional, straightforward, no slop.
+Whole-dialog copy pass.
+
+**D3 — email-first does not actually define the account (design defect).** Nothing enforces the
+declared email. `--email` reaches Claude's own CLI, but the OAuth handshake completes in the system
+browser against whatever claude.ai session that browser already holds, so the landed identity is
+whatever was signed in — the declaration is a wish, and the mismatch phase is the only thing making
+it safe. Maintainer's real-world workaround today is **a different browser per account**, i.e.
+hand-rolled session isolation.
+
+*Root cause:* coa does not own the browser context. It scrapes the authorize URL out of CLI output
+(`extractOauthUrl`) but never controls where that URL is opened, so it cannot influence which
+identity the IdP sees. No param exists to add — `login_hint`-style prefill is advisory by
+definition, and only the IdP could refuse a wrong identity, which it will not do for an
+already-authenticated session.
+
+*Candidate remedy (unverified — this is the spike):* coa is an Electron app and can open the
+captured URL in a `BrowserWindow` on a per-account `session.fromPartition('persist:login-<id>')` —
+a cookie jar per account, which is the automatic form of the maintainer's different-browsers trick.
+The driver already has both hooks this needs: URL capture, and `write()` back to the CLI's stdin for
+the code-paste path. **If it works, it reverses the obvious fix:** email-defined accounts become
+genuinely true rather than needing to be abandoned for observe-then-name. Three unknowns, none
+answerable without a live test — (a) whether Anthropic blocks OAuth in embedded user agents the way
+Google does, (b) whether the CLI's own browser-open can be suppressed so it does not race the
+embedded window (and how that differs on win32), (c) whether the handshake returns via a localhost
+callback or code-paste. Must degrade to today's system-browser path (SC-1).
+
+*Maintainer constraint on the remedy (2026-07-21):* **the partition mechanism must not be
+Claude-specific.** Design it as a general "isolated, persistent browser session keyed by account"
+capability that any provider needing session-scoped sign-in can use — Claude is its first consumer,
+not its owner. That points the seam at the auth / provider-descriptor layer (where a provider
+already declares its locator kind) rather than at the Claude adapter, so a future provider needing
+an isolated session is a descriptor field and no new machinery.
+
+**D4 — the model catalog is stale (data).** `default-catalog.ts` predates DeepSeek V4. Needs a
+bounded refresh spike across providers: current model ids, context windows, pricing, reasoning
+profiles. Folds in the already-ledgered Minor that DeepSeek prices are zero-floor placeholders.
+Maintainer also wants a repeatable skill for this, plus a coa-app-copy skill that D2's pass would
+use and a forthcoming capitalization pass would extend.
+
+*Open call, deliberately not settled here:* both skills the maintainer described are
+**repo-development** skills (for whoever works on coa), not runtime butler Pieces (what coa serves a
+user). Placing the first should not decide where the second lives — that is the open ADR-0003
+question (built-in package vs. seeded `.coa/` bundle) and deserves its own call.
+
+**D5 — the code-paste field hides behind a button (cosmetic).** The "prompted for a code instead?
+enter it →" disclosure puts a click in front of a field. Better than always-showing it: the CLI
+prints its own paste prompt and we already read that stream — reveal the field when the CLI actually
+asks, and fall back to always-visible on the degraded pipe path where the prompt cannot be seen.
+
+**D6 — the win32 spawn targets a binary that does not exist here (confirmed bug).** The PTY branch
+hardcodes `claude.cmd` on win32 (the npm shim). This machine's install is the **native installer**:
+`C:\Users\Zander\.local\bin\claude.exe`, with no `.cmd` shim anywhere on PATH or under the npm
+global dir. So `pty.spawn('claude.cmd', …)` throws, the catch degrades to the pipe path (whose
+`spawn('claude', …, shell: true)` *does* resolve the exe), and the flow permanently reports
+`ptyCaptured: false` — **the in-app copy-link is dark on this machine and on every native install.**
+This is watchlist Minor #8, now confirmed as live rather than hypothetical, and it retro-explains
+the degraded copy the maintainer would have seen. It also sharpens D3: the copy-link is precisely
+the affordance that lets you paste into *the browser that holds the right account*, so losing it
+makes the multi-account problem bite harder. Fix by resolving the real binary instead of assuming
+the shim (try the exe, or resolve via PATH lookup) rather than by widening the catch.
+
+*FIXED 2026-07-21 (TDD).* `resolveClaudeCommand(platform, pathDirs, exists)` — pure, injected
+existence predicate, separators follow the platform ARGUMENT so it is testable for either host from
+either — scans PATH for `claude.exe` → `claude.cmd` → `claude.bat` on win32 (bare `claude`
+elsewhere) and falls back to the bare name rather than throwing, leaving the pipe branch's
+`shell: true` resolution a last chance (SC-1). Verified against the real PATH on the maintainer's
+machine: resolves `C:\Users\Zander\.local\bin\claude.exe`, where the old `claude.cmd` guess resolved
+nothing. `auth-status.ts`'s probe was checked and is NOT affected — it spawns with `shell: true`, so
+PATHEXT resolution already reaches the exe. **The copy-link affordance should now light up on this
+machine; that is the first thing to confirm in the next attended run**, and it is a precondition for
+the D3 spike, which cannot capture an authorize URL without the PTY branch running.
+
+**Vendor-confirmed for D3:** `claude auth login --help` documents `--email` as *"Pre-populate email
+address on the login page."* Prefill, by the vendor's own description — not account selection. D3's
+root cause is no longer inference. (`--sso` also exists and is unexamined.)
+
+### Not reported
+
+The final-review watchlist (relogin into a manually-added dir; `claude.cmd` shim vs. native exe;
+whether PTY capture worked or degraded; probe-vs-live-flag precedence; cancel-in-import-window;
+grace path; probeHealth latency) and the Plan A model-editor drive-the-app checks were **not
+reported back from this run** — treat them as unverified, not as passed.
+
+### Triage
+
+- D1 + D2 + D5 + the D3 outcome are one coherent workstream (the flow's shape decides its copy);
+  D3's spike runs **first** because it determines whether the email pre-step survives at all.
+- D3 amends ADR-0017, whose premise is email-defined accounts — either to "email-defined and now
+  actually enforced" or to "observe-then-name". Not a silent edit.
+- D4 is independent and can run any time.
+- The unreported watchlist items still need a run.

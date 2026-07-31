@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { emailSlug, extractOauthUrl, managedLoginDir } from './login-driver.js';
+import {
+  emailSlug,
+  extractOauthUrl,
+  managedLoginDir,
+  resolveClaudeCommand,
+} from './login-driver.js';
 
 /** Forces `spawnLogin`'s `import('node-pty')` to fail deterministically (regardless of
  *  whether the optional dep happens to be installed in this environment), so every test
@@ -59,6 +64,44 @@ describe('extractOauthUrl', () => {
       'https://claude.ai/cai/oauth/x?y=1',
     );
     expect(extractOauthUrl('see https://docs.claude.com/help')).toBeUndefined();
+  });
+});
+
+describe('resolveClaudeCommand', () => {
+  /** The native installer ships `claude.exe` and NO `.cmd` shim. Assuming the shim made
+   *  node-pty's spawn throw, silently degrading every native install to the pipe branch —
+   *  so the OAuth URL was never captured and the in-app copy-link was permanently dark. */
+  it('finds the native exe on win32 when no shim exists', () => {
+    const exists = (p: string): boolean => p === 'C:\\Users\\z\\.local\\bin\\claude.exe';
+    expect(resolveClaudeCommand('win32', ['C:\\Users\\z\\.local\\bin'], exists)).toBe(
+      'C:\\Users\\z\\.local\\bin\\claude.exe',
+    );
+  });
+
+  it('still finds the npm shim on win32 when that is what is installed', () => {
+    const exists = (p: string): boolean => p === 'C:\\npm\\claude.cmd';
+    expect(resolveClaudeCommand('win32', ['C:\\npm'], exists)).toBe('C:\\npm\\claude.cmd');
+  });
+
+  it('scans PATH entries in order', () => {
+    const exists = (p: string): boolean => p === 'C:\\second\\claude.exe';
+    expect(resolveClaudeCommand('win32', ['C:\\first', 'C:\\second'], exists)).toBe(
+      'C:\\second\\claude.exe',
+    );
+  });
+
+  it('resolves the bare name on posix', () => {
+    const exists = (p: string): boolean => p === '/usr/local/bin/claude';
+    expect(resolveClaudeCommand('linux', ['/usr/local/bin'], exists)).toBe(
+      '/usr/local/bin/claude',
+    );
+  });
+
+  /** Never throw and never block: an unresolvable binary degrades to the bare name so the
+   *  pipe branch's shell resolution still gets its chance (SC-1 — help, never cage). */
+  it('falls back to the bare name when nothing is found', () => {
+    expect(resolveClaudeCommand('win32', ['C:\\nowhere'], () => false)).toBe('claude');
+    expect(resolveClaudeCommand('linux', ['/nowhere'], () => false)).toBe('claude');
   });
 });
 

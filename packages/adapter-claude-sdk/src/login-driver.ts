@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { delimiter, join, posix, win32 } from 'node:path';
 
 /**
  * The driven-login spawn on the Claude-adapter seam. coa runs Claude's OWN login
@@ -48,6 +49,46 @@ export interface LoginProcess {
 
 const LOGIN_ARGS = (email: string): string[] => ['auth', 'login', '--claudeai', '--email', email];
 
+/** Executable names to try, most-specific first. The native installer ships `claude.exe`
+ *  and no shim, npm ships `claude.cmd` — assuming either one strands the other. */
+const WIN32_NAMES = ['claude.exe', 'claude.cmd', 'claude.bat'];
+
+/**
+ * Pure: the command `spawnLogin` should launch, resolved against PATH.
+ *
+ * node-pty does no shell resolution — it needs a name the OS can execute directly — so a
+ * wrong guess here throws and silently degrades the whole flow to the pipe branch. Falls
+ * back to the bare name rather than throwing, leaving the pipe branch's `shell: true`
+ * resolution a last chance (SC-1).
+ */
+export function resolveClaudeCommand(
+  platform: string,
+  pathDirs: string[],
+  exists: (path: string) => boolean,
+): string {
+  const isWin = platform === 'win32';
+  const names = isWin ? WIN32_NAMES : ['claude'];
+  // Separators follow the ARGUMENT, not the host, so the function is honest about the
+  // platform it was asked about (and testable for either from either).
+  const joinFor = isWin ? win32.join : posix.join;
+  for (const dir of pathDirs) {
+    for (const name of names) {
+      const candidate = joinFor(dir, name);
+      if (exists(candidate)) return candidate;
+    }
+  }
+  return 'claude';
+}
+
+/** `resolveClaudeCommand` bound to the real environment. */
+function claudeCommand(): string {
+  return resolveClaudeCommand(
+    process.platform,
+    (process.env['PATH'] ?? '').split(delimiter).filter((d) => d !== ''),
+    existsSync,
+  );
+}
+
 /** Spawn the driven login. Prefers a PTY; degrades to a plain pipe. */
 export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
   const env = { ...process.env, CLAUDE_CONFIG_DIR: opts.dir };
@@ -70,8 +111,7 @@ export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
   void (async () => {
     try {
       const pty = await import('node-pty');
-      const cmd = process.platform === 'win32' ? 'claude.cmd' : 'claude';
-      const child = pty.spawn(cmd, LOGIN_ARGS(opts.email), { env: env as Record<string, string>, cols: 120, rows: 30 });
+      const child = pty.spawn(claudeCommand(), LOGIN_ARGS(opts.email), { env: env as Record<string, string>, cols: 120, rows: 30 });
       proc.ptyCaptured = true;
       proc.write = (d) => child.write(d);
       proc.kill = () => child.kill();
