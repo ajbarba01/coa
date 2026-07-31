@@ -6,6 +6,7 @@ import {
   browserProfileDir,
   detectBrowser,
   isSafeAccountId,
+  isSafeBrowserPath,
   launcherPath,
   launcherScript,
   type BrowserSessionSettings,
@@ -78,6 +79,20 @@ describe('profile keying', () => {
   });
 });
 
+describe('override path safety', () => {
+  it('accepts an ordinary install path', () => {
+    expect(isSafeBrowserPath('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')).toBe(
+      true,
+    );
+  });
+
+  it('rejects a quote, a percent sign, and a newline — each breaks the shim differently', () => {
+    expect(isSafeBrowserPath('C:\\evil".exe')).toBe(false);
+    expect(isSafeBrowserPath('C:\\evil%CD%.exe')).toBe(false);
+    expect(isSafeBrowserPath('C:\\evil\r\n.exe')).toBe(false);
+  });
+});
+
 describe('launcher script', () => {
   const opts = { browserPath: 'C:\\b\\chrome.exe', profileDir: 'C:\\p\\9f2c' };
 
@@ -130,9 +145,36 @@ describe('BrowserSession', () => {
   });
 
   it('honors an override browser over detection', () => {
-    const { session, written } = harness({ enabled: true, browserPath: 'D:\\brave.exe' });
+    const { session, written } = harness({ enabled: true, browserPath: 'D:\\brave.exe' }, [
+      CHROME,
+      'D:\\brave.exe',
+    ]);
     const launcher = session.launcherFor('claude', '9f2c');
     expect(written.get(launcher!)).toContain('D:\\brave.exe');
+  });
+
+  it('treats an override that does not exist as unavailable, never substituting the detected browser', () => {
+    const { session, written } = harness({ enabled: true, browserPath: 'D:\\ghost.exe' });
+    expect(session.override()).toBeUndefined();
+    expect(session.browser()).toBeUndefined();
+    expect(session.available()).toBe(false);
+    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(written.size).toBe(0);
+  });
+
+  it('trims a padded override before checking and using it', () => {
+    const { session } = harness({ enabled: true, browserPath: `  ${CHROME}  ` });
+    expect(session.override()).toBe(CHROME);
+    expect(session.browser()).toBe(CHROME);
+  });
+
+  it('rejects an override carrying shell metacharacters even when the path exists, never substituting detection', () => {
+    const evil = 'D:\\evil".exe';
+    const { session, written } = harness({ enabled: true, browserPath: evil }, [CHROME, evil]);
+    expect(session.override()).toBeUndefined();
+    expect(session.available()).toBe(false);
+    expect(session.launcherFor('claude', '9f2c')).toBeUndefined();
+    expect(written.size).toBe(0);
   });
 
   it('offers no launcher when the setting is off — today\u2019s spawn, byte for byte', () => {
@@ -173,7 +215,10 @@ describe('BrowserSession', () => {
   });
 
   it('reports detection and the override separately, so the UI can prefill', () => {
-    const { session } = harness({ enabled: true, browserPath: 'D:\\brave.exe' });
+    const { session } = harness({ enabled: true, browserPath: 'D:\\brave.exe' }, [
+      CHROME,
+      'D:\\brave.exe',
+    ]);
     expect(session.detected()).toBe(CHROME);
     expect(session.override()).toBe('D:\\brave.exe');
     expect(session.browser()).toBe('D:\\brave.exe');

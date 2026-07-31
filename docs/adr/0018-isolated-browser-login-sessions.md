@@ -1,6 +1,6 @@
 # 0018 — Isolated browser login sessions, keyed by account, at the provider-descriptor layer
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-07-30
 
 ## Context and problem
@@ -57,9 +57,15 @@ the problem.
   policy; off-by-default keeps D85; every failure degrades (SC-1).
 - **Good:** paste-code return means no callback interception — the hardest piece of the original
   embedded design is gone.
-- **Bad / cost:** per-account Chrome profiles are tens of MB and accumulate (mitigated by
-  prompt-to-remove on account removal); win32-only detection in v1 (others fall back); relies on
-  the CLI honoring `BROWSER` (spike-confirmed on 2.1.220, but a CLI behavior coa does not own —
-  the fallback covers regressions).
+- **Bad / cost:** per-account Chrome profiles are tens of MB and accumulate. The prompt-to-remove
+  on account removal only covers logins that landed: a cancelled login, a failed login, and a
+  mismatch `retry` (which mints a fresh profile id on purpose — a retry should get a clean jar)
+  all strand a populated profile dir no account row references, and `hasProfile` only reports for
+  registered accounts, so the removal prompt can never reach an orphan. No pruner or sweeper
+  exists for these — deleting a directory without an account behind it is a decision for the
+  maintainer to make deliberately, not something to do silently; win32-only detection in v1
+  (others fall back); relies on the CLI honoring `BROWSER` (spike-confirmed on 2.1.220, but a CLI
+  behavior coa does not own — the fallback covers regressions).
 - **Follow-up:** confirm in the next attended run that `BROWSER` replaces rather than supplements
-  the default open, end to end with a real CLI-generated authorize URL.
+  the default open, end to end with a real CLI-generated authorize URL. The shim's URL quoting is
+  covered by a `COA_LIVE`-gated round-trip test; the handshake itself is attended-only.

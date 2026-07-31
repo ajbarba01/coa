@@ -249,7 +249,13 @@ everything else the new design overwrites.
   truth, mismatch flagged with keep/retry), login health from `claude auth status --json` + live-session
   auth failures (never token files), attention badges on the nav tab / provider row / account HUD with a
   one-click driven re-login, and a PTY-captured OAuth copy-link that degrades to browser-only —
-  [ADR-0017](docs/adr/0017-probe-derived-login-health.md).
+  [ADR-0017](docs/adr/0017-probe-derived-login-health.md). **Isolated browser logins shipped:** a global, off-by-default toggle signs each account in
+  through a browser launched on its own profile dir (`~/.coa/browser-profiles/<account-id>`),
+  redirected via `BROWSER` on the `claude auth login` spawn, so an email-defined account is
+  enforced rather than declared; accounts gained a stable opaque id, and removing one prompts
+  about its profile. win32 Chrome/Edge detection with an override; anything missing degrades to
+  the copy-link + paste-code path —
+  [ADR-0018](docs/adr/0018-isolated-browser-login-sessions.md).
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).

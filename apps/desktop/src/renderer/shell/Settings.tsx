@@ -10,8 +10,10 @@ import {
   TocRail,
   cx,
 } from '@coa/console-kit';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ConsoleSettings } from '../../shared/settings.js';
+import { TextInput } from '../panels/fields.js';
+import { useMockAuth } from '../panels/mockAuth.js';
 import { useConsoleState } from './consoleStore.js';
 import { useKeybinds } from './keys.js';
 import { useShell } from './store.js';
@@ -36,6 +38,60 @@ interface SectionSpec {
   id: string;
   title: string;
   rows: RowSpec[];
+}
+
+/** The isolation toggle. Daemon-owned (the login spawn reads it, not the renderer), so it
+ *  renders from the auth view rather than from `ConsoleSettings` — and it is never
+ *  disabled: with no browser found it still says what it found and stays flippable, and
+ *  the login just takes the copy-link path (SC-1, docs/adr/0018). The hydrate that fills
+ *  `browserSession` lives on {@link SettingsDialog}, not here — a search query can filter
+ *  this row out of the mounted tree while `BrowserPathRow` survives, and that row must not
+ *  be left reading an unhydrated store. */
+export function IsolatedBrowserRow(): React.JSX.Element {
+  const session = useMockAuth((s) => s.browserSession);
+  const setOn = useMockAuth((s) => s.setIsolatedBrowserLogins);
+  return (
+    <span className="flex flex-none items-center gap-2.5">
+      {!session.available && <span className="font-mono text-meta text-s7">no browser found</span>}
+      <Toggle
+        on={session.enabled}
+        onChange={(on) => void setOn(on).catch(() => {})}
+        aria-label="dedicated browser profile"
+      />
+    </span>
+  );
+}
+
+/** The binary override, prefilled from detection — an override is a correction, never a
+ *  required setup step. Blank clears it back to auto-detection. */
+export function BrowserPathRow(): React.JSX.Element {
+  const session = useMockAuth((s) => s.browserSession);
+  const setPath = useMockAuth((s) => s.setBrowserPath);
+  const resolved = session.path ?? session.detectedPath ?? '';
+  const [value, setValue] = useState(resolved);
+  // Re-seed when detection or the stored override changes underneath the field.
+  useEffect(() => setValue(resolved), [resolved]);
+  const commit = (): void => {
+    const trimmed = value.trim();
+    // With no override stored, a value byte-identical to what the field was seeded with
+    // (detection, or blank when the store hasn't hydrated yet) is not an edit — committing
+    // it anyway would either pin auto-detection as an explicit override that goes stale
+    // the moment the browser moves, or — for a row that mounted alone against an
+    // unhydrated store (docs/adr/0018) — silently clear a real override the daemon still
+    // has that this render never got to see.
+    if (session.path === undefined && trimmed === resolved) return;
+    void setPath(trimmed).catch(() => {});
+  };
+  return (
+    <TextInput
+      value={value}
+      onChange={setValue}
+      onCommit={commit}
+      placeholder="auto-detect"
+      aria-label="browser"
+      className="w-64 flex-none"
+    />
+  );
 }
 
 const SECTIONS: SectionSpec[] = [
@@ -71,8 +127,27 @@ const SECTIONS: SectionSpec[] = [
           <Toggle
             on={settings.motion === 'reduce'}
             onChange={(on) => apply({ motion: on ? 'reduce' : 'full' })}
+            aria-label="reduce motion"
           />
         ),
+      },
+    ],
+  },
+  {
+    id: 'logins',
+    title: 'logins',
+    rows: [
+      {
+        id: 'isolated-browser',
+        name: 'Dedicated browser profile',
+        desc: 'Sign each account in through its own browser profile, so the account you name is the account that lands. Off keeps today’s browser.',
+        render: () => <IsolatedBrowserRow />,
+      },
+      {
+        id: 'browser-binary',
+        name: 'Browser',
+        desc: 'Which browser those profiles open in. Detected automatically — set a path only to correct it.',
+        render: () => <BrowserPathRow />,
       },
     ],
   },
@@ -89,6 +164,17 @@ export function SettingsDialog(): React.JSX.Element {
 
   const settings = state?.ui.settings;
   const apply = (patch: Partial<ConsoleSettings>): void => state?.actions.setSettings(patch);
+
+  // The login rows' `browserSession` read lives here, not on either row: a search query
+  // can leave only one of the two mounted, and the dialog is the one thing guaranteed
+  // present whenever a row could be — the read must not depend on which row survives.
+  useEffect(() => {
+    if (!open) return;
+    void useMockAuth
+      .getState()
+      .hydrate()
+      .catch(() => {});
+  }, [open]);
 
   const query = q.trim().toLowerCase();
   const visible = SECTIONS.map((s) => ({

@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useMockAuth } from '../panels/mockAuth.js';
 import { makeState } from '../panels/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
-import { SettingsDialog } from './Settings.js';
+import { BrowserPathRow, IsolatedBrowserRow, SettingsDialog } from './Settings.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
+const initialAuth = useMockAuth.getState();
 
 function open(setSettings = vi.fn()): ReturnType<typeof vi.fn> {
   publishConsoleState(makeState({ actions: { setSettings } }));
@@ -18,20 +21,23 @@ function open(setSettings = vi.fn()): ReturnType<typeof vi.fn> {
 beforeEach(() => {
   useShell.setState(initialShell, true);
   useConsoleState.setState(undefined, true);
+  useMockAuth.setState(initialAuth, true);
 });
 
 describe('SettingsDialog', () => {
   it('persists a motion change through the console settings action', () => {
     const setSettings = open();
-    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(screen.getByRole('switch', { name: 'reduce motion' }));
     expect(setSettings).toHaveBeenCalledWith({ motion: 'reduce' });
   });
 
   it('shows the pinned theme as a read-only value', () => {
     open();
     expect(screen.getByText('sand dark')).toBeTruthy();
-    // No theme control to operate — one switch (motion) and one select (density).
-    expect(screen.getAllByRole('switch')).toHaveLength(1);
+    // No theme control to operate within appearance — one switch (motion) and one
+    // select (density); the logins section carries its own switch separately.
+    const appearance = document.querySelector('[data-section="appearance"]') as HTMLElement;
+    expect(within(appearance).getAllByRole('switch')).toHaveLength(1);
   });
 
   it('search filters rows and keybinds together', () => {
@@ -47,5 +53,89 @@ describe('SettingsDialog', () => {
     open();
     expect(screen.getByText('command palette')).toBeTruthy();
     expect(screen.getByText('toggle the session panel')).toBeTruthy();
+  });
+});
+
+describe('login settings rows', () => {
+  it('reflects the daemon toggle and flips it', async () => {
+    const setIsolated = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({
+      browserSession: { enabled: false, available: true },
+      setIsolatedBrowserLogins: setIsolated,
+    });
+    render(<IsolatedBrowserRow />);
+    await userEvent.click(screen.getByRole('switch'));
+    expect(setIsolated).toHaveBeenCalledWith(true);
+  });
+
+  it('says so when no browser was found instead of hiding the control', () => {
+    useMockAuth.setState({ browserSession: { enabled: true, available: false } });
+    render(<IsolatedBrowserRow />);
+    expect(screen.getByText(/no browser found/i)).toBeTruthy();
+    expect(screen.getByRole('switch')).toBeTruthy();
+  });
+
+  it('prefills the override from detection and commits an edit', async () => {
+    const setPath = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({
+      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe' },
+      setBrowserPath: setPath,
+    });
+    render(<BrowserPathRow />);
+    const field = screen.getByLabelText('browser');
+    expect((field as HTMLInputElement).value).toBe('C:\\chrome.exe');
+    await userEvent.clear(field);
+    await userEvent.type(field, 'D:\\brave.exe{Enter}');
+    expect(setPath).toHaveBeenCalledWith('D:\\brave.exe');
+  });
+
+  it('does not pin auto-detection as an override when Enter is pressed without editing', async () => {
+    const setPath = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({
+      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe' },
+      setBrowserPath: setPath,
+    });
+    render(<BrowserPathRow />);
+    const field = screen.getByLabelText('browser');
+    field.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(setPath).not.toHaveBeenCalled();
+  });
+
+  it('does not clear a stored override when it mounts alone against an unhydrated store', async () => {
+    // Reproduces the search-filtered case: BrowserPathRow is the only row a query left
+    // mounted, so it never sees the daemon's real answer — a blank field must not read as
+    // "the user wants no override" and blindly commit that over what the daemon has.
+    const setPath = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({ setBrowserPath: setPath });
+    render(<BrowserPathRow />);
+    const field = screen.getByLabelText('browser');
+    expect((field as HTMLInputElement).value).toBe('');
+    field.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(setPath).not.toHaveBeenCalled();
+  });
+
+  it('no longer hydrates from IsolatedBrowserRow — that is the dialog\u2019s job now', async () => {
+    // A row-owned hydrate breaks the moment a search query filters that row out of the
+    // mounted tree; the dialog is the one thing guaranteed present regardless of the
+    // query, so it is the one that must own the read (docs/adr/0018).
+    const hydrate = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({ hydrate });
+    render(<IsolatedBrowserRow />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(hydrate).not.toHaveBeenCalled();
+  });
+
+  it('hydrates the browser session from the dialog itself on open', async () => {
+    const hydrate = vi.fn().mockResolvedValue(undefined);
+    useMockAuth.setState({ hydrate });
+    useShell.getState().setSettingsOpen(false);
+    publishConsoleState(makeState({ actions: { setSettings: vi.fn() } }));
+    render(<SettingsDialog />);
+    expect(hydrate).not.toHaveBeenCalled();
+
+    useShell.getState().setSettingsOpen(true);
+    await waitFor(() => expect(hydrate).toHaveBeenCalled());
   });
 });

@@ -5,7 +5,7 @@ import type { LoginSnapshot } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
 import { TextInput } from './fields.js';
 import { useLogin } from './loginStore.js';
-import type { Credential } from './mockAuth.js';
+import { useMockAuth, type Credential } from './mockAuth.js';
 import { RISE, SLIP_SWIFT } from './motion.js';
 import type { ProviderDescriptor } from './providers.js';
 
@@ -84,7 +84,14 @@ export function LoginDialog(): React.JSX.Element | null {
   const polling = flow !== undefined;
   useEffect(() => {
     if (!polling) return;
-    const timer = setInterval(() => void useLogin.getState().poll().catch(() => {}), POLL_MS);
+    const timer = setInterval(
+      () =>
+        void useLogin
+          .getState()
+          .poll()
+          .catch(() => {}),
+      POLL_MS,
+    );
     return () => clearInterval(timer);
   }, [polling]);
 
@@ -93,7 +100,11 @@ export function LoginDialog(): React.JSX.Element | null {
   // Escape/backdrop is safe at every phase: a pre-step just closes; a live flow cancels —
   // the CLI is killed and nothing registers (the daemon clears to idle).
   const close = (): void => {
-    if (flow !== undefined) void useLogin.getState().cancelLogin().catch(() => {});
+    if (flow !== undefined)
+      void useLogin
+        .getState()
+        .cancelLogin()
+        .catch(() => {});
     if (pre !== undefined) setLoginEmailFor(undefined);
   };
 
@@ -118,6 +129,7 @@ function EmailStep({
   credentialId?: string | undefined;
 }): React.JSX.Element {
   const setLoginEmailFor = useShell((s) => s.setLoginEmailFor);
+  const isolated = useMockAuth((s) => s.browserSession.enabled && s.browserSession.available);
   const [email, setEmail] = useState('');
   const valid = looksLikeEmail(email);
 
@@ -154,11 +166,12 @@ function EmailStep({
             aria-label="email"
           />
         </label>
-        {/* The pre-fill claim stays until the browser-session spike settles whether coa
-            can actually honor it; the credential-blindness clause is gone from here —
-            that fact is stated once, at registration, where it is load-bearing. */}
+        {/* Isolation is real now (ADR-0018) — the copy names the dedicated profile only
+            when it's actually live, never as an aspiration. */}
         <span className="text-meta leading-relaxed text-s7">
-          Claude&apos;s sign-in opens in your browser, pre-filled with this email.
+          {isolated
+            ? 'Claude’s sign-in opens in its own browser profile for this account, pre-filled with this email — so the account you name is the account that lands.'
+            : 'Claude’s sign-in opens in your browser, pre-filled with this email.'}
         </span>
       </div>
       <footer className="flex items-center justify-end gap-2 border-t border-s3 px-4 py-3">

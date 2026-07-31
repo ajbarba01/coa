@@ -16,11 +16,24 @@ const rpc = vi.hoisted(() => ({
   rpcReportAuthFailure: vi.fn(),
 }));
 vi.mock('../console.js', () => rpc);
-const hydrate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock('./mockAuth.js', () => ({ useMockAuth: { getState: () => ({ hydrate }) } }));
+// Same stub-store shape as `hydrate` was (loginStore's `apply` calls it on every finalize),
+// widened to also carry the isolated-browser-session read the pre-step now projects — a
+// minimal double, not the real daemon-backed store (ADR-0018).
+const authState = vi.hoisted(() => ({
+  hydrate: vi.fn().mockResolvedValue(undefined),
+  browserSession: { enabled: false, available: false },
+}));
+type AuthStateStub = typeof authState;
+vi.mock('./mockAuth.js', () => ({
+  useMockAuth: Object.assign((selector: (s: AuthStateStub) => boolean) => selector(authState), {
+    getState: () => authState,
+    setState: (partial: Partial<AuthStateStub>) => Object.assign(authState, partial),
+  }),
+}));
 
 import { useLogin } from './loginStore.js';
 import { LoginDialog, SignInButton } from './LoginFlow.js';
+import { useMockAuth } from './mockAuth.js';
 import { PROVIDERS } from './providers.js';
 
 const claude = PROVIDERS.find((p) => p.id === 'claude');
@@ -28,11 +41,24 @@ if (claude === undefined) throw new Error('claude missing from the provider regi
 
 const SHELL_SEED = useShell.getState();
 
+/** The file's one way of opening the email-first step: the driven sign-in button, same as
+ *  a person clicks. No second path to keep in sync with it. */
+function renderEmailStep(): void {
+  render(
+    <>
+      <SignInButton provider={claude} />
+      <LoginDialog />
+    </>,
+  );
+  fireEvent.click(screen.getByText('sign in'));
+}
+
 describe('the driven login dialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useLogin.setState({ flow: undefined });
     useShell.setState(SHELL_SEED, true);
+    useMockAuth.setState({ browserSession: { enabled: false, available: false } });
   });
 
   it('sign in opens the email-first step and starts the flow with the email', () => {
@@ -47,6 +73,20 @@ describe('the driven login dialog', () => {
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'a@x.org' } });
     fireEvent.click(screen.getByText(/continue/i));
     expect(rpc.rpcStartLogin).toHaveBeenCalledWith({ email: 'a@x.org' });
+  });
+
+  describe('the email pre-step', () => {
+    it('names the dedicated profile in the pre-step when isolation is live', () => {
+      useMockAuth.setState({ browserSession: { enabled: true, available: true } });
+      renderEmailStep();
+      expect(screen.getByText(/its own browser profile/i)).toBeTruthy();
+    });
+
+    it('keeps today’s copy when isolation is off', () => {
+      useMockAuth.setState({ browserSession: { enabled: false, available: false } });
+      renderEmailStep();
+      expect(screen.getByText(/opens in your browser/i)).toBeTruthy();
+    });
   });
 
   it('awaiting shows the captured url with a copy affordance', () => {

@@ -1,6 +1,7 @@
 # Browser-profile login isolation — design
 
-**Status:** design, approved for planning (2026-07-30). No implementation yet.
+**Status:** implemented (2026-07-30 design; shipped on `main`). The attended `BROWSER`
+replace-vs-supplement confirmation is the one open item — see ADR-0018's follow-up.
 
 **Goal.** Let coa sign each account in through a **real browser launched with a dedicated
 profile directory**, so each account has its own cookie jar and a sign-in — including

@@ -57,6 +57,15 @@ export function isSafeAccountId(id: string): boolean {
   return /^[A-Za-z0-9_-]{1,64}$/.test(id);
 }
 
+/** Pure: guards a path about to be embedded verbatim in a generated shell script. A `"`
+ *  breaks the shim's own quoting, a `%` on win32 triggers cmd variable expansion, and a
+ *  newline lets one settings value smuggle in a second command. Detection never produces
+ *  any of these (real chrome.exe/msedge.exe install paths) — only a hand-edited override
+ *  can, so this is a guard against that input, not a normalizer. */
+export function isSafeBrowserPath(path: string): boolean {
+  return !/["%\r\n]/.test(path);
+}
+
 /** Pure: an account's browser profile (its own cookie jar), keyed by account id — never
  *  by email or label, both of which change and whose slugs collide. */
 export function browserProfileDir(home: string, accountId: string): string {
@@ -145,15 +154,33 @@ export class BrowserSession implements BrowserSessionView {
     return detectBrowser(this.#deps.platform, this.#deps.env, (path) => this.#exists(path));
   }
 
-  /** The user's explicit choice, if they made one. Blank is not a choice. */
-  override(): string | undefined {
+  /** The settings field, trimmed, iff it holds something. Blank is not a choice — kept
+   *  separate from {@link override} because a choice that fails validation must still
+   *  block the fallback to detection in {@link browser}, not be treated as no choice. */
+  #rawOverride(): string | undefined {
     const path = this.#deps.settings().browserPath;
-    return path === undefined || path.trim() === '' ? undefined : path;
+    if (path === undefined) return undefined;
+    const trimmed = path.trim();
+    return trimmed === '' ? undefined : trimmed;
   }
 
-  /** The binary a launch would actually use. */
+  /** The user's explicit choice, narrowed to one a launch could actually use: it exists
+   *  on disk and carries none of the characters {@link isSafeBrowserPath} rejects.
+   *  Trimmed, so a hand-edited `console.yaml` with padding can't reach the shim verbatim.
+   *  An override that fails either check reports as no override here — {@link browser}
+   *  is what keeps that distinct from never having set one. */
+  override(): string | undefined {
+    const raw = this.#rawOverride();
+    if (raw === undefined || !isSafeBrowserPath(raw)) return undefined;
+    return this.#exists(raw) ? raw : undefined;
+  }
+
+  /** The binary a launch would actually use. An override that exists in the settings but
+   *  fails validation makes this — and `available()` — `undefined` rather than quietly
+   *  substituting the detected browser: the user asked for a specific binary, and
+   *  launching a different one instead would be its own dishonesty (docs/adr/0018). */
   browser(): string | undefined {
-    return this.override() ?? this.detected();
+    return this.#rawOverride() === undefined ? this.detected() : this.override();
   }
 
   available(): boolean {

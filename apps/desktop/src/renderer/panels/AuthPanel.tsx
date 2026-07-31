@@ -243,6 +243,7 @@ export function AuthSurface(): React.JSX.Element {
 
       <AddProviderDialog open={adding} onClose={() => setAdding(false)} onAdded={select} />
       <RemoveProviderDialog />
+      <RemoveCredentialDialog />
     </div>
   );
 }
@@ -255,8 +256,17 @@ function RemoveProviderDialog(): React.JSX.Element {
   const setConfirm = useShell((s) => s.setConfirmRemoveProvider);
   const removeProvider = useMockAuth((s) => s.removeProvider);
   const count = useMockAuth((s) => s.credentials.filter((c) => c.providerId === providerId).length);
+  // How many of the provider's logins carry a dedicated browser profile — zero renders no
+  // opt-in at all (D85: a provider that never used isolation removes exactly as it does today).
+  const profiles = useMockAuth(
+    (s) => s.credentials.filter((c) => c.providerId === providerId && c.hasProfile === true).length,
+  );
   const provider = providerId === undefined ? undefined : providerById(providerId);
-  const close = (): void => setConfirm(undefined);
+  const [alsoProfiles, setAlsoProfiles] = useState(false);
+  const close = (): void => {
+    setConfirm(undefined);
+    setAlsoProfiles(false);
+  };
 
   const consequence =
     provider === undefined
@@ -280,7 +290,19 @@ function RemoveProviderDialog(): React.JSX.Element {
             <BrandMark spec={provider.mark} />
             <span className="text-sec font-semibold text-s11">remove {provider.label}?</span>
           </div>
-          <div className="px-4 py-4 text-code leading-relaxed text-s9">{consequence}</div>
+          <div className="flex flex-col gap-3 px-4 py-4 text-code leading-relaxed text-s9">
+            <span>{consequence}</span>
+            {profiles > 0 && (
+              <label className="flex items-center gap-2.5">
+                <Toggle
+                  on={alsoProfiles}
+                  onChange={setAlsoProfiles}
+                  aria-label={`also delete their ${profiles} browser profile${profiles === 1 ? '' : 's'}`}
+                />
+                <span>{`also delete their ${profiles} browser profile${profiles === 1 ? '' : 's'}`}</span>
+              </label>
+            )}
+          </div>
           <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
             <Button variant="outline" onClick={close}>
               cancel
@@ -288,11 +310,74 @@ function RemoveProviderDialog(): React.JSX.Element {
             <Button
               variant="quiet"
               onClick={() => {
-                void removeProvider(provider.id).catch(() => {});
+                void removeProvider(provider.id, profiles > 0 ? alsoProfiles : undefined).catch(
+                  () => {},
+                );
                 close();
               }}
             >
               <span className="text-crit">remove provider</span>
+            </Button>
+          </div>
+        </>
+      )}
+    </ModalShell>
+  );
+}
+
+/** Removing a login that has a dedicated browser profile asks about the profile too: it is
+ *  tens of MB of cookie jar on disk, and deleting it is a filesystem act the user should
+ *  see rather than inherit. Keeping it is the default — the cautious half of a destructive
+ *  choice (docs/adr/0018). */
+function RemoveCredentialDialog(): React.JSX.Element {
+  const id = useShell((s) => s.confirmRemoveCredential);
+  const setConfirm = useShell((s) => s.setConfirmRemoveCredential);
+  const removeCredential = useMockAuth((s) => s.removeCredential);
+  const credential = useMockAuth((s) => s.credentials.find((c) => c.id === id));
+  const [alsoProfile, setAlsoProfile] = useState(false);
+  const close = (): void => {
+    setConfirm(undefined);
+    setAlsoProfile(false);
+  };
+
+  return (
+    <ModalShell
+      open={credential !== undefined}
+      onClose={close}
+      aria-label="remove login"
+      className="w-96"
+    >
+      {credential !== undefined && (
+        <>
+          <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
+            <span className="text-sec font-semibold text-s11">remove {credential.label}?</span>
+          </div>
+          <div className="flex flex-col gap-3 px-4 py-4 text-code leading-relaxed text-s9">
+            <span>
+              coa forgets this login. The login itself stays where it lives — nothing is touched at
+              the provider.
+            </span>
+            <label className="flex items-center gap-2.5">
+              <Toggle
+                on={alsoProfile}
+                onChange={setAlsoProfile}
+                aria-label="also delete the browser profile"
+              />
+              <span>also delete the browser profile (its cookies and cache, tens of MB)</span>
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
+            <Button variant="outline" onClick={close}>
+              cancel
+            </Button>
+            <Button
+              variant="quiet"
+              onClick={() => {
+                void removeCredential(credential.id, alsoProfile).catch(() => {});
+                close();
+              }}
+            >
+              <span className="text-crit">remove login</span>
             </Button>
           </div>
         </>
@@ -485,7 +570,9 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
               {/* The advanced manual path — for a dir that's already logged in
                   (strict-superset: the driven flow is primary, never the only door). */}
               {provider.locator === 'config-dir' && (
-                <MenuItem onClick={() => setAdding(true)}>point at an existing config dir…</MenuItem>
+                <MenuItem onClick={() => setAdding(true)}>
+                  point at an existing config dir…
+                </MenuItem>
               )}
               {/* Removal takes every credential with it — big enough to ask first. */}
               <MenuItem onClick={() => confirmRemove(providerId)}>
@@ -799,7 +886,18 @@ function CredentialRow({
               clear cooldown
             </MenuItem>
           )}
-          <MenuItem onClick={() => void removeCredential(credential.id).catch(() => {})}>
+          <MenuItem
+            onClick={() => {
+              // D85: a login that never used isolation has nothing to ask about — one click,
+              // exactly as it did before ADR-0018. `hasProfile` is the only thing that
+              // routes this through a prompt instead.
+              if (credential.hasProfile === true) {
+                useShell.getState().setConfirmRemoveCredential(credential.id);
+              } else {
+                void removeCredential(credential.id, undefined).catch(() => {});
+              }
+            }}
+          >
             <span className="text-crit">remove</span>
           </MenuItem>
         </RowMenu>

@@ -44,6 +44,8 @@ export interface ShellState {
   addModelsProvider?: string | undefined;
   /** The custom model the remove-confirm dialog is asking about (undefined = closed). */
   confirmRemoveModel?: { providerId: string; id: string } | undefined;
+  /** The login the remove-confirm dialog is asking about (undefined = closed). */
+  confirmRemoveCredential?: string | undefined;
   /** The provider whose driven-login EMAIL pre-step is open (undefined = closed). Only the
    *  renderer-local pre-step joins the exclusive set — once the daemon owns a flow, the
    *  dialog projects daemon state and is dismissed only by an explicit cancel (killing a
@@ -93,6 +95,7 @@ export interface ShellState {
   setConfirmRemoveProvider: (providerId: string | undefined) => void;
   setAddModelsProvider: (providerId: string | undefined) => void;
   setConfirmRemoveModel: (target: { providerId: string; id: string } | undefined) => void;
+  setConfirmRemoveCredential: (id: string | undefined) => void;
   setLoginEmailFor: (target: { providerId: string; credentialId?: string } | undefined) => void;
   /** Put the caret in the composer — whatever the user types next is a message. */
   focusComposer: () => void;
@@ -114,6 +117,7 @@ const CLOSE_ALL_DIALOGS = {
   confirmRemoveProvider: undefined,
   addModelsProvider: undefined,
   confirmRemoveModel: undefined,
+  confirmRemoveCredential: undefined,
   loginEmailFor: undefined,
 } as const;
 
@@ -136,6 +140,7 @@ export const useShell = create<ShellState>((set, get) => ({
   confirmRemoveProvider: undefined,
   addModelsProvider: undefined,
   confirmRemoveModel: undefined,
+  confirmRemoveCredential: undefined,
   loginEmailFor: undefined,
   composerFocus: 0,
   daemon: 'stopped',
@@ -225,6 +230,12 @@ export const useShell = create<ShellState>((set, get) => ({
       target !== undefined
         ? { ...CLOSE_ALL_DIALOGS, confirmRemoveModel: target }
         : { confirmRemoveModel: undefined },
+    ),
+  setConfirmRemoveCredential: (id) =>
+    set(
+      id !== undefined
+        ? { ...CLOSE_ALL_DIALOGS, confirmRemoveCredential: id }
+        : { confirmRemoveCredential: undefined },
     ),
   setLoginEmailFor: (target) =>
     set(

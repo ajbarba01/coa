@@ -423,7 +423,9 @@ describe('AuthSurface', () => {
     const afterAdd: AuthView = { ...EMPTY_VIEW, added: ['exa'], enabled: { exa: true } };
     const afterCredential: AuthView = {
       ...afterAdd,
-      credentials: [{ id: 'e1', providerId: 'exa', label: 'exa', masked: 'exa-…456', disabled: false }],
+      credentials: [
+        { id: 'e1', providerId: 'exa', label: 'exa', masked: 'exa-…456', disabled: false },
+      ],
     };
     vi.mocked(rpcAddProvider).mockResolvedValue(afterAdd);
     vi.mocked(rpcAddCredential).mockResolvedValue(afterCredential);
@@ -642,7 +644,10 @@ describe('AuthSurface', () => {
   it('benches a provider by calling rpcSetProviderEnabled — credentials stay untouched', async () => {
     const user = userEvent.setup();
     await renderAuth();
-    const benched: AuthView = { ...FIXTURE_VIEW, enabled: { ...FIXTURE_VIEW.enabled, tavily: false } };
+    const benched: AuthView = {
+      ...FIXTURE_VIEW,
+      enabled: { ...FIXTURE_VIEW.enabled, tavily: false },
+    };
     vi.mocked(rpcSetProviderEnabled).mockResolvedValue(benched);
     const before = useMockAuth.getState().credentials.length;
 
@@ -728,5 +733,62 @@ describe('login health on the surface', () => {
     // label differs ⇒ nickname first, the probe identity (carrying the email) beneath.
     expect(screen.getByText('school')).toBeTruthy();
     expect(screen.getByText('alex@barba.edu · pro')).toBeTruthy();
+  });
+});
+
+/** One claude login, with the surface's provider list around it — the smallest view that
+ *  can exercise a removal. */
+const claudeOnly = (over: Partial<Credential> = {}): AuthView => ({
+  added: ['claude'],
+  credentials: [
+    {
+      id: 'claude:a@b.org',
+      providerId: 'claude',
+      label: 'a@b.org',
+      masked: '~/.coa/logins/a-b-org',
+      disabled: false,
+      email: 'a@b.org',
+      ...over,
+    },
+  ],
+  activeByProvider: { claude: 'claude:a@b.org' },
+  enabled: { claude: true },
+  chains: {},
+  browserSession: { enabled: true, available: true },
+});
+
+describe('removing a login with a browser profile', () => {
+  it('removes straight away when there is no profile to think about', async () => {
+    const user = userEvent.setup();
+    const remove = vi.fn().mockResolvedValue(undefined);
+    await renderAuth(claudeOnly());
+    useMockAuth.setState({ removeCredential: remove });
+    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
+    await user.click(await screen.findByText('remove'));
+    expect(remove).toHaveBeenCalledWith('claude:a@b.org', undefined);
+  });
+
+  it('asks before deleting a profile, and keeps it by default', async () => {
+    const user = userEvent.setup();
+    const remove = vi.fn().mockResolvedValue(undefined);
+    await renderAuth(claudeOnly({ hasProfile: true }));
+    useMockAuth.setState({ removeCredential: remove });
+    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
+    await user.click(await screen.findByText('remove'));
+    expect(remove).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: /remove login/i }));
+    expect(remove).toHaveBeenCalledWith('claude:a@b.org', false);
+  });
+
+  it('deletes the profile too when the prompt is opted into', async () => {
+    const user = userEvent.setup();
+    const remove = vi.fn().mockResolvedValue(undefined);
+    await renderAuth(claudeOnly({ hasProfile: true }));
+    useMockAuth.setState({ removeCredential: remove });
+    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
+    await user.click(await screen.findByText('remove'));
+    await user.click(screen.getByLabelText('also delete the browser profile'));
+    await user.click(screen.getByRole('button', { name: /remove login/i }));
+    expect(remove).toHaveBeenCalledWith('claude:a@b.org', true);
   });
 });

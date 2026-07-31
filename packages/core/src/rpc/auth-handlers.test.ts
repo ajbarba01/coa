@@ -632,4 +632,13 @@ describe('browser session over the auth verbs', () => {
     await h.removeProvider!.handle({ providerId: 'claude', removeProfiles: true });
     expect(browser.removed).toEqual(['abc123abc123']);
   });
+
+  it('deletes no profile a removed provider owned when not asked', async () => {
+    const deps = freshDeps(home);
+    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    const browser = browserStub();
+    const h = buildAuthHandlers({ ...deps, browser: browser.view });
+    await h.removeProvider!.handle({ providerId: 'claude' });
+    expect(browser.removed).toEqual([]);
+  });
 });
