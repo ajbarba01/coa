@@ -23,9 +23,6 @@ import {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
-// Cycle-safe on purpose: mockAuth imports this module's rpc wrappers, and both sides
-// touch the other only at runtime (inside functions), never during module init.
-import { useMockAuth } from './panels/mockAuth.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { configKey } from './panels/banners.js';
@@ -205,17 +202,14 @@ export function detectAuthFailure(frames: TurnFrame[]): boolean {
   return frames.some((f) => f.kind === 'error' && AUTH_FAILURE.test(f.message));
 }
 
-/** The live-session signal — the strongest health evidence there is (stronger than any
- *  probe: the loop just FAILED to authenticate). Flags the active claude login daemon-side
- *  and reprojects the auth store so the badges light in the same breath. Fire-and-forget:
- *  mis-detection costs an amber dot, never a block. */
-function reportActiveClaudeAuthFailure(): void {
-  const activeId = useMockAuth.getState().activeByProvider['claude'];
-  if (activeId === undefined) return;
-  void rpcReportAuthFailure(activeId)
-    .then(() => useMockAuth.getState().hydrate())
-    .catch(() => {});
-}
+/** The auth-failure hook, mirroring `onModelsChanged` below: the bootstrap registers the
+ *  store-side reporter (loginStore's — it owns the auth-store reach) so the push consumer
+ *  can flag the active login WITHOUT importing the auth store, which imports this module's
+ *  rpc wrappers — a static cycle the dependency ruleset forbids. */
+let authFailureSink: () => void = () => {};
+export const onAuthFailure = (fn: () => void): void => {
+  authFailureSink = fn;
+};
 
 /** The models-changed hook: the controller registers its `loadModels` here so a
  *  catalog edit refreshes the chip/agent-picker feed in the same breath. */
@@ -665,7 +659,7 @@ export async function startConsole(
       const frames = pushToViewFrames(data);
       // The live-failure hook: an auth-shaped error frame flags the active claude login
       // (advisory — the badge lights; nothing blocks, nothing switches).
-      if (detectAuthFailure(frames)) reportActiveClaudeAuthFailure();
+      if (detectAuthFailure(frames)) authFailureSink();
       appendTurns(data.sessionId, frames);
     }
   });

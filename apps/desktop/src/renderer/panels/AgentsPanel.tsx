@@ -416,6 +416,9 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
           label="Model"
           value={a.model ?? vm.models[0]?.id ?? ''}
           onValueChange={(model) => {
+            // The empty-list "backend default" row is a statement, not a value — picking
+            // it must not write an empty model id onto the agent.
+            if (model === '') return;
             // The chosen model carries its provider (the list is merged across backends);
             // store it so the session routes there. Keep the reasoning valid for the new
             // model (an effort/budget it doesn't offer resets to default).
@@ -432,7 +435,9 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
               ? vm.models.map((m) => ({ value: m.id, label: modelPickerLabel(m) }))
               : a.model !== undefined
                 ? [{ value: a.model, label: a.model }]
-                : []
+                : // An emptied list degrades honestly: the backend default runs, so the
+                  // picker says so rather than opening on nothing.
+                  [{ value: '', label: 'backend default' }]
           }
         />
         <ReasoningField

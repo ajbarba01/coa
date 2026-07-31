@@ -15,6 +15,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import type { ModelEntry, ReasoningProfile } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
+import { TextInput } from './fields.js';
 import { RISE, SLIP_ENTER } from './motion.js';
 import {
   EFFORTS,
@@ -92,8 +93,14 @@ export function ModelsSection({ provider }: { provider: ProviderDescriptor }): R
       </AnimatePresence>
 
       {models.length === 0 && !creating && (
-        <div className="py-6 text-center text-sec text-s7">
-          no models — the picker falls back to {provider.label}&apos;s backend default
+        <div className="flex flex-col gap-1 py-6 text-center text-sec text-s7">
+          <span>no models — the picker falls back to {provider.label}&apos;s backend default</span>
+          {(provider.id === 'deepseek' || provider.id === 'longcat') && (
+            <span className="text-meta text-s6">
+              ids from an adapter config file aren&apos;t migrated — re-add them here to see them
+              in the pickers
+            </span>
+          )}
         </div>
       )}
 
@@ -174,7 +181,9 @@ function ModelRow({
   const hidden = model.hidden === true;
   return (
     <div
-      className="slip group flex items-center gap-3 rounded-r3 px-3 py-1.5 hover:bg-s2"
+      // py matches the credential rows one section up — same anatomy (two-line row,
+      // reveal-on-approach controls), same rhythm.
+      className="slip group flex items-center gap-3 rounded-r3 px-3 py-2 hover:bg-s2"
       // Right-click is the row's second door to the SAME ⋯ menu (the credential-row
       // pattern) — no separate context menu to drift out of sync with it.
       onContextMenu={(e) => {
@@ -615,38 +624,3 @@ function RowMenu({
   );
 }
 
-function TextInput({
-  value,
-  onChange,
-  onCommit,
-  placeholder,
-  autoFocus = false,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onCommit?: () => void;
-  placeholder: string;
-  autoFocus?: boolean;
-  className?: string;
-}): React.JSX.Element {
-  return (
-    <input
-      // The row IS the interaction — it opened because the user asked to add/edit, so the
-      // caret belongs in it. (Not a page-load autofocus.)
-      autoFocus={autoFocus}
-      type="text"
-      value={value}
-      placeholder={placeholder}
-      aria-label={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onCommit?.();
-      }}
-      className={cx(
-        'slip min-w-0 rounded-r2 border border-s5 bg-s1 px-2.5 py-1 font-mono text-code text-s11 outline-none placeholder:text-s7 focus:border-s7',
-        className,
-      )}
-    />
-  );
-}

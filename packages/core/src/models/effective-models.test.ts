@@ -37,6 +37,18 @@ describe('effectiveModels', () => {
     ]);
   });
 
+  it('a live hit missing a field keeps the catalog value — per-field merge, not tier-wholesale', () => {
+    // The live fetch knows the id but ships no displayName; the shipped catalog has one.
+    // Losing the friendly label because the live tier "won" the whole descriptor was the
+    // tier-wholesale bug — live wins field-by-field, the catalog fills the gaps.
+    const live: ModelDescriptor[] = [
+      { id: 'claude-opus-4-8', supportsEffort: true, supportedEffortLevels: ['low', 'high'] },
+    ];
+    const out = effectiveModels('claude', [entry('claude-opus-4-8')], live);
+    expect(out[0]?.displayName).toBe('opus 4.8'); // catalog fills the missing field
+    expect(out[0]?.supportedEffortLevels).toEqual(['low', 'high']); // live still wins its fields
+  });
+
   it('the user label overrides every tier as displayName', () => {
     const live: ModelDescriptor[] = [{ id: 'claude-x', displayName: 'from live' }];
     const out = effectiveModels('claude', [entry('claude-x', { label: 'mine' })], live);

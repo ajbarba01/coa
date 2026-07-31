@@ -3,6 +3,7 @@ import type { CredentialView, LoginSnapshot } from '@coa/console-viewmodel';
 import {
   rpcCancelLogin,
   rpcLoginState,
+  rpcReportAuthFailure,
   rpcResolveLoginMismatch,
   rpcStartLogin,
   rpcSubmitLoginCode,
@@ -69,6 +70,21 @@ export const useLogin = create<LoginState>((set, get) => {
     poll: async () => apply(await rpcLoginState()),
   };
 });
+
+/** The live-session signal — the strongest health evidence there is (stronger than any
+ *  probe: the loop just FAILED to authenticate). Flags the active claude login daemon-side
+ *  and reprojects the auth store so the badges light in the same breath. Fire-and-forget:
+ *  mis-detection costs an amber dot, never a block. Lives HERE (not console.ts, whose push
+ *  consumer calls it through the `onAuthFailure` registration) because this module already
+ *  owns the auth-store reach — importing the store from console.ts would close a static
+ *  import cycle the dependency ruleset forbids. */
+export function reportActiveClaudeAuthFailure(): void {
+  const activeId = useMockAuth.getState().activeByProvider['claude'];
+  if (activeId === undefined) return;
+  void rpcReportAuthFailure(activeId)
+    .then(() => useMockAuth.getState().hydrate())
+    .catch(() => {});
+}
 
 /* ------------------------------ pure selectors ------------------------------ */
 

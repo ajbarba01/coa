@@ -52,6 +52,15 @@ describe('Composer — resting', () => {
     expect(container.querySelector('.rounded-r4')).toBeTruthy();
     expect(container.querySelector('.rounded-r3')).toBeNull();
   });
+
+  it('an emptied model list degrades to backend-default copy, never an empty menu', async () => {
+    render(<Composer {...baseProps({ models: [], currentModelId: undefined })} />);
+    // The chip itself says what actually runs…
+    const chip = screen.getByRole('button', { name: /backend default/ });
+    await userEvent.click(chip);
+    // …and the open menu explains rather than presenting nothing.
+    expect(await screen.findByText(/no models listed — the backend default runs/)).toBeTruthy();
+  });
 });
 
 describe('Composer — running', () => {

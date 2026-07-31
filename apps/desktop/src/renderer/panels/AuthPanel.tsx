@@ -34,6 +34,7 @@ import {
   providerById,
   type ProviderDescriptor,
 } from './providers.js';
+import { TextInput } from './fields.js';
 import { SignInButton, useStartRelogin } from './LoginFlow.js';
 import { providerAttention } from './loginStore.js';
 import { ModelsSection } from './ModelEditor.js';
@@ -719,8 +720,10 @@ function CredentialRow({
         </button>
       )}
       <span
+        // nowrap: `active · needs relogin` must never break into two lines — the row's
+        // middle (identity) is the min-w-0 column, so it truncates first instead.
         className={cx(
-          'pointer-events-none relative flex-none font-mono text-meta',
+          'pointer-events-none relative flex-none font-mono text-meta whitespace-nowrap',
           needsRelogin
             ? 'text-warn'
             : status === 'active'
@@ -881,7 +884,7 @@ function AddCredentialRow({
     // from the box (inside the animated wrapper, so the gap grows in with it).
     <div className="mb-1.5 flex flex-col gap-2 rounded-r3 border border-s4 bg-s2 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <Field value={label} onChange={setLabel} placeholder="label" className="w-32" />
+        <TextInput value={label} onChange={setLabel} placeholder="label" className="w-32" />
         {provider.locator === 'config-dir' ? (
           <DirField
             autoFocus
@@ -892,14 +895,14 @@ function AddCredentialRow({
             placeholder="~/.claude-work"
           />
         ) : (
-          <Field
+          <TextInput
             autoFocus
             value={secret}
             onChange={setSecret}
             onCommit={commit}
             onCancel={onDone}
             placeholder={`paste the ${provider.noun}…`}
-            secret
+            type="password"
             className="flex-1"
           />
         )}
@@ -956,7 +959,7 @@ function EditCredentialRow({
 
   return (
     <div className="flex items-center gap-2 rounded-r3 border border-s4 bg-s2 px-3 py-2.5">
-      <Field
+      <TextInput
         autoFocus
         value={label}
         onChange={setLabel}
@@ -975,7 +978,7 @@ function EditCredentialRow({
             placeholder="~/.claude-work"
           />
         ) : (
-          <Field
+          <TextInput
             value={target}
             onChange={setTarget}
             onCommit={commit}
@@ -1027,14 +1030,14 @@ function ReplaceSecretRow({
           placeholder="point at the config directory again…"
         />
       ) : (
-        <Field
+        <TextInput
           autoFocus
           value={secret}
           onChange={setSecret}
           onCommit={commit}
           onCancel={onDone}
           placeholder={`paste the replacement ${provider.noun}…`}
-          secret
+          type="password"
           className="flex-1"
         />
       )}
@@ -1045,52 +1048,6 @@ function ReplaceSecretRow({
         esc
       </Button>
     </div>
-  );
-}
-
-function Field({
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-  placeholder,
-  secret = false,
-  autoFocus = false,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onCommit?: () => void;
-  onCancel?: () => void;
-  placeholder: string;
-  secret?: boolean;
-  autoFocus?: boolean;
-  className?: string;
-}): React.JSX.Element {
-  return (
-    <input
-      // The row IS the interaction — it opened because you asked to add a key, so the caret
-      // belongs in it. (Not a page-load autofocus.)
-      autoFocus={autoFocus}
-      type={secret ? 'password' : 'text'}
-      value={value}
-      placeholder={placeholder}
-      aria-label={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onCommit?.();
-        // The field owns Escape ONLY when it has a cancel to run — swallowing it otherwise
-        // strands the key (a focused dialog field would eat the dialog's own Escape).
-        if (e.key === 'Escape' && onCancel !== undefined) {
-          e.stopPropagation();
-          onCancel();
-        }
-      }}
-      className={cx(
-        'slip min-w-0 rounded-r2 border border-s5 bg-s1 px-2.5 py-1 font-mono text-code text-s11 outline-none placeholder:text-s7 focus:border-s7',
-        className,
-      )}
-    />
   );
 }
 
@@ -1122,7 +1079,7 @@ function DirField({
   };
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1.5">
-      <Field
+      <TextInput
         autoFocus={autoFocus}
         value={value}
         onChange={onChange}
@@ -1228,7 +1185,7 @@ function AddProviderDialog({
             <div className="flex flex-col gap-4 px-4 py-4">
               <label className="flex flex-col gap-1.5 text-code text-s9">
                 label
-                <Field value={label} onChange={setLabel} placeholder={picked.label} />
+                <TextInput value={label} onChange={setLabel} placeholder={picked.label} />
               </label>
               <label className="flex flex-col gap-1.5 text-code text-s9">
                 {LOCATOR_LABEL[picked.locator]}
@@ -1241,7 +1198,7 @@ function AddProviderDialog({
                     placeholder="~/.claude-work"
                   />
                 ) : (
-                  <Field
+                  <TextInput
                     autoFocus
                     value={secret}
                     onChange={setSecret}
@@ -1249,7 +1206,7 @@ function AddProviderDialog({
                     placeholder={
                       picked.locator === 'env-var' ? 'GEMINI_API_KEY' : `paste the ${picked.noun}…`
                     }
-                    secret={picked.locator === 'key-file'}
+                    type={picked.locator === 'key-file' ? 'password' : 'text'}
                   />
                 )}
               </label>

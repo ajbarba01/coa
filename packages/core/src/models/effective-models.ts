@@ -45,10 +45,16 @@ export function effectiveModels(
   return entries
     .filter((entry) => entry.hidden !== true)
     .map((entry) => {
+      // Per-field, not tier-wholesale: the live fetch wins every field it carries, and the
+      // shipped catalog fills the gaps (a live hit without a displayName must not suppress
+      // the catalog's label). Absent optional fields are absent keys (never `undefined`),
+      // so the spread composes them correctly.
+      const liveHit = live.find((d) => d.id === entry.id);
+      const shipped = catalogDescriptor(providerId, entry.id);
       const base: ModelDescriptor =
-        live.find((d) => d.id === entry.id) ??
-        catalogDescriptor(providerId, entry.id) ??
-        { id: entry.id };
+        liveHit !== undefined && shipped !== undefined
+          ? { ...shipped, ...liveHit }
+          : (liveHit ?? shipped ?? { id: entry.id });
       const withProvider: ModelDescriptor = { ...base, provider: providerId };
       const withLabel: ModelDescriptor =
         entry.label !== undefined ? { ...withProvider, displayName: entry.label } : withProvider;

@@ -605,7 +605,12 @@ function ModelChip({
   const [open, setOpen] = useState(false);
   const currentModel = models.find((m) => m.id === currentModelId);
   const currentEffort = effortOptions.find((e) => e.value === effortValue);
-  const modelLabel = currentModel?.label ?? currentModelId ?? 'model';
+  // No pick and nothing to pick from ⇒ the backend default is what actually runs — the
+  // chip says so instead of wearing a placeholder word.
+  const modelLabel =
+    currentModel?.label ??
+    currentModelId ??
+    (models.length === 0 ? 'backend default' : 'model');
   const chip = currentEffort !== undefined ? `${modelLabel} · ${currentEffort.label}` : modelLabel;
   return (
     <ChipMenu
@@ -628,6 +633,13 @@ function ModelChip({
               {m.label}
             </MenuItem>
           ))}
+          {/* An emptied list degrades honestly — the backend default runs, so say so
+              rather than presenting a menu with nothing in it. */}
+          {models.length === 0 && (
+            <div className="px-3 py-1.5 text-code text-s7">
+              no models listed — the backend default runs
+            </div>
+          )}
         </div>
         {effortOptions.length > 0 && (
           <div className="border-t border-s4 px-3 pt-2 pb-3">

@@ -244,7 +244,12 @@ everything else the new design overwrites.
   `Meter`; new theme tokens: the validated chart-`series` palette ([ADR-0015](docs/adr/0015-brand-marks-and-series-palette.md)).
   **This closes the deferred "Nav HUD mini-states" question for `usage`** — the HUD is a customizable projection
   of the usage reads. The auth surface renders from live stores; usage surface renders from a renderer-side mock
-  until the Phase 2 RPC verbs land.
+  until the Phase 2 RPC verbs land. **In-app login shipped (2026-07-19): coa drives `claude auth login`
+  itself** — email-defined accounts (the declared email pre-fills the login; the probe's landed email is the
+  truth, mismatch flagged with keep/retry), login health from `claude auth status --json` + live-session
+  auth failures (never token files), attention badges on the nav tab / provider row / account HUD with a
+  one-click driven re-login, and a PTY-captured OAuth copy-link that degrades to browser-only —
+  [ADR-0017](docs/adr/0017-probe-derived-login-health.md).
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).

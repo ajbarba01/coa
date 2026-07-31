@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { detectAuthFailure, modelSwitchNoteText, startConsole, type ConsoleBridge } from './console.js';
+import {
+  detectAuthFailure,
+  modelSwitchNoteText,
+  onAuthFailure,
+  startConsole,
+  type ConsoleBridge,
+} from './console.js';
 import type { AgentSummary, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleState } from './panels/state.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
@@ -172,6 +178,40 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     ).not.toThrow();
     await flushRaf();
     expect(last().data.turns.status).toBe('ok');
+  });
+
+  it('an auth-shaped error push fires the registered auth-failure sink; others do not', async () => {
+    const sink = vi.fn();
+    onAuthFailure(sink);
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    await mount(bridge);
+
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 0,
+      frame: { t: 'error', message: '401 Unauthorized', origin: 'loop' },
+    });
+    expect(sink).toHaveBeenCalledTimes(1);
+
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 1,
+      frame: { t: 'error', message: 'rate limit exceeded', origin: 'loop' },
+    });
+    expect(sink).toHaveBeenCalledTimes(1); // non-auth errors never fire it
+
+    // Reset the module-level sink so later tests never inherit this spy.
+    onAuthFailure(() => {});
   });
 
   it('keeps the status pill running across a status running push and a following turn frame', async () => {

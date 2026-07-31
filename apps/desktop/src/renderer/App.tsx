@@ -1,7 +1,8 @@
 import { TooltipProvider } from '@coa/console-kit';
 import { useEffect, useRef } from 'react';
 import type { DaemonStatus } from '../shared/methods.js';
-import { startConsole, type ConsoleController } from './console.js';
+import { onAuthFailure, startConsole, type ConsoleController } from './console.js';
+import { reportActiveClaudeAuthFailure } from './panels/loginStore.js';
 import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
 import { DaemonGate } from './shell/DaemonGate.js';
 import { EditMenu } from './shell/EditMenu.js';
@@ -72,6 +73,9 @@ export function App(): React.JSX.Element {
     let disposed = false;
     void (async () => {
       unbindLayout = await bindLayoutPersistence(window.coa);
+      // The live-failure reporter registers before the push stream subscribes (inside
+      // startConsole), so no auth-shaped error frame can slip past an empty sink.
+      onAuthFailure(reportActiveClaudeAuthFailure);
       const controller = await startConsole(window.coa, {
         publish: publishConsoleState,
         navigate: (s) => useShell.getState().setSurface(s),

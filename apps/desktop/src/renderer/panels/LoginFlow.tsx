@@ -3,9 +3,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import type { LoginSnapshot } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
+import { TextInput } from './fields.js';
 import { useLogin } from './loginStore.js';
 import type { Credential } from './mockAuth.js';
-import { RISE } from './motion.js';
+import { RISE, SLIP_SWIFT } from './motion.js';
 import type { ProviderDescriptor } from './providers.js';
 
 /**
@@ -138,18 +139,14 @@ function EmailStep({
       <div className="flex flex-col gap-3 px-4 py-4">
         <label className="flex flex-col gap-1.5 text-code text-s9">
           email
-          <input
-            // The dialog opened because you asked to sign in — the caret belongs here.
+          <TextInput
             autoFocus
             type="email"
             value={email}
+            onChange={setEmail}
+            onCommit={commit}
             placeholder="you@example.org"
             aria-label="email"
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commit();
-            }}
-            className="slip min-w-0 rounded-r2 border border-s5 bg-s1 px-2.5 py-1 font-mono text-code text-s11 outline-none placeholder:text-s7 focus:border-s7"
           />
         </label>
         <span className="text-meta leading-relaxed text-s7">
@@ -221,10 +218,17 @@ function FlowBody({
       </header>
 
       {/* Phases advance only from polling — the swap is a cross-fade on the Slipstream
-          curve, not a hard cut, so the dialog reads as one surface being re-pointed. */}
+          curve, not a hard cut, so the dialog reads as one surface being re-pointed.
+          Sequential (`mode="wait"`) because the bodies differ in height inside a modal —
+          but the OUTGOING leg runs at swift (80ms) so the total stays inside one enter,
+          not the doubled 360ms the motion vocabulary warns about. */}
       <div className="relative min-h-24 px-4 py-4">
         <AnimatePresence mode="wait" initial={false}>
-          <motion.div key={flow.phase} {...RISE}>
+          <motion.div
+            key={flow.phase}
+            {...RISE}
+            exit={{ opacity: 0, y: -4, transition: SLIP_SWIFT }}
+          >
             {flow.phase === 'launching' && (
               <Step
                 heading="starting Claude sign-in"
@@ -250,17 +254,16 @@ function FlowBody({
                 ) : null}
                 {showCode ? (
                   <div className="flex items-center gap-2">
-                    <input
+                    <TextInput
                       autoFocus
                       value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && code.trim() !== '')
-                          void submitCode(code.trim()).catch(() => {});
+                      onChange={setCode}
+                      onCommit={() => {
+                        if (code.trim() !== '') void submitCode(code.trim()).catch(() => {});
                       }}
                       placeholder="paste the code from the browser…"
                       aria-label="authorization code"
-                      className="slip min-w-0 flex-1 rounded-r2 border border-s5 bg-s1 px-2.5 py-1 font-mono text-code text-s11 outline-none placeholder:text-s7 focus:border-s7"
+                      className="flex-1"
                     />
                     <Button
                       variant="quiet"

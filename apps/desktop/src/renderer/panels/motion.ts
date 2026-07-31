@@ -16,6 +16,10 @@
 /** The Slipstream curve — `--ease-slip`, expo-out. */
 export const EASE_SLIP = [0.19, 1, 0.22, 1] as const;
 
+/** The shortest leg (`--dur-swift`) — an OUTGOING half when a sequential swap can't run
+ *  concurrently, so the total stays inside one enter instead of doubling. */
+export const SLIP_SWIFT = { duration: 0.08, ease: EASE_SLIP } as const;
+
 /** Mount/dismount of a pane or row (`--dur-enter`). */
 export const SLIP_ENTER = { duration: 0.18, ease: EASE_SLIP } as const;
 
