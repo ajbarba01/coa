@@ -1,5 +1,6 @@
 import {
   CapsLabel,
+  Icon,
   MenuItem,
   Meter,
   ModalShell,
@@ -126,7 +127,7 @@ export function Nav(): React.JSX.Element {
           keys={bindFor('settings')}
           onClick={() => setSettingsOpen(true)}
         >
-          ⚙
+          <Icon name="settings" />
         </FootButton>
         <DaemonButton />
       </div>
@@ -390,7 +391,7 @@ function FootButton({
   label: string;
   keys?: string[] | undefined;
   onClick?: () => void;
-  children: string;
+  children: React.ReactNode;
 }): React.JSX.Element {
   return (
     <Tooltip label={label} keys={keys} side="top">
@@ -398,7 +399,7 @@ function FootButton({
         type="button"
         aria-label={label}
         onClick={onClick}
-        className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 text-icon text-s8 hover:bg-s3 hover:text-s10"
+        className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 text-s8 hover:bg-s3 hover:text-s10"
       >
         {children}
       </button>
@@ -462,12 +463,12 @@ function UsageHud(): React.JSX.Element {
               type="button"
               aria-label="customize usage hud"
               className={cx(
-                'slip cursor-pointer text-code text-s7 opacity-0 hover:text-s11',
+                'slip cursor-pointer text-s7 opacity-0 hover:text-s11',
                 'group-hover/hud:opacity-100 focus-visible:opacity-100',
                 open && 'opacity-100',
               )}
             >
-              ⚙
+              <Icon name="settings" />
             </button>
           }
         >

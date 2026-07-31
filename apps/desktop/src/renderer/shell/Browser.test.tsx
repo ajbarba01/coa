@@ -79,6 +79,14 @@ describe('Browser', () => {
     expect(useShell.getState().mode).toBe('work');
   });
 
+  /** Label-adjacency law (UI.md): an icon-ONLY control carries a drawn mark. */
+  it('draws the row’s delete mark rather than typing one', () => {
+    mount();
+    const del = screen.getByRole('button', { name: 'Delete session: wire the dock' });
+    expect(del.querySelector('svg')).not.toBeNull();
+    expect(del.textContent).toBe('');
+  });
+
   it('clicking a row’s delete affordance calls deleteSession with that row’s id', () => {
     const { deleteSession, selectSession } = mount();
     fireEvent.click(screen.getByRole('button', { name: 'Delete session: wire the dock' }));

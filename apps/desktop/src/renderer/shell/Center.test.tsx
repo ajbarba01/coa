@@ -131,6 +131,18 @@ describe('Center search morph', () => {
     expect(useShell.getState().mode).toBe('work');
   });
 
+  /** Label-adjacency law (UI.md): cancel is an icon-ONLY control, so its mark is drawn.
+   *  The ⌕ beside it stays typed — it is ornament inside the field, not a control. */
+  it('draws the cancel mark rather than typing one', () => {
+    publish();
+    useShell.getState().openTab('c1');
+    render(<Center />);
+    act(() => useShell.getState().openSearch());
+    const cancel = screen.getByRole('button', { name: 'cancel search' });
+    expect(cancel.querySelector('svg')).not.toBeNull();
+    expect(cancel.textContent).toBe('');
+  });
+
   it('grows a tooltip naming the search shortcut on the ⌕ control', async () => {
     const user = userEvent.setup();
     publish();

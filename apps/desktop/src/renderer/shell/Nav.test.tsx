@@ -42,6 +42,15 @@ describe('critCount', () => {
 });
 
 describe('Nav', () => {
+  /** Label-adjacency law (UI.md): the foot's settings control is icon-ONLY, so its mark is
+   *  drawn. The surface rows above it keep their typed glyphs — those sit beside a label. */
+  it('draws the settings mark rather than typing one', () => {
+    render(<Nav />);
+    const settings = screen.getByRole('button', { name: 'settings' });
+    expect(settings.querySelector('svg')).not.toBeNull();
+    expect(settings.textContent).toBe('');
+  });
+
   it('routes a surface row click through the shell store', () => {
     render(<Nav />);
     fireEvent.click(screen.getByRole('button', { name: /timeline/ }));

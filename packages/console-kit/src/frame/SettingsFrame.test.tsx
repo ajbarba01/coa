@@ -22,6 +22,18 @@ describe('DialogSearchHead', () => {
     fireEvent.click(screen.getByRole('button', { name: 'close settings' }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  /** Label-adjacency law (UI.md): close is an icon-ONLY control, so its mark is drawn,
+   *  not a mono character. Empty text content is the other half — a half-migrated
+   *  control would carry both. */
+  it('draws its close mark rather than typing one', () => {
+    render(
+      <DialogSearchHead value="" onChange={vi.fn()} onClose={vi.fn()} placeholder="search…" />,
+    );
+    const close = screen.getByRole('button', { name: 'close settings' });
+    expect(close.querySelector('svg')).not.toBeNull();
+    expect(close.textContent).toBe('');
+  });
 });
 
 describe('TocRail', () => {

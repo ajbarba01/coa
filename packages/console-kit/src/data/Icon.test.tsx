@@ -61,6 +61,17 @@ describe('Icon', () => {
     expect(svg?.getAttribute('height') ?? '').not.toContain('var(');
   });
 
+  /**
+   * The glyph vocabulary an icon-ONLY control needs. Under the label-adjacency law
+   * (UI.md) a glyph that IS the control is drawn, so every recurring icon-only
+   * affordance in the app — settings, re-read, close — has to exist here or the call
+   * site has no conforming option and falls back to a mono character.
+   */
+  it.each(['settings', 'refresh', 'close'] as const)('carries the %s glyph', (name) => {
+    const { container } = render(<Icon name={name} />);
+    expect(container.querySelector('svg')).not.toBeNull();
+  });
+
   /** The house convention observed in the composer's hand-inlined SVGs, now pinned in
    *  one place so call sites cannot drift from it. */
   it('pins the house stroke convention', () => {

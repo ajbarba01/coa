@@ -5,13 +5,14 @@ export const iconIntent: ComponentIntent = assertIntent({
   family: 'Data',
   intent: 'A drawn glyph at the house convention — the picture half of an affordance.',
   useWhen: [
-    'A control needs a mark alongside or instead of its label (copy, attach, confirm).',
+    'A glyph IS the control — an icon-only affordance with no adjacent text to name it (close, settings, copy, attach).',
     'The same action recurs across surfaces and a glyph makes it findable faster than reading.',
   ],
   dontUseWhen: [
+    'The glyph sits BESIDE a text label. The label already names the thing, so the mark is ornament and stays a mono character in the type stream (UI.md, label-adjacency law).',
     'Indicating state — that is StatusDot; a glyph is an action or an object, never status.',
     'Naming a third party — that is BrandMark, which carries their color; Icon is always currentColor.',
-    'A mono CHARACTER mark (▣ ⇪ ×) that rides the --text-icon font-size — different axis, not this.',
+    'Mirroring an OS vocabulary — WindowControls keeps its ─ ▢ ✕ characters so the chrome matches the platform.',
     'Decorating a surface. A glyph with no action behind it is noise in the quiet register.',
   ],
   anatomy:

@@ -59,6 +59,16 @@
   Base UI popup's own Escape close is swallowed so the stack issues it); menus dismiss on outside
   *pointerdown*; modal scrims guard the backdrop; a portaled menu counts as inside its trigger. Menus that
   escape a clipping container do so via a portal, and reposition to follow their trigger on scroll/resize.
+- **Two glyph vocabularies, one test.** A **typed** mono character (`▣ ⇪ ⌕ ⇄`) rides `--text-icon`, a
+  font-size; a **drawn** lucide mark (the kit's `Icon`) rides `--icon-sm`/`--icon-md`, a box. The label
+  decides which: **a glyph beside a text label is typed; a glyph that _is_ the control is drawn.** A named
+  row, menu item, or title-bar button already says what it does, so its mark is ornament and belongs in the
+  type stream. An icon-only control carries the whole meaning alone, so it earns a drawn mark and a real
+  accessible name — which is why `Icon` is decorative by default and its `label` is for sole-content use
+  only. Pure ornament inside a field (the search `⌕`) is typed; **status is neither vocabulary, it is a
+  dot.** One carve-out: `WindowControls` keeps its `─ ▢/❐ ✕` characters, because that chrome exists to
+  mirror the platform's own window vocabulary and a lucide mark would read as foreign there.
+
 - **Selection marker.** A selected option row is an s4 tint + a trailing mono `current` — one vocabulary in
   every menu, picker, and select.
 - **Keybinds are a registry.** One table drives both the dispatch and the shortcuts UI (settings section +
@@ -111,4 +121,4 @@
 
 ---
 
-_Last reviewed: 2026-07-11_
+_Last reviewed: 2026-07-21_

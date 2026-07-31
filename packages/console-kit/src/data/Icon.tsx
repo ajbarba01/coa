@@ -1,4 +1,4 @@
-import { Check, Copy, Mic, Paperclip } from 'lucide-react';
+import { Check, Copy, Mic, Paperclip, RotateCw, Settings, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 /**
@@ -21,6 +21,12 @@ const GLYPHS = {
   check: Check,
   attach: Paperclip,
   mic: Mic,
+  // The icon-ONLY affordances. Under the label-adjacency law a glyph that IS the control
+  // is drawn, so these three recur across surfaces; without them a call site has no
+  // conforming option and reaches for a mono character instead.
+  settings: Settings,
+  refresh: RotateCw,
+  close: X,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof GLYPHS;

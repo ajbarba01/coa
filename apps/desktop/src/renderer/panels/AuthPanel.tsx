@@ -2,6 +2,7 @@ import {
   BrandMark,
   Button,
   CapsLabel,
+  Icon,
   MenuItem,
   ModalShell,
   PopoverCard,
@@ -132,10 +133,10 @@ export function AuthStrip(): React.JSX.Element {
               .then(() => useMockAuth.getState().probeHealth())
               .catch(() => {})
           }
-          className="slip flex cursor-pointer items-center px-3.5 text-[15px] text-s7 hover:text-s10"
+          className="slip flex cursor-pointer items-center px-3.5 text-s7 hover:text-s10"
           style={NO_DRAG}
         >
-          ⟳
+          <Icon name="refresh" />
         </button>
       </Tooltip>
     </>

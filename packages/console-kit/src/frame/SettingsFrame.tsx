@@ -1,5 +1,6 @@
 import { Button } from '../actions/Button.js';
 import { cx } from '../cx.js';
+import { Icon } from '../data/Icon.js';
 
 /** Search owns the dialog head, like VS Code — it filters rows across sections. */
 export function DialogSearchHead({
@@ -28,9 +29,9 @@ export function DialogSearchHead({
         icon
         aria-label="close settings"
         onClick={onClose}
-        className="-mr-1 h-6 w-6 text-body"
+        className="-mr-1 h-6 w-6"
       >
-        ✕
+        <Icon name="close" />
       </Button>
     </div>
   );

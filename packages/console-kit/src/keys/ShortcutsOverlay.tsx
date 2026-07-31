@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from '../actions/Button.js';
 import { cx } from '../cx.js';
+import { Icon } from '../data/Icon.js';
 import { ModalShell } from '../overlay/ModalShell.js';
 import { Kbd, type Keybind } from './Kbd.js';
 
@@ -107,9 +108,9 @@ export function ShortcutsOverlay({
           icon
           aria-label="close shortcuts"
           onClick={onClose}
-          className={cx('h-6 w-6 text-body tracking-normal', editing === undefined && 'ml-auto')}
+          className={cx('h-6 w-6 tracking-normal', editing === undefined && 'ml-auto')}
         >
-          ✕
+          <Icon name="close" />
         </Button>
       </div>
 

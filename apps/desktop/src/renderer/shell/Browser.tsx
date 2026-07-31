@@ -1,5 +1,5 @@
 import type { SessionSummary } from '@coa/console-viewmodel';
-import { cx, Select, StatusDot } from '@coa/console-kit';
+import { cx, Icon, Select, StatusDot } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import { relativeTime } from '../panels/ChatPanel.js';
 import type { ConsoleState } from '../panels/state.js';
@@ -201,12 +201,12 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
                     remove(s.id);
                   }}
                   className={cx(
-                    'slip flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-r1 text-icon text-s6 opacity-0 group-hover:opacity-100 hover:text-crit focus-visible:opacity-100',
+                    'slip flex h-5 w-5 flex-none cursor-pointer items-center justify-center rounded-r1 text-s6 opacity-0 group-hover:opacity-100 hover:text-crit focus-visible:opacity-100',
                     // the cursor row is "hovered" whether the mouse or the arrows put it there
                     s.id === cursorId && 'opacity-100',
                   )}
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </span>
             </div>

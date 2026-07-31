@@ -1,4 +1,4 @@
-import { MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { Icon, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import type { AgentRailItem } from '@coa/console-ui';
 import type { AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
@@ -517,10 +517,10 @@ function SearchBar(): React.JSX.Element {
           type="button"
           onClick={closeSearch}
           aria-label="cancel search"
-          className="slip absolute top-0 right-0 flex h-(--titlebar-h) cursor-pointer items-center px-3.5 text-[15px] text-s7 hover:text-s10"
+          className="slip absolute top-0 right-0 flex h-(--titlebar-h) cursor-pointer items-center px-3.5 text-s7 hover:text-s10"
           style={NO_DRAG}
         >
-          ✕
+          <Icon name="close" />
         </button>
       </Tooltip>
     </div>

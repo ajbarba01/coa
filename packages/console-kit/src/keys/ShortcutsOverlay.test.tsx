@@ -51,6 +51,14 @@ describe('ShortcutsOverlay', () => {
     expect(screen.getByText('k')).toBeInTheDocument();
   });
 
+  /** Label-adjacency law (UI.md): an icon-ONLY control carries a drawn mark. */
+  it('draws its close mark rather than typing one', () => {
+    render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} />);
+    const close = screen.getByRole('button', { name: 'close shortcuts' });
+    expect(close.querySelector('svg')).not.toBeNull();
+    expect(close.textContent).toBe('');
+  });
+
   it('offers no editing affordances without an editing seam (the read-only reference)', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} />);
     expect(screen.queryByRole('button', { name: /rebind/ })).toBeNull();

@@ -181,4 +181,25 @@ describe('Composer — queued', () => {
     fireEvent.click(screen.getByRole('button', { name: /remove queued message/i }));
     expect(onRemoveQueued).toHaveBeenCalledWith('q1');
   });
+
+  /** The attachment chip's removal control is icon-ONLY too, and it is the one migrated
+   *  site the shell never shows without an attachment already staged — so it earns a test
+   *  that walks the real path in rather than trusting its twin above. */
+  it('draws the attachment removal mark rather than typing one', () => {
+    render(<Composer {...baseProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'attach' }));
+    fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
+    const remove = screen.getByRole('button', { name: 'remove screenshot.png' });
+    expect(remove.querySelector('svg')).not.toBeNull();
+    expect(remove.textContent).toBe('');
+  });
+
+  /** Label-adjacency law (UI.md): the removal control is icon-ONLY, so its mark is drawn.
+   *  The ⇥ chip beside it stays typed — it sits with the queue-position text. */
+  it('draws the queued-message removal mark rather than typing one', () => {
+    render(<Composer {...baseProps({ queued: [{ id: 'q1', text: 'next up' }] })} />);
+    const remove = screen.getByRole('button', { name: /remove queued message/i });
+    expect(remove.querySelector('svg')).not.toBeNull();
+    expect(remove.textContent).toBe('');
+  });
 });

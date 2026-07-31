@@ -240,6 +240,17 @@ async function renderAuth(view: AuthView = FIXTURE_VIEW): Promise<void> {
   await waitFor(() => expect(useMockAuth.getState().added).toEqual(view.added));
 }
 
+/** Label-adjacency law (UI.md): the strip's re-read control is icon-ONLY, so its mark is
+ *  drawn. Migrating it also retires a raw `text-[15px]` that sized the old character. */
+describe('AuthStrip re-read control', () => {
+  it('draws its mark rather than typing one', async () => {
+    await renderAuth();
+    const reread = screen.getByRole('button', { name: 're-read logins' });
+    expect(reread.querySelector('svg')).not.toBeNull();
+    expect(reread.textContent).toBe('');
+  });
+});
+
 const credential = (over: Partial<Credential> = {}): Credential => ({
   id: 'x',
   providerId: 'tavily',

@@ -172,9 +172,9 @@ export function Composer({
                 type="button"
                 aria-label={`remove queued message: ${q.text}`}
                 onClick={() => onRemoveQueued?.(q.id)}
-                className="slip cursor-pointer font-mono text-caps text-s7 hover:text-s10"
+                className="slip cursor-pointer text-s7 hover:text-s10"
               >
-                ✕
+                <Icon name="close" />
               </button>
             </div>
           ))}
@@ -267,9 +267,9 @@ export function Composer({
                   type="button"
                   aria-label={`remove ${a}`}
                   onClick={() => setAttachments((list) => list.filter((x) => x !== a))}
-                  className="slip cursor-pointer text-caps text-s7 hover:text-s10"
+                  className="slip cursor-pointer text-s7 hover:text-s10"
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </span>
             ))}
