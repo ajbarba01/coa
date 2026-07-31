@@ -62,10 +62,11 @@ describe('Workbench', () => {
     expect(screen.queryByText(/graph isn't designed yet/)).toBeNull();
   });
 
-  it('routes the account surface (nav foot ◐) to the AccountSurface pane', () => {
+  it('routes the auth surface to its pane — credentials outgrew the ◐ foot popover', () => {
     publishConsoleState(makeState());
-    useShell.getState().setSurface('account');
+    useShell.getState().setSurface('auth');
     render(<Workbench />);
-    expect(screen.getByText('Accounts')).toBeTruthy();
+    expect(screen.getByText('agent backends')).toBeTruthy();
+    expect(screen.getByText('tool services')).toBeTruthy();
   });
 });

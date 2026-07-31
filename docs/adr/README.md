@@ -39,6 +39,8 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0011](0011-daemon-authoritative-live-session.md) — The daemon is the authoritative owner of a live session across turns
 - [0012](0012-sdk-streaming-input-steering.md) — Hold the Claude SDK query open for streaming-input steering
 - [0013](0013-streaming-complete-and-delta-frames.md) — Streaming complete() contract and delivery-only delta frames
+- [0014](0014-workbench-design-system.md) — Workbench design system: conversation-first, sand-dark, quiet
+- [0015](0015-brand-marks-and-series-palette.md) — Third-party brand marks, and a series palette for charts
 
 ---
 

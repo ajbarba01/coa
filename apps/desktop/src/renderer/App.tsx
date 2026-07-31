@@ -4,6 +4,7 @@ import type { DaemonStatus } from '../shared/methods.js';
 import { startConsole, type ConsoleController } from './console.js';
 import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
 import { DaemonGate } from './shell/DaemonGate.js';
+import { EditMenu } from './shell/EditMenu.js';
 import { bindLayoutPersistence } from './shell/layoutPersistence.js';
 import { useShell } from './shell/store.js';
 import { Workbench } from './shell/Workbench.js';
@@ -100,6 +101,12 @@ export function App(): React.JSX.Element {
   }, []);
 
   // One tooltip provider for the whole frame: shared open delay + the warm
-  // window that lets adjacent icon buttons show their tips instantly.
-  return <TooltipProvider>{daemon === 'running' ? <Workbench /> : <DaemonGate />}</TooltipProvider>;
+  // window that lets adjacent icon buttons show their tips instantly. The edit menu is
+  // frame chrome too — every field on either side of the gate gets it.
+  return (
+    <TooltipProvider>
+      <EditMenu />
+      {daemon === 'running' ? <Workbench /> : <DaemonGate />}
+    </TooltipProvider>
+  );
 }

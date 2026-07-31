@@ -1,17 +1,23 @@
 import {
   CapsLabel,
   MenuItem,
+  Meter,
   ModalShell,
   PopoverCard,
+  StatusDot,
   Tooltip,
   cx,
   menuSurface,
+  meterTone,
   useClickAway,
   useDismissLayer,
+  useExclusivePopover,
 } from '@coa/console-kit';
 import type { FeedView } from '@coa/console-viewmodel';
-import { toCapViewModel } from '@coa/console-viewmodel';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useMockAuth } from '../panels/mockAuth.js';
+import { accountUsage, hudChoices, hudRows, usd, useUsageHud } from '../panels/mockUsage.js';
+import { providerById } from '../panels/providers.js';
 import type { ConsoleState, Remote } from '../panels/state.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
@@ -23,7 +29,12 @@ export const SURFACES = [
   { id: 'graph', glyph: '◉', label: 'graph' },
   { id: 'flags', glyph: '⚑', label: 'flags' },
   { id: 'timeline', glyph: '◷', label: 'timeline' },
-  { id: 'cost', glyph: '$', label: 'cost' },
+  // Credentials and money are two questions, so they are two surfaces: `auth` answers "what
+  // can coa log in as", `usage` answers "what has it spent, and how much room is left".
+  // Both retire something: `usage` replaces the old one-line `cost` surface, and `auth`
+  // replaces the ◐ foot-button's account popover.
+  { id: 'auth', glyph: '⬡', label: 'auth' },
+  { id: 'usage', glyph: '$', label: 'usage' },
   { id: 'agents', glyph: '◇', label: 'agents' },
   { id: 'showcase', glyph: '▦', label: 'showcase' },
 ] as const;
@@ -94,10 +105,9 @@ export function Nav(): React.JSX.Element {
 
       <HudDash />
 
+      {/* The account popover is gone — credentials outgrew a foot button and live on the
+          `auth` surface now. The foot keeps what is genuinely app-level: settings, daemon. */}
       <div className="flex items-center gap-1.5 border-t border-s3 px-3 py-2">
-        <FootButton label="account" onClick={() => setSurface('account')}>
-          ◐
-        </FootButton>
         <FootButton
           label="settings"
           keys={bindFor('settings')}
@@ -236,8 +246,13 @@ function HudDash(): React.JSX.Element {
   const [q, setQ] = useState('');
   const [hi, setHi] = useState(0);
   const dashRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   useClickAway(dashRef, () => setOpen(false));
   useDismissLayer(open, () => setOpen(false));
+  // A menu like any other: it joins the one-open-menu registry (opening the daemon
+  // menu closes it and vice versa), and its card ref lets the edit menu on its own
+  // search field ride above it as a sub-layer instead of closing it.
+  useExclusivePopover(open, () => setOpen(false), { rootRef: cardRef });
   const state = useConsoleState((s) => s);
 
   const hits = HUDS.filter((h) => h.includes(q.trim().toLowerCase()));
@@ -267,6 +282,7 @@ function HudDash(): React.JSX.Element {
             title that opened it (the card grows upward) */}
         {open && (
           <div
+            ref={cardRef}
             className={cx(
               'absolute right-2 bottom-full left-2 z-(--z-dropdown) mb-1.5',
               menuSurface,
@@ -345,7 +361,7 @@ function HudDash(): React.JSX.Element {
       </div>
 
       {/* while the picker is open, the panel previews the highlighted HUD */}
-      {highlighted === 'usage' && <UsageHud state={state} />}
+      {highlighted === 'usage' && <UsageHud />}
       {highlighted === 'account' && <AccountHud state={state} />}
       {highlighted === 'flags' && <FlagsHud state={state} />}
     </div>
@@ -391,18 +407,128 @@ function Unresolved({ text }: { text: string }): React.JSX.Element {
   return <div className="px-4 py-0.75 text-code text-s6">{text}</div>;
 }
 
-/** HUD content reads the real Remotes states-first, floors only — the surfaces
- *  pass redraws them. No fake history, no meter without a real cap total. */
-function UsageHud({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
-  const cap = state?.data.cap;
-  if (cap === undefined || cap.status === 'loading') return <Unresolved text="reading cap…" />;
-  if (cap.status === 'error') return <Unresolved text="cap unavailable" />;
-  const vm = toCapViewModel(cap.value);
+/** The usage HUD: the limit meters you told it to watch, always visible, never navigated to.
+ *  It is a PROJECTION of the same reads the usage surface renders — never a second source.
+ *  A meter the backend didn't give us draws nothing at all; there is no fake zero here. */
+function UsageHud(): React.JSX.Element {
+  const credentials = useMockAuth((s) => s.credentials);
+  const meters = useUsageHud((s) => s.meters);
+  const showSpend = useUsageHud((s) => s.showSpend);
+  const onlyAboveHalf = useUsageHud((s) => s.onlyAboveHalf);
+  const toggleMeter = useUsageHud((s) => s.toggleMeter);
+  const setShowSpend = useUsageHud((s) => s.setShowSpend);
+  const setOnlyAboveHalf = useUsageHud((s) => s.setOnlyAboveHalf);
+  const [open, setOpen] = useState(false);
+
+  const accounts = useMemo(
+    () =>
+      credentials
+        .filter((c) => providerById(c.providerId)?.group === 'backend')
+        .map((c) => accountUsage(c)),
+    [credentials],
+  );
+  const rows = hudRows(accounts, meters, onlyAboveHalf);
+  const choices = hudChoices(accounts);
+  const spend = accounts.reduce((n, a) => n + a.spend, 0);
+
   return (
-    <>
-      <Kv k="cap" v={vm.headline} />
-      <Kv k="state" v={vm.sub} />
-    </>
+    <div className="group/hud flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center px-4 pb-1">
+        <span className="flex-1 font-mono text-meta text-s7">
+          {onlyAboveHalf ? 'above 50%' : 'watching'}
+        </span>
+        <PopoverCard
+          open={open}
+          onOpenChange={setOpen}
+          side="top"
+          align="end"
+          className="w-56"
+          tooltip={{ label: 'what the hud tracks', side: 'top' }}
+          trigger={
+            <button
+              type="button"
+              aria-label="customize usage hud"
+              className={cx(
+                'slip cursor-pointer text-code text-s7 opacity-0 hover:text-s11',
+                'group-hover/hud:opacity-100 focus-visible:opacity-100',
+                open && 'opacity-100',
+              )}
+            >
+              ⚙
+            </button>
+          }
+        >
+          <CapsLabel>usage hud</CapsLabel>
+          {choices.length === 0 && (
+            <div className="px-3 py-1.5 text-code text-s7">no readable meters</div>
+          )}
+          {choices.map((c) => (
+            <MenuItem key={c.id} onClick={() => toggleMeter(c.id)}>
+              <Tick on={meters.includes(c.id)} />
+              {c.name}
+            </MenuItem>
+          ))}
+          <div className="my-1 h-px bg-s5" />
+          <MenuItem onClick={() => setShowSpend(!showSpend)}>
+            <Tick on={showSpend} />
+            spend today
+          </MenuItem>
+          <MenuItem onClick={() => setOnlyAboveHalf(!onlyAboveHalf)}>
+            <Tick on={onlyAboveHalf} />
+            only show above 50%
+          </MenuItem>
+        </PopoverCard>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {rows.length === 0 && (
+          <Unresolved text={onlyAboveHalf ? 'nothing near a limit' : 'no meters picked'} />
+        )}
+        {rows.map((r) => (
+          // Mount entrance only (the kit's one keyframe): ticking a meter should feel like it
+          // arrived, not like the panel repainted.
+          <div key={r.id} className="slip-enter px-4 py-1.5">
+            <div className="mb-1.5 flex items-center gap-2">
+              <StatusDot
+                status={
+                  meterTone(r.percent) === 'critical'
+                    ? 'critical'
+                    : meterTone(r.percent) === 'needs-you'
+                      ? 'needs-you'
+                      : 'idle'
+                }
+              />
+              <span className="min-w-0 flex-1 truncate text-code text-s10">{r.name}</span>
+              <span className="font-mono text-meta text-s9">{r.percent}%</span>
+            </div>
+            <Meter percent={r.percent} aria-label={r.name} />
+          </div>
+        ))}
+      </div>
+
+      {showSpend && (
+        <div className="flex items-baseline border-t border-s3 px-4 py-1.5 font-mono text-meta text-s7">
+          spend today
+          <span className="ml-auto text-s10">{usd(spend)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The tick a HUD choice wears. MenuItem's `selected` marker means "current" (one of many);
+ *  these are independent switches, so they get a box, not that marker. */
+function Tick({ on }: { on: boolean }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden
+      className={cx(
+        'flex h-3 w-3 flex-none items-center justify-center rounded-r1 border text-[8px]',
+        on ? 'border-s10 bg-s10 text-s1' : 'border-s6 text-transparent',
+      )}
+    >
+      ✓
+    </span>
   );
 }
 

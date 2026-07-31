@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeedView } from '@coa/console-viewmodel';
@@ -65,12 +65,22 @@ describe('Nav', () => {
     expect(screen.getByText('2')).toBeTruthy();
   });
 
-  it('opens settings from the foot and routes the account foot to its surface', () => {
+  it('opens settings from the foot, which no longer carries an account button', () => {
     render(<Nav />);
     fireEvent.click(screen.getByRole('button', { name: 'settings' }));
     expect(useShell.getState().settingsOpen).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'account' }));
-    expect(useShell.getState().surface).toBe('account');
+    // Credentials live on the `auth` surface now — the foot keeps only what is app-level.
+    expect(screen.queryByRole('button', { name: 'account' })).toBeNull();
+  });
+
+  it('routes the auth and usage surfaces from the nav', () => {
+    render(<Nav />);
+    // Scoped to the nav: "usage" also names the rail HUD's own title button below it.
+    const nav = screen.getByRole('navigation');
+    fireEvent.click(within(nav).getByRole('button', { name: /auth/ }));
+    expect(useShell.getState().surface).toBe('auth');
+    fireEvent.click(within(nav).getByRole('button', { name: /usage/ }));
+    expect(useShell.getState().surface).toBe('usage');
   });
 
   it('names the project from the workspace main reports', () => {

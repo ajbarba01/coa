@@ -34,6 +34,14 @@ export interface ShellState {
   /** The agent picker — the one way a session is started (the + control and ctrl+t both
    *  open it). */
   newSessionOpen: boolean;
+  /** The auth surface's add-provider catalogue. A modal is a SHELL citizen whatever
+   *  surface asked for it — living here is what keeps the single-dialog rule airtight. */
+  addProviderOpen: boolean;
+  /** The provider the remove-confirm dialog is asking about (undefined = closed). A
+   *  payload-bearing dialog joins the exclusive set like any other. */
+  confirmRemoveProvider?: string | undefined;
+  /** The provider whose full, filterable model list is open (undefined = closed). */
+  modelsDialogProvider?: string | undefined;
   /** Bumped whenever the composer should take focus — opening a session, or Enter pressed
    *  anywhere in the conversation. A nonce rather than a flag: two consecutive requests to
    *  focus are two events, and the composer must answer both. */
@@ -54,6 +62,9 @@ export interface ShellState {
   /** Reopen the most recently closed tab; returns its id (undefined if the stack is empty)
    *  so the caller can also make it active. */
   reopenTab: () => string | undefined;
+  /** Rearrange a tab within the working set (from one index to another). Working-set
+   *  only — the browser's session ordering is unaffected. */
+  reorderTabs: (fromId: string, toIndex: number) => void;
   /** A deleted session can't be reopened — drop it from the stack (and the working set). */
   forgetTab: (sessionId: string) => void;
   setPreview: (id?: string) => void;
@@ -70,6 +81,9 @@ export interface ShellState {
   setPaletteOpen: (open: boolean) => void;
   setProjectOpen: (open: boolean) => void;
   setNewSessionOpen: (open: boolean) => void;
+  setAddProviderOpen: (open: boolean) => void;
+  setConfirmRemoveProvider: (providerId: string | undefined) => void;
+  setModelsDialogProvider: (providerId: string | undefined) => void;
   /** Put the caret in the composer — whatever the user types next is a message. */
   focusComposer: () => void;
   setDaemon: (daemon: DaemonStatus) => void;
@@ -77,14 +91,18 @@ export interface ShellState {
   setWorkspace: (workspace: { name: string; root: string }) => void;
 }
 
-/** The four modal overlays are mutually exclusive — opening one dismisses the rest so they
- *  never stack over each other. All false = every dialog closed. */
+/** The modal overlays are mutually exclusive — opening one dismisses the rest so they
+ *  never stack over each other. All false = every dialog closed. Every new dialog joins
+ *  this set; a dialog opened any other way is a single-dialog-rule violation. */
 const CLOSE_ALL_DIALOGS = {
   settingsOpen: false,
   shortcutsOpen: false,
   paletteOpen: false,
   projectOpen: false,
   newSessionOpen: false,
+  addProviderOpen: false,
+  confirmRemoveProvider: undefined,
+  modelsDialogProvider: undefined,
 } as const;
 
 export const useShell = create<ShellState>((set, get) => ({
@@ -102,6 +120,9 @@ export const useShell = create<ShellState>((set, get) => ({
   paletteOpen: false,
   projectOpen: false,
   newSessionOpen: false,
+  addProviderOpen: false,
+  confirmRemoveProvider: undefined,
+  modelsDialogProvider: undefined,
   composerFocus: 0,
   daemon: 'stopped',
   maximized: false,
@@ -134,11 +155,18 @@ export const useShell = create<ShellState>((set, get) => ({
     });
     return id;
   },
-  forgetTab: (sessionId) =>
+  forgetTab: (sessionId: string) =>
     set((s) => ({
       tabs: s.tabs.filter((t) => t !== sessionId),
       closedTabs: s.closedTabs.filter((t) => t !== sessionId),
     })),
+  reorderTabs: (fromId, toIndex) =>
+    set((s) => {
+      const tabs = s.tabs.filter((id) => id !== fromId);
+      const at = Math.max(0, Math.min(toIndex, tabs.length));
+      tabs.splice(at, 0, fromId);
+      return { tabs };
+    }),
   setPreview: (previewId) => set({ previewId }),
   setMode: (mode) => set({ mode }),
   // Search lives on the chat surface (the strip morphs) — opening it from any
@@ -164,6 +192,20 @@ export const useShell = create<ShellState>((set, get) => ({
     set(open ? { ...CLOSE_ALL_DIALOGS, projectOpen: true } : { projectOpen: false }),
   setNewSessionOpen: (open) =>
     set(open ? { ...CLOSE_ALL_DIALOGS, newSessionOpen: true } : { newSessionOpen: false }),
+  setAddProviderOpen: (open) =>
+    set(open ? { ...CLOSE_ALL_DIALOGS, addProviderOpen: true } : { addProviderOpen: false }),
+  setConfirmRemoveProvider: (providerId) =>
+    set(
+      providerId !== undefined
+        ? { ...CLOSE_ALL_DIALOGS, confirmRemoveProvider: providerId }
+        : { confirmRemoveProvider: undefined },
+    ),
+  setModelsDialogProvider: (providerId) =>
+    set(
+      providerId !== undefined
+        ? { ...CLOSE_ALL_DIALOGS, modelsDialogProvider: providerId }
+        : { modelsDialogProvider: undefined },
+    ),
   focusComposer: () => set((s) => ({ composerFocus: s.composerFocus + 1 })),
   setDaemon: (daemon) => set({ daemon }),
   setMaximized: (maximized) => set({ maximized }),
