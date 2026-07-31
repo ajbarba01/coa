@@ -37,6 +37,8 @@ export const accountSchema = z.object({
   label: z.string().min(1),
   provider: providerSchema.default('claude'),
   locator: locatorSchema,
+  /** Benched by the operator — still configured, just not used. Additive, drop-safe. */
+  disabled: z.boolean().default(false),
 });
 export type Account = z.infer<typeof accountSchema>;
 

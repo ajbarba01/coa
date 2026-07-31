@@ -33,6 +33,7 @@ describe('AccountsRegistry', () => {
         label: 'work',
         provider: 'claude',
         locator: { type: 'config-dir', dir: '/home/u/.claude-work' },
+        disabled: false,
       },
     });
   });

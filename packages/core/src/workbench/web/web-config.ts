@@ -29,9 +29,18 @@ import { KeyStateStore, locatorId } from './key-state-store.js';
  * credential is the shared account {@link Locator} (M0) — one credential-blind
  * schema for the whole system. `.strip()` + Zod-validated at the edge.
  */
+/** A web credential: the shared account Locator + an operator bench flag. A per-element
+ *  union migrates old bare-Locator files (wrap → {locator, disabled:false}), drop-safe. */
+export const webCredentialSchema = z.union([
+  z.object({ locator: locatorSchema, disabled: z.boolean().default(false) }),
+  locatorSchema.transform((locator) => ({ locator, disabled: false })),
+]);
+export type WebCredential = z.infer<typeof webCredentialSchema>;
+
 const fetchProviderSchema = z.object({
   kind: z.enum(['firecrawl', 'tavily']),
-  credentials: z.array(locatorSchema).default([]),
+  disabled: z.boolean().default(false),
+  credentials: z.array(webCredentialSchema).default([]),
 });
 
 const fetchConfigSchema = z
@@ -53,7 +62,8 @@ const fetchConfigSchema = z
 
 const searchProviderSchema = z.object({
   kind: z.enum(['tavily', 'firecrawl', 'parallel']),
-  credentials: z.array(locatorSchema).default([]),
+  disabled: z.boolean().default(false),
+  credentials: z.array(webCredentialSchema).default([]),
 });
 
 const searchConfigSchema = z
@@ -119,13 +129,15 @@ function buildFetchChain(
 ): RoutedFetch {
   const providers: Array<{ provider: FetchProvider; keyStateId: string }> = [];
   for (const provider of fetchCfg?.providers ?? []) {
+    if (provider.disabled) continue;
     for (const cred of provider.credentials) {
-      const apiKey = resolveKey(cred, env);
+      if (cred.disabled) continue;
+      const apiKey = resolveKey(cred.locator, env);
       if (apiKey === undefined) continue;
       providers.push({
         provider:
           provider.kind === 'tavily' ? makeTavilyFetch({ apiKey }) : makeFirecrawlFetch({ apiKey }),
-        keyStateId: `${provider.kind}:${locatorId(cred)}`,
+        keyStateId: `${provider.kind}:${locatorId(cred.locator)}`,
       });
     }
   }
@@ -167,12 +179,14 @@ function buildSearchChain(
 ): RoutedSearch {
   const providers: Array<{ provider: SearchProvider; keyStateId: string }> = [];
   for (const provider of searchCfg?.providers ?? []) {
+    if (provider.disabled) continue;
     for (const cred of provider.credentials) {
-      const apiKey = resolveKey(cred, env);
+      if (cred.disabled) continue;
+      const apiKey = resolveKey(cred.locator, env);
       if (apiKey === undefined) continue;
       providers.push({
         provider: makeSearchAdapter(provider.kind, apiKey),
-        keyStateId: `${provider.kind}:${locatorId(cred)}`,
+        keyStateId: `${provider.kind}:${locatorId(cred.locator)}`,
       });
     }
   }

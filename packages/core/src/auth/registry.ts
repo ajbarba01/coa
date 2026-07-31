@@ -60,7 +60,7 @@ export class AccountsRegistry {
     if (file.accounts.some((a) => a.label === label)) {
       throw new Error(`account already exists: ${label}`);
     }
-    file.accounts.push({ label, provider, locator });
+    file.accounts.push({ label, provider, locator, disabled: false });
     this.#write(file);
   }
 
