@@ -29,3 +29,4 @@ export * from './backend-message.js';
 export * from './rpc.js';
 export * from './auth.js';
 export { consoleStateSchema, type ConsoleState } from './console-state.js';
+export * from './models-file.js';
