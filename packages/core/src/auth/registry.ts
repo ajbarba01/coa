@@ -90,6 +90,16 @@ export class AccountsRegistry {
     this.#write(file);
   }
 
+  /** Bench/unbench an account in place — its locator, provider, and active status are untouched. */
+  setDisabled(label: string, disabled: boolean): void {
+    const file = this.#read();
+    const index = file.accounts.findIndex((a) => a.label === label);
+    const account = file.accounts[index];
+    if (account === undefined) throw new Error(`unknown account: ${label}`);
+    file.accounts[index] = { ...account, disabled };
+    this.#write(file);
+  }
+
   #read(): AccountsFile {
     let raw: unknown;
     try {

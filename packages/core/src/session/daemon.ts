@@ -21,6 +21,9 @@ import { buildConsoleHandlers } from '../rpc/console-handlers.js';
 import { resolveShell } from './shell.js';
 import { buildAuthHandlers } from '../rpc/auth-handlers.js';
 import { AccountsRegistry } from '../auth/registry.js';
+import { WebConfigStore } from '../workbench/web/web-config-store.js';
+import { KeyStateStore } from '../workbench/web/key-state-store.js';
+import { ConsoleStateStore } from '../console/console-state-store.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
 
@@ -121,7 +124,12 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
       decisionsByTarget: (target) => handle.governance.decisionLog.findByTarget(target),
       listTimeline: () => handle.kernel.listTimeline(),
     }),
-    ...buildAuthHandlers(new AccountsRegistry(homedir())),
+    ...buildAuthHandlers({
+      accounts: new AccountsRegistry(homedir()),
+      web: new WebConfigStore(homedir()),
+      keys: new KeyStateStore(homedir()),
+      console: new ConsoleStateStore(homedir()),
+    }),
   };
 }
 

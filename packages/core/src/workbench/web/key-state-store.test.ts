@@ -39,6 +39,14 @@ describe('KeyStateStore', () => {
     expect(reopened.isCoolingDown('firecrawl:FIRECRAWL_KEY_1', 6000)).toBe(false);
   });
 
+  it('cooldownUntil returns the raw deadline for an id, or undefined when absent', () => {
+    const fs = memFs();
+    const store = new KeyStateStore('/home', fs);
+    store.markCooldown('firecrawl:FIRECRAWL_KEY_1', 5000);
+    expect(store.cooldownUntil('firecrawl:FIRECRAWL_KEY_1')).toBe(5000);
+    expect(store.cooldownUntil('unknown')).toBeUndefined();
+  });
+
   it('clear removes a cooldown', () => {
     const fs = memFs();
     const store = new KeyStateStore('/home', fs);

@@ -90,6 +90,25 @@ describe('AccountsRegistry', () => {
     expect(reg.getActive('claude')).toMatchObject({ account: { label: 'work' } });
   });
 
+  it('setDisabled flips the flag without touching the locator or active status', () => {
+    const reg = new AccountsRegistry(home);
+    reg.add('work', { type: 'config-dir', dir: '/d' }, 'claude');
+    reg.setActive('work');
+    reg.setDisabled('work', true);
+    expect(reg.list()).toEqual([
+      { label: 'work', provider: 'claude', locator: { type: 'config-dir', dir: '/d' }, disabled: true },
+    ]);
+    expect(reg.getActive('claude')).toMatchObject({ account: { label: 'work', disabled: true } });
+
+    reg.setDisabled('work', false);
+    expect(reg.list()).toMatchObject([{ disabled: false }]);
+  });
+
+  it('setDisabled on an unknown label throws', () => {
+    const reg = new AccountsRegistry(home);
+    expect(() => reg.setDisabled('ghost', true)).toThrow(/unknown account/);
+  });
+
   it('migrates a legacy single-string active to the per-provider map', () => {
     const path = accountsPath(home);
     mkdirSync(dirname(path), { recursive: true });

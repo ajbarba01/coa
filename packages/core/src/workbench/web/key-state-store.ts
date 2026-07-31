@@ -67,6 +67,11 @@ export class KeyStateStore implements CooldownStore {
     return until !== undefined && until > now;
   }
 
+  /** The raw cooldown deadline (epoch-ms) for `id`, or undefined when it isn't cooling down / unknown. */
+  cooldownUntil(id: string): number | undefined {
+    return this.#read().cooldowns[id];
+  }
+
   markCooldown(id: string, until: number): void {
     const file = this.#read();
     file.cooldowns[id] = until;

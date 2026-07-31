@@ -1,0 +1,167 @@
+import type { Locator, Provider } from '@coa/shared';
+import type { AccountsRegistry } from '../auth/registry.js';
+import type { WebChain, WebConfigStore } from '../workbench/web/web-config-store.js';
+import type { WebConfig } from '../workbench/web/web-config.js';
+import { locatorId, type KeyStateStore } from '../workbench/web/key-state-store.js';
+import type { ConsoleStateStore } from '../console/console-state-store.js';
+
+/**
+ * The pure read projection that assembles the unified auth view the renderer
+ * expects, from the four credential-blind stores. No model call, no mutation —
+ * it only reads. Server-side provider facts core owns (which backends exist, which
+ * locator kinds are a readable pointer) live in a small local table below: the
+ * renderer's providers.ts owns presentation (icons/copy), so core need not import it.
+ */
+const BACKENDS: readonly Provider[] = ['claude', 'deepseek', 'longcat'];
+/** Locator kinds that are a readable pointer, never a secret. Only `claude` (config-dir) today. */
+const POINTER_PROVIDERS = new Set<string>(['claude']);
+const CHAINS: readonly WebChain[] = ['search', 'fetch'];
+
+export interface CredentialView {
+  id: string;
+  providerId: string;
+  label: string;
+  masked: string;
+  disabled: boolean;
+  coolingSec?: number;
+}
+
+export interface AuthView {
+  added: string[];
+  credentials: CredentialView[];
+  activeByProvider: Record<string, string>;
+  enabled: Record<string, boolean>;
+  chains: Record<string, string[]>;
+}
+
+export interface AuthViewDeps {
+  accounts: AccountsRegistry;
+  web: WebConfigStore;
+  keys: KeyStateStore;
+  console: ConsoleStateStore;
+}
+
+/** The stable credential id: unique within a provider, stable across reorders/renames of anything else. */
+export function credentialId(providerId: string, label: string): string {
+  return `${providerId}:${label}`;
+}
+
+/** The readable pointer value for a locator that isn't a secret (config-dir/env-var), else undefined. */
+function pointerValue(locator: Locator): string | undefined {
+  switch (locator.type) {
+    case 'config-dir':
+      return locator.dir;
+    case 'env-var':
+      return locator.name;
+    case 'key-file':
+    case 'ambient':
+      return undefined;
+  }
+}
+
+/** A key-file secret can never be read back; a pointer provider shows its pointer verbatim. */
+function maskFor(providerId: string, locator: Locator): string {
+  const pointer = pointerValue(locator);
+  return POINTER_PROVIDERS.has(providerId) && pointer !== undefined ? pointer : '••••';
+}
+
+/** The first non-disabled sibling — who inherits routing when the active credential is removed/benched. */
+export function heir(siblings: CredentialView[]): CredentialView | undefined {
+  return siblings.find((c) => !c.disabled);
+}
+
+/** A service key's label: the tail of its `web-<label>` key-file, or the env-var name. */
+export function labelOf(locator: Locator): string {
+  if (locator.type === 'key-file') {
+    const base = locator.path.split(/[\\/]/).pop() ?? locator.path;
+    return base.startsWith('web-') ? base.slice(4) : base;
+  }
+  if (locator.type === 'env-var') return locator.name;
+  // config-dir/ambient never appear as a web credential locator in practice; fall back to the raw pointer id.
+  return locatorId(locator);
+}
+
+/** Remaining breaker cooldown in whole seconds, or undefined when the key isn't cooling. */
+function coolingSec(
+  keys: KeyStateStore,
+  providerKind: string,
+  locator: Locator,
+  now: number,
+): number | undefined {
+  const until = keys.cooldownUntil(`${providerKind}:${locatorId(locator)}`);
+  return until !== undefined && until > now ? Math.ceil((until - now) / 1000) : undefined;
+}
+
+/**
+ * A provider is disabled if the console benched it directly (backend bench), or every
+ * web-config entry for it is benched (service bench — see console-state.ts's doc note:
+ * backend bench lives on console.yaml, service bench lives on the web.yaml entry).
+ */
+function isDisabledProvider(id: string, disabledProviders: readonly string[], web: WebConfig): boolean {
+  if (disabledProviders.includes(id)) return true;
+  const entries = [...(web.search?.providers ?? []), ...(web.fetch?.providers ?? [])].filter(
+    (p) => p.kind === id,
+  );
+  return entries.length > 0 && entries.every((p) => p.disabled);
+}
+
+/**
+ * Assemble the unified `AuthView` from the four credential stores. Pure — no model
+ * call, no side effect beyond the reads themselves. `now` is injectable so
+ * cooldown-remaining math is deterministic in tests.
+ */
+export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView {
+  const state = deps.console.read();
+  const credentials: CredentialView[] = [];
+  const activeByProvider: Record<string, string> = {};
+
+  // Backends — accounts.yaml
+  for (const provider of BACKENDS) {
+    for (const account of deps.accounts.listByProvider(provider)) {
+      credentials.push({
+        id: credentialId(provider, account.label),
+        providerId: provider,
+        label: account.label,
+        masked: maskFor(provider, account.locator),
+        disabled: account.disabled,
+      });
+    }
+    const active = deps.accounts.getActive(provider);
+    if (active.kind === 'account') {
+      activeByProvider[provider] = credentialId(provider, active.account.label);
+    }
+  }
+
+  // Services — web.yaml (+ breaker cooldown from web-keys.json)
+  const web = deps.web.read();
+  const chains: Record<string, string[]> = {};
+  for (const chain of CHAINS) {
+    const providers = web[chain]?.providers ?? [];
+    chains[chain] = providers.map((p) => p.kind);
+    for (const provider of providers) {
+      for (const cred of provider.credentials) {
+        const label = labelOf(cred.locator);
+        const id = credentialId(provider.kind, label);
+        if (credentials.some((c) => c.id === id)) continue; // a key shared by both chains appears once
+        const cool = coolingSec(deps.keys, provider.kind, cred.locator, now);
+        credentials.push({
+          id,
+          providerId: provider.kind,
+          label,
+          masked: '••••',
+          disabled: cred.disabled,
+          ...(cool !== undefined ? { coolingSec: cool } : {}),
+        });
+      }
+    }
+  }
+
+  // added = console-added ∪ providers that already have a credential
+  const withCredentials = new Set(credentials.map((c) => c.providerId));
+  const added = [...new Set([...state.addedProviders, ...withCredentials])];
+
+  const enabled: Record<string, boolean> = {};
+  for (const id of added) enabled[id] = !isDisabledProvider(id, state.disabledProviders, web);
+
+  return { added, credentials, activeByProvider, enabled, chains };
+}
