@@ -39,6 +39,9 @@ export const accountSchema = z.object({
   locator: locatorSchema,
   /** Benched by the operator — still configured, just not used. Additive, drop-safe. */
   disabled: z.boolean().default(false),
+  /** The declared identity — what a driven login pre-fills (`--email`). The live
+   *  identity is probe-derived and never stored here. Additive, drop-safe. */
+  email: z.string().optional(),
 });
 export type Account = z.infer<typeof accountSchema>;
 

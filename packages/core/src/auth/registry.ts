@@ -55,12 +55,12 @@ export class AccountsRegistry {
     return account ? { kind: 'account', account } : { kind: 'ambient' };
   }
 
-  add(label: string, locator: Locator, provider: Provider = 'claude'): void {
+  add(label: string, locator: Locator, provider: Provider = 'claude', email?: string): void {
     const file = this.#read();
     if (file.accounts.some((a) => a.label === label)) {
       throw new Error(`account already exists: ${label}`);
     }
-    file.accounts.push({ label, provider, locator, disabled: false });
+    file.accounts.push({ label, provider, locator, disabled: false, ...(email !== undefined ? { email } : {}) });
     this.#write(file);
   }
 
@@ -97,6 +97,16 @@ export class AccountsRegistry {
     const account = file.accounts[index];
     if (account === undefined) throw new Error(`unknown account: ${label}`);
     file.accounts[index] = { ...account, disabled };
+    this.#write(file);
+  }
+
+  /** Set/backfill the declared email (the driven login's `--email` value). */
+  setEmail(label: string, email: string): void {
+    const file = this.#read();
+    const index = file.accounts.findIndex((a) => a.label === label);
+    const account = file.accounts[index];
+    if (account === undefined) throw new Error(`unknown account: ${label}`);
+    file.accounts[index] = { ...account, email };
     this.#write(file);
   }
 

@@ -29,5 +29,8 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "yaml": "^2.8.1"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
   }
 }

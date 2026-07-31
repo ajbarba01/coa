@@ -41,4 +41,12 @@ describe('auth schema', () => {
     const a = accountSchema.parse({ label: 'ds', provider: 'deepseek', disabled: true, locator: { type: 'key-file', path: '/x' } });
     expect(a.disabled).toBe(true);
   });
+
+  it('accountSchema carries an optional declared email and drops none of the old fields', () => {
+    const parsed = accountSchema.parse({
+      label: 'a', locator: { type: 'config-dir', dir: '/x' }, email: 'a@b.org',
+    });
+    expect(parsed.email).toBe('a@b.org');
+    expect(accountSchema.parse({ label: 'a', locator: { type: 'ambient' } }).email).toBeUndefined();
+  });
 });

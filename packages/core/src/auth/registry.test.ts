@@ -109,6 +109,20 @@ describe('AccountsRegistry', () => {
     expect(() => reg.setDisabled('ghost', true)).toThrow(/unknown account/);
   });
 
+  it('add stores the declared email; setEmail backfills one later', () => {
+    const registry = new AccountsRegistry(home);
+    registry.add('work', { type: 'config-dir', dir: '/w' }, 'claude', 'work@barba.org');
+    expect(registry.list()[0]?.email).toBe('work@barba.org');
+    registry.add('old', { type: 'config-dir', dir: '/o' });
+    registry.setEmail('old', 'old@barba.org');
+    expect(registry.list().find((a) => a.label === 'old')?.email).toBe('old@barba.org');
+  });
+
+  it('setEmail on an unknown label throws (same contract as setDisabled)', () => {
+    const registry = new AccountsRegistry(home);
+    expect(() => registry.setEmail('ghost', 'x@y.z')).toThrow('unknown account');
+  });
+
   it('migrates a legacy single-string active to the per-provider map', () => {
     const path = accountsPath(home);
     mkdirSync(dirname(path), { recursive: true });
