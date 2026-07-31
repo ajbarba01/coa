@@ -1,9 +1,10 @@
 import { Popover } from '@base-ui/react/popover';
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
+import { useRef } from 'react';
 import { cx } from '../cx.js';
 import { menuSurface } from './MenuCard.js';
 import { TooltipSurface, type TooltipSpec } from './Tooltip.js';
-import { useDismissLayer } from './layers.js';
+import { useDismissLayer, useExclusivePopover } from './layers.js';
 
 export interface PopoverCardProps {
   /** The anchor element (a chip/button); Base UI merges its trigger props onto it. */
@@ -13,6 +14,10 @@ export interface PopoverCardProps {
   side?: 'top' | 'bottom' | 'left' | 'right';
   align?: 'start' | 'center' | 'end';
   sideOffset?: number;
+  /** Anchor at a POINT instead of the trigger — the context-menu opening (a right-click
+   *  menu belongs under the cursor, not wherever its button happens to sit). The trigger
+   *  still owns the open state; only the positioning moves. */
+  anchorPoint?: { x: number; y: number } | undefined;
   className?: string;
   /** Hover/focus detail on the trigger (icon-only chips) — the tooltip closes
    *  itself when the popover opens (Base UI's trigger-press reason). */
@@ -30,11 +35,21 @@ export function PopoverCard({
   side = 'top',
   align = 'end',
   sideOffset = 6,
+  anchorPoint,
   className,
   tooltip,
   children,
 }: PopoverCardProps): React.JSX.Element {
+  const popupRef = useRef<HTMLDivElement>(null);
   useDismissLayer(open, () => onOpenChange(false));
+  // One open menu app-wide: opening this popover closes whichever was open before it.
+  // The popup ref lets a sub-layer (the edit menu on a field in here) spare this one.
+  useExclusivePopover(open, () => onOpenChange(false), { rootRef: popupRef });
+  // Base UI takes a virtual element: a zero-size rect at the point.
+  const anchor =
+    anchorPoint === undefined
+      ? undefined
+      : { getBoundingClientRect: () => new DOMRect(anchorPoint.x, anchorPoint.y, 0, 0) };
   const core = (
     <Popover.Root
       open={open}
@@ -62,9 +77,10 @@ export function PopoverCard({
           side={side}
           align={align}
           sideOffset={sideOffset}
+          {...(anchor === undefined ? {} : { anchor })}
           className="z-(--z-dropdown)"
         >
-          <Popover.Popup className={cx('slip-enter', menuSurface, className)}>
+          <Popover.Popup ref={popupRef} className={cx('slip-enter', menuSurface, className)}>
             {children}
           </Popover.Popup>
         </Popover.Positioner>

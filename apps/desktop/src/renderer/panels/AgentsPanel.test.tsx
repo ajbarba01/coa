@@ -295,8 +295,10 @@ const stateWith = (
 ): ConsoleState => makeState({ data: { agents }, ui, actions });
 
 /** The console state a ready agents editor renders from — pass to `AgentsSurface`. */
-const readyState = (ui: Partial<ConsoleState['ui']> = {}, actions: StateOverrides['actions'] = {}) =>
-  stateWith({ status: 'ok', value: MOCK_AGENTS }, ui, actions);
+const readyState = (
+  ui: Partial<ConsoleState['ui']> = {},
+  actions: StateOverrides['actions'] = {},
+) => stateWith({ status: 'ok', value: MOCK_AGENTS }, ui, actions);
 
 /** The derived vm — for assertions that inspect `selectAgentsVm`'s output directly. */
 const ready = (ui: Partial<ConsoleState['ui']> = {}, actions: StateOverrides['actions'] = {}) =>

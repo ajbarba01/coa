@@ -17,7 +17,18 @@ import { cx } from '../lib/cx.js';
 // The `Light` build ships with NO languages registered, so without this every code
 // block renders unhighlighted. Register once at module load (side effect on import).
 const LANGUAGES: Record<string, (hljs: unknown) => unknown> = {
-  bash, css, go, javascript, json, markdown, python, rust, sql, typescript, xml, yaml,
+  bash,
+  css,
+  go,
+  javascript,
+  json,
+  markdown,
+  python,
+  rust,
+  sql,
+  typescript,
+  xml,
+  yaml,
 };
 for (const [name, mod] of Object.entries(LANGUAGES)) {
   SyntaxHighlighter.registerLanguage(name, mod);

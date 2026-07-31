@@ -46,9 +46,15 @@ export interface PaneOverlayProviderProps {
 
 /** Wraps a pane and hosts an overlay confined to it: the overlay is `absolute inset-0`
  *  within this `relative` container, so it never covers the window. */
-export function PaneOverlayProvider({ children, className }: PaneOverlayProviderProps): React.JSX.Element {
+export function PaneOverlayProvider({
+  children,
+  className,
+}: PaneOverlayProviderProps): React.JSX.Element {
   const [state, setState] = useState<OverlayState | null>(null);
-  const open = useCallback((content: ReactNode, title?: string) => setState({ content, title }), []);
+  const open = useCallback(
+    (content: ReactNode, title?: string) => setState({ content, title }),
+    [],
+  );
   const close = useCallback(() => setState(null), []);
   const api = useMemo<PaneOverlayApi>(() => ({ open, close }), [open, close]);
   return (
@@ -61,7 +67,13 @@ export function PaneOverlayProvider({ children, className }: PaneOverlayProvider
   );
 }
 
-function PaneOverlayHost({ state, onClose }: { state: OverlayState; onClose: () => void }): React.JSX.Element {
+function PaneOverlayHost({
+  state,
+  onClose,
+}: {
+  state: OverlayState;
+  onClose: () => void;
+}): React.JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   // Where focus was before the overlay opened, restored on close so dismissing returns

@@ -47,6 +47,34 @@ export function closeTab(id: string): void {
   }
 }
 
+/** Close every OTHER tab in the working set — the kept tab becomes the selection. */
+export function closeOtherTabs(id: string): void {
+  const shell = useShell.getState();
+  for (const t of shell.tabs.filter((t) => t !== id)) shell.closeTab(t);
+  const cs = useConsoleState.getState();
+  if (cs !== undefined && cs.ui.activeSessionId !== id) cs.actions.selectSession(id);
+}
+
+/** Close every tab AFTER this one (strip order). The selection only moves if it was
+ *  among the closed — then it lands on the tab that survived the cut. */
+export function closeTabsRight(id: string): void {
+  const shell = useShell.getState();
+  const at = shell.tabs.indexOf(id);
+  if (at === -1) return;
+  const victims = shell.tabs.slice(at + 1);
+  for (const t of victims) shell.closeTab(t);
+  const cs = useConsoleState.getState();
+  if (cs?.ui.activeSessionId !== undefined && victims.includes(cs.ui.activeSessionId))
+    cs.actions.selectSession(id);
+}
+
+/** Reopen the most recently closed tab and make it active — ctrl+shift+t and the tab
+ *  menu run this same command. */
+export function reopenLastTab(): void {
+  const id = useShell.getState().reopenTab();
+  if (id !== undefined) useConsoleState.getState()?.actions.selectSession(id);
+}
+
 /** The command table: one entry per registry id. Dispatch is a lookup, never a branch on
  *  a key — that's what makes the binds rebindable rather than decorative. */
 const COMMANDS: Record<string, () => void> = {
@@ -73,10 +101,7 @@ const COMMANDS: Record<string, () => void> = {
   },
   'toggle-dock': () => useShell.getState().toggleWork(),
   'new-session': () => useShell.getState().setNewSessionOpen(true),
-  'reopen-tab': () => {
-    const id = useShell.getState().reopenTab();
-    if (id !== undefined) useConsoleState.getState()?.actions.selectSession(id);
-  },
+  'reopen-tab': reopenLastTab,
   'close-tab': () => {
     const active = useConsoleState.getState()?.ui.activeSessionId;
     // No active tab is a no-op: ctrl+w never closes the window (that's the window's own
@@ -150,6 +175,14 @@ export function useGlobalKeys(): void {
         !e.altKey &&
         !hasOpenLayers()
       ) {
+        // The bottom of the Escape stack is the chat surface itself: with nothing left
+        // to dismiss on another surface, Escape walks home before it means anything
+        // else. On chat it keeps its last meaning — stop the running turn.
+        const shell = useShell.getState();
+        if (shell.surface !== 'chat') {
+          shell.setSurface('chat');
+          return;
+        }
         const cs = useConsoleState.getState();
         const id = cs?.ui.activeSessionId;
         if (cs !== undefined && id !== undefined && cs.ui.runStatus[id] !== undefined) {

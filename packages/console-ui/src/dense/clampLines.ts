@@ -14,6 +14,8 @@ export function clampLines(
   const lines = text.split('\n');
   if (lines.length <= maxLines) return { shown: text, truncated: false, hiddenCount: 0 };
   const hiddenCount = lines.length - maxLines;
-  const shown = (opts?.fromEnd === true ? lines.slice(-maxLines) : lines.slice(0, maxLines)).join('\n');
+  const shown = (opts?.fromEnd === true ? lines.slice(-maxLines) : lines.slice(0, maxLines)).join(
+    '\n',
+  );
   return { shown, truncated: true, hiddenCount };
 }

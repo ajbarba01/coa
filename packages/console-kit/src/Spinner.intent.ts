@@ -3,8 +3,7 @@ import { assertIntent, type ComponentIntent } from './lib/intent.js';
 export const spinnerIntent: ComponentIntent = assertIntent({
   name: 'Spinner',
   family: 'Foundations',
-  intent:
-    'The loading circle — quiet s-scale ring for content that is genuinely not there yet.',
+  intent: 'The loading circle — quiet s-scale ring for content that is genuinely not there yet.',
   useWhen: [
     'A cold load with nothing cached to show (first open of a transcript).',
     'A deferred canvas whose content is still rendering in a transition.',

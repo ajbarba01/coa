@@ -3,8 +3,16 @@ import { clampLines } from './clampLines.js';
 
 describe('clampLines', () => {
   it('returns the text untouched when within the limit', () => {
-    expect(clampLines('a\nb\nc', 5)).toEqual({ shown: 'a\nb\nc', truncated: false, hiddenCount: 0 });
-    expect(clampLines('a\nb\nc', 3)).toEqual({ shown: 'a\nb\nc', truncated: false, hiddenCount: 0 });
+    expect(clampLines('a\nb\nc', 5)).toEqual({
+      shown: 'a\nb\nc',
+      truncated: false,
+      hiddenCount: 0,
+    });
+    expect(clampLines('a\nb\nc', 3)).toEqual({
+      shown: 'a\nb\nc',
+      truncated: false,
+      hiddenCount: 0,
+    });
   });
 
   it('clamps to the first N lines when over the limit (byte-faithful shown)', () => {

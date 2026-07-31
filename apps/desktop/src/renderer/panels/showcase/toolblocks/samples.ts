@@ -111,7 +111,8 @@ export const TOOL_CALLS: ToolCall[] = [
     id: 'get_piece',
     tool: 'get_piece',
     input: JSON.stringify({ ref: { path: 'docs/auth.md', symbol: 'token-rotation' } }, null, 2),
-    output: '# Token rotation\n\nThe refresh token is single-use; minting a fresh token invalidates it.',
+    output:
+      '# Token rotation\n\nThe refresh token is single-use; minting a fresh token invalidates it.',
     ok: true,
   },
   {

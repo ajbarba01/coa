@@ -29,7 +29,10 @@ describe('configKey', () => {
 describe('computeChatBanners — cache', () => {
   it('is empty with no pending change and a fresh session', () => {
     expect(
-      computeChatBanners({ ...base, pinned: { provider: 'claude', model: 'opus', updatedAt: NOW } }),
+      computeChatBanners({
+        ...base,
+        pinned: { provider: 'claude', model: 'opus', updatedAt: NOW },
+      }),
     ).toEqual([]);
   });
 

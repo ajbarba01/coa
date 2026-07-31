@@ -57,7 +57,7 @@ describe('Markdown', () => {
     expect(quote?.className).toMatch(/border-s5/);
     expect(quote?.className).toMatch(/text-s10/);
   });
-  it('carries heading emphasis as padding-top (not margin-top), matching the proto — padding survives the streaming path\'s per-block gap container', () => {
+  it("carries heading emphasis as padding-top (not margin-top), matching the proto — padding survives the streaming path's per-block gap container", () => {
     const { container: c1 } = render(<Markdown source={'# H1'} />);
     expect(c1.querySelector('h1')?.className).toMatch(/pt-2\.5/);
     expect(c1.querySelector('h1')?.className).not.toMatch(/mt-4/);
@@ -68,9 +68,11 @@ describe('Markdown', () => {
     expect(c3.querySelector('h3')?.className).toMatch(/pt-1\.5/);
     expect(c3.querySelector('h3')?.className).not.toMatch(/mt-2\.5/);
   });
-  it('uses ONE spacing mechanism — the root flex gap — so a heading\'s padding-top is strictly additive on top of what every other block gets, not competing with per-block margins (round-2 fix: round-1 inverted this in the settled single-instance path, where headings carried only padding while paragraphs still carried mt-2.5)', () => {
+  it("uses ONE spacing mechanism — the root flex gap — so a heading's padding-top is strictly additive on top of what every other block gets, not competing with per-block margins (round-2 fix: round-1 inverted this in the settled single-instance path, where headings carried only padding while paragraphs still carried mt-2.5)", () => {
     const { container } = render(
-      <Markdown source={'intro paragraph\n\n## Section\n\nbody paragraph\n\n- a\n- b\n\n> quoted'} />,
+      <Markdown
+        source={'intro paragraph\n\n## Section\n\nbody paragraph\n\n- a\n- b\n\n> quoted'}
+      />,
     );
     // the root container is the ONLY source of inter-block rhythm
     const root = container.firstElementChild;

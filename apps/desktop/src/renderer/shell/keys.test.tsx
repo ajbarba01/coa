@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 import { makeState } from '../panels/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { DEFAULT_KEYBINDS } from './keybinds.js';
-import { useGlobalKeys } from './keys.js';
+import { closeOtherTabs, closeTabsRight, useGlobalKeys } from './keys.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -75,6 +75,33 @@ describe('useGlobalKeys', () => {
     render(<Keys />);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(interruptSession).not.toHaveBeenCalled();
+  });
+
+  it('Escape on another surface walks home to chat — never straight to the stop', () => {
+    const interruptSession = vi.fn();
+    publishConsoleState(
+      makeState({
+        ui: { activeSessionId: 'c1', runStatus: { c1: { since: 1 } } },
+        actions: { interruptSession },
+      }),
+    );
+    useShell.setState({ surface: 'auth' });
+    render(<Keys />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().surface).toBe('chat');
+    expect(interruptSession).not.toHaveBeenCalled();
+  });
+
+  it('Escape on another surface still defers to an open dismiss layer', () => {
+    useShell.setState({ surface: 'auth' });
+    render(
+      <>
+        <Keys />
+        <OpenLayer />
+      </>,
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().surface).toBe('auth');
   });
 
   it('Ctrl+P toggles search — a second press exits it', () => {
@@ -223,6 +250,34 @@ describe('tab commands', () => {
     selectSession.mockClear();
     fireEvent.keyDown(window, { key: 'T', ctrlKey: true, shiftKey: true });
     expect(useShell.getState().tabs).toEqual(['a', 'b', 'c']);
+    expect(selectSession).not.toHaveBeenCalled();
+  });
+
+  it('closeOtherTabs keeps only the given tab and lands the selection on it', () => {
+    const selectSession = publishTabs('c');
+    closeOtherTabs('b');
+    expect(useShell.getState().tabs).toEqual(['b']);
+    expect(selectSession).toHaveBeenCalledWith('b');
+  });
+
+  it('closeOtherTabs around the already-active tab moves the selection nowhere', () => {
+    const selectSession = publishTabs('b');
+    closeOtherTabs('b');
+    expect(useShell.getState().tabs).toEqual(['b']);
+    expect(selectSession).not.toHaveBeenCalled();
+  });
+
+  it('closeTabsRight closes only the tabs after the given one', () => {
+    const selectSession = publishTabs('c');
+    closeTabsRight('a');
+    expect(useShell.getState().tabs).toEqual(['a']);
+    expect(selectSession).toHaveBeenCalledWith('a'); // the active tab was among the closed
+  });
+
+  it('closeTabsRight leaves a surviving selection alone', () => {
+    const selectSession = publishTabs('a');
+    closeTabsRight('b');
+    expect(useShell.getState().tabs).toEqual(['a', 'b']);
     expect(selectSession).not.toHaveBeenCalled();
   });
 

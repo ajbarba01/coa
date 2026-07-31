@@ -11,7 +11,11 @@ describe('splitStreamingMarkdown', () => {
   });
 
   it('is empty for empty input', () => {
-    expect(splitStreamingMarkdown('')).toEqual({ completed: [], trailing: '', trailingIsOpenCode: false });
+    expect(splitStreamingMarkdown('')).toEqual({
+      completed: [],
+      trailing: '',
+      trailingIsOpenCode: false,
+    });
   });
 
   it('splits a completed paragraph (blank-line boundary) from the trailing one', () => {

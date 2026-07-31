@@ -23,7 +23,13 @@ export function ToolDiffView({ lines, language }: ToolDiffViewProps): React.JSX.
   );
 }
 
-function DiffRow({ line, language }: { line: DiffLine; language?: string | undefined }): React.JSX.Element {
+function DiffRow({
+  line,
+  language,
+}: {
+  line: DiffLine;
+  language?: string | undefined;
+}): React.JSX.Element {
   const marker = line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' ';
   return (
     <div

@@ -3,9 +3,10 @@ import { parseEdit } from './ToolCard.js';
 
 describe('parseEdit — Claude/base edits', () => {
   it('derives before/after from old_string/new_string', () => {
-    expect(
-      parseEdit('Edit', '{"file_path":"a.ts","old_string":"x","new_string":"y"}'),
-    ).toEqual({ before: 'x', after: 'y' });
+    expect(parseEdit('Edit', '{"file_path":"a.ts","old_string":"x","new_string":"y"}')).toEqual({
+      before: 'x',
+      after: 'y',
+    });
   });
 
   it('treats a Write content as an all-added diff (before empty)', () => {

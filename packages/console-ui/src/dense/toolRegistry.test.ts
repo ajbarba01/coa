@@ -16,7 +16,10 @@ describe('describeTool — Claude / base tools', () => {
   });
 
   it('describes Edit with a +N −M diff stat computed from old/new strings', () => {
-    const d = describeTool('Edit', '{"file_path":"a.ts","old_string":"x\\ny","new_string":"x\\nY\\nz"}');
+    const d = describeTool(
+      'Edit',
+      '{"file_path":"a.ts","old_string":"x\\ny","new_string":"x\\nY\\nz"}',
+    );
     expect(d.icon).toBe(Pencil);
     expect(d.verb).toBe('Edit');
     expect(d.summary).toBe('a.ts +2 −1');
@@ -45,7 +48,9 @@ describe('describeTool — coa governed tools', () => {
   });
 
   it('describes get_symbol from a path+symbol ref', () => {
-    expect(describeTool('get_symbol', '{"ref":{"path":"src/auth.ts","symbol":"mint"}}').summary).toBe('mint');
+    expect(
+      describeTool('get_symbol', '{"ref":{"path":"src/auth.ts","symbol":"mint"}}').summary,
+    ).toBe('mint');
   });
 
   it('describes run_checks with its scope (or "all")', () => {
@@ -92,7 +97,9 @@ describe('describeTool — fallback and robustness', () => {
 
 describe('toolPath', () => {
   it('extracts the raw path for the file tools (file_path or base-tool path)', () => {
-    expect(toolPath('Read', '{"file_path":"src/auth.ts","offset":1,"limit":40}')).toBe('src/auth.ts');
+    expect(toolPath('Read', '{"file_path":"src/auth.ts","offset":1,"limit":40}')).toBe(
+      'src/auth.ts',
+    );
     expect(toolPath('Read', '{"path":"a.ts"}')).toBe('a.ts');
     expect(toolPath('Edit', '{"file_path":"b.ts","old_string":"x","new_string":"y"}')).toBe('b.ts');
     expect(toolPath('Write', '{"file_path":"c.ts","content":"z"}')).toBe('c.ts');

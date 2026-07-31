@@ -23,7 +23,9 @@ function header(container: HTMLElement): HTMLElement {
 describe('ToolCard', () => {
   it('renders the verb, a clickable path button that fires onOpenPath, and a diff-stat meta', async () => {
     const onOpenPath = vi.fn();
-    render(<ToolCard tool="Edit" input={editInput} output="ok" ok={true} onOpenPath={onOpenPath} />);
+    render(
+      <ToolCard tool="Edit" input={editInput} output="ok" ok={true} onOpenPath={onOpenPath} />,
+    );
     expect(screen.getByText('Edit')).toBeInTheDocument();
     const pathBtn = screen.getByRole('button', { name: 'src/auth.ts' });
     await userEvent.click(pathBtn);
@@ -111,7 +113,13 @@ describe('ToolCard', () => {
 
   it('renders an unparseable search line as plain text (no button)', async () => {
     const { container } = render(
-      <ToolCard tool="Grep" input='{"pattern":"x"}' output={'weird line no colon'} ok={true} onOpenPath={() => {}} />,
+      <ToolCard
+        tool="Grep"
+        input='{"pattern":"x"}'
+        output={'weird line no colon'}
+        ok={true}
+        onOpenPath={() => {}}
+      />,
     );
     await userEvent.click(header(container));
     expect(screen.queryByRole('button', { name: /weird line/ })).not.toBeInTheDocument();
@@ -129,14 +137,19 @@ describe('ToolCard', () => {
       ref: { path: 'src/auth.ts', symbol: 'mint' },
       diff: { form: 'search-replace', hunks: [{ find: 'const a = 1;', replace: 'const a = 2;' }] },
     });
-    const { container } = render(<ToolCard tool="edit_symbol" input={input} output="applied" ok={true} />);
+    const { container } = render(
+      <ToolCard tool="edit_symbol" input={input} output="applied" ok={true} />,
+    );
     expect(container.querySelector('.bg-diff-del\\/12')?.textContent).toContain('const a = 1;');
     expect(container.querySelector('.bg-diff-add\\/12')?.textContent).toContain('const a = 2;');
   });
 
   it('marks error tokens in a failing command body, over the whole-body error tint', () => {
-    const output = 'src/auth.ts(31,5): error TS2554: Expected 1 arguments, but got 2.\n\nExit code: 2';
-    const { container } = render(<ToolCard tool="Bash" input='{"command":"tsc"}' output={output} ok={false} />);
+    const output =
+      'src/auth.ts(31,5): error TS2554: Expected 1 arguments, but got 2.\n\nExit code: 2';
+    const { container } = render(
+      <ToolCard tool="Bash" input='{"command":"tsc"}' output={output} ok={false} />,
+    );
     const marks = [...container.querySelectorAll('.text-crit')].map((n) => n.textContent);
     expect(marks).toContain('error TS2554');
     expect(marks).toContain('Exit code: 2');
@@ -147,13 +160,20 @@ describe('ToolCard', () => {
   it('renders get_symbol source as a byte-faithful preview once opened', async () => {
     const src = 'export function mint(id: string): Token {\n  return new Token(id);\n}';
     const { container } = render(
-      <ToolCard tool="get_symbol" input='{"ref":{"path":"src/auth.ts","symbol":"mint"}}' output={src} ok={true} />,
+      <ToolCard
+        tool="get_symbol"
+        input='{"ref":{"path":"src/auth.ts","symbol":"mint"}}'
+        output={src}
+        ok={true}
+      />,
     );
     // Collapsed by default: the body slide is mounted (for the open transition) but marked
     // aria-hidden until the header is opened.
     const h = header(container);
     expect(h.getAttribute('aria-expanded')).toBe('false');
-    expect(container.querySelector('.grid[aria-hidden="true"]')?.textContent).toContain('return new Token(id);');
+    expect(container.querySelector('.grid[aria-hidden="true"]')?.textContent).toContain(
+      'return new Token(id);',
+    );
     await userEvent.click(h);
     expect(h.getAttribute('aria-expanded')).toBe('true');
     expect(container.querySelector('.grid[aria-hidden="true"]')).toBeNull();
@@ -162,14 +182,27 @@ describe('ToolCard', () => {
   });
 
   it('surfaces the symbol name in the meta slot', () => {
-    render(<ToolCard tool="get_symbol" input='{"ref":{"path":"src/auth.ts","symbol":"mint"}}' output="x" ok={true} />);
+    render(
+      <ToolCard
+        tool="get_symbol"
+        input='{"ref":{"path":"src/auth.ts","symbol":"mint"}}'
+        output="x"
+        ok={true}
+      />,
+    );
     expect(screen.getByText('mint')).toBeInTheDocument();
   });
 
   it('shows a hunk count in the meta slot for an apply_patch', () => {
     const input = JSON.stringify({
       target: 'src/auth.ts',
-      diff: { form: 'search-replace', hunks: [{ find: 'a', replace: 'b' }, { find: 'c', replace: 'd' }] },
+      diff: {
+        form: 'search-replace',
+        hunks: [
+          { find: 'a', replace: 'b' },
+          { find: 'c', replace: 'd' },
+        ],
+      },
     });
     render(<ToolCard tool="apply_patch" input={input} output="applied" ok={true} />);
     expect(screen.getByText('2 hunks')).toBeInTheDocument();
@@ -177,7 +210,12 @@ describe('ToolCard', () => {
 
   it('shows a failed collapsed tool as an always-visible error body (rests open, never requires opening)', () => {
     const { container } = render(
-      <ToolCard tool="get_symbol" input='{"ref":{"name":"orphan"}}' output={'not found: no-symbol'} ok={false} />,
+      <ToolCard
+        tool="get_symbol"
+        input='{"ref":{"name":"orphan"}}'
+        output={'not found: no-symbol'}
+        ok={false}
+      />,
     );
     expect(screen.getByLabelText('failed')).toBeInTheDocument();
     expect(container.textContent).toContain('not found: no-symbol');
@@ -185,7 +223,9 @@ describe('ToolCard', () => {
   });
 
   it('renders NO body and no toggle for an empty search result (0 matches shows only in the header)', () => {
-    const { container } = render(<ToolCard tool="Glob" input='{"pattern":"*.zzz"}' output={''} ok={true} />);
+    const { container } = render(
+      <ToolCard tool="Glob" input='{"pattern":"*.zzz"}' output={''} ok={true} />,
+    );
     expect(container.querySelector('[aria-expanded]')).toBeNull();
     expect(screen.getByText('Glob')).toBeInTheDocument();
   });
@@ -238,7 +278,9 @@ describe('ToolCard', () => {
     const h = header(container);
     expect(h.getAttribute('aria-expanded')).toBe('false');
     // Mounted-but-hidden while collapsed (matches the Read/Grep resting-collapse pattern).
-    expect(container.querySelector('.grid[aria-hidden="true"]')?.textContent).toContain('digested body text');
+    expect(container.querySelector('.grid[aria-hidden="true"]')?.textContent).toContain(
+      'digested body text',
+    );
     await userEvent.click(h);
     expect(h.getAttribute('aria-expanded')).toBe('true');
     expect(container.textContent).toContain('# Page heading');
@@ -248,7 +290,9 @@ describe('ToolCard', () => {
 
 describe('state vocabulary — the indicator law', () => {
   it('renders the green succeeded dot on success', () => {
-    const { container } = render(<ToolCard tool="Bash" input='{"command":"ls"}' output="ok" ok={true} />);
+    const { container } = render(
+      <ToolCard tool="Bash" input='{"command":"ls"}' output="ok" ok={true} />,
+    );
     const dot = container.querySelector('[aria-label="succeeded"]');
     expect(dot).not.toBeNull();
     expect(dot?.className).toMatch(/bg-ok\b/);
@@ -262,7 +306,9 @@ describe('state vocabulary — the indicator law', () => {
   });
 
   it('renders the red failure dot on a failed call', () => {
-    const { container } = render(<ToolCard tool="Bash" input='{"command":"ls"}' output="boom" ok={false} />);
+    const { container } = render(
+      <ToolCard tool="Bash" input='{"command":"ls"}' output="boom" ok={false} />,
+    );
     const dot = container.querySelector('[aria-label="failed"]');
     expect(dot).not.toBeNull();
     expect(dot?.className).toMatch(/bg-crit\b/);
@@ -274,8 +320,14 @@ describe('state vocabulary — the indicator law', () => {
       { output: 'ok', ok: true },
       { output: 'boom', ok: false },
     ]) {
-      const { container, unmount } = render(<ToolCard tool="Bash" input='{"command":"ls"}' {...props} />);
-      expect(container.querySelectorAll('[aria-label="running"], [aria-label="succeeded"], [aria-label="failed"]')).toHaveLength(1);
+      const { container, unmount } = render(
+        <ToolCard tool="Bash" input='{"command":"ls"}' {...props} />,
+      );
+      expect(
+        container.querySelectorAll(
+          '[aria-label="running"], [aria-label="succeeded"], [aria-label="failed"]',
+        ),
+      ).toHaveLength(1);
       unmount();
     }
   });
@@ -288,7 +340,9 @@ describe('state vocabulary — the indicator law', () => {
 
 describe('resting rule', () => {
   it('rests a Read collapsed by default', () => {
-    const { container } = render(<ToolCard tool="Read" input='{"file_path":"src/notes.txt"}' output="a\nb" ok={true} />);
+    const { container } = render(
+      <ToolCard tool="Read" input='{"file_path":"src/notes.txt"}' output="a\nb" ok={true} />,
+    );
     expect(header(container).getAttribute('aria-expanded')).toBe('false');
   });
 
@@ -298,12 +352,16 @@ describe('resting rule', () => {
   });
 
   it('rests a Bash command open by default', () => {
-    const { container } = render(<ToolCard tool="Bash" input='{"command":"ls"}' output="a" ok={true} />);
+    const { container } = render(
+      <ToolCard tool="Bash" input='{"command":"ls"}' output="a" ok={true} />,
+    );
     expect(header(container).getAttribute('aria-expanded')).toBe('true');
   });
 
   it('rests run_checks open by default', () => {
-    const { container } = render(<ToolCard tool="run_checks" input='{"scope":"all"}' output="a ✓" ok={true} />);
+    const { container } = render(
+      <ToolCard tool="run_checks" input='{"scope":"all"}' output="a ✓" ok={true} />,
+    );
     expect(header(container).getAttribute('aria-expanded')).toBe('true');
   });
 
@@ -316,11 +374,18 @@ describe('resting rule', () => {
 
   it('rests a read/search tool collapsed (aria-hidden) until its header is opened', async () => {
     const { container } = render(
-      <ToolCard tool="Read" input='{"file_path":"src/notes.txt"}' output={'first line\nsecond line\nthird line'} ok={true} />,
+      <ToolCard
+        tool="Read"
+        input='{"file_path":"src/notes.txt"}'
+        output={'first line\nsecond line\nthird line'}
+        ok={true}
+      />,
     );
     const h = header(container);
     expect(h.getAttribute('aria-expanded')).toBe('false');
-    expect(container.querySelector('.grid[aria-hidden="true"]')?.textContent).toContain('second line');
+    expect(container.querySelector('.grid[aria-hidden="true"]')?.textContent).toContain(
+      'second line',
+    );
     await userEvent.click(h);
     expect(h.getAttribute('aria-expanded')).toBe('true');
     expect(container.querySelector('.grid[aria-hidden="true"]')).toBeNull();
@@ -346,7 +411,13 @@ describe('clamp direction', () => {
   it('clamps command output from the END, with the clamp row ABOVE the body', () => {
     const lines = Array.from({ length: 12 }, (_, i) => `line-${i}`);
     const { container } = render(
-      <ToolCard tool="Bash" input='{"command":"seq 12"}' output={lines.join('\n')} ok={true} maxLines={5} />,
+      <ToolCard
+        tool="Bash"
+        input='{"command":"seq 12"}'
+        output={lines.join('\n')}
+        ok={true}
+        maxLines={5}
+      />,
     );
     const bodyWrap = container.querySelector('.border-t.border-s3');
     expect(bodyWrap?.firstElementChild?.tagName).toBe('BUTTON'); // the clamp row leads
@@ -358,8 +429,14 @@ describe('clamp direction', () => {
   it('clamps a diff from the START, with the clamp row BELOW the body', () => {
     const before = Array.from({ length: 10 }, (_, i) => `old-${i}`).join('\n');
     const after = Array.from({ length: 10 }, (_, i) => `new-${i}`).join('\n');
-    const input = JSON.stringify({ file_path: 'src/big.ts', old_string: before, new_string: after });
-    const { container } = render(<ToolCard tool="Edit" input={input} output="ok" ok={true} maxLines={5} />);
+    const input = JSON.stringify({
+      file_path: 'src/big.ts',
+      old_string: before,
+      new_string: after,
+    });
+    const { container } = render(
+      <ToolCard tool="Edit" input={input} output="ok" ok={true} maxLines={5} />,
+    );
     const bodyWrap = container.querySelector('.border-t.border-s3');
     expect(bodyWrap?.lastElementChild?.tagName).toBe('BUTTON'); // the clamp row trails
     expect(screen.getByRole('button', { name: /more line/ })).toBeInTheDocument();
@@ -369,7 +446,13 @@ describe('clamp direction', () => {
   it('clamps a long Bash command tail from the END, with the clamp row ABOVE the body', () => {
     const lines = Array.from({ length: 12 }, (_, i) => `bash-${i}`);
     const { container } = render(
-      <ToolCard tool="Bash" input='{"command":"seq 12"}' output={lines.join('\n')} ok={true} maxLines={8} />,
+      <ToolCard
+        tool="Bash"
+        input='{"command":"seq 12"}'
+        output={lines.join('\n')}
+        ok={true}
+        maxLines={8}
+      />,
     );
     const bodyWrap = container.querySelector('.border-t.border-s3');
     expect(bodyWrap?.firstElementChild?.tagName).toBe('BUTTON'); // the clamp row leads
@@ -380,7 +463,9 @@ describe('clamp direction', () => {
   });
 
   it('clamps a long WebFetch digest from the START, with the clamp row BELOW the body (the inverse of Bash)', async () => {
-    const lines = Array.from({ length: 12 }, (_, i) => (i === 0 ? '# Page heading' : `body line ${i}`));
+    const lines = Array.from({ length: 12 }, (_, i) =>
+      i === 0 ? '# Page heading' : `body line ${i}`,
+    );
     const { container } = render(
       <ToolCard
         tool="WebFetch"
@@ -404,7 +489,11 @@ describe('clamp direction', () => {
 
 describe('diff line tokenization', () => {
   it('washes an added line while its code still tokenizes into syntax spans', () => {
-    const input = JSON.stringify({ file_path: 'src/auth.ts', old_string: 'const a = 1;', new_string: 'const a = 2;' });
+    const input = JSON.stringify({
+      file_path: 'src/auth.ts',
+      old_string: 'const a = 1;',
+      new_string: 'const a = 2;',
+    });
     const { container } = render(<ToolCard tool="Edit" input={input} output="ok" ok={true} />);
     const added = container.querySelector('.bg-diff-add\\/12');
     expect(added).not.toBeNull();
@@ -415,7 +504,14 @@ describe('diff line tokenization', () => {
 
 describe('checks body', () => {
   it('renders the N passed · M failed footer', () => {
-    render(<ToolCard tool="run_checks" input='{"scope":"all"}' output="typecheck ✓  lint ✗" ok={false} />);
+    render(
+      <ToolCard
+        tool="run_checks"
+        input='{"scope":"all"}'
+        output="typecheck ✓  lint ✗"
+        ok={false}
+      />,
+    );
     expect(screen.getByText(/1 passed/)).toBeInTheDocument();
     expect(screen.getByText(/1 failed/)).toBeInTheDocument();
   });

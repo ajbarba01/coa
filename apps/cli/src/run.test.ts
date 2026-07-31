@@ -36,7 +36,13 @@ function echoAdapter(init: SessionAdapterInit): RuntimeAdapter {
     { t: 'turn-boundary', role: 'assistant', stop: 'end_turn' },
   ];
   return {
-    renderNative: (): BackendConfig => ({ systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] }),
+    renderNative: (): BackendConfig => ({
+      systemPrompt: '',
+      allowedTools: [],
+      disallowedTools: [],
+      perAgent: {},
+      files: [],
+    }),
     registerTools: () => {},
     denyBuiltins: () => {},
     interceptTool: (_c: CanUseTool) => {},
@@ -153,7 +159,9 @@ describe('coa run — over a live daemon with a fake backend', () => {
 
     await vi.waitFor(() => {
       expect(
-        b.pushes.some((p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text === 'echo: second'),
+        b.pushes.some(
+          (p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text === 'echo: second',
+        ),
       ).toBe(true);
     });
 

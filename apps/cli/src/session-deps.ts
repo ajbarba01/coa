@@ -78,7 +78,9 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
       roles: roleRegistry(),
       packages: packageRegistry(),
       platform: process.platform,
-      shell: shellLabel(resolveShell({ platform: process.platform, env: process.env, fileExists: existsSync })),
+      shell: shellLabel(
+        resolveShell({ platform: process.platform, env: process.env, fileExists: existsSync }),
+      ),
     }),
     activeAccount,
   });

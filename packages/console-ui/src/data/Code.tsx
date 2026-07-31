@@ -24,6 +24,8 @@ export function Code({ block = false, children, className }: CodeProps): React.J
       {children}
     </pre>
   ) : (
-    <code className={cx(inlineMono, 'rounded-[3px] bg-subtle px-1 py-0.5', className)}>{children}</code>
+    <code className={cx(inlineMono, 'rounded-[3px] bg-subtle px-1 py-0.5', className)}>
+      {children}
+    </code>
   );
 }

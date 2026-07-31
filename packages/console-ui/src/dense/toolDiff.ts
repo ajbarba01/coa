@@ -28,7 +28,8 @@ export function diffLines(before: string, after: string): LineDiff {
       const row = lcs[i];
       const nextRow = lcs[i + 1];
       if (row === undefined || nextRow === undefined) continue; // unreachable; satisfies strict indexing
-      row[j] = a[i] === b[j] ? (nextRow[j + 1] ?? 0) + 1 : Math.max(nextRow[j] ?? 0, row[j + 1] ?? 0);
+      row[j] =
+        a[i] === b[j] ? (nextRow[j + 1] ?? 0) + 1 : Math.max(nextRow[j] ?? 0, row[j + 1] ?? 0);
     }
   }
 
