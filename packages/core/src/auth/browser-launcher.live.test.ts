@@ -15,10 +15,10 @@ const PS_TIMEOUT_MS = 5000;
  * installed browser — `spawn(command, args)`, no `shell: true` — delivers an ampersand-
  * carrying authorize url to the browser process intact. This is what {@link
  * BrowserSession.openUrl} does in production, in place of the old `BROWSER`-shim relay,
- * because that relay is what this repo proved CANNOT work: the rented CLI hands the shim a
- * POSIX-escaped url (`\"…\"`), and `cmd`'s batch argument tokenizer splits on `=`, so `%1`
- * arrives truncated at the url's first one — `\"https://…/authorize?code`
- * (docs/adr/0019). An argv array has no shell in the path to lose the quoting to,
+ * in place of ever building a browser command line inside a generated batch file. The shim
+ * does relay the url now — via `%*`, which survives where `%1` truncates at the first `=`
+ * (docs/adr/0020) — but it only writes it down; nothing but this argv spawn launches a
+ * browser. An argv array has no shell in the path to lose the quoting to,
  * which is exactly what this test checks for — and only that. It does NOT exercise
  * {@link BrowserSession.openUrl} itself (that's unit-tested with an injected `launch`), does
  * NOT touch the `BROWSER` env var or the suppressor shim, and does NOT prove anything about

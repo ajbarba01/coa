@@ -41,9 +41,10 @@ export interface LoginDriverHandle {
 }
 
 export interface LoginDriverPort {
-  /** `browserLauncher`, when present, is the no-op shim that suppresses the rented CLI's
-   *  own default-browser open, so only coa's profiled launch puts up a window
-   *  (docs/adr/0019). Absent ⇒ the spawn is exactly today's. */
+  /** `browserLauncher`, when present, is the courier shim: it displaces the rented CLI's own
+   *  default-browser open and writes down the authorize url the CLI would have opened, which
+   *  is the one that completes without a pasted code (docs/adr/0020). Absent ⇒ the spawn is
+   *  exactly today's. */
   start(opts: { dir: string; email: string; browserLauncher?: string }): LoginDriverHandle;
   probe(
     dir: string,
@@ -53,9 +54,10 @@ export interface LoginDriverPort {
 }
 
 /** The isolation seam. Core asks; the composition root decides (setting, provider
- *  capability, detected browser) and never explains itself here. `openUrl` is the real
- *  open — the `BROWSER` shim can no longer be trusted to relay the url (docs/adr/0019) —
- *  so core hands it the url it captures itself once a launcher was actually issued. */
+ *  capability, detected browser) and never explains itself here. `openUrl` performs the real
+ *  open; the url core hands it is the one it captured off the CLI's output, which the
+ *  implementation treats as a FALLBACK — it prefers the url the `BROWSER` shim relayed,
+ *  which completes without a pasted code (docs/adr/0020). Fire-and-forget by contract. */
 export interface BrowserSessionPort {
   launcherFor(accountId: string): string | undefined;
   openUrl(accountId: string, url: string): void;

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, win32 } from 'node:path';
 import { supportsIsolatedBrowserSession } from '@coa/shared';
 
@@ -12,15 +12,19 @@ import { supportsIsolatedBrowserSession } from '@coa/shared';
  * (`isolatedBrowserSession`), this module owns the mechanism, and the Claude adapter is
  * one consumer.
  *
- * The open is two pieces, not one (docs/adr/0019). `BROWSER` still points the rented CLI at
- * a shim ({@link suppressorScript}), but the shim now opens nothing — the CLI escapes the
- * authorize url POSIX-style before handing it to the shim, and `cmd`'s batch argument
- * tokenizer splits on `=`, so `%1` arrives truncated at the url's first one. That hop is
- * unrecoverable from inside a batch file, so coa doesn't use it:
- * {@link BrowserSession.openUrl} performs the real open itself, from the url coa captures
- * directly off the CLI's own output, launched as argv with no shell in the path — which is
- * immune to this class of bug entirely. The shim's only remaining job is to suppress the
- * CLI's default-browser fallback, so exactly one window opens.
+ * The open is two pieces, not one (docs/adr/0020). `BROWSER` points the rented CLI at a shim
+ * ({@link courierScript}) whose only job is to WRITE DOWN the url it is handed and exit — it
+ * launches nothing. coa then performs the real open itself ({@link BrowserSession.openUrl}),
+ * as argv with no shell in the path, which is immune to the quoting failures that sank the
+ * original relay design. Splitting courier from launcher keeps the one proven piece proven:
+ * a batch file is trusted only to copy a string to disk, never to build a command line.
+ *
+ * Why the shim is worth having at all: the url the CLI PRINTS and the url it hands `BROWSER`
+ * are different. They share a handshake but not a `redirect_uri` — the printed one points at
+ * a remote callback and ends in a code the user must paste back, while the relayed one points
+ * at a localhost callback inside the CLI process and completes itself. Only the shim can see
+ * the good one, so coa reads it from the file and prefers it, falling back to the printed url
+ * whenever the relay does not arrive.
  *
  * Everything here is an affordance (SC-1): every failure path returns "no launcher" (or,
  * for `openUrl`, simply launches nothing), and the login falls back to the copy-link +
@@ -92,21 +96,54 @@ export function launcherPath(home: string, accountId: string, platform: string):
   return join(home, '.coa', 'browser-profiles', `${accountId}${ext}`);
 }
 
-/**
- * Pure: the shim's contents. It is still run as `<shim> <authorize-url>` by the rented
- * CLI, but it no longer does anything with that argument — the CLI's own escaping of the
- * url cannot survive a win32 shell hop intact (see the module doc), so relaying it from
- * inside a generated batch/shell file is not recoverable. A no-op that exits clean is the
- * correct content: it suppresses the CLI's default-browser open (so no second, wrong
- * window appears) and steps aside for {@link BrowserSession.openUrl}, which performs the
- * real launch from the url coa captured independently.
- */
-export function suppressorScript(platform: string): string {
-  if (platform === 'win32') {
-    return ['@echo off', 'exit /b 0', ''].join('\r\n');
-  }
-  return ['#!/bin/sh', 'exit 0', ''].join('\n');
+/** Pure: where the shim writes the url it was handed. Beside the profile dir, keyed the same
+ *  way, so removing an account takes its relayed url with it. */
+export function courierPath(home: string, accountId: string): string {
+  return join(home, '.coa', 'browser-profiles', `${accountId}.url`);
 }
+
+/**
+ * Pure: the shim's contents — write the argument to `urlFile`, exit, launch nothing.
+ *
+ * On win32 the idiom is load-bearing. `%1` is NOT usable: `cmd`'s batch argument tokenizer
+ * treats `=` as a delimiter, so `%1` arrives truncated at the url's first one (`…/authorize?code`).
+ * `%*` is the raw remainder of the command line and survives whole. Reading it back needs
+ * delayed expansion — with normal expansion the url's `&` would be substituted into the line
+ * before parsing and reparsed as a command separator. POSIX never had either problem, so `$1`
+ * is written straight out.
+ */
+export function courierScript(platform: string, urlFile: string): string {
+  if (platform === 'win32') {
+    return [
+      '@echo off',
+      'setlocal enabledelayedexpansion',
+      'set "u=%*"',
+      `>"${urlFile}" echo(!u!`,
+      'exit /b 0',
+      '',
+    ].join('\r\n');
+  }
+  return ['#!/bin/sh', `printf '%s' "$1" > "${urlFile}"`, 'exit 0', ''].join('\n');
+}
+
+/** The relayed url as it appears in the file: win32 hands the shim a POSIX-escaped url, so
+ *  what lands is wrapped in `"` and `\"`; POSIX writes it bare. Excluding `"` and `\` from the
+ *  match unwraps both without a separate stripping pass, and refuses anything that is not an
+ *  authorize url on a Claude host. */
+const RELAYED_URL = /https:\/\/claude\.(?:com|ai)\/[^\s"\\]*oauth[^\s"\\]*/;
+
+/** Pure: the authorize url inside a courier file's contents, or `undefined` for an empty,
+ *  partial, or unrecognized file — every one of which is treated as "no relay arrived". */
+export function unwrapCourierUrl(raw: string): string | undefined {
+  return RELAYED_URL.exec(raw)?.[0];
+}
+
+/** How long `openUrl` will wait for the relay before opening the printed url instead. The
+ *  shim runs when the CLI opens the browser, which is observably before it prints the
+ *  fallback url — but that is the CLI's ordering, not one coa controls, so the wait is
+ *  bounded and its expiry is a normal outcome rather than a failure. */
+const COURIER_ATTEMPTS = 6;
+const COURIER_INTERVAL_MS = 120;
 
 /** Pure: the argv for a direct browser launch — one element per flag, url last. No shell
  *  sits between this array and the OS, so there is no quoting step for an authorize url's
@@ -132,6 +169,10 @@ export interface BrowserSessionDeps {
   write?(path: string, contents: string): void;
   remove?(path: string): void;
   launch?(command: string, args: string[]): void;
+  /** Contents of a file, or `undefined` when it is not there yet. */
+  read?(path: string): string | undefined;
+  /** Injected so the bounded wait for the relayed url costs tests no real time. */
+  delay?(ms: number): Promise<void>;
 }
 
 /** What a READER of browser sessions needs (the auth view, the remove verbs) — no
@@ -149,6 +190,19 @@ export interface BrowserSessionView {
 function writeExecutable(path: string, contents: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, contents, { encoding: 'utf8', mode: 0o700 });
+}
+
+function removePath(path: string): void {
+  rmSync(path, { recursive: true, force: true });
+}
+
+/** A file that is not there yet is the normal case here, not an error. */
+function readIfPresent(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Detached and stdio-ignored: a login flow must never block on the browser window
@@ -231,44 +285,79 @@ export class BrowserSession implements BrowserSessionView {
       const browserPath = this.browser();
       if (browserPath === undefined) return undefined;
       const path = launcherPath(this.#deps.home, accountId, this.#deps.platform);
-      (this.#deps.write ?? writeExecutable)(path, suppressorScript(this.#deps.platform));
+      const courier = courierPath(this.#deps.home, accountId);
+      // A url left by an earlier attempt names a localhost port that died with it. Clearing
+      // it here — the one moment a login is known to be starting — is what keeps `openUrl`
+      // from relaying a dead callback. Best-effort: if it cannot be cleared, the sign-in
+      // still reaches the browser and the copy-link path still works (SC-1).
+      try {
+        (this.#deps.remove ?? removePath)(courier);
+      } catch {
+        // An unremovable stale file costs a dead link, never the login.
+      }
+      (this.#deps.write ?? writeExecutable)(path, courierScript(this.#deps.platform, courier));
       return path;
     } catch {
       return undefined;
     }
   }
 
+  /** The url the shim relayed, waited for on a bounded poll. `undefined` means it never
+   *  arrived in time, or arrived unusable — both are ordinary, and both mean "use the
+   *  printed url instead". */
+  async #relayedUrl(accountId: string): Promise<string | undefined> {
+    const path = courierPath(this.#deps.home, accountId);
+    const read = this.#deps.read ?? readIfPresent;
+    const delay =
+      this.#deps.delay ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    for (let attempt = 0; attempt < COURIER_ATTEMPTS; attempt += 1) {
+      try {
+        const raw = read(path);
+        if (raw !== undefined) {
+          const url = unwrapCourierUrl(raw);
+          if (url !== undefined) return url;
+        }
+      } catch {
+        // Unreadable reads the same as absent — keep waiting, then fall back.
+      }
+      if (attempt < COURIER_ATTEMPTS - 1) await delay(COURIER_INTERVAL_MS);
+    }
+    return undefined;
+  }
+
   /**
-   * Opens the profiled browser directly at `url` — the real open, now that the `BROWSER`
-   * shim can no longer be trusted to relay it (see the module doc and
-   * {@link suppressorScript}). Same guards as {@link launcherFor}, and the same SC-1
-   * contract: any failure here is silent, and the copy-link + paste-code path is what the
-   * user sees instead. Fire-and-forget — the login flow does not wait on the window.
+   * Opens the profiled browser at the authorize url — preferring the one the shim relayed
+   * (localhost callback, completes itself) over `printedUrl`, the human-fallback the CLI
+   * printed (remote callback, ends in a code to paste). See the module doc for why they
+   * differ. Same guards as {@link launcherFor}, and the same SC-1 contract: any failure is
+   * silent and the copy-link + paste-code path is what the user sees instead.
    */
-  openUrl(provider: string, accountId: string, url: string): void {
+  async openUrl(provider: string, accountId: string, printedUrl: string): Promise<void> {
     try {
       if (!this.enabled()) return;
       if (!supportsIsolatedBrowserSession(provider)) return;
       if (!isSafeAccountId(accountId)) return;
       const browserPath = this.browser();
       if (browserPath === undefined) return;
+      const relayed = await this.#relayedUrl(accountId);
       (this.#deps.launch ?? launchBrowser)(
         browserPath,
-        browserArgs(browserProfileDir(this.#deps.home, accountId), url),
+        browserArgs(browserProfileDir(this.#deps.home, accountId), relayed ?? printedUrl),
       );
     } catch {
       // SC-1: a failed open is a no-op, never an error into the login flow.
     }
   }
 
-  /** Delete an account's cookie jar and its shim. Tolerant of either being gone already. */
+  /** Delete an account's cookie jar, its shim, and any url the shim relayed. Tolerant of any
+   *  of them being gone already. */
   removeProfile(accountId: string): void {
     if (!isSafeAccountId(accountId)) return;
-    const remove =
-      this.#deps.remove ?? ((path: string) => rmSync(path, { recursive: true, force: true }));
+    const remove = this.#deps.remove ?? removePath;
     for (const path of [
       browserProfileDir(this.#deps.home, accountId),
       launcherPath(this.#deps.home, accountId, this.#deps.platform),
+      courierPath(this.#deps.home, accountId),
     ]) {
       try {
         remove(path);

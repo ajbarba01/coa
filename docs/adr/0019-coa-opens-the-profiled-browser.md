@@ -1,6 +1,6 @@
 # 0019 — coa opens the profiled browser itself; `BROWSER` only suppresses the CLI's open
 
-- Status: accepted
+- Status: superseded by [0020](0020-courier-shim-relays-the-self-completing-url.md)
 - Date: 2026-07-31
 
 Supersedes [0018](0018-isolated-browser-login-sessions.md). Everything 0018 decided about *why*

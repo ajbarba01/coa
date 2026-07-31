@@ -13,8 +13,8 @@ import { delimiter, join, posix, win32 } from 'node:path';
  * auto-opens and completion still lands via the probe poll — only the in-app
  * copy-link affordance goes dark (`ptyCaptured: false` tells the UI to say so).
  *
- * When isolated, the spawn suppresses the CLI's own browser-open via `BROWSER` and coa
- * opens the profiled browser itself; when not isolated, this changes nothing.
+ * When isolated, `BROWSER` points at coa's courier shim and coa opens the profiled browser
+ * itself; when not isolated, this changes nothing.
  */
 
 /** A filesystem-safe slug for an email: lowercase, non-alphanumeric runs → '-'. */
@@ -110,10 +110,10 @@ function claudeCommand(): string {
 
 /**
  * Pure: the environment the login spawn runs under. `CLAUDE_CONFIG_DIR` is what keeps the
- * login inside coa's managed dir; `BROWSER` points the CLI at a no-op shim so its own
- * default-browser open is suppressed and only coa's profiled launch puts up a window
- * (docs/adr/0019). No launcher ⇒ the variable is not touched at all, so an unisolated login
- * is byte-for-byte today's (D85).
+ * login inside coa's managed dir; `BROWSER` points the CLI at coa's courier shim, which
+ * displaces the CLI's own open and writes down the url it was handed (docs/adr/0020). No
+ * launcher ⇒ the variable is not touched at all, so an unisolated login is byte-for-byte
+ * today's (D85).
  */
 export function loginEnv(
   base: NodeJS.ProcessEnv,

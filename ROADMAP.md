@@ -253,15 +253,14 @@ everything else the new design overwrites.
   through a browser launched on its own profile dir (`~/.coa/browser-profiles/<account-id>`), so
   an email-defined account is enforced rather than declared; accounts gained a stable opaque id,
   and removing one prompts about its profile. `BROWSER` points the `claude auth login` spawn at a
-  no-op shim that only suppresses the CLI's default-browser open; coa itself launches the profiled
-  browser on the authorize url it captures off the CLI's own output — a live sign-in showed the
-  CLI's url cannot survive a shim relay on win32 (`cmd`'s batch tokenizer splits `%1` on `=`, so
-  the shim sees a truncated address). win32 Chrome/Edge detection with an override; anything
-  missing degrades to the copy-link + paste-code path —
-  [ADR-0019](docs/adr/0019-coa-opens-the-profiled-browser.md), superseding
-  [ADR-0018](docs/adr/0018-isolated-browser-login-sessions.md). Still open: the CLI's own
-  browser-open uses a *localhost*-callback url that needs no pasted code, while the url coa
-  captures is the human-fallback one — dropping the paste step is designed but unbuilt.
+  courier shim that writes down the authorize url the CLI hands it and exits; coa itself launches
+  the profiled browser on that url, as argv with no shell. The relayed url is the one the CLI
+  would have opened — a *localhost* callback that completes itself — so an isolated sign-in needs
+  no pasted code, while the copy-link keeps showing the portable url the CLI prints. win32
+  Chrome/Edge detection with an override; anything missing degrades to the copy-link + paste-code
+  path — [ADR-0020](docs/adr/0020-courier-shim-relays-the-self-completing-url.md), superseding
+  [0019](docs/adr/0019-coa-opens-the-profiled-browser.md) and
+  [0018](docs/adr/0018-isolated-browser-login-sessions.md).
 
 Out of scope for this arc (unchanged owners): live approvals/deny (blocked on R-12, item A), Longform +
 graph views (item H — they arrive later *as workbench surfaces*), the system-prompt viewer (item G).

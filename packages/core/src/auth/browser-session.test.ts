@@ -5,11 +5,13 @@ import {
   browserArgs,
   browserCandidates,
   browserProfileDir,
+  courierPath,
+  courierScript,
   detectBrowser,
   isSafeAccountId,
   isSafeBrowserPath,
   launcherPath,
-  suppressorScript,
+  unwrapCourierUrl,
   type BrowserSessionSettings,
 } from './browser-session.js';
 
@@ -94,15 +96,52 @@ describe('override path safety', () => {
   });
 });
 
-describe('suppressor script', () => {
-  it('opens nothing and exits clean on win32 — coa performs the real open itself', () => {
-    const script = suppressorScript('win32');
-    expect(script).toBe('@echo off\r\nexit /b 0\r\n');
+describe('courier script', () => {
+  const FILE = 'C:\\home\\.coa\\browser-profiles\\9f2c.url';
+
+  /** `%1` splits on `=`, so it arrives truncated at the url's first one; `%*` is the raw
+   *  remainder of the command line and survives whole. Delayed expansion is what keeps the
+   *  url's `&` from being reparsed as a command separator when the variable is read back. */
+  it('relays the whole command line on win32, not the first token', () => {
+    const script = courierScript('win32', FILE);
+    expect(script).toBe(
+      '@echo off\r\nsetlocal enabledelayedexpansion\r\nset "u=%*"\r\n' +
+        `>"${FILE}" echo(!u!\r\nexit /b 0\r\n`,
+    );
+    expect(script).not.toContain('%1');
   });
 
-  it('opens nothing and exits clean on posix', () => {
-    const script = suppressorScript('linux');
-    expect(script).toBe('#!/bin/sh\nexit 0\n');
+  it('writes the argument verbatim on posix, where tokenization was never the problem', () => {
+    expect(courierScript('linux', '/home/z/.coa/browser-profiles/9f2c.url')).toBe(
+      '#!/bin/sh\nprintf \'%s\' "$1" > "/home/z/.coa/browser-profiles/9f2c.url"\nexit 0\n',
+    );
+  });
+
+  it('parks the relayed url beside the profile dir it belongs to', () => {
+    expect(courierPath('/home/z', '9f2c')).toBe(
+      ['', 'home', 'z', '.coa', 'browser-profiles', '9f2c.url'].join(sep),
+    );
+  });
+});
+
+describe('unwrapCourierUrl', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true&state=2&login_hint=a%40b.com';
+
+  /** win32 hands the shim the url already escaped POSIX-style, so what lands in the file is
+   *  the url wrapped in `"` and `\"`. POSIX writes it bare. One reader handles both. */
+  it('unwraps the quoted form win32 produces', () => {
+    expect(unwrapCourierUrl(`"\\"${URL}\\""`)).toBe(URL);
+  });
+
+  it('accepts the bare form posix produces, trailing newline and all', () => {
+    expect(unwrapCourierUrl(`${URL}\r\n`)).toBe(URL);
+  });
+
+  it('treats anything that is not an authorize url as no url at all', () => {
+    expect(unwrapCourierUrl('')).toBeUndefined();
+    expect(unwrapCourierUrl('   \r\n')).toBeUndefined();
+    expect(unwrapCourierUrl('ECHO is off.')).toBeUndefined();
+    expect(unwrapCourierUrl('https://evil.example/oauth/authorize?x=1')).toBeUndefined();
   });
 });
 
@@ -119,7 +158,11 @@ describe('browser args', () => {
 
 const CHROME = 'C:\\Users\\z\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe';
 
-function harness(settings: BrowserSessionSettings, installed: string[] = [CHROME]) {
+function harness(
+  settings: BrowserSessionSettings,
+  installed: string[] = [CHROME],
+  files: Map<string, string> = new Map(),
+) {
   const written = new Map<string, string>();
   const removed: string[] = [];
   const launched: { command: string; args: string[] }[] = [];
@@ -130,18 +173,36 @@ function harness(settings: BrowserSessionSettings, installed: string[] = [CHROME
     settings: () => settings,
     exists: (path) => installed.includes(path) || written.has(path),
     write: (path, contents) => void written.set(path, contents),
-    remove: (path) => void removed.push(path),
+    remove: (path) => {
+      removed.push(path);
+      files.delete(path);
+    },
     launch: (command, args) => void launched.push({ command, args }),
+    read: (path) => files.get(path),
+    // Tests must not spend real time waiting for a file that will never appear.
+    delay: () => Promise.resolve(),
   });
-  return { session, written, removed, launched };
+  return { session, written, removed, launched, files };
 }
 
+const COURIER = 'C:\\home\\.coa\\browser-profiles\\9f2c.url';
+
 describe('BrowserSession', () => {
-  it('writes a suppressor launcher for a capable provider when the setting is on', () => {
+  it('writes a courier launcher for a capable provider when the setting is on', () => {
     const { session, written } = harness({ enabled: true });
     const launcher = session.launcherFor('claude', '9f2c');
     expect(launcher).toBe('C:\\home\\.coa\\browser-profiles\\9f2c.cmd');
-    expect(written.get(launcher!)).toBe(suppressorScript('win32'));
+    expect(written.get(launcher!)).toBe(courierScript('win32', COURIER));
+  });
+
+  /** A url left by an earlier attempt points at a localhost port that died with it. Reading
+   *  it would send the sign-in to a dead callback, so every login starts from no file. */
+  it('clears a stale relayed url when it writes the launcher', () => {
+    const files = new Map([[COURIER, 'https://claude.com/cai/oauth/authorize?code=true&old=1']]);
+    const { session, removed } = harness({ enabled: true }, [CHROME], files);
+    session.launcherFor('claude', '9f2c');
+    expect(removed).toContain(COURIER);
+    expect(files.has(COURIER)).toBe(false);
   });
 
   it('honors an override browser over detection when deciding availability', () => {
@@ -151,7 +212,7 @@ describe('BrowserSession', () => {
     ]);
     const launcher = session.launcherFor('claude', '9f2c');
     expect(session.browser()).toBe('D:\\brave.exe');
-    expect(written.get(launcher!)).toBe(suppressorScript('win32'));
+    expect(written.get(launcher!)).toBe(courierScript('win32', COURIER));
   });
 
   it('treats an override that does not exist as unavailable, never substituting the detected browser', () => {
@@ -226,12 +287,13 @@ describe('BrowserSession', () => {
     expect(session.enabled()).toBe(true);
   });
 
-  it('removes a profile dir and its launcher together', () => {
+  it('removes a profile dir, its launcher, and any relayed url together', () => {
     const { session, removed } = harness({ enabled: true });
     session.removeProfile('9f2c');
     expect(removed).toEqual([
       'C:\\home\\.coa\\browser-profiles\\9f2c',
       'C:\\home\\.coa\\browser-profiles\\9f2c.cmd',
+      COURIER,
     ]);
   });
 
@@ -244,59 +306,91 @@ describe('BrowserSession', () => {
 });
 
 describe('BrowserSession.openUrl', () => {
-  const URL = 'https://claude.com/oauth/authorize?code=1&state=2';
+  /** What the CLI prints for a human to copy: the callback is remote, so finishing there
+   *  hands back a code to paste. The fallback, not the preferred url. */
+  const PRINTED = 'https://claude.com/cai/oauth/authorize?code=true&redirect_uri=platform&state=2';
+  /** What the CLI hands `BROWSER`: same handshake, localhost callback, so it completes
+   *  itself and no code is ever shown. */
+  const RELAYED = 'https://claude.com/cai/oauth/authorize?code=true&redirect_uri=localhost&state=2';
+  const argsFor = (url: string): string[] => [
+    '--user-data-dir=C:\\home\\.coa\\browser-profiles\\9f2c',
+    '--no-first-run',
+    '--no-default-browser-check',
+    url,
+  ];
 
-  it('launches the profiled browser directly with the captured url intact', () => {
-    const { session, launched } = harness({ enabled: true });
-    session.openUrl('claude', '9f2c', URL);
-    expect(launched).toEqual([
-      {
-        command: CHROME,
-        args: [
-          '--user-data-dir=C:\\home\\.coa\\browser-profiles\\9f2c',
-          '--no-first-run',
-          '--no-default-browser-check',
-          URL,
-        ],
-      },
-    ]);
+  it('prefers the relayed url, so the sign-in completes without a pasted code', async () => {
+    const files = new Map([[COURIER, `"\\"${RELAYED}\\""`]]);
+    const { session, launched } = harness({ enabled: true }, [CHROME], files);
+    await session.openUrl('claude', '9f2c', PRINTED);
+    expect(launched).toEqual([{ command: CHROME, args: argsFor(RELAYED) }]);
   });
 
-  it('does nothing when the setting is off — today\u2019s spawn, byte for byte', () => {
+  it('falls back to the printed url when no relay ever lands', async () => {
+    const { session, launched } = harness({ enabled: true });
+    await session.openUrl('claude', '9f2c', PRINTED);
+    expect(launched).toEqual([{ command: CHROME, args: argsFor(PRINTED) }]);
+  });
+
+  it('falls back to the printed url when the relayed file is unusable', async () => {
+    const files = new Map([[COURIER, 'ECHO is off.']]);
+    const { session, launched } = harness({ enabled: true }, [CHROME], files);
+    await session.openUrl('claude', '9f2c', PRINTED);
+    expect(launched).toEqual([{ command: CHROME, args: argsFor(PRINTED) }]);
+  });
+
+  it('does nothing when the setting is off — today\u2019s spawn, byte for byte', async () => {
     const { session, launched } = harness({ enabled: false });
-    session.openUrl('claude', '9f2c', URL);
+    await session.openUrl('claude', '9f2c', PRINTED);
     expect(launched).toEqual([]);
   });
 
-  it('does nothing for a provider that never declared the capability', () => {
+  it('does nothing for a provider that never declared the capability', async () => {
     const { session, launched } = harness({ enabled: true });
-    session.openUrl('deepseek', '9f2c', URL);
+    await session.openUrl('deepseek', '9f2c', PRINTED);
     expect(launched).toEqual([]);
   });
 
-  it('does nothing for an id that could escape the profile root', () => {
+  it('does nothing for an id that could escape the profile root', async () => {
     const { session, launched } = harness({ enabled: true });
-    session.openUrl('claude', '../../etc', URL);
+    await session.openUrl('claude', '../../etc', PRINTED);
     expect(launched).toEqual([]);
   });
 
-  it('does nothing when no browser is available', () => {
+  it('does nothing when no browser is available', async () => {
     const { session, launched } = harness({ enabled: true }, []);
-    session.openUrl('claude', '9f2c', URL);
+    await session.openUrl('claude', '9f2c', PRINTED);
     expect(launched).toEqual([]);
   });
 
-  it('swallows a launch failure instead of throwing into the login flow', () => {
+  it('swallows a launch failure instead of throwing into the login flow', async () => {
     const session = new BrowserSession({
       home: 'C:\\home',
       platform: 'win32',
       env: WIN_ENV,
       settings: () => ({ enabled: true }),
       exists: (path) => path === CHROME,
+      delay: () => Promise.resolve(),
       launch: () => {
         throw new Error('ENOENT');
       },
     });
-    expect(() => session.openUrl('claude', '9f2c', URL)).not.toThrow();
+    await expect(session.openUrl('claude', '9f2c', PRINTED)).resolves.toBeUndefined();
+  });
+
+  it('swallows a read failure and still opens the printed url', async () => {
+    const session = new BrowserSession({
+      home: 'C:\\home',
+      platform: 'win32',
+      env: WIN_ENV,
+      settings: () => ({ enabled: true }),
+      exists: (path) => path === CHROME,
+      delay: () => Promise.resolve(),
+      read: () => {
+        throw new Error('EACCES');
+      },
+      launch: () => {},
+    });
+    await expect(session.openUrl('claude', '9f2c', PRINTED)).resolves.toBeUndefined();
   });
 });
