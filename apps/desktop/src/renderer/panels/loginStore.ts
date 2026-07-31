@@ -79,10 +79,25 @@ export const useLogin = create<LoginState>((set, get) => {
  *  owns the auth-store reach — importing the store from console.ts would close a static
  *  import cycle the dependency ruleset forbids. */
 export function reportActiveClaudeAuthFailure(): void {
+  const report = (id: string): Promise<void> =>
+    rpcReportAuthFailure(id).then(() => useMockAuth.getState().hydrate());
+
   const activeId = useMockAuth.getState().activeByProvider['claude'];
-  if (activeId === undefined) return;
-  void rpcReportAuthFailure(activeId)
-    .then(() => useMockAuth.getState().hydrate())
+  if (activeId !== undefined) {
+    void report(activeId).catch(() => {});
+    return;
+  }
+  // The auth store may genuinely not have hydrated yet this run (a live-session auth
+  // failure can land before any auth surface mounted `hydrate()`), which would otherwise
+  // drop the signal on the floor forever — hydrate once, then re-check. Still a silent
+  // no-op if the id is genuinely absent (no claude login configured at all).
+  void useMockAuth
+    .getState()
+    .hydrate()
+    .then(() => {
+      const rehydratedId = useMockAuth.getState().activeByProvider['claude'];
+      return rehydratedId === undefined ? undefined : report(rehydratedId);
+    })
     .catch(() => {});
 }
 

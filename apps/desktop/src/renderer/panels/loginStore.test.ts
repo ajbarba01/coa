@@ -15,10 +15,26 @@ const rpc = vi.hoisted(() => ({
   rpcReportAuthFailure: vi.fn(),
 }));
 vi.mock('../console.js', () => rpc);
-const hydrate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock('./mockAuth.js', () => ({ useMockAuth: { getState: () => ({ hydrate }) } }));
+// A mutable stand-in for the auth store's state, so `hydrate` can simulate populating
+// `activeByProvider` the way the real store's `apply()` does on a real `authView` read.
+const authState = vi.hoisted(() => ({ activeByProvider: {} as Record<string, string> }));
+const hydrate = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('./mockAuth.js', () => ({
+  useMockAuth: { getState: () => ({ activeByProvider: authState.activeByProvider, hydrate }) },
+}));
 
-import { providerAttention, totalAttention, activeNeedsRelogin, useLogin } from './loginStore.js';
+import {
+  providerAttention,
+  totalAttention,
+  activeNeedsRelogin,
+  reportActiveClaudeAuthFailure,
+  useLogin,
+} from './loginStore.js';
+
+/** Flush the microtask queue past a couple of chained `.then()`s. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 const cred = (id: string, providerId: string, health?: 'healthy' | 'needs-relogin') => ({
   id,
@@ -67,5 +83,37 @@ describe('useLogin', () => {
     rpc.rpcLoginState.mockResolvedValue({ phase: 'idle' });
     await useLogin.getState().poll();
     expect(useLogin.getState().flow).toBeUndefined();
+  });
+});
+
+describe('reportActiveClaudeAuthFailure', () => {
+  beforeEach(() => {
+    authState.activeByProvider = {};
+    vi.clearAllMocks();
+    rpc.rpcReportAuthFailure.mockResolvedValue({});
+  });
+
+  it('reports directly when the auth store already has an active claude id', async () => {
+    authState.activeByProvider = { claude: 'claude:already' };
+    reportActiveClaudeAuthFailure();
+    await flush();
+    expect(rpc.rpcReportAuthFailure).toHaveBeenCalledWith('claude:already');
+  });
+
+  it('hydrates first when the store has not hydrated yet this run, then reports the hydrated id', async () => {
+    hydrate.mockImplementationOnce(async () => {
+      authState.activeByProvider = { claude: 'claude:hydrated' };
+    });
+    reportActiveClaudeAuthFailure();
+    await flush();
+    expect(hydrate).toHaveBeenCalled();
+    expect(rpc.rpcReportAuthFailure).toHaveBeenCalledWith('claude:hydrated');
+  });
+
+  it('stays a silent no-op when the id is genuinely absent even after hydrating', async () => {
+    reportActiveClaudeAuthFailure();
+    await flush();
+    expect(hydrate).toHaveBeenCalled();
+    expect(rpc.rpcReportAuthFailure).not.toHaveBeenCalled();
   });
 });

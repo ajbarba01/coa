@@ -214,6 +214,52 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     onAuthFailure(() => {});
   });
 
+  it('does not fire the sink for a session pinned to a non-claude provider; a default/claude session still does', async () => {
+    const sink = vi.fn();
+    onAuthFailure(sink);
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      listSessions: vi.fn().mockResolvedValue([
+        ...FAKE_SESSIONS,
+        {
+          id: 'c2',
+          agentRef: 'roles/reviewer',
+          title: 'deepseek session',
+          updatedAt: '2026-07-02T00:00:00Z',
+          provider: 'deepseek',
+        },
+      ]),
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    await mount(bridge);
+
+    // Pinned to deepseek — an auth-shaped error there has nothing to do with the claude
+    // login and must not light that badge.
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c2',
+      worktree: 'w',
+      seq: 0,
+      frame: { t: 'error', message: '401 Unauthorized', origin: 'loop' },
+    });
+    expect(sink).not.toHaveBeenCalled();
+
+    // No provider recorded (the default backend is claude) — still fires.
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 1,
+      frame: { t: 'error', message: '401 Unauthorized', origin: 'loop' },
+    });
+    expect(sink).toHaveBeenCalledTimes(1);
+
+    onAuthFailure(() => {});
+  });
+
   it('keeps the status pill running across a status running push and a following turn frame', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({

@@ -62,6 +62,15 @@ function unref(timer: { unref?: () => void }): void {
   timer.unref?.();
 }
 
+/** The registry label inside a `claude:<label>` credential id — everything after the
+ *  first `:` (a label may itself contain `:`, though none do today). */
+function labelOf(credentialId: string): string {
+  const i = credentialId.indexOf(':');
+  return i === -1 ? credentialId : credentialId.slice(i + 1);
+}
+
+const MAX_LABEL_SUFFIX = 100;
+
 export class LoginManager {
   readonly #registry: AccountsRegistry;
   readonly #driver: LoginDriverPort;
@@ -78,7 +87,7 @@ export class LoginManager {
 
   startLogin(args: { email: string; credentialId?: string }): LoginSnapshot {
     this.#clearFlow();
-    const dir = this.#driver.dirFor(args.email);
+    const dir = this.#resolveDir(args.email, args.credentialId);
     const mode: 'new' | 'relogin' = args.credentialId !== undefined ? 'relogin' : 'new';
     const handle = this.#driver.start({ dir, email: args.email });
     const snapshot: LoginSnapshot = {
@@ -185,6 +194,20 @@ export class LoginManager {
 
   // ---- internals ----
 
+  /** The dir a login flow should target. A relogin (`credentialId` present) must land in
+   *  the account's OWN config dir — a manually-added account's dir need not match
+   *  `dirFor(email)` (its slug), so re-deriving from the email would log into the wrong
+   *  dir while `#complete` marks the real, still-logged-out dir healthy. Falls back to
+   *  `dirFor(email)` when the account is gone or its locator isn't a config-dir. */
+  #resolveDir(email: string, credentialId: string | undefined): string {
+    if (credentialId !== undefined) {
+      const label = labelOf(credentialId);
+      const account = this.#registry.list().find((a) => a.label === label);
+      if (account?.locator.type === 'config-dir') return account.locator.dir;
+    }
+    return this.#driver.dirFor(email);
+  }
+
   #startPolling(flow: Flow): void {
     const timer = setInterval(() => {
       void this.#pollOnce(flow);
@@ -284,14 +307,23 @@ export class LoginManager {
     let credentialId: string;
     if (flow.mode === 'new') {
       let label = email;
-      let n = 2;
-      while (true) {
+      let suffix = 2;
+      for (;;) {
         try {
           this.#registry.add(label, { type: 'config-dir', dir: flow.dir }, 'claude', email);
           break;
-        } catch {
-          label = `${email}-${n}`;
-          n += 1;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          // Only a genuine label collision is worth retrying under a numeric suffix —
+          // anything else (permissions, a corrupt file) would retry forever and never
+          // land, so it fails the flow instead of looping (bounded too: a runaway
+          // collision count is itself a sign something's wrong, not real contention).
+          if (!message.includes('account already exists') || suffix > MAX_LABEL_SUFFIX) {
+            flow.snapshot = { ...flow.snapshot, phase: 'failed', error: message };
+            return;
+          }
+          label = `${email}-${suffix}`;
+          suffix += 1;
         }
       }
       this.#registry.setActive(label);
@@ -300,11 +332,10 @@ export class LoginManager {
       credentialId = flow.credentialId ?? `claude:${email}`;
       this.#health.set(credentialId, 'healthy');
       try {
-        const label = credentialId.startsWith('claude:') ? credentialId.slice('claude:'.length) : credentialId;
-        const account = this.#registry.list().find((a) => a.label === label);
-        if (account !== undefined && account.email === undefined) {
-          this.#registry.setEmail(label, email);
-        }
+        // Always backfill the DECLARED email under the landed/completed one — a keep
+        // resolution over a mismatch must overwrite a stale declared email too, or every
+        // future relogin pre-fills the old one and re-mismatches forever.
+        this.#registry.setEmail(labelOf(credentialId), email);
       } catch {
         // account may have been removed mid-flow; nothing to backfill.
       }

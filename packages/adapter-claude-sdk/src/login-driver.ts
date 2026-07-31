@@ -60,7 +60,12 @@ export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
     write: (d: string) => void;
     kill: () => void;
     ptyCaptured: boolean;
-  } = { write: () => {}, kill: () => {}, ptyCaptured: false };
+    /** Set by the returned handle's `kill()` when it fires before the async spawn below
+     *  resolves — `import('node-pty')` (or the pipe fallback) lands on a LATER tick, so a
+     *  same-tick cancel would otherwise find no process to kill yet and the child spawns
+     *  anyway (an orphan). Checked once each branch installs its real `child`. */
+    killed: boolean;
+  } = { write: () => {}, kill: () => {}, ptyCaptured: false, killed: false };
 
   void (async () => {
     try {
@@ -72,6 +77,7 @@ export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
       proc.kill = () => child.kill();
       child.onData(emitData);
       child.onExit(({ exitCode }) => emitExit(exitCode));
+      if (proc.killed) child.kill();
     } catch {
       // node-pty unavailable (build failed / not installed) — degrade to a pipe.
       const child = spawn('claude', LOGIN_ARGS(opts.email), {
@@ -85,6 +91,7 @@ export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
       child.stderr.on('data', (c: Buffer) => emitData(c.toString()));
       child.on('close', (code) => emitExit(code ?? undefined));
       child.on('error', () => emitExit(undefined));
+      if (proc.killed) child.kill();
     }
   })();
 
@@ -92,7 +99,10 @@ export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
     onData: (fn) => dataFns.push(fn),
     onExit: (fn) => exitFns.push(fn),
     write: (d) => proc.write(d),
-    kill: () => proc.kill(),
+    kill: () => {
+      proc.killed = true;
+      proc.kill();
+    },
     get ptyCaptured() {
       return proc.ptyCaptured;
     },

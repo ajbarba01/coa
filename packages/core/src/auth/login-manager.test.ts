@@ -15,6 +15,8 @@ function fakeDriver(
   probeQueue: (ReturnType<LoginDriverPort['probe']> extends Promise<infer T> ? T : never)[];
   killed: boolean;
   killCount: number;
+  startDirs: string[];
+  probeDirs: string[];
 } {
   let urlFn: (u: string) => void = () => {};
   let exitFn: (c: number | undefined) => void = () => {};
@@ -23,19 +25,27 @@ function fakeDriver(
     home,
     killed: false,
     killCount: 0,
+    startDirs: [] as string[],
+    probeDirs: [] as string[],
     probeQueue: [] as ({ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined)[],
     dirFor: (email: string) => join(home, '.coa', 'logins', email.replace(/[^a-z0-9]+/gi, '-')),
-    start: () => ({
-      onUrl: (fn: (u: string) => void) => (urlFn = fn),
-      onExit: (fn: (c: number | undefined) => void) => (exitFn = fn),
-      writeCode: () => {},
-      kill: () => {
-        self.killed = true;
-        self.killCount += 1;
-      },
-      ptyCaptured,
-    }),
-    probe: () => Promise.resolve(self.probeQueue.shift()),
+    start: (o: { dir: string; email: string }) => {
+      self.startDirs.push(o.dir);
+      return {
+        onUrl: (fn: (u: string) => void) => (urlFn = fn),
+        onExit: (fn: (c: number | undefined) => void) => (exitFn = fn),
+        writeCode: () => {},
+        kill: () => {
+          self.killed = true;
+          self.killCount += 1;
+        },
+        ptyCaptured,
+      };
+    },
+    probe: (dir: string) => {
+      self.probeDirs.push(dir);
+      return Promise.resolve(self.probeQueue.shift());
+    },
     fireUrl: (u: string) => urlFn(u),
     fireExit: (c?: number) => exitFn(c),
   };
@@ -94,6 +104,30 @@ describe('LoginManager — the driven flow', () => {
     expect(registry.list()[0]?.email).toBe('old@x.org');
   });
 
+  it('a relogin targets the credential\'s OWN config dir, not dirFor(email)', async () => {
+    registry.add('label-x', { type: 'config-dir', dir: '/custom/claude-dir' }, 'claude', 'old@x.org');
+    manager.startLogin({ email: 'old@x.org', credentialId: 'claude:label-x' });
+    expect(driver.startDirs).toContain('/custom/claude-dir');
+    driver.probeQueue.push({ loggedIn: true, email: 'old@x.org' });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(driver.probeDirs).toContain('/custom/claude-dir');
+  });
+
+  it('a relogin for an account missing/without a config-dir locator falls back to dirFor(email)', async () => {
+    manager.startLogin({ email: 'ghost@x.org', credentialId: 'claude:ghost' });
+    expect(driver.startDirs).toContain(driver.dirFor('ghost@x.org'));
+  });
+
+  it('a mismatch resolved "keep" on a relogin unconditionally updates the declared email', async () => {
+    registry.add('old', { type: 'config-dir', dir: '/somewhere' }, 'claude', 'old@x.org');
+    manager.startLogin({ email: 'old@x.org', credentialId: 'claude:old' });
+    driver.probeQueue.push({ loggedIn: true, email: 'new@x.org' });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(manager.snapshot()?.phase).toBe('mismatch');
+    manager.resolveMismatch('keep');
+    expect(registry.list().find((a) => a.label === 'old')?.email).toBe('new@x.org');
+  });
+
   it('driver exit + a still-logged-out probe fails the flow; cancel kills and clears', async () => {
     manager.startLogin({ email: 'a@x.org' });
     driver.fireExit(1);
@@ -111,6 +145,19 @@ describe('LoginManager — the driven flow', () => {
     driver.probeQueue.push({ loggedIn: true, email: 'a@x.org' });
     await vi.advanceTimersByTimeAsync(150);
     expect(registry.list().map((a) => a.label)).toContain('a@x.org-2');
+  });
+
+  it('a non-duplicate registry.add failure fails the flow instead of retrying forever', async () => {
+    vi.spyOn(registry, 'add').mockImplementation(() => {
+      throw new Error('EACCES: permission denied');
+    });
+    manager.startLogin({ email: 'a@x.org' });
+    driver.probeQueue.push({ loggedIn: true, email: 'a@x.org' });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(manager.snapshot()).toMatchObject({
+      phase: 'failed',
+      error: 'EACCES: permission denied',
+    });
   });
 
   it('an unknown grace probe after exit does not fail the flow; a later probe still registers', async () => {

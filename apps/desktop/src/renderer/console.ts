@@ -632,6 +632,18 @@ export async function startConsole(
     push();
   };
 
+  /** Whether a session's own backend is claude — a session's PIN wins (it already ran
+   *  there); an unpinned session falls back to its agent's provider; no provider recorded
+   *  anywhere ⇒ the default backend, which is claude. Used to scope the live auth-failure
+   *  signal so a deepseek (or any non-claude) session's auth error never lights the
+   *  claude login badge. */
+  const sessionUsesClaude = (sessionId: string): boolean => {
+    const session = sessions.find((s) => s.id === sessionId);
+    const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
+    const provider = session?.provider ?? agent?.provider;
+    return provider === undefined || provider === 'claude';
+  };
+
   // Forward every daemon push to its owning session (never the active one blindly); a
   // completed session refreshes the rail so its auto-title + recency update.
   // (Drift/cache banners are derived client-side, not pushed.)
@@ -658,8 +670,11 @@ export async function startConsole(
     if ('sessionId' in data) {
       const frames = pushToViewFrames(data);
       // The live-failure hook: an auth-shaped error frame flags the active claude login
-      // (advisory — the badge lights; nothing blocks, nothing switches).
-      if (detectAuthFailure(frames)) authFailureSink();
+      // (advisory — the badge lights; nothing blocks, nothing switches). Scoped to the
+      // pushing session's own backend — a deepseek/other-provider auth error has nothing
+      // to do with the claude login and must not light that badge. No provider recorded
+      // (session unpinned, agent unset) means the default backend, which is claude.
+      if (detectAuthFailure(frames) && sessionUsesClaude(data.sessionId)) authFailureSink();
       appendTurns(data.sessionId, frames);
     }
   });

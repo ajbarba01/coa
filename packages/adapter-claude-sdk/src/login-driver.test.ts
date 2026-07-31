@@ -1,5 +1,32 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { emailSlug, extractOauthUrl, managedLoginDir } from './login-driver.js';
+
+/** Forces `spawnLogin`'s `import('node-pty')` to fail deterministically (regardless of
+ *  whether the optional dep happens to be installed in this environment), so every test
+ *  below exercises the degraded plain-pipe branch — never a real pty, never a real
+ *  `claude` process. */
+vi.mock('node-pty', () => {
+  throw new Error('node-pty unavailable in tests');
+});
+
+/** A fake `child_process.spawn()` result: enough surface for `spawnLogin`'s pipe branch
+ *  (`stdin.write`, `stdout`/`stderr.on`, `on('close'|'error')`, `kill`) without ever
+ *  actually spawning a process. */
+const fakeChild = vi.hoisted(() => ({
+  stdin: { write: vi.fn() },
+  stdout: { on: vi.fn() },
+  stderr: { on: vi.fn() },
+  on: vi.fn(),
+  kill: vi.fn(),
+}));
+const spawnMock = vi.hoisted(() => vi.fn(() => fakeChild));
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+
+/** Flush the microtask queue past the `try { await import(...) } catch { spawn(...) }`
+ *  chain inside `spawnLogin`'s fire-and-forget IIFE. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 describe('emailSlug', () => {
   it('flattens an email to a filesystem-safe slug', () => {
@@ -32,5 +59,19 @@ describe('extractOauthUrl', () => {
       'https://claude.ai/cai/oauth/x?y=1',
     );
     expect(extractOauthUrl('see https://docs.claude.com/help')).toBeUndefined();
+  });
+});
+
+describe('spawnLogin — kill-before-spawn race', () => {
+  it('kills the just-spawned child when kill() fired before the async import/spawn settled', async () => {
+    const { spawnLogin } = await import('./login-driver.js');
+    const proc = spawnLogin({ dir: '/tmp/coa-login', email: 'a@x.org' });
+    // Synchronous — fires in the same tick, well before the `await import('node-pty')`
+    // (forced to reject above) and the subsequent `spawn()` fallback have resolved.
+    proc.kill();
+    await flush();
+    await flush();
+    expect(spawnMock).toHaveBeenCalled();
+    expect(fakeChild.kill).toHaveBeenCalled();
   });
 });
