@@ -286,6 +286,13 @@ export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { SignalBus, type SignalEvent } from './signal-bus.js';
 export { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
 export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
+export {
+  LoginManager,
+  type Health,
+  type LoginDriverPort,
+  type LoginPhase,
+  type LoginSnapshot,
+} from './auth/login-manager.js';
 export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { ModelCatalogStore, modelsPath } from './models/model-catalog-store.js';
 export { defaultCatalog, catalogDescriptor } from './models/default-catalog.js';

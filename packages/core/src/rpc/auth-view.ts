@@ -24,6 +24,10 @@ export interface CredentialView {
   masked: string;
   disabled: boolean;
   coolingSec?: number;
+  email?: string;
+  health?: 'healthy' | 'needs-relogin';
+  identity?: string;
+  plan?: string;
 }
 
 export interface AuthView {
@@ -39,6 +43,10 @@ export interface AuthViewDeps {
   web: WebConfigStore;
   keys: KeyStateStore;
   console: ConsoleStateStore;
+  login?: {
+    healthOf(id: string): 'healthy' | 'needs-relogin' | undefined;
+    identityOf(id: string): { email?: string; plan?: string } | undefined;
+  };
 }
 
 /** The stable credential id: unique within a provider, stable across reorders/renames of anything else. */
@@ -118,12 +126,23 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
   // Backends — accounts.yaml
   for (const provider of BACKENDS) {
     for (const account of deps.accounts.listByProvider(provider)) {
+      const id = credentialId(provider, account.label);
+      const health = deps.login?.healthOf(id);
+      const live = deps.login?.identityOf(id);
+      const identity =
+        live?.email !== undefined
+          ? live.plan !== undefined ? `${live.email} · ${live.plan}` : live.email
+          : undefined;
       credentials.push({
-        id: credentialId(provider, account.label),
+        id,
         providerId: provider,
         label: account.label,
         masked: maskFor(provider, account.locator),
         disabled: account.disabled,
+        ...(account.email !== undefined ? { email: account.email } : {}),
+        ...(health !== undefined ? { health } : {}),
+        ...(identity !== undefined ? { identity } : {}),
+        ...(live?.plan !== undefined ? { plan: live.plan } : {}),
       });
     }
     const active = deps.accounts.getActive(provider);
