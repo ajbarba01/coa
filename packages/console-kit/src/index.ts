@@ -1,10 +1,22 @@
 export { Button, type ButtonProps, type ButtonVariant } from './actions/Button.js';
+export {
+  BrandMark,
+  type BrandMarkProps,
+  type BrandMarkSpec,
+  type BrandPath,
+} from './brand/BrandMark.js';
 export { WindowControls, type WindowControlsProps } from './chrome/WindowControls.js';
 export { cx } from './cx.js';
+export { Meter, meterTone, type MeterProps, type MeterTone } from './data/Meter.js';
 export { DialogSearchHead, SettingRow, TocRail } from './frame/SettingsFrame.js';
 export { Spinner, type SpinnerProps } from './Spinner.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';
-export { useDismissLayer, useClickAway, hasOpenLayers } from './overlay/layers.js';
+export {
+  useDismissLayer,
+  useClickAway,
+  useExclusivePopover,
+  hasOpenLayers,
+} from './overlay/layers.js';
 export { PanelResize } from './layout/PanelResize.js';
 export {
   resolveCollapse,
@@ -21,6 +33,12 @@ export {
   type MenuItemProps,
   menuSurface,
 } from './overlay/MenuCard.js';
+export {
+  FloatCard,
+  floatPlacement,
+  type FloatCardProps,
+  type FloatPlacement,
+} from './overlay/FloatCard.js';
 export { ModalShell, type ModalShellProps } from './overlay/ModalShell.js';
 export { PopoverCard, type PopoverCardProps } from './overlay/PopoverCard.js';
 export {

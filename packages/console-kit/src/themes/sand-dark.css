@@ -32,6 +32,15 @@
   --color-diff-add: #8fb896;
   --color-diff-del: #c68f8b;
 
+  /* Series palette — IDENTITY inside a chart (which model, which category), assigned in
+   * fixed order and never cycled. Deliberately disjoint from the status set above: a
+   * series must never be readable as "warning". Validated against the s1 ground for the
+   * OKLCH lightness band, the chroma floor, CVD separation (worst adjacent ΔE 40.5), and
+   * 3:1 contrast — re-validate as a set if a theme changes them. */
+  --color-series-1: #9070dd;
+  --color-series-2: #2aa294;
+  --color-series-3: #b8842e;
+
   /* Syntax palette — code on the sand substrate. Kin to the state hues but
    * calmer: hue whispers the grammar while ink (s11) stays the default. Every
    * value clears WCAG 4.5:1 on s1–s3 at code sizes. Strings sit yellower than

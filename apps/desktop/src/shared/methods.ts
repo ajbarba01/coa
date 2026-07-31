@@ -63,6 +63,22 @@ export const OpenExternalResultSchema = z.object({
   reason: z.string().optional(),
 });
 
+/** The edit menu's actions (cut/copy/paste/select-all): main drives Chromium's native
+ *  editing commands on the focused element, so the renderer draws the menu in the kit's
+ *  own skin without ever touching the clipboard itself. */
+export const EditCommandParamsSchema = z.object({
+  command: z.enum(['cut', 'copy', 'paste', 'selectAll']),
+});
+
+/** The native directory picker (a directory field's browse affordance). Main owns the
+ *  dialog; the renderer only ever receives the CHOSEN path — cancelling returns no path
+ *  at all, so a form can tell "picked nothing" from "picked the empty string". */
+export const PickDirectoryParamsSchema = z.object({
+  /** Where the dialog opens. A `~`-prefixed path is expanded by main. */
+  defaultPath: z.string().optional(),
+});
+export const PickDirectoryResultSchema = z.object({ path: z.string().optional() });
+
 /** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
 export const PUSH_CHANNEL = 'coa:push';
 
@@ -134,6 +150,8 @@ export type MethodName =
   | 'listPackages'
   | 'openPath'
   | 'openExternal'
+  | 'pickDirectory'
+  | 'editCommand'
   | 'getWorkspace'
   | 'getLayout'
   | 'saveLayout'
@@ -191,6 +209,8 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   listPackages: { result: PackageSummaryListSchema },
   openPath: { params: OpenPathParamsSchema, result: OpenPathResultSchema },
   openExternal: { params: OpenExternalParamsSchema, result: OpenExternalResultSchema },
+  pickDirectory: { params: PickDirectoryParamsSchema, result: PickDirectoryResultSchema },
+  editCommand: { params: EditCommandParamsSchema, result: z.void() },
   /** The open project (name + root), derived by main from the daemon's cwd —
    *  the renderer never guesses a workspace. */
   getWorkspace: { result: z.object({ name: z.string(), root: z.string() }) },
