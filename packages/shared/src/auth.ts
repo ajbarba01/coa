@@ -42,6 +42,11 @@ export const accountSchema = z.object({
   /** The declared identity — what a driven login pre-fills (`--email`). The live
    *  identity is probe-derived and never stored here. Additive, drop-safe. */
   email: z.string().optional(),
+  /** A stable, opaque account id. Minted at registration and never derived from the
+   *  email or label: both change, and a slug of either collides. It is what per-account
+   *  side state (a browser profile dir) is keyed by — see docs/adr/0018. Absent on rows
+   *  written before ids existed; the registry backfills lazily. Additive, drop-safe. */
+  id: z.string().optional(),
 });
 export type Account = z.infer<typeof accountSchema>;
 
@@ -55,3 +60,24 @@ export const accountsFileSchema = z.object({
   accounts: z.array(accountSchema),
 });
 export type AccountsFile = z.infer<typeof accountsFileSchema>;
+
+/** What a backend's sign-in NEEDS at the auth layer. `isolatedBrowserSession` says the
+ *  sign-in is a browser cookie-session flow, so a dedicated browser profile is what makes
+ *  the declared identity actually select the account. Claude is the first consumer, not
+ *  the owner: a future provider is a row here, never new machinery (docs/adr/0018). */
+export interface ProviderCapabilities {
+  isolatedBrowserSession: boolean;
+}
+
+export const PROVIDER_CAPABILITIES: Record<Provider, ProviderCapabilities> = {
+  claude: { isolatedBrowserSession: true },
+  deepseek: { isolatedBrowserSession: false },
+  longcat: { isolatedBrowserSession: false },
+};
+
+/** Capability lookup for an unvalidated provider id — an id no backend claims is a `false`,
+ *  never a throw (SC-1: an unknown provider just takes the plain path). */
+export function supportsIsolatedBrowserSession(provider: string): boolean {
+  const parsed = providerSchema.safeParse(provider);
+  return parsed.success && PROVIDER_CAPABILITIES[parsed.data].isolatedBrowserSession;
+}

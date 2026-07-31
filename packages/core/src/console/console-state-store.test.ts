@@ -10,7 +10,7 @@ afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 describe('ConsoleStateStore', () => {
   it('reads a missing file as empty (never throws)', () => {
-    expect(new ConsoleStateStore(home).read()).toEqual({ version: 1, addedProviders: [], disabledProviders: [] });
+    expect(new ConsoleStateStore(home).read()).toEqual({ version: 1, addedProviders: [], disabledProviders: [], isolatedBrowserLogins: false });
   });
 
   it('adds a provider once (idempotent) and removes it', () => {

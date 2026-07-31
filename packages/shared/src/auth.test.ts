@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountSchema, accountsFileSchema, locatorSchema } from './auth.js';
+import { accountSchema, accountsFileSchema, locatorSchema, supportsIsolatedBrowserSession } from './auth.js';
 
 describe('auth schema', () => {
   it('accepts each locator type', () => {
@@ -48,5 +48,31 @@ describe('auth schema', () => {
     });
     expect(parsed.email).toBe('a@b.org');
     expect(accountSchema.parse({ label: 'a', locator: { type: 'ambient' } }).email).toBeUndefined();
+  });
+});
+
+describe('account id + provider capabilities', () => {
+  it('parses an account without an id (legacy rows stay valid)', () => {
+    const account = accountSchema.parse({ label: 'a@b.org', locator: { type: 'ambient' } });
+    expect(account.id).toBeUndefined();
+  });
+
+  it('keeps an explicit id', () => {
+    const account = accountSchema.parse({
+      label: 'a@b.org',
+      locator: { type: 'ambient' },
+      id: '9f2c1ab30d44',
+    });
+    expect(account.id).toBe('9f2c1ab30d44');
+  });
+
+  it('declares isolated browser sessions for claude only', () => {
+    expect(supportsIsolatedBrowserSession('claude')).toBe(true);
+    expect(supportsIsolatedBrowserSession('deepseek')).toBe(false);
+    expect(supportsIsolatedBrowserSession('longcat')).toBe(false);
+  });
+
+  it('says no for a provider it has never heard of', () => {
+    expect(supportsIsolatedBrowserSession('gemini')).toBe(false);
   });
 });

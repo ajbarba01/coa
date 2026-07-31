@@ -8,7 +8,7 @@ export function consoleStatePath(home: string): string {
   return join(home, '.coa', 'console.yaml');
 }
 
-const EMPTY: ConsoleState = { version: 1, addedProviders: [], disabledProviders: [] };
+const EMPTY: ConsoleState = { version: 1, addedProviders: [], disabledProviders: [], isolatedBrowserLogins: false };
 
 export class ConsoleStateStore {
   readonly #home: string;
