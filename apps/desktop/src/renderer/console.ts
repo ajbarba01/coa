@@ -10,10 +10,12 @@ import {
   type CapState,
   type Checkpoint,
   type FeedView,
+  type ModelCatalogView,
   type ModelDescriptor,
   type ModelSelection,
   type PackageSummary,
   type PersistedTurnWire,
+  type ReasoningProfile,
   type RoleSummary,
   type SessionSummary,
   type TurnFrame,
@@ -143,6 +145,41 @@ export const rpcClearCooldown = (id: string): Promise<AuthView> =>
 /** Named distinctly from `ConsoleController.refresh` (a different read entirely) — this
  *  re-reads every pointer locator (identity, expiry, limits) for the auth surface's ⟳. */
 export const rpcRefreshAuth = (): Promise<AuthView> => window.coa.refresh();
+
+/**
+ * The model catalog surface's RPC callers, mirroring the `rpcAuthView` block above — the
+ * `modelsStore` (`panels/modelsStore.ts`) reaches the preload bridge only through these.
+ */
+export const rpcModelCatalog = (): Promise<ModelCatalogView> => window.coa.modelCatalog();
+export const rpcAddModels = (p: { providerId: string; ids: string[] }): Promise<ModelCatalogView> =>
+  window.coa.addModels(p);
+export const rpcAddCustomModel = (p: {
+  providerId: string;
+  id: string;
+  label?: string;
+  reasoning?: ReasoningProfile;
+}): Promise<ModelCatalogView> => window.coa.addCustomModel(p);
+export const rpcEditModel = (p: {
+  providerId: string;
+  id: string;
+  label?: string;
+  reasoning?: ReasoningProfile;
+}): Promise<ModelCatalogView> => window.coa.editModel(p);
+export const rpcRemoveModel = (p: { providerId: string; id: string }): Promise<ModelCatalogView> =>
+  window.coa.removeModel(p);
+export const rpcSetModelHidden = (p: {
+  providerId: string;
+  id: string;
+  hidden: boolean;
+}): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
+
+/** The models-changed hook: the controller registers its `loadModels` here so a
+ *  catalog edit refreshes the chip/agent-picker feed in the same breath. */
+let modelsChanged: () => Promise<void> = () => Promise.resolve();
+export const onModelsChanged = (fn: () => Promise<void>): void => {
+  modelsChanged = fn;
+};
+export const notifyModelsChanged = (): Promise<void> => modelsChanged();
 
 export interface ConsoleController {
   refresh(): Promise<void>;
@@ -735,6 +772,11 @@ export async function startConsole(
   // second, concurrent one (double listSessions/reloadConversation/subscribe on every
   // normal launch). `allSettled` (not `all`) because a failed read must not short-circuit
   // the others — each settles into its own error Remote for hydrate to recover.
+  // The modelsStore's writes reproject the daemon's edited catalog into its own state, but
+  // the chip/agent-picker feed lives on `state.data.models` — poke `loadModels` too, in the
+  // same breath, so both surfaces agree the moment an edit lands.
+  onModelsChanged(loadModels);
+
   const bootLoads = Promise.allSettled([
     loadAccounts(),
     loadModels(),

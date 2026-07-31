@@ -234,8 +234,13 @@ everything else the new design overwrites.
   (authView read + the write verbs `addProvider`/`removeProvider`/`addCredential`/`replaceSecret`/
   `renameCredential`/`removeCredential`/`setProviderEnabled`/`setCredentialDisabled`/`makeActive`/
   `clearCooldown`/`refresh`); **usage** (providers/tools view toggle; workspace spend chart + per-account
-  dashboard + rail HUD; key-health for tool services; **no caps**) and **model reads** remain Phase 2–3
-  (spike-gated, mock). Retires the `cost` surface and the ◐ account popover. New kit members: `BrandMark` +
+  dashboard + rail HUD; key-health for tool services; **no caps**) remains Phase 2 (mock). **Model reads
+  shipped (2026-07-18): the editable per-provider model list is the source of truth** — `models.yaml` +
+  the coa-owned default catalog + a pure effective-list assembler behind the `modelCatalog`/`addModels`/
+  `addCustomModel`/`editModel`/`removeModel`/`setModelHidden` verbs, with `listModels` serving the
+  assembled projection to both pickers and a full in-surface editor (add-from-defaults dialog,
+  create-custom, hide/remove, reasoning profiles) —
+  [ADR-0016](docs/adr/0016-coa-owned-model-catalog.md). Retires the `cost` surface and the ◐ account popover. New kit members: `BrandMark` +
   `Meter`; new theme tokens: the validated chart-`series` palette ([ADR-0015](docs/adr/0015-brand-marks-and-series-palette.md)).
   **This closes the deferred "Nav HUD mini-states" question for `usage`** — the HUD is a customizable projection
   of the usage reads. The auth surface renders from live stores; usage surface renders from a renderer-side mock

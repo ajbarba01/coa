@@ -24,10 +24,6 @@ import { PROVIDERS, type ProviderDescriptor } from './providers.js';
  * removing a provider, clearing a bench's cooldown — all daemon-owned, tested in its own
  * suite, not re-implemented here).
  *
- * `hiddenModels` is the one exception: model-visibility is a Phase-3 concern with no daemon
- * verb yet, so it stays client-only state — hiding is a view preference, never a capability
- * change, exactly like a benched provider's credentials stay configured while it's off.
- *
  * The secret contract is modelled honestly here: a credential holds a MASK, never a secret.
  * Nothing in this store can hand a secret back, which is why a SECRET is "replaced", never
  * edited. Labels and pointer locators (a config directory, an env-var name) are not secrets —
@@ -64,11 +60,6 @@ export interface MockAuthState {
   enabled: Record<string, boolean>;
   /** Tool-service chains, in failover order. */
   chains: Record<string, string[]>;
-  /** Model ids the user has hidden from the picker. Hiding is a view preference, never a
-   *  capability change — the model stays runnable by id, exactly like a benched provider's
-   *  credentials stay configured. Console-local (Phase 3 — no daemon verb yet). */
-  hiddenModels: string[];
-
   /** Reads `authView` and reprojects it. Idempotent — safe to call on every surface mount. */
   hydrate: () => Promise<void>;
   addProvider: (providerId: string) => Promise<void>;
@@ -83,7 +74,6 @@ export interface MockAuthState {
   setCredentialDisabled: (credentialId: string, disabled: boolean) => Promise<void>;
   makeActive: (credentialId: string) => Promise<void>;
   clearCooldown: (credentialId: string) => Promise<void>;
-  setModelHidden: (modelId: string, hidden: boolean) => void;
   /** Re-read every pointer locator — identity, expiry, limits can all change behind
    *  coa's back (a `claude login` in a terminal). The strip's ⟳ runs this. */
   refresh: () => Promise<void>;
@@ -128,7 +118,6 @@ export const useMockAuth = create<MockAuthState>((set) => ({
   activeByProvider: {},
   enabled: {},
   chains: {},
-  hiddenModels: [],
 
   hydrate: async () => apply(set)(await rpcAuthView()),
   addProvider: async (providerId) => apply(set)(await rpcAddProvider(providerId)),
@@ -146,15 +135,6 @@ export const useMockAuth = create<MockAuthState>((set) => ({
     apply(set)(await rpcSetCredentialDisabled(credentialId, disabled)),
   makeActive: async (credentialId) => apply(set)(await rpcMakeActive(credentialId)),
   clearCooldown: async (credentialId) => apply(set)(await rpcClearCooldown(credentialId)),
-
-  setModelHidden: (modelId, hidden) =>
-    set((s) => ({
-      hiddenModels: hidden
-        ? s.hiddenModels.includes(modelId)
-          ? s.hiddenModels
-          : [...s.hiddenModels, modelId]
-        : s.hiddenModels.filter((id) => id !== modelId),
-    })),
 
   refresh: async () => apply(set)(await rpcRefreshAuth()),
 }));

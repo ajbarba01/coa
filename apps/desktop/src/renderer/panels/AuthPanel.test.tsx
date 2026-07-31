@@ -13,6 +13,7 @@ import {
   type Credential,
 } from './mockAuth.js';
 import { useAuthUi } from './surfaceUi.js';
+import { useModels } from './modelsStore.js';
 
 // The store now talks to the daemon through these RPC callers (console.ts) — mocked here so
 // every write action resolves with a CRAFTED `AuthView` fixture instead of a real IPC round
@@ -33,6 +34,15 @@ vi.mock('../console.js', () => ({
   rpcMakeActive: vi.fn(),
   rpcClearCooldown: vi.fn(),
   rpcRefreshAuth: vi.fn(),
+  // The model editor rides the same surface (ModelsSection), so its callers join the mock.
+  rpcModelCatalog: vi.fn(),
+  rpcAddModels: vi.fn(),
+  rpcAddCustomModel: vi.fn(),
+  rpcEditModel: vi.fn(),
+  rpcRemoveModel: vi.fn(),
+  rpcSetModelHidden: vi.fn(),
+  notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
+  onModelsChanged: vi.fn(),
 }));
 
 import {
@@ -60,6 +70,7 @@ beforeEach(() => {
   useMockAuth.setState(EMPTY_STATE, true);
   useAuthUi.setState(UI_SEED, true);
   useShell.setState(SHELL_SEED, true);
+  useModels.setState({ lists: {}, catalog: {} });
 });
 
 /** Mirrors the real `~/.coa` shape (3 claude logins, keyed backends, a fat tavily pool with
@@ -579,35 +590,14 @@ describe('AuthSurface', () => {
     expect(useShell.getState().addProviderOpen).toBe(false);
   });
 
-  it('shows a backend’s models with the long tail behind "all N models…"', async () => {
-    const user = userEvent.setup();
+  it('a backend detail renders the model editor, fed by the daemon-mirroring store', async () => {
+    useModels.setState({
+      lists: { claude: [{ id: 'claude-fable-5', label: 'fable 5', origin: 'default' }] },
+      catalog: { claude: [{ id: 'claude-fable-5', label: 'fable 5', origin: 'default' }] },
+    });
     await renderAuth();
-    // claude seeds 9 models; 6 show inline, the rest live in the dialog.
     expect(await screen.findByText('models')).toBeTruthy();
     expect(screen.getByText('fable 5')).toBeTruthy();
-    expect(screen.queryByText('sonnet 4')).toBeNull();
-    await user.click(screen.getByRole('button', { name: /all 9 models/i }));
-
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('sonnet 4')).toBeTruthy();
-    // The filter narrows by label OR id.
-    await user.type(within(dialog).getByLabelText('filter models…'), 'haiku');
-    expect(within(dialog).queryByText('fable 5')).toBeNull();
-    expect(within(dialog).getByText('haiku 4.5')).toBeTruthy();
-  });
-
-  it('hiding a model is a view preference — a store fact the toggle flips both ways (Phase 3, console-local)', () => {
-    // No daemon verb yet — starts empty, not seeded from any view.
-    expect(useMockAuth.getState().hiddenModels).toEqual([]);
-    useMockAuth.getState().setModelHidden('claude-haiku-3-5', true);
-    expect(useMockAuth.getState().hiddenModels).toContain('claude-haiku-3-5');
-    useMockAuth.getState().setModelHidden('claude-haiku-3-5', false);
-    expect(useMockAuth.getState().hiddenModels).not.toContain('claude-haiku-3-5');
-    useMockAuth.getState().setModelHidden('claude-opus-4-8', true);
-    useMockAuth.getState().setModelHidden('claude-opus-4-8', true);
-    expect(
-      useMockAuth.getState().hiddenModels.filter((id) => id === 'claude-opus-4-8').length,
-    ).toBe(1);
   });
 
   it('a tool service page shows no models section — a pool has no models', async () => {

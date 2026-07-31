@@ -29,13 +29,6 @@ export type LocatorKind = 'key-file' | 'config-dir' | 'env-var' | 'ambient' | 'c
  *  so the surface leans into it rather than papering over it. */
 export type ProviderGroup = 'backend' | 'service';
 
-/** One model a backend can run. Mock-fed today (the real list is a per-provider read
- *  through the M9 port — only Claude's exists live); visibility is the user's, in mockAuth. */
-export interface ProviderModel {
-  id: string;
-  label: string;
-}
-
 export interface ProviderDescriptor {
   id: string;
   label: string;
@@ -46,8 +39,6 @@ export interface ProviderDescriptor {
   noun: 'login' | 'key';
   /** Shown in the add-form: where the secret/pointer ends up. */
   hint: string;
-  /** The models this backend offers (backends only — a tool service has no models). */
-  models?: ProviderModel[];
   /** The adapter/SDK version coa drives this provider through, where one applies —
    *  worn in the detail subtitle, absent when there is nothing honest to show. */
   version?: string;
@@ -63,19 +54,6 @@ export const PROVIDERS: ProviderDescriptor[] = [
     mark: CLAUDE_MARK,
     hint: 'coa stores a pointer, not a credential — the login lives in that directory, owned by Claude.',
     version: 'agent sdk 0.72',
-    // The subscription honors explicit older ids too, so the long tail is real access,
-    // not decoration — hiding it is exactly what the picker visibility is for.
-    models: [
-      { id: 'claude-fable-5', label: 'fable 5' },
-      { id: 'claude-opus-4-8', label: 'opus 4.8' },
-      { id: 'claude-sonnet-5', label: 'sonnet 5' },
-      { id: 'claude-haiku-4-5', label: 'haiku 4.5' },
-      { id: 'claude-opus-4-7', label: 'opus 4.7' },
-      { id: 'claude-sonnet-4-6', label: 'sonnet 4.6' },
-      { id: 'claude-opus-4-1', label: 'opus 4.1' },
-      { id: 'claude-sonnet-4-0', label: 'sonnet 4' },
-      { id: 'claude-haiku-3-5', label: 'haiku 3.5' },
-    ],
   },
   {
     id: 'codex',
@@ -86,11 +64,6 @@ export const PROVIDERS: ProviderDescriptor[] = [
     mark: CODEX_MARK,
     hint: 'Run `codex login` against this profile; coa watches for the token it writes.',
     version: 'cli 0.48',
-    models: [
-      { id: 'gpt-5.2-codex', label: 'gpt-5.2 codex' },
-      { id: 'gpt-5.2', label: 'gpt-5.2' },
-      { id: 'gpt-5.1-codex-mini', label: 'gpt-5.1 codex mini' },
-    ],
   },
   {
     id: 'deepseek',
@@ -101,10 +74,6 @@ export const PROVIDERS: ProviderDescriptor[] = [
     mark: DEEPSEEK_MARK,
     hint: 'Written 0600 under ~/.coa/keys. Never read back, never logged, never returned by a read.',
     version: 'api v3',
-    models: [
-      { id: 'deepseek-chat', label: 'deepseek chat' },
-      { id: 'deepseek-reasoner', label: 'deepseek reasoner' },
-    ],
   },
   {
     id: 'longcat',
@@ -114,10 +83,6 @@ export const PROVIDERS: ProviderDescriptor[] = [
     noun: 'key',
     mark: LONGCAT_MARK,
     hint: 'Written 0600 under ~/.coa/keys. Never read back, never logged, never returned by a read.',
-    models: [
-      { id: 'longcat-flash-chat', label: 'longcat flash chat' },
-      { id: 'longcat-flash-thinking', label: 'longcat flash thinking' },
-    ],
   },
   {
     id: 'gemini',
@@ -128,14 +93,6 @@ export const PROVIDERS: ProviderDescriptor[] = [
     mark: GEMINI_MARK,
     hint: 'coa stores the VARIABLE NAME and reads it from the environment at session start.',
     version: 'api v1beta',
-    models: [
-      { id: 'gemini-2.5-pro', label: 'gemini 2.5 pro' },
-      { id: 'gemini-2.5-flash', label: 'gemini 2.5 flash' },
-      { id: 'gemini-2.5-flash-lite', label: 'gemini 2.5 flash lite' },
-      { id: 'gemini-2.0-flash', label: 'gemini 2.0 flash' },
-      { id: 'gemini-1.5-pro', label: 'gemini 1.5 pro' },
-      { id: 'gemini-1.5-flash', label: 'gemini 1.5 flash' },
-    ],
   },
   {
     id: 'tavily',

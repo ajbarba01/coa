@@ -40,8 +40,10 @@ export interface ShellState {
   /** The provider the remove-confirm dialog is asking about (undefined = closed). A
    *  payload-bearing dialog joins the exclusive set like any other. */
   confirmRemoveProvider?: string | undefined;
-  /** The provider whose full, filterable model list is open (undefined = closed). */
-  modelsDialogProvider?: string | undefined;
+  /** The provider whose add-from-defaults model dialog is open (undefined = closed). */
+  addModelsProvider?: string | undefined;
+  /** The custom model the remove-confirm dialog is asking about (undefined = closed). */
+  confirmRemoveModel?: { providerId: string; id: string } | undefined;
   /** Bumped whenever the composer should take focus — opening a session, or Enter pressed
    *  anywhere in the conversation. A nonce rather than a flag: two consecutive requests to
    *  focus are two events, and the composer must answer both. */
@@ -83,7 +85,8 @@ export interface ShellState {
   setNewSessionOpen: (open: boolean) => void;
   setAddProviderOpen: (open: boolean) => void;
   setConfirmRemoveProvider: (providerId: string | undefined) => void;
-  setModelsDialogProvider: (providerId: string | undefined) => void;
+  setAddModelsProvider: (providerId: string | undefined) => void;
+  setConfirmRemoveModel: (target: { providerId: string; id: string } | undefined) => void;
   /** Put the caret in the composer — whatever the user types next is a message. */
   focusComposer: () => void;
   setDaemon: (daemon: DaemonStatus) => void;
@@ -102,7 +105,8 @@ const CLOSE_ALL_DIALOGS = {
   newSessionOpen: false,
   addProviderOpen: false,
   confirmRemoveProvider: undefined,
-  modelsDialogProvider: undefined,
+  addModelsProvider: undefined,
+  confirmRemoveModel: undefined,
 } as const;
 
 export const useShell = create<ShellState>((set, get) => ({
@@ -122,7 +126,8 @@ export const useShell = create<ShellState>((set, get) => ({
   newSessionOpen: false,
   addProviderOpen: false,
   confirmRemoveProvider: undefined,
-  modelsDialogProvider: undefined,
+  addModelsProvider: undefined,
+  confirmRemoveModel: undefined,
   composerFocus: 0,
   daemon: 'stopped',
   maximized: false,
@@ -200,11 +205,17 @@ export const useShell = create<ShellState>((set, get) => ({
         ? { ...CLOSE_ALL_DIALOGS, confirmRemoveProvider: providerId }
         : { confirmRemoveProvider: undefined },
     ),
-  setModelsDialogProvider: (providerId) =>
+  setAddModelsProvider: (providerId) =>
     set(
       providerId !== undefined
-        ? { ...CLOSE_ALL_DIALOGS, modelsDialogProvider: providerId }
-        : { modelsDialogProvider: undefined },
+        ? { ...CLOSE_ALL_DIALOGS, addModelsProvider: providerId }
+        : { addModelsProvider: undefined },
+    ),
+  setConfirmRemoveModel: (target) =>
+    set(
+      target !== undefined
+        ? { ...CLOSE_ALL_DIALOGS, confirmRemoveModel: target }
+        : { confirmRemoveModel: undefined },
     ),
   focusComposer: () => set((s) => ({ composerFocus: s.composerFocus + 1 })),
   setDaemon: (daemon) => set({ daemon }),

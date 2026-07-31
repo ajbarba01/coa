@@ -33,8 +33,8 @@ import {
   isPointerLocator,
   providerById,
   type ProviderDescriptor,
-  type ProviderModel,
 } from './providers.js';
+import { ModelsSection } from './ModelEditor.js';
 import { SurfaceEmpty } from './surfaceStates.js';
 import { useAuthUi } from './surfaceUi.js';
 import { useNarrow } from './useNarrow.js';
@@ -226,7 +226,6 @@ export function AuthSurface(): React.JSX.Element {
 
       <AddProviderDialog open={adding} onClose={() => setAdding(false)} onAdded={select} />
       <RemoveProviderDialog />
-      <ModelsDialog />
     </div>
   );
 }
@@ -535,134 +534,12 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
           ))}
         </AnimatePresence>
 
-        {(provider.models?.length ?? 0) > 0 && <ModelsSection provider={provider} />}
+        {/* A backend's models section IS the editor — the editable list is the source of
+            truth for both pickers, so the surface that shows it is the surface that edits
+            it. A tool service has no models. */}
+        {provider.group === 'backend' && <ModelsSection provider={provider} />}
       </div>
     </div>
-  );
-}
-
-/* ----------------------------------- the models ----------------------------------- */
-
-/** Past this many, the rest live behind "all N models…" (the OpenRouter problem: a list
- *  that long stops being a glance, so the long tail moves to a filterable dialog). */
-const MODELS_SHOWN = 6;
-
-/** What this backend can run, and which of it the picker shows. Hiding is a VIEW
- *  preference — the model stays runnable by id — so the toggle mirrors the bench switch
- *  vocabulary without ever meaning capability. */
-function ModelsSection({ provider }: { provider: ProviderDescriptor }): React.JSX.Element {
-  const hiddenModels = useMockAuth((s) => s.hiddenModels);
-  const openAll = useShell((s) => s.setModelsDialogProvider);
-  const models = provider.models ?? [];
-  const hiddenCount = models.filter((m) => hiddenModels.includes(m.id)).length;
-  const shown = models.slice(0, MODELS_SHOWN);
-
-  return (
-    <>
-      <div className="mt-7 mb-1.5 flex items-baseline border-b border-s3 pb-1.5">
-        <CapsLabel className="px-0 pt-0">models</CapsLabel>
-        <span className="ml-2 font-mono text-meta text-s7">{models.length}</span>
-        {hiddenCount > 0 && (
-          <span className="ml-2 font-mono text-meta text-s7">{hiddenCount} hidden</span>
-        )}
-      </div>
-      {shown.map((m) => (
-        <ModelRow key={m.id} model={m} />
-      ))}
-      {models.length > MODELS_SHOWN && (
-        <button
-          type="button"
-          onClick={() => openAll(provider.id)}
-          className="slip flex w-full cursor-pointer items-center rounded-r3 px-3 py-1.5 text-left font-mono text-meta text-s8 hover:bg-s2 hover:text-s11"
-        >
-          all {models.length} models…
-        </button>
-      )}
-    </>
-  );
-}
-
-function ModelRow({ model }: { model: ProviderModel }): React.JSX.Element {
-  const hidden = useMockAuth((s) => s.hiddenModels.includes(model.id));
-  const setModelHidden = useMockAuth((s) => s.setModelHidden);
-  return (
-    <div className="slip group flex items-center gap-3 rounded-r3 px-3 py-1.5 hover:bg-s2">
-      <span className={cx('min-w-0 flex-1 truncate text-sec', hidden ? 'text-s7' : 'text-s10')}>
-        {model.label}
-      </span>
-      <span className="truncate font-mono text-meta text-s7">{model.id}</span>
-      {/* Same reveal contract as the bench switch: out of the way until approached,
-          visible while OFF because that IS the state worth seeing. */}
-      <Tooltip
-        label={hidden ? 'show in the model picker' : 'hide from the model picker'}
-        side="top"
-      >
-        <span
-          className={cx(
-            'slip flex',
-            !hidden && 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
-          )}
-        >
-          <Toggle
-            on={!hidden}
-            onChange={(on) => setModelHidden(model.id, !on)}
-            aria-label={`${model.label} in the picker`}
-          />
-        </span>
-      </Tooltip>
-    </div>
-  );
-}
-
-/** The full model list, filterable — where a long tail goes to be found. The same rows,
- *  the same toggles: the dialog is a bigger window onto the SAME list, not a second UI. */
-function ModelsDialog(): React.JSX.Element {
-  const providerId = useShell((s) => s.modelsDialogProvider);
-  const setOpen = useShell((s) => s.setModelsDialogProvider);
-  const [query, setQuery] = useState('');
-  const provider = providerId === undefined ? undefined : providerById(providerId);
-  const close = (): void => setOpen(undefined);
-
-  // A fresh open is a fresh search — yesterday's filter is not a preference.
-  useEffect(() => {
-    if (providerId !== undefined) setQuery('');
-  }, [providerId]);
-
-  const models = (provider?.models ?? []).filter((m) =>
-    `${m.label} ${m.id}`.toLowerCase().includes(query.trim().toLowerCase()),
-  );
-
-  return (
-    <ModalShell open={provider !== undefined} onClose={close} aria-label="models" className="w-124">
-      {provider !== undefined && (
-        <>
-          <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
-            <BrandMark spec={provider.mark} />
-            <span className="text-sec font-semibold text-s11">{provider.label} models</span>
-            <span className="font-mono text-meta text-s7">{provider.models?.length}</span>
-          </div>
-          <div className="px-4 pt-3">
-            <Field
-              autoFocus
-              value={query}
-              onChange={setQuery}
-              placeholder="filter models…"
-              className="w-full"
-            />
-          </div>
-          <div className="max-h-100 overflow-y-auto px-4 pt-2 pb-4">
-            {models.map((m) => (
-              <ModelRow key={m.id} model={m} />
-            ))}
-            {models.length === 0 && (
-              <div className="py-6 text-center text-sec text-s7">
-                no model matches &ldquo;{query}&rdquo;
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </ModalShell>
   );
 }
 
