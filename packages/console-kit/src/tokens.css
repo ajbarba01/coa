@@ -31,6 +31,13 @@
   --text-meta: 10.5px;
   --text-caps: 10px;
   --text-icon: 17px;
+
+  /* Drawn-glyph (svg) sizes. A SEPARATE axis from --text-icon, which is a font-size for
+   * the mono CHARACTER glyphs (▣ ⇪ ×): a character is inked inside its em-box, an svg
+   * fills its viewBox, so the same number reads two different sizes. sm is the house
+   * default observed across the composer's affordances. */
+  --icon-sm: 14px;
+  --icon-md: 16px;
 }
 
 :root {

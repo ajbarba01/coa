@@ -1,4 +1,4 @@
-import { Button, ModalShell, StatusDot, cx } from '@coa/console-kit';
+import { Button, Icon, ModalShell, StatusDot, cx } from '@coa/console-kit';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import type { LoginSnapshot } from '@coa/console-viewmodel';
@@ -31,13 +31,18 @@ const POLL_MS = 1000;
  *  is the browser's sign-in page's job — coa only pre-fills. */
 const looksLikeEmail = (value: string): boolean => /\S+@\S+/.test(value.trim());
 
-/** "Sign in with Claude" — the driven path, primary for a config-dir backend. The manual
- *  "point at an existing dir" path stays reachable from the provider menu (strict-superset). */
+/** The driven sign-in, primary for a config-dir backend. The manual "point at an existing
+ *  dir" path stays reachable from the provider menu (strict-superset).
+ *
+ *  Weight matches its sibling deliberately: this and "+ add {noun}" are the same
+ *  conceptual act — put a credential on this provider — and used to render at two
+ *  different weights from the two arms of ONE ternary in AuthPanel. The provider's name
+ *  is already the row's context, so the label does not repeat it. */
 export function SignInButton({ provider }: { provider: ProviderDescriptor }): React.JSX.Element {
   const setLoginEmailFor = useShell((s) => s.setLoginEmailFor);
   return (
-    <Button variant="quiet" onClick={() => setLoginEmailFor({ providerId: provider.id })}>
-      sign in with {provider.label}
+    <Button variant="text" onClick={() => setLoginEmailFor({ providerId: provider.id })}>
+      sign in
     </Button>
   );
 }
@@ -149,9 +154,11 @@ function EmailStep({
             aria-label="email"
           />
         </label>
+        {/* The pre-fill claim stays until the browser-session spike settles whether coa
+            can actually honor it; the credential-blindness clause is gone from here —
+            that fact is stated once, at registration, where it is load-bearing. */}
         <span className="text-meta leading-relaxed text-s7">
-          Claude&apos;s own sign-in opens in your browser, pre-filled with this email. coa keeps a
-          pointer to the login — never the token.
+          Claude&apos;s sign-in opens in your browser, pre-filled with this email.
         </span>
       </div>
       <footer className="flex items-center justify-end gap-2 border-t border-s3 px-4 py-3">
@@ -185,7 +192,6 @@ function FlowBody({
   const submitCode = useLogin((s) => s.submitCode);
   const resolveMismatch = useLogin((s) => s.resolveMismatch);
   const [code, setCode] = useState('');
-  const [showCode, setShowCode] = useState(false);
 
   // The flow is Claude-only today (the daemon's LoginManager drives one CLI); the title
   // names the provider honestly rather than pretending a parameter exists.
@@ -232,7 +238,7 @@ function FlowBody({
             {flow.phase === 'launching' && (
               <Step
                 heading="starting Claude sign-in"
-                body={`coa is launching Claude's own sign-in for ${flow.email ?? 'this account'}. The browser opens pre-filled; coa watches for the login to land — it never reads your token.`}
+                body={`Opening the browser for ${flow.email ?? 'this account'}.`}
               />
             )}
 
@@ -240,7 +246,7 @@ function FlowBody({
               <div className="flex flex-col gap-3">
                 <Step
                   heading="finish signing in"
-                  body={`Your browser opened Claude's sign-in with ${flow.email ?? 'your email'} pre-filled — finish there and come back. coa is watching for the login to land.`}
+                  body={`Complete the sign-in as ${flow.email ?? 'your account'} in your browser. This updates as soon as it lands.`}
                 />
                 {flow.oauthUrl !== undefined ? (
                   <CopyLink url={flow.oauthUrl} />
@@ -252,57 +258,55 @@ function FlowBody({
                     available on this system
                   </div>
                 ) : null}
-                {showCode ? (
-                  <div className="flex items-center gap-2">
-                    <TextInput
-                      autoFocus
-                      value={code}
-                      onChange={setCode}
-                      onCommit={() => {
-                        if (code.trim() !== '') void submitCode(code.trim()).catch(() => {});
-                      }}
-                      placeholder="paste the code from the browser…"
-                      aria-label="authorization code"
-                      className="flex-1"
-                    />
-                    <Button
-                      variant="quiet"
-                      disabled={code.trim() === ''}
-                      onClick={() => void submitCode(code.trim()).catch(() => {})}
-                    >
-                      submit
-                    </Button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowCode(true)}
-                    className="slip cursor-pointer text-left font-mono text-meta text-s6 hover:text-s9"
+                {/* Always present, never behind a click. The field is cheap to ignore and
+                    expensive to hunt for: the CLI only sometimes asks for a code, and when
+                    it does you are mid-handshake with no patience for a disclosure. NOT
+                    autofocused — the primary action is in the browser, so stealing focus
+                    here would fight the flow. */}
+                <div className="flex items-center gap-2">
+                  <TextInput
+                    value={code}
+                    onChange={setCode}
+                    onCommit={() => {
+                      if (code.trim() !== '') void submitCode(code.trim()).catch(() => {});
+                    }}
+                    placeholder="paste the code here, if the browser gives you one"
+                    aria-label="authorization code"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="quiet"
+                    disabled={code.trim() === ''}
+                    onClick={() => void submitCode(code.trim()).catch(() => {})}
                   >
-                    prompted for a code instead? enter it →
-                  </button>
-                )}
+                    submit
+                  </Button>
+                </div>
               </div>
             )}
 
             {flow.phase === 'watching' && (
               <Step
-                heading="watching for your login"
-                body="Signed in — coa is polling `claude auth status` for the login to land. The moment it does, this account registers itself."
+                heading="confirming your login"
+                body="Signed in. Confirming with Claude before this account is registered."
               />
             )}
 
             {flow.phase === 'mismatch' && (
               <Step
                 heading={`signed in as ${flow.landedEmail ?? 'a different account'}`}
-                body={`you asked to sign in as ${flow.email ?? 'another email'} — the browser finished as ${flow.landedEmail ?? 'a different account'}. Keep it, or try again with the right account?`}
+                // The heading already names who landed — repeating it here would say the
+                // same fact twice in one card.
+                body={`You asked for ${flow.email ?? 'another email'}. Keep this account, or try again.`}
               />
             )}
 
             {flow.phase === 'registered' && (
               <Step
                 heading="you're in"
-                body={`Signed in as ${flow.identity ?? flow.email ?? 'your account'}. coa stored a pointer to the login's folder — never the token.`}
+                // The one sanctioned credential-blindness statement: said here, where it
+                // describes what coa just wrote to disk, and nowhere else in the flow.
+                body={`Signed in as ${flow.identity ?? flow.email ?? 'your account'}. coa stored a pointer to the login folder, not the token.`}
               />
             )}
 
@@ -356,16 +360,20 @@ function FlowBody({
 }
 
 /** The captured stdout URL with the VSCode copy pattern — for when the auto-opened browser
- *  is the WRONG browser (the one that doesn't know your email), or didn't open at all. */
+ *  is the WRONG browser (the one that doesn't know your email), or didn't open at all.
+ *  This is the affordance that makes multi-account sign-in workable today: paste into the
+ *  browser holding the right session. */
 function CopyLink({ url }: { url: string }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex flex-col gap-2 rounded-r3 border border-s5 bg-s1 px-3 py-3">
-      <span className="flex items-center font-mono text-meta text-s7">
+      <span className="flex items-center gap-2 font-mono text-meta text-s7">
         didn&apos;t open? paste this into the browser that knows your email
         <Button
           variant="text"
-          className="ml-auto"
+          className="ml-auto flex items-center gap-1.5"
+          // The label carries the name; the glyph is decorative beside it, so no `label`
+          // prop — a labelled Icon here would announce the action twice.
           onClick={() => {
             void navigator.clipboard.writeText(url).then(() => {
               setCopied(true);
@@ -373,7 +381,8 @@ function CopyLink({ url }: { url: string }): React.JSX.Element {
             });
           }}
         >
-          {copied ? 'copied ✓' : 'copy link'}
+          <Icon name={copied ? 'check' : 'copy'} />
+          {copied ? 'copied' : 'copy link'}
         </Button>
       </span>
       <span className="font-mono text-code break-all text-s10">{url}</span>

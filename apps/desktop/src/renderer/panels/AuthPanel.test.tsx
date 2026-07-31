@@ -692,8 +692,8 @@ describe('login health on the surface', () => {
     await renderAuth();
     // The claude detail is the default (first backend) — its logins header carries the
     // driven entry point, not the manual "+ add login".
-    expect(await screen.findByText('sign in with claude')).toBeTruthy();
-    fireEvent.click(screen.getByText('sign in with claude'));
+    expect(await screen.findByText('sign in')).toBeTruthy();
+    fireEvent.click(screen.getByText('sign in'));
     expect(useShell.getState().loginEmailFor).toEqual({ providerId: 'claude' });
   });
 

@@ -1,6 +1,7 @@
 import { buttonIntent } from './actions/Button.intent.js';
 import { brandMarkIntent } from './brand/BrandMark.intent.js';
 import { windowControlsIntent } from './chrome/WindowControls.intent.js';
+import { iconIntent } from './data/Icon.intent.js';
 import { meterIntent } from './data/Meter.intent.js';
 import { panelResizeIntent } from './layout/PanelResize.intent.js';
 import type { ComponentIntent } from './lib/intent.js';
@@ -29,6 +30,7 @@ export const allIntents: ComponentIntent[] = [
   spinnerIntent,
   brandMarkIntent,
   meterIntent,
+  iconIntent,
   useDismissLayerIntent,
   useClickAwayIntent,
   zoomIntent,

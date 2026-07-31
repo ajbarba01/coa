@@ -8,6 +8,7 @@ export {
 export { WindowControls, type WindowControlsProps } from './chrome/WindowControls.js';
 export { cx } from './cx.js';
 export { Meter, meterTone, type MeterProps, type MeterTone } from './data/Meter.js';
+export { Icon, type IconName, type IconProps } from './data/Icon.js';
 export { DialogSearchHead, SettingRow, TocRail } from './frame/SettingsFrame.js';
 export { Spinner, type SpinnerProps } from './Spinner.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';

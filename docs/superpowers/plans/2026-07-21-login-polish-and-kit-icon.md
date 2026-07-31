@@ -135,11 +135,17 @@ CLI actually asks.
 - **Degraded path:** when the prompt cannot be observed, fall back to **always-visible**, never a
   button. A click in front of a field is the thing being removed.
 
-**Sequencing caveat:** this path is entangled with the corrected D6 finding — `write()` into a pipe
-likely does NOT drive the CLI's interactive prompt, so the code-paste fallback may never have worked
-on the pipe branch. **Verify the fallback works at all** (now that the PTY branch actually runs)
-before designing its reveal. If it is broken, that is a functional bug and outranks this cosmetic
-one.
+**Sequencing caveat — RESOLVED 2026-07-21.** The concern was that `write()` into a pipe may never
+have driven the CLI's interactive prompt, making the code field decorative. **The maintainer drove
+copy-link → paste-code live and it worked.** Process timestamps place every running process at
+18:06+ against an 18:02 `dist` rebuild, so the test ran on the NEW PTY path — which makes it the
+first live end-to-end confirmation of the D6 fix, and confirms the code field is functional.
+
+D5 is therefore **pure cosmetics**, as originally scoped. Note what remains untested: whether the
+OLD pipe path could drive the prompt. So node-pty's justification is one premise dead (the
+"URL prints only on a TTY" spike fact) and one unverified. Not worth chasing while the dependency is
+in and working — but if node-pty ever becomes a build burden (it is a native module), that is the
+thread to pull.
 
 ---
 

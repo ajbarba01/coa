@@ -54,6 +54,17 @@ The hidden-frame window’s min/max/close cluster, drawn in the DOM so it scales
 
 ## Data
 
+### Icon
+
+A drawn glyph at the house convention — the picture half of an affordance.
+
+- **Use it when:** A control needs a mark alongside or instead of its label (copy, attach, confirm). The same action recurs across surfaces and a glyph makes it findable faster than reading.
+- **Don't use it when:** Indicating state — that is StatusDot; a glyph is an action or an object, never status. Naming a third party — that is BrandMark, which carries their color; Icon is always currentColor. A mono CHARACTER mark (▣ ⇪ ×) that rides the --text-icon font-size — different axis, not this. Decorating a surface. A glyph with no action behind it is noise in the quiet register.
+- **Anatomy:** A Lucide svg at --icon-sm (default) or --icon-md, stroke 2, round caps/joins, inheriting currentColor from its parent.
+- **Variants & states:** sm (house default) · md (a glyph carrying a row alone), decorative (default — aria-hidden, for a glyph beside a text label), labelled (role=img + aria-label, for an icon-ONLY control), States belong to the parent control: an Icon has no hover/press/disabled of its own, so it cannot drift from the affordance it sits in.
+- **Accessibility:** Decorative by default (aria-hidden, focusable=false) so an icon beside a label is not announced twice; pass `label` ONLY when the icon is a control's sole content, which makes it role="img" with that accessible name.
+- **Related:** StatusDot, BrandMark, Button
+
 ### Meter
 
 Utilization against a known ceiling, as a bar that earns its color.

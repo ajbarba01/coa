@@ -43,7 +43,7 @@ describe('the driven login dialog', () => {
         <LoginDialog />
       </>,
     );
-    fireEvent.click(screen.getByText('sign in with claude'));
+    fireEvent.click(screen.getByText('sign in'));
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'a@x.org' } });
     fireEvent.click(screen.getByText(/continue/i));
     expect(rpc.rpcStartLogin).toHaveBeenCalledWith({ email: 'a@x.org' });
@@ -70,6 +70,33 @@ describe('the driven login dialog', () => {
     });
     render(<LoginDialog />);
     expect(screen.getByText(/isn't available on this system/)).toBeInTheDocument();
+  });
+
+  /** The code field used to hide behind a disclosure click. It is reachable the moment the
+   *  CLI could ask for a code, because that is exactly when hunting for it is worst. */
+  it('offers the code field without making the user reveal it first', () => {
+    useLogin.setState({
+      flow: {
+        phase: 'awaiting',
+        mode: 'new',
+        email: 'a@x.org',
+        oauthUrl: 'https://claude.com/cai/oauth/x',
+        ptyCaptured: true,
+      },
+    });
+    render(<LoginDialog />);
+    expect(screen.getByLabelText('authorization code')).toBeInTheDocument();
+    expect(screen.queryByText(/prompted for a code instead/)).not.toBeInTheDocument();
+  });
+
+  /** The browser handshake is the primary action — the dialog must not pull focus into a
+   *  field the user usually never touches. */
+  it('does not steal focus into the code field', () => {
+    useLogin.setState({
+      flow: { phase: 'awaiting', mode: 'new', email: 'a@x.org', ptyCaptured: true },
+    });
+    render(<LoginDialog />);
+    expect(screen.getByLabelText('authorization code')).not.toBe(document.activeElement);
   });
 
   it('mismatch offers keep-landed and try-again, never a block', () => {
