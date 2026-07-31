@@ -403,6 +403,10 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
       return proxyDaemon('makeActive', params);
     case 'clearCooldown':
       return proxyDaemon('clearCooldown', params);
+    case 'setIsolatedBrowserLogins':
+      return proxyDaemon('setIsolatedBrowserLogins', params);
+    case 'setBrowserPath':
+      return proxyDaemon('setBrowserPath', params);
     case 'refresh':
       return proxyDaemon('refresh');
     case 'startSession':

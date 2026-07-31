@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   emailSlug,
   extractOauthUrl,
+  loginEnv,
   managedLoginDir,
   resolveClaudeCommand,
 } from './login-driver.js';
@@ -116,5 +117,23 @@ describe('spawnLogin — kill-before-spawn race', () => {
     await flush();
     expect(spawnMock).toHaveBeenCalled();
     expect(fakeChild.kill).toHaveBeenCalled();
+  });
+});
+
+describe('loginEnv', () => {
+  it('points the CLI at the managed config dir', () => {
+    const env = loginEnv({ PATH: '/bin' }, { dir: 'D' });
+    expect(env['CLAUDE_CONFIG_DIR']).toBe('D');
+    expect(env['PATH']).toBe('/bin');
+  });
+
+  it('leaves BROWSER exactly as the environment had it when no launcher is given', () => {
+    expect(loginEnv({ BROWSER: 'firefox' }, { dir: 'D' })['BROWSER']).toBe('firefox');
+    expect(loginEnv({}, { dir: 'D' })).not.toHaveProperty('BROWSER');
+  });
+
+  it('redirects the browser-open to the launcher when one is given', () => {
+    const env = loginEnv({ BROWSER: 'firefox' }, { dir: 'D', browserLauncher: 'C:\\l.cmd' });
+    expect(env['BROWSER']).toBe('C:\\l.cmd');
   });
 });

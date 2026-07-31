@@ -293,6 +293,14 @@ export {
   type LoginPhase,
   type LoginSnapshot,
 } from './auth/login-manager.js';
+export {
+  BrowserSession,
+  browserProfileDir,
+  detectBrowser,
+  type BrowserSessionDeps,
+  type BrowserSessionSettings,
+  type BrowserSessionView,
+} from './auth/browser-session.js';
 export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { ModelCatalogStore, modelsPath } from './models/model-catalog-store.js';
 export { defaultCatalog, catalogDescriptor } from './models/default-catalog.js';

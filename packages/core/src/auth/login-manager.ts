@@ -1,4 +1,5 @@
 import type { AccountsRegistry } from './registry.js';
+import { mintAccountId } from './registry.js';
 
 /**
  * The driven-login orchestrating state machine (core). Watches a rented CLI's
@@ -10,7 +11,13 @@ import type { AccountsRegistry } from './registry.js';
  * auto-switched or blocked.
  */
 
-export type LoginPhase = 'launching' | 'awaiting' | 'watching' | 'registered' | 'mismatch' | 'failed';
+export type LoginPhase =
+  | 'launching'
+  | 'awaiting'
+  | 'watching'
+  | 'registered'
+  | 'mismatch'
+  | 'failed';
 export type Health = 'healthy' | 'needs-relogin';
 
 export interface LoginSnapshot {
@@ -34,10 +41,21 @@ export interface LoginDriverHandle {
 }
 
 export interface LoginDriverPort {
-  start(opts: { dir: string; email: string }): LoginDriverHandle;
-  probe(dir: string): Promise<{ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined>;
+  /** `browserLauncher`, when present, is a command the rented CLI should open the
+   *  authorize URL with instead of the default browser (docs/adr/0018). Absent ⇒ the
+   *  spawn is exactly today's. */
+  start(opts: { dir: string; email: string; browserLauncher?: string }): LoginDriverHandle;
+  probe(
+    dir: string,
+  ): Promise<{ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined>;
   home: string;
   dirFor(email: string): string; // managedLoginDir(home, email)
+}
+
+/** The isolation seam. Core asks; the composition root decides (setting, provider
+ *  capability, detected browser) and never explains itself here. */
+export interface BrowserSessionPort {
+  launcherFor(accountId: string): string | undefined;
 }
 
 type Identity = { email?: string; plan?: string };
@@ -48,6 +66,7 @@ interface Flow {
   email: string;
   credentialId?: string;
   dir: string;
+  accountId: string;
   handle: LoginDriverHandle;
   snapshot: LoginSnapshot;
   pollTimer?: ReturnType<typeof setInterval>;
@@ -75,21 +94,36 @@ export class LoginManager {
   readonly #registry: AccountsRegistry;
   readonly #driver: LoginDriverPort;
   readonly #pollMs: number;
+  readonly #browser: BrowserSessionPort | undefined;
   readonly #health = new Map<string, Health>();
   readonly #identity = new Map<string, Identity>();
   #flow: Flow | undefined;
 
-  constructor(registry: AccountsRegistry, driver: LoginDriverPort, opts?: { pollMs?: number }) {
+  constructor(
+    registry: AccountsRegistry,
+    driver: LoginDriverPort,
+    opts?: { pollMs?: number; browserSession?: BrowserSessionPort },
+  ) {
     this.#registry = registry;
     this.#driver = driver;
     this.#pollMs = opts?.pollMs ?? 2000;
+    this.#browser = opts?.browserSession;
   }
 
   startLogin(args: { email: string; credentialId?: string }): LoginSnapshot {
     this.#clearFlow();
     const dir = this.#resolveDir(args.email, args.credentialId);
     const mode: 'new' | 'relogin' = args.credentialId !== undefined ? 'relogin' : 'new';
-    const handle = this.#driver.start({ dir, email: args.email });
+    // The account's id has to exist BEFORE the handshake: the browser profile is keyed by
+    // it, and a new account is only registered once the login lands. A new flow mints one
+    // and carries it to registration; a relogin reuses (or backfills) the account's own.
+    const accountId = this.#resolveAccountId(args.credentialId);
+    const launcher = this.#browser?.launcherFor(accountId);
+    const handle = this.#driver.start({
+      dir,
+      email: args.email,
+      ...(launcher !== undefined ? { browserLauncher: launcher } : {}),
+    });
     const snapshot: LoginSnapshot = {
       phase: 'launching',
       mode,
@@ -101,6 +135,7 @@ export class LoginManager {
       mode,
       email: args.email,
       dir,
+      accountId,
       handle,
       snapshot,
       probing: false,
@@ -208,6 +243,17 @@ export class LoginManager {
     return this.#driver.dirFor(email);
   }
 
+  /** A relogin reuses (and lazily backfills) the account's own id; a new flow mints
+   *  one up front so the browser profile has something to be keyed by before the
+   *  account exists (see the comment in `startLogin`). */
+  #resolveAccountId(credentialId: string | undefined): string {
+    if (credentialId !== undefined) {
+      const existing = this.#registry.ensureId(labelOf(credentialId));
+      if (existing !== undefined) return existing;
+    }
+    return mintAccountId();
+  }
+
   #startPolling(flow: Flow): void {
     const timer = setInterval(() => {
       void this.#pollOnce(flow);
@@ -310,7 +356,13 @@ export class LoginManager {
       let suffix = 2;
       for (;;) {
         try {
-          this.#registry.add(label, { type: 'config-dir', dir: flow.dir }, 'claude', email);
+          this.#registry.add(
+            label,
+            { type: 'config-dir', dir: flow.dir },
+            'claude',
+            email,
+            flow.accountId,
+          );
           break;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

@@ -20,5 +20,5 @@ export { modelInfoToDescriptor, fetchClaudeModels } from './models.js';
 export { DEFAULT_CLEAR_VARS, resolveAuthEnv } from './auth-env.js';
 export { authStatusSchema, parseAuthStatus, probeAuthStatus, type AuthStatus, type RunCommand } from './auth-status.js';
 export {
-  emailSlug, extractOauthUrl, managedLoginDir, spawnLogin, type LoginProcess,
+  emailSlug, extractOauthUrl, loginEnv, managedLoginDir, spawnLogin, type LoginProcess,
 } from './login-driver.js';

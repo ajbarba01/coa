@@ -34,8 +34,9 @@ declare global {
        *  login per backend, the benched flags, and the tool-service chains. */
       authView(): Promise<AuthView>;
       addProvider(params: { providerId: string }): Promise<AuthView>;
-      /** Removing a provider takes every credential under it with it. */
-      removeProvider(params: { providerId: string }): Promise<AuthView>;
+      /** Removing a provider takes every credential under it with it; `removeProfiles`
+       *  opts into deleting the isolated browser profile dirs it leaves behind. */
+      removeProvider(params: { providerId: string; removeProfiles?: boolean }): Promise<AuthView>;
       addCredential(params: {
         providerId: string;
         label: string;
@@ -44,11 +45,17 @@ declare global {
       /** The only write to an existing secret: an add that supersedes. Never an edit. */
       replaceSecret(params: { id: string; secret: string }): Promise<AuthView>;
       renameCredential(params: { id: string; label: string }): Promise<AuthView>;
-      removeCredential(params: { id: string }): Promise<AuthView>;
+      /** `removeProfile` opts into deleting the isolated browser profile dir for
+       *  this credential's account — deletion is never implied by the removal itself. */
+      removeCredential(params: { id: string; removeProfile?: boolean }): Promise<AuthView>;
       setProviderEnabled(params: { providerId: string; on: boolean }): Promise<AuthView>;
       setCredentialDisabled(params: { id: string; disabled: boolean }): Promise<AuthView>;
       makeActive(params: { id: string }): Promise<AuthView>;
       clearCooldown(params: { id: string }): Promise<AuthView>;
+      /** The global "sign logins in through a dedicated browser profile" toggle. */
+      setIsolatedBrowserLogins(params: { on: boolean }): Promise<AuthView>;
+      /** The browser-binary override; an empty path clears it back to auto-detection. */
+      setBrowserPath(params: { path: string }): Promise<AuthView>;
       /** Re-read every pointer locator — identity, expiry, limits — on demand. */
       refresh(): Promise<AuthView>;
       startSession(params: {

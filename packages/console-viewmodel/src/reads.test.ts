@@ -84,8 +84,32 @@ describe('auth view schema', () => {
       activeByProvider: { claude: 'claude:worm' },
       enabled: { claude: true },
       chains: { search: ['tavily'], fetch: [] },
+      browserSession: { enabled: false, available: false },
     });
     expect(v.credentials[0]?.identity).toBeUndefined();
+  });
+
+  it('carries the browser-session block and a credential profile flag', () => {
+    const view = AuthViewSchema.parse({
+      added: ['claude'],
+      credentials: [
+        {
+          id: 'claude:worm',
+          providerId: 'claude',
+          label: 'worm',
+          masked: '~/.claude',
+          disabled: false,
+          hasProfile: true,
+        },
+      ],
+      activeByProvider: {},
+      enabled: { claude: true },
+      chains: {},
+      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe' },
+    });
+    expect(view.credentials[0]?.hasProfile).toBe(true);
+    expect(view.browserSession.detectedPath).toBe('C:\\chrome.exe');
+    expect(view.browserSession.path).toBeUndefined();
   });
 
   it('accepts a credential carrying email + health and strips unknown fields', () => {

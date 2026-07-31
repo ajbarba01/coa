@@ -50,6 +50,8 @@ describe('IPC method registry', () => {
       'makeActive',
       'clearCooldown',
       'refresh',
+      'setIsolatedBrowserLogins',
+      'setBrowserPath',
     ] as const;
 
     for (const verb of authVerbs) {
@@ -72,5 +74,8 @@ describe('IPC method registry', () => {
     expect(METHODS.makeActive.params?.parse({ id: 'test' })).toBeTruthy();
     expect(METHODS.clearCooldown.params?.parse({ id: 'test' })).toBeTruthy();
     expect(METHODS.refresh.params).toBeUndefined();
+    expect(METHODS.setIsolatedBrowserLogins.params?.parse({ on: true })).toBeTruthy();
+    expect(METHODS.setBrowserPath.params?.parse({ path: 'C:\\chrome.exe' })).toBeTruthy();
+    expect(METHODS.removeCredential.params?.parse({ id: 'x', removeProfile: true })).toBeTruthy();
   });
 });

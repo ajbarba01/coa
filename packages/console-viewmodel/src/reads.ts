@@ -158,6 +158,7 @@ export const CredentialViewSchema = z
     lastUsed: z.string().optional(),
     email: z.string().optional(),
     health: z.enum(['healthy', 'needs-relogin']).optional(),
+    hasProfile: z.boolean().optional(),
   })
   .strip();
 export type CredentialView = z.infer<typeof CredentialViewSchema>;
@@ -186,6 +187,16 @@ export const AuthViewSchema = z
     activeByProvider: z.record(z.string(), z.string()),
     enabled: z.record(z.string(), z.boolean()),
     chains: z.record(z.string(), z.array(z.string())),
+    /** Defaulted, not required: an older daemon that predates isolation still parses. */
+    browserSession: z
+      .object({
+        enabled: z.boolean(),
+        available: z.boolean(),
+        detectedPath: z.string().optional(),
+        path: z.string().optional(),
+      })
+      .strip()
+      .default({ enabled: false, available: false }),
   })
   .strip();
 export type AuthView = z.infer<typeof AuthViewSchema>;

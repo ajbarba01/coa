@@ -10,6 +10,7 @@ import { credentialId, type AuthView } from './auth-view.js';
 import { dispatch } from './router.js';
 import { buildAuthHandlers, type AuthHandlerDeps } from './auth-handlers.js';
 import { LoginManager, type LoginDriverPort } from '../auth/login-manager.js';
+import type { BrowserSessionView } from '../auth/browser-session.js';
 
 let home: string;
 let originalHome: string | undefined;
@@ -548,5 +549,87 @@ describe('login verbs', () => {
     const h = buildAuthHandlers(freshDeps(home));
     const res = await call(h, 'startLogin', { email: 'ab' });
     expect(res).toMatchObject({ error: { code: -32602 } });
+  });
+});
+
+describe('browser session over the auth verbs', () => {
+  function browserStub(): { removed: string[]; view: BrowserSessionView } {
+    const removed: string[] = [];
+    return {
+      removed,
+      view: {
+        enabled: () => true,
+        available: () => true,
+        detected: () => 'C:\\chrome.exe',
+        override: () => undefined,
+        hasProfile: () => true,
+        removeProfile: (accountId: string) => void removed.push(accountId),
+      },
+    };
+  }
+
+  it('reports the browser session on the view', async () => {
+    const h = buildAuthHandlers({ ...freshDeps(home), browser: browserStub().view });
+    const view = (await h.authView!.handle(undefined)) as AuthView;
+    expect(view.browserSession).toEqual({
+      enabled: true,
+      available: true,
+      detectedPath: 'C:\\chrome.exe',
+    });
+  });
+
+  it('floors the browser session when the daemon has none', async () => {
+    const h = buildAuthHandlers(freshDeps(home));
+    const view = (await h.authView!.handle(undefined)) as AuthView;
+    expect(view.browserSession).toEqual({ enabled: false, available: false });
+  });
+
+  it('persists the toggle and reads it back', async () => {
+    const deps = freshDeps(home);
+    const h = buildAuthHandlers(deps);
+    await h.setIsolatedBrowserLogins!.handle({ on: true });
+    expect(deps.console.read().isolatedBrowserLogins).toBe(true);
+    await h.setIsolatedBrowserLogins!.handle({ on: false });
+    expect(deps.console.read().isolatedBrowserLogins).toBe(false);
+  });
+
+  it('stores a browser override and clears it on empty', async () => {
+    const deps = freshDeps(home);
+    const h = buildAuthHandlers(deps);
+    await h.setBrowserPath!.handle({ path: 'D:\\brave.exe' });
+    expect(deps.console.read().browserPath).toBe('D:\\brave.exe');
+    await h.setBrowserPath!.handle({ path: '' });
+    expect(deps.console.read().browserPath).toBeUndefined();
+  });
+
+  it('marks a credential whose account has a profile', async () => {
+    const deps = freshDeps(home);
+    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    const h = buildAuthHandlers({ ...deps, browser: browserStub().view });
+    const view = (await h.authView!.handle(undefined)) as AuthView;
+    expect(view.credentials.find((c) => c.label === 'a@b.org')?.hasProfile).toBe(true);
+  });
+
+  it('deletes the profile with the credential only when asked', async () => {
+    const deps = freshDeps(home);
+    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    deps.accounts.add('c@d.org', { type: 'config-dir', dir: 'E' }, 'claude', 'c@d.org', 'def456def456');
+    const browser = browserStub();
+    const h = buildAuthHandlers({ ...deps, browser: browser.view });
+
+    await h.removeCredential!.handle({ id: credentialId('claude', 'a@b.org') });
+    expect(browser.removed).toEqual([]);
+
+    await h.removeCredential!.handle({ id: credentialId('claude', 'c@d.org'), removeProfile: true });
+    expect(browser.removed).toEqual(['def456def456']);
+  });
+
+  it('deletes every profile a removed provider owned when asked', async () => {
+    const deps = freshDeps(home);
+    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    const browser = browserStub();
+    const h = buildAuthHandlers({ ...deps, browser: browser.view });
+    await h.removeProvider!.handle({ providerId: 'claude', removeProfiles: true });
+    expect(browser.removed).toEqual(['abc123abc123']);
   });
 });

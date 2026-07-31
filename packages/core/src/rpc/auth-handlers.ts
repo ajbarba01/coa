@@ -12,6 +12,7 @@ import {
 import { z } from 'zod';
 import type { AccountsRegistry } from '../auth/registry.js';
 import type { LoginManager } from '../auth/login-manager.js';
+import type { BrowserSessionView } from '../auth/browser-session.js';
 import {
   FETCH_KINDS,
   SEARCH_KINDS,
@@ -66,6 +67,13 @@ const replaceSecretParams = z.object({ id: z.string().min(1), secret: z.string()
 const renameParams = z.object({ id: z.string().min(1), label: z.string().min(1) });
 const benchParams = z.object({ id: z.string().min(1), disabled: z.boolean() });
 const enableParams = z.object({ providerId: z.string().min(1), on: z.boolean() });
+const browserToggleParams = z.object({ on: z.boolean() });
+const browserPathParams = z.object({ path: z.string() });
+const removeCredParams = z.object({ id: z.string().min(1), removeProfile: z.boolean().optional() });
+const removeProviderParams = z.object({
+  providerId: z.string().min(1),
+  removeProfiles: z.boolean().optional(),
+});
 
 // --- the auth write verbs: routing --------------------------------------------------
 const BACKEND_SET = new Set<string>(PROVIDERS);
@@ -243,7 +251,7 @@ function accountsView(registry: AccountsRegistry): {
 
 /** The `buildAuthHandlers` deps — the four-store shape `assembleAuthView` reads, plus the
  * optional driven-login manager (absent ⇒ every login verb degrades to idle/plain view, SC-1). */
-export type AuthHandlerDeps = AuthViewDeps & { loginManager?: LoginManager };
+export type AuthHandlerDeps = AuthViewDeps & { loginManager?: LoginManager; browser?: BrowserSessionView };
 
 export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
   const registry = deps.accounts;
@@ -281,11 +289,24 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       return assembleAuthView(viewDeps);
     }),
 
-    removeProvider: rpcMethod(providerIdParams, (p) => {
+    setIsolatedBrowserLogins: rpcMethod(browserToggleParams, (p) => {
+      deps.console.setIsolatedBrowserLogins(p.on);
+      return assembleAuthView(viewDeps);
+    }),
+
+    setBrowserPath: rpcMethod(browserPathParams, (p) => {
+      deps.console.setBrowserPath(p.path);
+      return assembleAuthView(viewDeps);
+    }),
+
+    removeProvider: rpcMethod(removeProviderParams, (p) => {
       const group = providerGroup(p.providerId);
       if (group === 'backend') {
         for (const account of deps.accounts.listByProvider(p.providerId as Provider)) {
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
+          if (p.removeProfiles === true && account.id !== undefined) {
+            deps.browser?.removeProfile(account.id);
+          }
           deps.accounts.remove(account.label);
         }
       } else if (group === 'service') {
@@ -343,7 +364,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       return assembleAuthView(viewDeps);
     }),
 
-    removeCredential: rpcMethod(idParams, (p) => {
+    removeCredential: rpcMethod(removeCredParams, (p) => {
       const { providerId, label } = splitId(p.id);
       const group = providerGroup(providerId);
       if (group === 'backend') {
@@ -354,6 +375,10 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === label;
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
           deps.accounts.remove(label);
+          // The id has to be read BEFORE the removal — afterwards there is no row to ask.
+          if (p.removeProfile === true && account.id !== undefined) {
+            deps.browser?.removeProfile(account.id);
+          }
           applyHeirIfWasActive(deps.accounts, provider, label, wasActive);
         }
       } else if (group === 'service') {

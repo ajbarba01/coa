@@ -215,6 +215,7 @@ const FIXTURE_VIEW: AuthView = {
     parallel: false,
   },
   chains: { search: ['tavily', 'firecrawl', 'parallel'], fetch: ['firecrawl', 'tavily'] },
+  browserSession: { enabled: false, available: false },
 };
 
 const EMPTY_VIEW: AuthView = {
@@ -223,6 +224,7 @@ const EMPTY_VIEW: AuthView = {
   activeByProvider: {},
   enabled: {},
   chains: {},
+  browserSession: { enabled: false, available: false },
 };
 
 /** The surface AND its title-bar strip: the strip is part of the surface (it carries the
@@ -552,7 +554,7 @@ describe('AuthSurface', () => {
     await user.click(screen.getByRole('button', { name: 'tavily-7 actions' }));
     await user.click(await screen.findByText('remove'));
 
-    expect(rpcRemoveCredential).toHaveBeenCalledWith('t7');
+    expect(rpcRemoveCredential).toHaveBeenCalledWith('t7', undefined);
     await waitFor(() =>
       expect(useMockAuth.getState().credentials.some((c) => c.id === 't7')).toBe(false),
     );
@@ -584,7 +586,7 @@ describe('AuthSurface', () => {
     const again = await screen.findByRole('dialog');
     await user.click(within(again).getByRole('button', { name: 'remove provider' }));
 
-    expect(rpcRemoveProvider).toHaveBeenCalledWith('tavily');
+    expect(rpcRemoveProvider).toHaveBeenCalledWith('tavily', undefined);
     await waitFor(() => expect(useMockAuth.getState().added).not.toContain('tavily'));
     expect(useMockAuth.getState().credentials.some((c) => c.providerId === 'tavily')).toBe(false);
   });

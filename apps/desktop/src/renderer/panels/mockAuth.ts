@@ -12,7 +12,9 @@ import {
   rpcRemoveProvider,
   rpcRenameCredential,
   rpcReplaceSecret,
+  rpcSetBrowserPath,
   rpcSetCredentialDisabled,
+  rpcSetIsolatedBrowserLogins,
   rpcSetProviderEnabled,
 } from '../console.js';
 import { PROVIDERS, type ProviderDescriptor } from './providers.js';
@@ -54,6 +56,8 @@ export interface Credential {
   /** Circuit-breaker cooldown, in seconds remaining. Owned by the breaker, not the user. */
   coolingSec?: number;
   lastUsed?: string;
+  /** A dedicated browser profile exists for this login — what the removal prompt asks about. */
+  hasProfile?: boolean;
 }
 
 export interface MockAuthState {
@@ -66,16 +70,19 @@ export interface MockAuthState {
   enabled: Record<string, boolean>;
   /** Tool-service chains, in failover order. */
   chains: Record<string, string[]>;
+  /** The isolated-browser-login capability, daemon-owned: the global toggle, whether a
+   *  browser was found, and the detected/overridden binary. */
+  browserSession: { enabled: boolean; available: boolean; detectedPath?: string; path?: string };
   /** Reads `authView` and reprojects it. Idempotent — safe to call on every surface mount. */
   hydrate: () => Promise<void>;
   addProvider: (providerId: string) => Promise<void>;
-  removeProvider: (providerId: string) => Promise<void>;
+  removeProvider: (providerId: string, removeProfiles?: boolean) => Promise<void>;
   addCredential: (providerId: string, label: string, secret: string) => Promise<void>;
   /** The only write to an existing secret: an add that supersedes. Never an edit. */
   replaceSecret: (credentialId: string, secret: string) => Promise<void>;
   /** Labels are coa's own words for a credential — freely editable, never secret. */
   renameCredential: (credentialId: string, label: string) => Promise<void>;
-  removeCredential: (credentialId: string) => Promise<void>;
+  removeCredential: (credentialId: string, removeProfile?: boolean) => Promise<void>;
   setProviderEnabled: (providerId: string, on: boolean) => Promise<void>;
   setCredentialDisabled: (credentialId: string, disabled: boolean) => Promise<void>;
   makeActive: (credentialId: string) => Promise<void>;
@@ -86,6 +93,9 @@ export interface MockAuthState {
   /** Probe every claude login's health (`claude auth status --json` daemon-side) and
    *  reproject the health-threaded view. Runs on surface mount and from the ⟳. */
   probeHealth: () => Promise<void>;
+  setIsolatedBrowserLogins: (on: boolean) => Promise<void>;
+  /** An empty path clears the override back to auto-detection. */
+  setBrowserPath: (path: string) => Promise<void>;
 }
 
 /** A daemon `CredentialView`'s optional fields are `T | undefined` (zod's `.optional()`);
@@ -107,7 +117,17 @@ function toCredential(c: AuthView['credentials'][number]): Credential {
   if (c.expired !== undefined) cred.expired = c.expired;
   if (c.coolingSec !== undefined) cred.coolingSec = c.coolingSec;
   if (c.lastUsed !== undefined) cred.lastUsed = c.lastUsed;
+  if (c.hasProfile !== undefined) cred.hasProfile = c.hasProfile;
   return cred;
+}
+
+/** Same omission discipline as {@link toCredential}, applied to the nested
+ *  `browserSession` block's own optional fields. */
+function toBrowserSession(b: AuthView['browserSession']): MockAuthState['browserSession'] {
+  const session: MockAuthState['browserSession'] = { enabled: b.enabled, available: b.available };
+  if (b.detectedPath !== undefined) session.detectedPath = b.detectedPath;
+  if (b.path !== undefined) session.path = b.path;
+  return session;
 }
 
 /** Reprojects a daemon `AuthView` onto the store — the one place a write action's result
@@ -121,6 +141,7 @@ const apply =
       activeByProvider: view.activeByProvider,
       enabled: view.enabled,
       chains: view.chains,
+      browserSession: toBrowserSession(view.browserSession),
     });
 
 export const useMockAuth = create<MockAuthState>((set) => ({
@@ -129,17 +150,20 @@ export const useMockAuth = create<MockAuthState>((set) => ({
   activeByProvider: {},
   enabled: {},
   chains: {},
+  browserSession: { enabled: false, available: false },
 
   hydrate: async () => apply(set)(await rpcAuthView()),
   addProvider: async (providerId) => apply(set)(await rpcAddProvider(providerId)),
-  removeProvider: async (providerId) => apply(set)(await rpcRemoveProvider(providerId)),
+  removeProvider: async (providerId, removeProfiles) =>
+    apply(set)(await rpcRemoveProvider(providerId, removeProfiles)),
   addCredential: async (providerId, label, secret) =>
     apply(set)(await rpcAddCredential(providerId, label, secret)),
   replaceSecret: async (credentialId, secret) =>
     apply(set)(await rpcReplaceSecret(credentialId, secret)),
   renameCredential: async (credentialId, label) =>
     apply(set)(await rpcRenameCredential(credentialId, label)),
-  removeCredential: async (credentialId) => apply(set)(await rpcRemoveCredential(credentialId)),
+  removeCredential: async (credentialId, removeProfile) =>
+    apply(set)(await rpcRemoveCredential(credentialId, removeProfile)),
   setProviderEnabled: async (providerId, on) =>
     apply(set)(await rpcSetProviderEnabled(providerId, on)),
   setCredentialDisabled: async (credentialId, disabled) =>
@@ -149,6 +173,8 @@ export const useMockAuth = create<MockAuthState>((set) => ({
 
   refresh: async () => apply(set)(await rpcRefreshAuth()),
   probeHealth: async () => apply(set)(await rpcProbeHealth()),
+  setIsolatedBrowserLogins: async (on) => apply(set)(await rpcSetIsolatedBrowserLogins(on)),
+  setBrowserPath: async (path) => apply(set)(await rpcSetBrowserPath(path)),
 }));
 
 /* ------------------------------ pure selectors ------------------------------ */

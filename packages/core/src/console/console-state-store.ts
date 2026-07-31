@@ -43,6 +43,22 @@ export class ConsoleStateStore {
     this.#write(s);
   }
 
+  setIsolatedBrowserLogins(on: boolean): void {
+    const s = this.read();
+    if (s.isolatedBrowserLogins === on) return;
+    s.isolatedBrowserLogins = on;
+    this.#write(s);
+  }
+
+  /** An empty override is not an override — it is deleted rather than written blank, so
+   *  the field is either a real choice or absent (exactOptionalPropertyTypes). */
+  setBrowserPath(path: string | undefined): void {
+    const s = this.read();
+    if (path === undefined || path.trim() === '') delete s.browserPath;
+    else s.browserPath = path.trim();
+    this.#write(s);
+  }
+
   #write(s: ConsoleState): void {
     const path = consoleStatePath(this.#home);
     mkdirSync(dirname(path), { recursive: true });

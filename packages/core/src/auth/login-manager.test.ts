@@ -17,6 +17,7 @@ function fakeDriver(
   killCount: number;
   startDirs: string[];
   probeDirs: string[];
+  starts: Array<{ dir: string; email: string; browserLauncher?: string }>;
 } {
   let urlFn: (u: string) => void = () => {};
   let exitFn: (c: number | undefined) => void = () => {};
@@ -27,10 +28,15 @@ function fakeDriver(
     killCount: 0,
     startDirs: [] as string[],
     probeDirs: [] as string[],
-    probeQueue: [] as ({ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined)[],
+    starts: [] as Array<{ dir: string; email: string; browserLauncher?: string }>,
+    probeQueue: [] as (
+      | { loggedIn: boolean; email?: string; subscriptionType?: string }
+      | undefined
+    )[],
     dirFor: (email: string) => join(home, '.coa', 'logins', email.replace(/[^a-z0-9]+/gi, '-')),
-    start: (o: { dir: string; email: string }) => {
+    start: (o: { dir: string; email: string; browserLauncher?: string }) => {
       self.startDirs.push(o.dir);
+      self.starts.push(o);
       return {
         onUrl: (fn: (u: string) => void) => (urlFn = fn),
         onExit: (fn: (c: number | undefined) => void) => (exitFn = fn),
@@ -74,12 +80,22 @@ describe('LoginManager — the driven flow', () => {
     manager.startLogin({ email: 'alex@barba.org' });
     expect(manager.snapshot()?.phase).toBe('launching');
     driver.fireUrl('https://claude.com/cai/oauth/x');
-    expect(manager.snapshot()).toMatchObject({ phase: 'awaiting', oauthUrl: 'https://claude.com/cai/oauth/x' });
+    expect(manager.snapshot()).toMatchObject({
+      phase: 'awaiting',
+      oauthUrl: 'https://claude.com/cai/oauth/x',
+    });
     driver.probeQueue.push({ loggedIn: true, email: 'alex@barba.org', subscriptionType: 'pro' });
     await vi.advanceTimersByTimeAsync(150);
-    expect(manager.snapshot()).toMatchObject({ phase: 'registered', identity: 'alex@barba.org · pro' });
+    expect(manager.snapshot()).toMatchObject({
+      phase: 'registered',
+      identity: 'alex@barba.org · pro',
+    });
     const account = registry.list()[0];
-    expect(account).toMatchObject({ label: 'alex@barba.org', email: 'alex@barba.org', provider: 'claude' });
+    expect(account).toMatchObject({
+      label: 'alex@barba.org',
+      email: 'alex@barba.org',
+      provider: 'claude',
+    });
     expect(registry.getActive('claude')).toMatchObject({ kind: 'account' });
   });
 
@@ -104,8 +120,13 @@ describe('LoginManager — the driven flow', () => {
     expect(registry.list()[0]?.email).toBe('old@x.org');
   });
 
-  it('a relogin targets the credential\'s OWN config dir, not dirFor(email)', async () => {
-    registry.add('label-x', { type: 'config-dir', dir: '/custom/claude-dir' }, 'claude', 'old@x.org');
+  it("a relogin targets the credential's OWN config dir, not dirFor(email)", async () => {
+    registry.add(
+      'label-x',
+      { type: 'config-dir', dir: '/custom/claude-dir' },
+      'claude',
+      'old@x.org',
+    );
     manager.startLogin({ email: 'old@x.org', credentialId: 'claude:label-x' });
     expect(driver.startDirs).toContain('/custom/claude-dir');
     driver.probeQueue.push({ loggedIn: true, email: 'old@x.org' });
@@ -220,5 +241,75 @@ describe('LoginManager — probeAll', () => {
     driver.probeQueue.push(undefined);
     await manager.probeAll();
     expect(manager.healthOf('claude:two')).toBe('needs-relogin'); // unknown ≠ a verdict
+  });
+});
+
+describe('isolated browser sessions', () => {
+  it('hands the driver the launcher the browser session gives it', () => {
+    const driver = fakeDriver(home);
+    const seen: string[] = [];
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      browserSession: {
+        launcherFor: (accountId) => {
+          seen.push(accountId);
+          return `L:${accountId}`;
+        },
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    expect(seen).toHaveLength(1);
+    expect(driver.starts[0]?.browserLauncher).toBe(`L:${seen[0]}`);
+  });
+
+  it('starts a plain login when there is no browser session at all', () => {
+    const driver = fakeDriver(home);
+    const manager = new LoginManager(new AccountsRegistry(home), driver);
+    manager.startLogin({ email: 'a@b.org' });
+    expect(driver.starts[0] && 'browserLauncher' in driver.starts[0]).toBe(false);
+  });
+
+  it('starts a plain login when the session declines to isolate', () => {
+    const driver = fakeDriver(home);
+    const manager = new LoginManager(new AccountsRegistry(home), driver, {
+      browserSession: { launcherFor: () => undefined },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    expect(driver.starts[0] && 'browserLauncher' in driver.starts[0]).toBe(false);
+  });
+
+  it('registers the new account under the SAME id its profile was keyed by', async () => {
+    const driver = fakeDriver(home);
+    const registry = new AccountsRegistry(home);
+    let keyed: string | undefined;
+    const manager = new LoginManager(registry, driver, {
+      pollMs: 1,
+      browserSession: {
+        launcherFor: (accountId) => {
+          keyed = accountId;
+          return undefined;
+        },
+      },
+    });
+    manager.startLogin({ email: 'a@b.org' });
+    driver.probeQueue.push({ loggedIn: true, email: 'a@b.org', subscriptionType: 'pro' });
+    await vi.waitFor(() => expect(manager.snapshot()?.phase).toBe('registered'));
+    expect(registry.list()[0]?.id).toBe(keyed);
+  });
+
+  it('reuses the existing account id on a relogin', () => {
+    const driver = fakeDriver(home);
+    const registry = new AccountsRegistry(home);
+    registry.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'feedface0001');
+    const seen: string[] = [];
+    const manager = new LoginManager(registry, driver, {
+      browserSession: {
+        launcherFor: (accountId) => {
+          seen.push(accountId);
+          return undefined;
+        },
+      },
+    });
+    manager.startLogin({ email: 'a@b.org', credentialId: 'claude:a@b.org' });
+    expect(seen).toEqual(['feedface0001']);
   });
 });

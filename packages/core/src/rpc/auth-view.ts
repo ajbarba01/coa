@@ -4,6 +4,7 @@ import type { WebChain, WebConfigStore } from '../workbench/web/web-config-store
 import type { WebConfig } from '../workbench/web/web-config.js';
 import { locatorId, type KeyStateStore } from '../workbench/web/key-state-store.js';
 import type { ConsoleStateStore } from '../console/console-state-store.js';
+import type { BrowserSessionView } from '../auth/browser-session.js';
 
 /**
  * The pure read projection that assembles the unified auth view the renderer
@@ -28,6 +29,9 @@ export interface CredentialView {
   health?: 'healthy' | 'needs-relogin';
   identity?: string;
   plan?: string;
+  /** A dedicated browser profile exists for this account — the fact the removal prompt
+   *  needs. Absent/false ⇒ nothing extra to delete. */
+  hasProfile?: boolean;
 }
 
 export interface AuthView {
@@ -36,6 +40,15 @@ export interface AuthView {
   activeByProvider: Record<string, string>;
   enabled: Record<string, boolean>;
   chains: Record<string, string[]>;
+  /** The isolated-browser-login capability as it stands right now: whether it is on,
+   *  whether a browser was actually found, what detection saw (the override's prefill),
+   *  and the override in force. */
+  browserSession: {
+    enabled: boolean;
+    available: boolean;
+    detectedPath?: string;
+    path?: string;
+  };
 }
 
 export interface AuthViewDeps {
@@ -47,6 +60,7 @@ export interface AuthViewDeps {
     healthOf(id: string): 'healthy' | 'needs-relogin' | undefined;
     identityOf(id: string): { email?: string; plan?: string } | undefined;
   };
+  browser?: BrowserSessionView;
 }
 
 /** The stable credential id: unique within a provider, stable across reorders/renames of anything else. */
@@ -143,6 +157,9 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
         ...(health !== undefined ? { health } : {}),
         ...(identity !== undefined ? { identity } : {}),
         ...(live?.plan !== undefined ? { plan: live.plan } : {}),
+        ...(account.id !== undefined && deps.browser?.hasProfile(account.id) === true
+          ? { hasProfile: true }
+          : {}),
       });
     }
     const active = deps.accounts.getActive(provider);
@@ -182,5 +199,15 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
   const enabled: Record<string, boolean> = {};
   for (const id of added) enabled[id] = !isDisabledProvider(id, state.disabledProviders, web);
 
-  return { added, credentials, activeByProvider, enabled, chains };
+  // Absent browser session = the floor: off and unavailable. A read never starts one.
+  const detectedPath = deps.browser?.detected();
+  const overridePath = deps.browser?.override();
+  const browserSession = {
+    enabled: deps.browser?.enabled() ?? false,
+    available: deps.browser?.available() ?? false,
+    ...(detectedPath !== undefined ? { detectedPath } : {}),
+    ...(overridePath !== undefined ? { path: overridePath } : {}),
+  };
+
+  return { added, credentials, activeByProvider, enabled, chains, browserSession };
 }

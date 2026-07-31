@@ -12,6 +12,9 @@ import { delimiter, join, posix, win32 } from 'node:path';
  * (optional dep). Without it the flow DEGRADES, never breaks: the browser still
  * auto-opens and completion still lands via the probe poll — only the in-app
  * copy-link affordance goes dark (`ptyCaptured: false` tells the UI to say so).
+ *
+ * When isolated, the spawn may redirect the browser-open through `BROWSER`; when
+ * not isolated, this changes nothing.
  */
 
 /** A filesystem-safe slug for an email: lowercase, non-alphanumeric runs → '-'. */
@@ -89,9 +92,33 @@ function claudeCommand(): string {
   );
 }
 
-/** Spawn the driven login. Prefers a PTY; degrades to a plain pipe. */
-export function spawnLogin(opts: { dir: string; email: string }): LoginProcess {
-  const env = { ...process.env, CLAUDE_CONFIG_DIR: opts.dir };
+/**
+ * Pure: the environment the login spawn runs under. `CLAUDE_CONFIG_DIR` is what keeps the
+ * login inside coa's managed dir; `BROWSER` is how the CLI is told to hand the authorize
+ * URL to coa's profiled launcher instead of opening the default browser (docs/adr/0018).
+ * No launcher ⇒ the variable is not touched at all, so an unisolated login is byte-for-byte
+ * today's (D85).
+ */
+export function loginEnv(
+  base: NodeJS.ProcessEnv,
+  opts: { dir: string; browserLauncher?: string },
+): NodeJS.ProcessEnv {
+  return {
+    ...base,
+    CLAUDE_CONFIG_DIR: opts.dir,
+    ...(opts.browserLauncher !== undefined ? { BROWSER: opts.browserLauncher } : {}),
+  };
+}
+
+/** Spawn the driven login. Prefers a PTY; degrades to a plain pipe. When isolated,
+ * the login may redirect the browser-open through `BROWSER`; this changes nothing
+ * when isolation is not used. */
+export function spawnLogin(opts: {
+  dir: string;
+  email: string;
+  browserLauncher?: string;
+}): LoginProcess {
+  const env = loginEnv(process.env, opts);
   const dataFns: ((chunk: string) => void)[] = [];
   const exitFns: ((code: number | undefined) => void)[] = [];
   const emitData = (chunk: string): void => dataFns.forEach((fn) => fn(chunk));

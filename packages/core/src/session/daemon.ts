@@ -25,6 +25,7 @@ import { LoginManager } from '../auth/login-manager.js';
 import { WebConfigStore } from '../workbench/web/web-config-store.js';
 import { KeyStateStore } from '../workbench/web/key-state-store.js';
 import { ConsoleStateStore } from '../console/console-state-store.js';
+import { BrowserSession } from '../auth/browser-session.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
 import { managedLoginDir, probeAuthStatus, spawnLogin, extractOauthUrl } from '@coa/adapter-claude-sdk';
@@ -119,38 +120,61 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
  */
 export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandlers {
   const accounts = new AccountsRegistry(homedir());
-  const loginManager = new LoginManager(accounts, {
+  const consoleState = new ConsoleStateStore(homedir());
+  // The one place the three isolation facts meet: the user's setting, the provider's
+  // declared capability, and what browser this machine actually has (docs/adr/0018).
+  const browser = new BrowserSession({
     home: homedir(),
-    dirFor: (email) => managedLoginDir(homedir(), email),
-    probe: async (dir) => {
-      // Rebuild by omission (exactOptionalPropertyTypes) — the probe's zod-inferred
-      // `AuthStatus` allows an explicit `undefined` per optional field and carries
-      // `orgName`, neither of which the driver port's narrower shape accepts.
-      const status = await probeAuthStatus(dir);
-      if (status === undefined) return undefined;
+    platform: process.platform,
+    env: process.env,
+    settings: () => {
+      const state = consoleState.read();
       return {
-        loggedIn: status.loggedIn,
-        ...(status.email !== undefined ? { email: status.email } : {}),
-        ...(status.subscriptionType !== undefined ? { subscriptionType: status.subscriptionType } : {}),
-      };
-    },
-    start: ({ dir, email }) => {
-      const proc = spawnLogin({ dir, email });
-      return {
-        onUrl: (fn) =>
-          proc.onData((chunk) => {
-            const url = extractOauthUrl(chunk);
-            if (url !== undefined) fn(url);
-          }),
-        onExit: (fn) => proc.onExit(fn),
-        writeCode: (code) => proc.write(`${code}\r`),
-        kill: () => proc.kill(),
-        get ptyCaptured() {
-          return proc.ptyCaptured;
-        },
+        enabled: state.isolatedBrowserLogins,
+        ...(state.browserPath !== undefined ? { browserPath: state.browserPath } : {}),
       };
     },
   });
+  const loginManager = new LoginManager(
+    accounts,
+    {
+      home: homedir(),
+      dirFor: (email) => managedLoginDir(homedir(), email),
+      probe: async (dir) => {
+        // Rebuild by omission (exactOptionalPropertyTypes) — the probe's zod-inferred
+        // `AuthStatus` allows an explicit `undefined` per optional field and carries
+        // `orgName`, neither of which the driver port's narrower shape accepts.
+        const status = await probeAuthStatus(dir);
+        if (status === undefined) return undefined;
+        return {
+          loggedIn: status.loggedIn,
+          ...(status.email !== undefined ? { email: status.email } : {}),
+          ...(status.subscriptionType !== undefined ? { subscriptionType: status.subscriptionType } : {}),
+        };
+      },
+      start: ({ dir, email, browserLauncher }) => {
+        const proc = spawnLogin({
+          dir,
+          email,
+          ...(browserLauncher !== undefined ? { browserLauncher } : {}),
+        });
+        return {
+          onUrl: (fn) =>
+            proc.onData((chunk) => {
+              const url = extractOauthUrl(chunk);
+              if (url !== undefined) fn(url);
+            }),
+          onExit: (fn) => proc.onExit(fn),
+          writeCode: (code) => proc.write(`${code}\r`),
+          kill: () => proc.kill(),
+          get ptyCaptured() {
+            return proc.ptyCaptured;
+          },
+        };
+      },
+    },
+    { browserSession: { launcherFor: (accountId) => browser.launcherFor('claude', accountId) } },
+  );
   return {
     ...buildConsoleHandlers({
       capState: (sessionId) => handle.governance.capState(sessionId),
@@ -163,8 +187,9 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
       accounts,
       web: new WebConfigStore(homedir()),
       keys: new KeyStateStore(homedir()),
-      console: new ConsoleStateStore(homedir()),
+      console: consoleState,
       loginManager,
+      browser,
     }),
   };
 }

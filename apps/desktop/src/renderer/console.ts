@@ -123,8 +123,8 @@ export interface ConsoleBridge {
 export const rpcAuthView = (): Promise<AuthView> => window.coa.authView();
 export const rpcAddProvider = (providerId: string): Promise<AuthView> =>
   window.coa.addProvider({ providerId });
-export const rpcRemoveProvider = (providerId: string): Promise<AuthView> =>
-  window.coa.removeProvider({ providerId });
+export const rpcRemoveProvider = (providerId: string, removeProfiles?: boolean): Promise<AuthView> =>
+  window.coa.removeProvider({ providerId, ...(removeProfiles !== undefined ? { removeProfiles } : {}) });
 export const rpcAddCredential = (
   providerId: string,
   label: string,
@@ -134,8 +134,12 @@ export const rpcReplaceSecret = (id: string, secret: string): Promise<AuthView> 
   window.coa.replaceSecret({ id, secret });
 export const rpcRenameCredential = (id: string, label: string): Promise<AuthView> =>
   window.coa.renameCredential({ id, label });
-export const rpcRemoveCredential = (id: string): Promise<AuthView> =>
-  window.coa.removeCredential({ id });
+export const rpcRemoveCredential = (id: string, removeProfile?: boolean): Promise<AuthView> =>
+  window.coa.removeCredential({ id, ...(removeProfile !== undefined ? { removeProfile } : {}) });
+export const rpcSetIsolatedBrowserLogins = (on: boolean): Promise<AuthView> =>
+  window.coa.setIsolatedBrowserLogins({ on });
+export const rpcSetBrowserPath = (path: string): Promise<AuthView> =>
+  window.coa.setBrowserPath({ path });
 export const rpcSetProviderEnabled = (providerId: string, on: boolean): Promise<AuthView> =>
   window.coa.setProviderEnabled({ providerId, on });
 export const rpcSetCredentialDisabled = (id: string, disabled: boolean): Promise<AuthView> =>
