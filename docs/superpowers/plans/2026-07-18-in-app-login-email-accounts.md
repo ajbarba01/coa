@@ -1328,11 +1328,25 @@ hardcodes `claude.cmd` on win32 (the npm shim). This machine's install is the **
 global dir. So `pty.spawn('claude.cmd', …)` throws, the catch degrades to the pipe path (whose
 `spawn('claude', …, shell: true)` *does* resolve the exe), and the flow permanently reports
 `ptyCaptured: false` — **the in-app copy-link is dark on this machine and on every native install.**
-This is watchlist Minor #8, now confirmed as live rather than hypothetical, and it retro-explains
-the degraded copy the maintainer would have seen. It also sharpens D3: the copy-link is precisely
-the affordance that lets you paste into *the browser that holds the right account*, so losing it
-makes the multi-account problem bite harder. Fix by resolving the real binary instead of assuming
-the shim (try the exe, or resolve via PATH lookup) rather than by widening the catch.
+This is watchlist Minor #8, confirmed live rather than hypothetical. Fix by resolving the real
+binary instead of assuming the shim, rather than by widening the catch.
+
+*CORRECTION (2026-07-21, after the maintainer re-ran it):* the first write-up of this entry claimed
+the copy-link was dark as a result. **It was not — the copy-link worked before the fix.** The
+mechanism above is confirmed (`pty.spawn('claude.cmd')` throws `File not found`; `claude.exe`
+spawns and exits 0 — probed directly), so the PTY branch genuinely never ran. But the predicted
+symptom was wrong, because **the `LoginFlow` render gates the copy-link on `oauthUrl !== undefined`,
+not on `ptyCaptured`** — and the URL is captured on the pipe path too.
+
+*Which falsifies a load-bearing premise:* the driver's header comment asserts "the OAuth URL prints
+only on a TTY (spike fact)". **That spike fact does not hold** — the CLI prints the URL on a plain
+pipe as well. The entire node-pty preference was justified by it. What the PTY branch actually buys,
+now that it runs: an honest `ptyCaptured` (permanently `false` before, while the affordance it
+supposedly gated worked fine), and — the one plausible real breakage — a functioning **code-paste
+fallback**, since `write()` into a pipe will not drive the CLI's interactive
+`Paste code here if prompted >` prompt the way a terminal does. **Unverified:** whether code-paste
+was in fact broken before and works now. Worth a targeted check in the next attended run, since D5
+is about that same affordance.
 
 *FIXED 2026-07-21 (TDD).* `resolveClaudeCommand(platform, pathDirs, exists)` — pure, injected
 existence predicate, separators follow the platform ARGUMENT so it is testable for either host from
@@ -1341,13 +1355,26 @@ elsewhere) and falls back to the bare name rather than throwing, leaving the pip
 `shell: true` resolution a last chance (SC-1). Verified against the real PATH on the maintainer's
 machine: resolves `C:\Users\Zander\.local\bin\claude.exe`, where the old `claude.cmd` guess resolved
 nothing. `auth-status.ts`'s probe was checked and is NOT affected — it spawns with `shell: true`, so
-PATHEXT resolution already reaches the exe. **The copy-link affordance should now light up on this
-machine; that is the first thing to confirm in the next attended run**, and it is a precondition for
-the D3 spike, which cannot capture an authorize URL without the PTY branch running.
+PATHEXT resolution already reaches the exe. See the CORRECTION above for what this does and does not
+change at the surface: it does **not** restore the copy-link, which was never broken.
 
 **Vendor-confirmed for D3:** `claude auth login --help` documents `--email` as *"Pre-populate email
 address on the login page."* Prefill, by the vendor's own description — not account selection. D3's
 root cause is no longer inference. (`--sso` also exists and is unexamined.)
+
+**D7 — the copy-link affordance is a text button; it wants an icon (cosmetic).** `CopyLink` renders
+a `variant="text"` Button reading `copy link` / `copied ✓`.
+
+*Finding:* the app has **no icon system** — no icon dependency, no kit `Icon` member. But it does
+have an unstated house convention, already used twice in `Composer.tsx` (the attach paperclip and
+the mic): Lucide-geometry paths at `width/height 14`, `viewBox="0 0 24 24"`, `fill="none"`,
+`stroke="currentColor"`, `strokeWidth="2"`, round caps/joins, `aria-hidden`. Both are hand-inlined.
+`BrandMark` and `Nav` carry their own unrelated one-off SVGs.
+
+*Remedy:* graduate a small `Icon` into `packages/console-kit` with that convention baked in, seed it
+with `copy` + `check` (the copied state), and replace the text button. Worth doing as a kit member
+rather than a third inline copy — the D1/D2/D5 pass and the composer shelf will both want more
+glyphs. Governed by `docs/UI.md`'s authoring rules, so it needs a design pass, not a drive-by edit.
 
 ### Not reported
 
