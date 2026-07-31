@@ -41,7 +41,10 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0013](0013-streaming-complete-and-delta-frames.md) — Streaming complete() contract and delivery-only delta frames
 - [0014](0014-workbench-design-system.md) — Workbench design system: conversation-first, sand-dark, quiet
 - [0015](0015-brand-marks-and-series-palette.md) — Third-party brand marks, and a series palette for charts
+- [0016](0016-coa-owned-model-catalog.md) — coa-owned model catalog, enriched (never defined) by the backend
+- [0017](0017-probe-derived-login-health.md) — Login health is probe-derived; a broken active account is flagged, never auto-switched
+- [0018](0018-isolated-browser-login-sessions.md) — Isolated browser login sessions, keyed by account, at the provider-descriptor layer (proposed)
 
 ---
 
-_Last reviewed: 2026-07-09_
+_Last reviewed: 2026-07-30_
