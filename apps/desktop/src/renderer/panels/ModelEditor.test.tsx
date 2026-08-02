@@ -18,12 +18,7 @@ vi.mock('../console.js', () => ({
   onModelsChanged: vi.fn(),
 }));
 
-import {
-  rpcAddModels,
-  rpcModelCatalog,
-  rpcRemoveModel,
-  rpcSetModelHidden,
-} from '../console.js';
+import { rpcAddModels, rpcModelCatalog, rpcRemoveModel, rpcSetModelHidden } from '../console.js';
 import { useModels } from './modelsStore.js';
 import { ModelsSection } from './ModelEditor.js';
 import { PROVIDERS } from './providers.js';
@@ -68,7 +63,7 @@ describe('ModelsSection', () => {
     render(<ModelsSection provider={claude} />);
     expect(screen.getByText('fable 5')).toBeTruthy();
     expect(screen.getByText('mine')).toBeTruthy();
-    expect(screen.getByText('custom')).toBeTruthy();
+    expect(screen.getByText(/^custom$/i)).toBeTruthy();
     expect(screen.getByText('2')).toBeTruthy(); // the count beside the caps label
   });
 
@@ -76,8 +71,8 @@ describe('ModelsSection', () => {
     useModels.setState(SEED); // catalog has claude only
     const codex = PROVIDERS.find((p) => p.id === 'codex')!;
     render(<ModelsSection provider={codex} />);
-    expect(screen.queryByText('models')).toBeNull();
-    expect(screen.queryByRole('button', { name: '+ add' })).toBeNull();
+    expect(screen.queryByText(/^models$/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^\+ add$/i })).toBeNull();
   });
 
   it('an empty list renders the backend-default fallback, never a broken section', () => {
@@ -91,17 +86,17 @@ describe('ModelsSection', () => {
     vi.mocked(rpcAddModels).mockResolvedValue(SEED);
     render(<ModelsSection provider={claude} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '+ add' }));
-    fireEvent.click(await screen.findByText('add from defaults…'));
+    fireEvent.click(screen.getByRole('button', { name: /^\+ add$/i }));
+    fireEvent.click(await screen.findByText(/^add from defaults…$/i));
 
-    const dialog = await screen.findByRole('dialog', { name: 'add from defaults' });
+    const dialog = await screen.findByRole('dialog', { name: /^add from defaults$/i });
     // Offers only what the list lacks.
     expect(within(dialog).getByText('opus 4.8')).toBeTruthy();
     expect(within(dialog).getByText('sonnet 5')).toBeTruthy();
     expect(within(dialog).queryByText('fable 5')).toBeNull();
 
     fireEvent.click(within(dialog).getByText('opus 4.8'));
-    const commit = within(dialog).getByRole('button', { name: /add 1/ });
+    const commit = within(dialog).getByRole('button', { name: /add 1/i });
     fireEvent.click(commit);
     expect(rpcAddModels).toHaveBeenCalledWith({ providerId: 'claude', ids: ['claude-opus-4-8'] });
   });
@@ -110,8 +105,8 @@ describe('ModelsSection', () => {
     useModels.setState(SEED);
     render(<ModelsSection provider={claude} />);
     fireEvent.contextMenu(screen.getByText('fable 5'));
-    expect(await screen.findByText('edit…')).toBeTruthy();
-    expect(screen.getByText('hide from pickers')).toBeTruthy();
+    expect(await screen.findByText(/^edit…$/i)).toBeTruthy();
+    expect(screen.getByText(/^hide from pickers$/i)).toBeTruthy();
   });
 
   it('hide flips through the daemon verb; the toggle mirrors the row state', async () => {
@@ -133,16 +128,16 @@ describe('ModelsSection', () => {
 
     // Default: unconfirmed (two clicks from being re-added).
     fireEvent.contextMenu(screen.getByText('fable 5'));
-    fireEvent.click(await screen.findByText('remove'));
+    fireEvent.click(await screen.findByText(/^remove$/i));
     expect(rpcRemoveModel).toHaveBeenCalledWith({ providerId: 'claude', id: 'claude-fable-5' });
 
     // Custom: the destructive path — a confirm dialog stands in the way.
     vi.mocked(rpcRemoveModel).mockClear();
     fireEvent.contextMenu(screen.getByText('mine'));
-    fireEvent.click(await screen.findByText('remove…'));
+    fireEvent.click(await screen.findByText(/^remove…$/i));
     expect(rpcRemoveModel).not.toHaveBeenCalled();
-    const confirm = await screen.findByRole('dialog', { name: 'remove model' });
-    fireEvent.click(within(confirm).getByRole('button', { name: /remove model/ }));
+    const confirm = await screen.findByRole('dialog', { name: /^remove model$/i });
+    fireEvent.click(within(confirm).getByRole('button', { name: /remove model/i }));
     expect(rpcRemoveModel).toHaveBeenCalledWith({ providerId: 'claude', id: 'my-model' });
   });
 });

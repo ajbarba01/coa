@@ -27,6 +27,7 @@ import {
   type Effort,
 } from './modelsStore.js';
 import type { ProviderDescriptor } from './providers.js';
+import { RowMenu } from './RowMenu.js';
 
 /**
  * The per-provider MODEL EDITOR — the surface over the editable model list that feeds both
@@ -56,7 +57,10 @@ export function ModelsSection({ provider }: { provider: ProviderDescriptor }): R
   // Live daemon read on mount (idempotent — the AuthSurface pattern). Advisory: a failed
   // read leaves the last projection standing, never an unhandled rejection.
   useEffect(() => {
-    void useModels.getState().hydrate().catch(() => {});
+    void useModels
+      .getState()
+      .hydrate()
+      .catch(() => {});
   }, []);
 
   const hiddenCount = models.filter((m) => m.hidden === true).length;
@@ -66,7 +70,7 @@ export function ModelsSection({ provider }: { provider: ProviderDescriptor }): R
   return (
     <>
       <div className="mt-7 mb-1.5 flex items-baseline border-b border-s3 pb-1.5">
-        <CapsLabel className="px-0 pt-0">models</CapsLabel>
+        <CapsLabel className="px-0 pt-0">Models</CapsLabel>
         <span className="ml-2 font-mono text-meta text-s7">{models.length}</span>
         {hiddenCount > 0 && (
           <span className="ml-2 font-mono text-meta text-s7">{hiddenCount} hidden</span>
@@ -94,11 +98,11 @@ export function ModelsSection({ provider }: { provider: ProviderDescriptor }): R
 
       {models.length === 0 && !creating && (
         <div className="flex flex-col gap-1 py-6 text-center text-sec text-s7">
-          <span>no models — the picker falls back to {provider.label}&apos;s backend default</span>
+          <span>No models. The picker falls back to {provider.label}&apos;s backend default.</span>
           {(provider.id === 'deepseek' || provider.id === 'longcat') && (
             <span className="text-meta text-s6">
-              ids from an adapter config file aren&apos;t migrated — re-add them here to see them
-              in the pickers
+              Ids from an adapter config file are not migrated. Re-add them here to see them in the
+              pickers.
             </span>
           )}
         </div>
@@ -136,21 +140,21 @@ function AddMenu({
       className="w-52"
       trigger={
         <Button variant="text" className="ml-auto">
-          + add
+          + Add
         </Button>
       }
     >
       <div onClick={() => setOpen(false)}>
         <MenuItem onClick={onAddDefaults}>
           <span className="flex flex-col gap-px">
-            <span className="text-sec text-s11">add from defaults…</span>
+            <span className="text-sec text-s11">Add from Defaults…</span>
             <span className="text-meta text-s7">coa&apos;s curated catalog</span>
           </span>
         </MenuItem>
         <MenuItem onClick={onCreateCustom}>
           <span className="flex flex-col gap-px">
-            <span className="text-sec text-s11">create custom…</span>
-            <span className="text-meta text-s7">any id the backend accepts</span>
+            <span className="text-sec text-s11">Create Custom…</span>
+            <span className="text-meta text-s7">Any id the backend accepts</span>
           </span>
         </MenuItem>
       </div>
@@ -204,7 +208,7 @@ function ModelRow({
           </span>
           {model.origin === 'custom' && (
             <span className="flex-none rounded-r1 border border-s5 px-1 font-mono text-[9px] text-s7">
-              custom
+              Custom
             </span>
           )}
         </span>
@@ -217,7 +221,7 @@ function ModelRow({
 
       {/* The everyday declutter — hide toggle, revealed on approach, visible while OFF
           because that IS the state worth seeing (mirrors the provider bench switch). */}
-      <Tooltip label={hidden ? 'show in the pickers' : 'hide from the pickers'} side="top">
+      <Tooltip label={hidden ? 'Show in the Pickers' : 'Hide from the Pickers'} side="top">
         <span
           className={cx(
             'slip flex',
@@ -247,18 +251,18 @@ function ModelRow({
           }}
           anchorPoint={menuAt}
         >
-          <MenuItem onClick={() => setEditing(true)}>edit…</MenuItem>
+          <MenuItem onClick={() => setEditing(true)}>Edit…</MenuItem>
           <MenuItem onClick={() => void setHidden(provider.id, model.id, !hidden).catch(() => {})}>
-            {hidden ? 'show in pickers' : 'hide from pickers'}
+            {hidden ? 'Show in Pickers' : 'Hide from Pickers'}
           </MenuItem>
           {/* Confirm only for custom — a default re-adds from the catalog in two clicks. */}
           {model.origin === 'custom' ? (
             <MenuItem onClick={() => confirmRemove({ providerId: provider.id, id: model.id })}>
-              <span className="text-crit">remove…</span>
+              <span className="text-crit">Remove…</span>
             </MenuItem>
           ) : (
             <MenuItem onClick={() => void removeModel(provider.id, model.id).catch(() => {})}>
-              <span className="text-crit">remove</span>
+              <span className="text-crit">Remove</span>
             </MenuItem>
           )}
         </RowMenu>
@@ -270,12 +274,13 @@ function ModelRow({
 /* --------------------------------- reasoning editor --------------------------------- */
 
 type ReasoningMode = ReasoningProfile['kind'];
+// The key is the VALUE and travels into the profile; the string is only ever displayed.
 const MODE_LABEL: Record<ReasoningMode, string> = {
-  inherit: 'inherit',
-  effort: 'effort ladder',
-  thinking: 'thinking',
-  budget: 'budget',
-  none: 'none',
+  inherit: 'Inherit',
+  effort: 'Effort ladder',
+  thinking: 'Thinking',
+  budget: 'Budget',
+  none: 'None',
 };
 const MODES: ReasoningMode[] = ['inherit', 'effort', 'thinking', 'budget', 'none'];
 
@@ -300,7 +305,7 @@ function ReasoningEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-meta text-s7">reasoning</span>
+      <span className="text-meta text-s7">Reasoning</span>
       <div className="flex flex-wrap gap-1">
         {MODES.map((m) => (
           <button
@@ -321,7 +326,7 @@ function ReasoningEditor({
 
       {value.kind === 'effort' && (
         <div className="flex items-center gap-1 pt-0.5">
-          <span className="mr-1 font-mono text-meta text-s7">up to</span>
+          <span className="mr-1 font-mono text-meta text-s7">Up to</span>
           {EFFORTS.map((e) => {
             const within = EFFORTS.indexOf(e) <= EFFORTS.indexOf(value.max as Effort);
             return (
@@ -331,7 +336,11 @@ function ReasoningEditor({
                 onClick={() => onChange({ kind: 'effort', max: e })}
                 className={cx(
                   'slip cursor-pointer rounded-r1 px-1.5 py-0.5 font-mono text-meta',
-                  e === value.max ? 'bg-s6 text-s12' : within ? 'bg-s4 text-s10' : 'text-s7 hover:text-s9',
+                  e === value.max
+                    ? 'bg-s6 text-s12'
+                    : within
+                      ? 'bg-s4 text-s10'
+                      : 'text-s7 hover:text-s9',
                 )}
               >
                 {e}
@@ -383,8 +392,14 @@ function EditModelRow({
     <div className="my-1 flex flex-col gap-3 rounded-r3 border border-s4 bg-s2 px-3 py-3">
       <span className="font-mono text-meta text-s7">{model.id}</span>
       <label className="flex flex-col gap-1.5 text-code text-s9">
-        label
-        <TextInput autoFocus value={label} onChange={setLabel} onCommit={commit} placeholder={model.id} />
+        Label
+        <TextInput
+          autoFocus
+          value={label}
+          onChange={setLabel}
+          onCommit={commit}
+          placeholder={model.id}
+        />
       </label>
       <ReasoningEditor value={reasoning} onChange={setReasoning} />
       <div className="flex justify-end gap-2">
@@ -392,7 +407,7 @@ function EditModelRow({
           esc
         </Button>
         <Button variant="quiet" onClick={commit}>
-          save
+          Save
         </Button>
       </div>
     </div>
@@ -424,10 +439,10 @@ function CreateCustomRow({
 
   return (
     <div className="mb-1.5 flex flex-col gap-3 rounded-r3 border border-s4 bg-s2 px-3 py-3">
-      <span className="text-meta text-s7">create a custom {provider.label} model</span>
+      <span className="text-meta text-s7">Create a custom {provider.label} model</span>
       <div className="flex gap-2">
         <label className="flex flex-1 flex-col gap-1.5 text-code text-s9">
-          model id
+          Model id
           <TextInput
             autoFocus
             value={id}
@@ -437,22 +452,22 @@ function CreateCustomRow({
           />
         </label>
         <label className="flex flex-1 flex-col gap-1.5 text-code text-s9">
-          label (optional)
+          Label (optional)
           <TextInput value={label} onChange={setLabel} onCommit={commit} placeholder="opus 4.9" />
         </label>
       </div>
       <ReasoningEditor value={reasoning} onChange={setReasoning} />
       <div className="flex items-center gap-2 text-code text-s8">
         <StatusDot status="idle" />
-        the id goes on the wire as-is — coa never checks it; an invalid one surfaces live, never
-        blocked.
+        The id goes on the wire as-is. It is not validated, so an invalid one surfaces live rather
+        than blocked.
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="text" onClick={onDone}>
           esc
         </Button>
         <Button variant="quiet" disabled={id.trim() === ''} onClick={commit}>
-          add model
+          Add Model
         </Button>
       </div>
     </div>
@@ -489,16 +504,16 @@ function AddFromDefaultsDialog({ provider }: { provider: ProviderDescriptor }): 
   };
 
   return (
-    <ModalShell open={open} onClose={close} aria-label="add from defaults" className="w-md">
+    <ModalShell open={open} onClose={close} aria-label="Add from defaults" className="w-md">
       <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
         <BrandMark spec={provider.mark} />
-        <span className="text-sec font-semibold text-s11">add from the coa catalog</span>
+        <span className="text-sec font-semibold text-s11">Add from the coa catalog</span>
         <span className="ml-auto font-mono text-meta text-s7">{offered.length} available</span>
       </div>
       <div className="max-h-100 overflow-y-auto px-4 py-2">
         {offered.length === 0 ? (
           <div className="py-6 text-center text-sec text-s7">
-            every catalog model is already in your list
+            Every catalog model is already in your list.
           </div>
         ) : (
           offered.map((m) => {
@@ -528,10 +543,10 @@ function AddFromDefaultsDialog({ provider }: { provider: ProviderDescriptor }): 
       </div>
       <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
         <Button variant="outline" onClick={close}>
-          cancel
+          Cancel
         </Button>
         <Button variant="quiet" disabled={picked.length === 0} onClick={commit}>
-          add {picked.length > 0 ? picked.length : ''}
+          Add {picked.length > 0 ? picked.length : ''}
         </Button>
       </div>
     </ModalShell>
@@ -553,20 +568,25 @@ function RemoveCustomConfirm({ provider }: { provider: ProviderDescriptor }): Re
   const close = (): void => setConfirm(undefined);
 
   return (
-    <ModalShell open={model !== undefined} onClose={close} aria-label="remove model" className="w-96">
+    <ModalShell
+      open={model !== undefined}
+      onClose={close}
+      aria-label="Remove model"
+      className="w-96"
+    >
       {model !== undefined && (
         <>
           <div className="border-b border-s3 px-4 py-3 text-sec font-semibold text-s11">
-            remove {entryLabel(model)}?
+            Remove {entryLabel(model)}?
           </div>
           <div className="px-4 py-4 text-code leading-relaxed text-s9">
-            It&apos;s a custom {provider.label} model, so there&apos;s no catalog to re-add it from —
-            removing it is permanent. Anything already pinned to{' '}
+            A custom {provider.label} model has no catalog to re-add it from, so removing it is
+            permanent. Anything already pinned to{' '}
             <span className="font-mono text-s10">{model.id}</span> keeps running.
           </div>
           <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
             <Button variant="outline" onClick={close}>
-              cancel
+              Cancel
             </Button>
             <Button
               variant="quiet"
@@ -575,7 +595,7 @@ function RemoveCustomConfirm({ provider }: { provider: ProviderDescriptor }): Re
                 close();
               }}
             >
-              <span className="text-crit">remove model</span>
+              <span className="text-crit">Remove Model</span>
             </Button>
           </div>
         </>
@@ -583,44 +603,3 @@ function RemoveCustomConfirm({ provider }: { provider: ProviderDescriptor }): Re
     </ModalShell>
   );
 }
-
-/* --------------------------------- primitives --------------------------------- */
-
-function RowMenu({
-  label,
-  open,
-  onOpenChange,
-  anchorPoint,
-  children,
-}: {
-  label: string;
-  /** Controlled pair — the row also opens this menu on right-click, so it owns the state. */
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** Present while the menu was opened by right-click: anchor under the cursor. */
-  anchorPoint?: { x: number; y: number } | undefined;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <PopoverCard
-      open={open}
-      onOpenChange={onOpenChange}
-      side="bottom"
-      align={anchorPoint === undefined ? 'end' : 'start'}
-      anchorPoint={anchorPoint}
-      className="w-44"
-      trigger={
-        <button
-          type="button"
-          aria-label={label}
-          className="slip flex h-6 w-6 flex-none cursor-pointer items-center justify-center rounded-r2 text-s7 hover:bg-s4 hover:text-s11"
-        >
-          ⋯
-        </button>
-      }
-    >
-      <div onClick={() => onOpenChange(false)}>{children}</div>
-    </PopoverCard>
-  );
-}
-
