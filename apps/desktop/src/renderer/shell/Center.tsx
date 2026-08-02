@@ -1,9 +1,8 @@
 import { Icon, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
-import type { AgentRailItem } from '@coa/console-ui';
-import type { AgentSummary } from '@coa/console-viewmodel';
+import type { AgentColor, AgentIcon, AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
 import { startTransition, useEffect, useRef, useState } from 'react';
-import { AgentsSurface } from '../panels/AgentsPanel.js';
+import { AgentsStrip, AgentsSurface } from '../panels/AgentsPanel.js';
 import { AuthStrip, AuthSurface } from '../panels/AuthPanel.js';
 import { ChatSurface } from '../panels/ChatPanel.js';
 import { FlagsSurface } from '../panels/FlagsPanel.js';
@@ -16,8 +15,20 @@ import { Browser } from './Browser.js';
 import { useConsoleState } from './consoleStore.js';
 import { DeferredCanvas, Freeze } from './deferredMount.js';
 import { bindFor, closeOtherTabs, closeTab, closeTabsRight, reopenLastTab } from './keys.js';
+import { SURFACES } from './Nav.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
+
+/** What a rail row needs to draw itself. It lived in the retired kit's `AgentRail`, but
+ *  the rail itself is gone and this app is the only thing that builds these — so the
+ *  shape belongs beside its one producer rather than in a package nothing else reads. */
+export interface AgentRailItem {
+  id: string;
+  name: string;
+  icon: AgentIcon;
+  color: AgentColor;
+  pinned?: boolean | undefined;
+}
 
 /** Pure: rail items — pinned agents first (in list order), then the rest.
  *  Moved here from ChatPanel (the rail itself is retired — the tab strip's
@@ -40,8 +51,7 @@ export function buildRailItems(agents: AgentSummary[], pinned: string[]): AgentR
 function EmptySurface({ name }: { name: string }): React.JSX.Element {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2">
-      <span className="text-body text-s8">{name} isn&apos;t designed yet</span>
-      <span className="font-mono text-meta text-s6">it arrives with the rebuild plan</span>
+      <span className="text-body text-s8">{name} is not designed yet</span>
     </div>
   );
 }
@@ -188,10 +198,14 @@ export function Center(): React.JSX.Element {
             <AuthStrip />
           ) : surface === 'usage' ? (
             <UsageStrip />
+          ) : surface === 'agents' ? (
+            <AgentsStrip />
           ) : (
             <>
+              {/* The nav's label, not the raw id: this strip sits in the same slot as
+                  Auth's and Usage's, so it has to be cased like a name, not a key. */}
               <span className="self-center px-4 font-mono text-meta tracking-[0.06em] text-s9">
-                {surface}
+                {SURFACES.find((s) => s.id === surface)?.label ?? surface}
               </span>
               <div className="flex-1" />
             </>
@@ -409,21 +423,21 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           {ctxTab !== undefined && (
             <div onClick={() => setCtxTab(undefined)}>
               <MenuItem onClick={() => close(ctxTab.id)}>
-                close
+                Close
                 <MenuChord keys={bindFor('close-tab')} />
               </MenuItem>
               <MenuItem disabled={tabs.length <= 1} onClick={() => closeOtherTabs(ctxTab.id)}>
-                close others
+                Close Others
               </MenuItem>
               <MenuItem
                 disabled={tabs.at(-1) === ctxTab.id}
                 onClick={() => closeTabsRight(ctxTab.id)}
               >
-                close to the right
+                Close to the Right
               </MenuItem>
               <div className="my-1 h-px bg-s5" />
               <MenuItem disabled={closedTabs.length === 0} onClick={reopenLastTab}>
-                reopen closed tab
+                Reopen Closed Tab
                 <MenuChord keys={bindFor('reopen-tab')} />
               </MenuItem>
             </div>
@@ -432,10 +446,10 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
       </span>
       {/* hugs the last tab, but sits outside the scroll region so overflow never sweeps it
           away. It opens the SAME picker ctrl+t does — one way to start a session. */}
-      <Tooltip label="new session" keys={bindFor('new-session')}>
+      <Tooltip label="New Session" keys={bindFor('new-session')}>
         <button
           type="button"
-          aria-label="new session"
+          aria-label="New Session"
           onClick={() => setNewSessionOpen(true)}
           className="slip flex flex-none cursor-pointer items-center px-3 text-[20px] text-s7 hover:text-s9"
           style={NO_DRAG}
@@ -448,14 +462,14 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           the `toggle-raw` chord — alt+r by default) */}
       {rawMode && (
         <span className="self-center px-1 font-mono text-meta tracking-[0.06em] text-warn">
-          raw
+          Raw
         </span>
       )}
-      <Tooltip label="search sessions" keys={bindFor('search-sessions')}>
+      <Tooltip label="Search Sessions" keys={bindFor('search-sessions')}>
         <button
           type="button"
           onClick={openSearch}
-          aria-label="search sessions"
+          aria-label="Search Sessions"
           className="slip flex cursor-pointer items-center px-3.5 text-[20px] text-s7 hover:text-s9"
           style={NO_DRAG}
         >
@@ -504,7 +518,7 @@ function SearchBar(): React.JSX.Element {
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="search sessions…"
+          placeholder="Search sessions…"
           // min-w-0: an <input> is a flex child with an intrinsic min width (~20ch), so
           // without this it refuses to shrink and spills out of the box, over the ✕ —
           // the box's own cap can't save it.
@@ -512,11 +526,11 @@ function SearchBar(): React.JSX.Element {
         />
       </div>
       {/* cancel sits exactly where ⌕ lives in tab mode */}
-      <Tooltip label="cancel search" keys={['esc']}>
+      <Tooltip label="Cancel Search" keys={['esc']}>
         <button
           type="button"
           onClick={closeSearch}
-          aria-label="cancel search"
+          aria-label="Cancel Search"
           className="slip absolute top-0 right-0 flex h-(--titlebar-h) cursor-pointer items-center px-3.5 text-s7 hover:text-s10"
           style={NO_DRAG}
         >

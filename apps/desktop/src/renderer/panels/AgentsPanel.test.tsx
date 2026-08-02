@@ -1,22 +1,23 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AgentsStrip,
   AgentsSurface,
-  buildAgentPickerGroups,
   clampReasoning,
-  includedPackageIds,
+  matchesAgent,
   modelLabel,
   modelPickerLabel,
-  modelReasoningCaps,
-  packageAdvisories,
+  modelPickerOptions,
   pickableModels,
   selectAgentsVm,
-  togglePackage,
 } from './AgentsPanel.js';
+import { useAgentsUi } from './agentsUi.js';
 import { makeState, type StateOverrides } from './fixtures.js';
 import { MOCK_AGENTS } from './mockAgents.js';
+import { PKGS } from './resolvedSet.test.js';
+import { publishConsoleState, useConsoleState } from '../shell/consoleStore.js';
 import type {
   AgentSummary,
   ModelDescriptor,
@@ -24,6 +25,21 @@ import type {
   RoleSummary,
 } from '@coa/console-viewmodel';
 import type { ConsoleState } from './state.js';
+
+/** Both stores are module-level (they feed the strip AND the surface body, which are
+ *  kept-alive siblings under `Center` in the real shell), so each test starts from the
+ *  same shape rather than its predecessor's leftovers. */
+// `useNarrow` measures a real element, which jsdom never resizes. Driving it directly is
+// the only way to exercise the drill-down shape the pane measurement selects.
+let measuredNarrow = false;
+vi.mock('./useNarrow.js', () => ({ useNarrow: () => measuredNarrow }));
+
+const AGENTS_UI_SEED = useAgentsUi.getState();
+beforeEach(() => {
+  measuredNarrow = false;
+  useAgentsUi.setState(AGENTS_UI_SEED, true);
+  useConsoleState.setState(undefined, true);
+});
 
 /** The live SDK model list shape (aliases + version-in-description), per `supportedModels()`. */
 const OPUS: ModelDescriptor = {
@@ -58,7 +74,6 @@ const DEFAULT_MODEL: ModelDescriptor = {
   supportsAdaptiveThinking: true,
 };
 const MODELS = [DEFAULT_MODEL, SONNET, OPUS, HAIKU];
-const FULL_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 describe('modelLabel', () => {
   it('shows the version from the description when the name is already in it', () => {
@@ -94,50 +109,30 @@ describe('modelPickerLabel', () => {
   });
 });
 
-describe('modelReasoningCaps', () => {
-  it('uses the resolved model’s real effort levels and adaptive flag', () => {
-    expect(modelReasoningCaps(MODELS, 'opus')).toEqual({
-      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-      includeBudget: true,
-      thinkingToggle: false,
-    });
-    expect(modelReasoningCaps(MODELS, 'sonnet')).toEqual({
-      efforts: ['low', 'medium', 'high', 'max'],
-      includeBudget: true,
-      thinkingToggle: false,
-    });
+describe('modelPickerOptions', () => {
+  it('sorts an interleaved model list into one contiguous run per harness (exactly two group headers, never fragmented)', () => {
+    const claudeA: ModelDescriptor = { id: 'opus', provider: 'claude' };
+    const deepseek: ModelDescriptor = { id: 'ds-v4', provider: 'deepseek' };
+    const claudeB: ModelDescriptor = { id: 'sonnet', provider: 'claude' };
+    const longcat: ModelDescriptor = { id: 'LongCat-2.0', provider: 'longcat' };
+    const options = modelPickerOptions([claudeA, deepseek, claudeB, longcat], undefined);
+    expect(options.map((o) => o.group)).toEqual([
+      'Claude Code',
+      'Claude Code',
+      'coa scaffold',
+      'coa scaffold',
+    ]);
+    const transitions = options.filter((o, i) => i === 0 || o.group !== options[i - 1]!.group);
+    expect(transitions).toHaveLength(2);
   });
 
-  it('shows NO effort options for a resolved model that supports none (Haiku)', () => {
-    expect(modelReasoningCaps(MODELS, 'haiku')).toEqual({
-      efforts: [],
-      includeBudget: false,
-      thinkingToggle: false,
-    });
-  });
-
-  it('exposes a binary thinking toggle for a thinking-only model (LongCat)', () => {
-    expect(modelReasoningCaps([LONGCAT], 'LongCat-2.0')).toEqual({
-      efforts: [],
-      includeBudget: false,
-      thinkingToggle: true,
-    });
-  });
-
-  it('falls back to the full ladder while the model list is still loading', () => {
-    expect(modelReasoningCaps([], 'opus')).toEqual({
-      efforts: FULL_LADDER,
-      includeBudget: true,
-      thinkingToggle: false,
-    });
-  });
-
-  it('falls back to the full ladder for an unknown model id (never cages the choice)', () => {
-    expect(modelReasoningCaps(MODELS, 'claude-opus-4-8')).toEqual({
-      efforts: FULL_LADDER,
-      includeBudget: true,
-      thinkingToggle: false,
-    });
+  it('keeps each harness’s models in their original relative order (a stable sort, not a re-sort within the harness)', () => {
+    const sonnet: ModelDescriptor = { id: 'sonnet', provider: 'claude' };
+    const deepseek: ModelDescriptor = { id: 'ds-v4', provider: 'deepseek' };
+    const opus: ModelDescriptor = { id: 'opus', provider: 'claude' };
+    const longcat: ModelDescriptor = { id: 'LongCat-2.0', provider: 'longcat' };
+    const options = modelPickerOptions([sonnet, deepseek, opus, longcat], undefined);
+    expect(options.map((o) => o.value)).toEqual(['sonnet', 'opus', 'ds-v4', 'LongCat-2.0']);
   });
 });
 
@@ -152,58 +147,38 @@ describe('pickableModels', () => {
 });
 
 describe('clampReasoning', () => {
-  const opusCaps = {
-    efforts: ['low', 'medium', 'high', 'xhigh', 'max'] as const,
-    includeBudget: true,
-  };
-  const sonnetCaps = { efforts: ['low', 'medium', 'high', 'max'] as const, includeBudget: true };
-  const haikuCaps = { efforts: [] as const, includeBudget: false };
-
-  it('keeps a reasoning the new model still supports', () => {
+  it('keeps a reasoning the new model still offers', () => {
     const r = { mode: 'effort', effort: 'high' } as const;
-    expect(clampReasoning(r, { ...sonnetCaps, efforts: [...sonnetCaps.efforts] })).toBe(r);
+    expect(clampReasoning(r, SONNET)).toBe(r);
   });
 
-  it('drops an effort the new model does not offer (xhigh → default)', () => {
+  it('falls back to the ladder’s first stop when the new model does not offer the current effort', () => {
     const r = { mode: 'effort', effort: 'xhigh' } as const;
-    expect(clampReasoning(r, { ...sonnetCaps, efforts: [...sonnetCaps.efforts] })).toBeUndefined();
+    expect(clampReasoning(r, SONNET)).toEqual({ mode: 'off' });
   });
 
-  it('drops all effort/budget for a model with no reasoning (Haiku)', () => {
-    expect(
-      clampReasoning({ mode: 'effort', effort: 'low' }, { ...haikuCaps, efforts: [] }),
-    ).toBeUndefined();
-    expect(
-      clampReasoning({ mode: 'budget', budgetTokens: 8000 }, { ...haikuCaps, efforts: [] }),
-    ).toBeUndefined();
+  it('clears reasoning entirely for a model with no reasoning surface at all (Haiku)', () => {
+    expect(clampReasoning({ mode: 'effort', effort: 'low' }, HAIKU)).toBeUndefined();
+    expect(clampReasoning({ mode: 'budget', budgetTokens: 8000 }, HAIKU)).toBeUndefined();
   });
 
-  it('keeps budget when the new model supports adaptive thinking, drops it otherwise', () => {
-    const r = { mode: 'budget', budgetTokens: 8000 } as const;
-    expect(clampReasoning(r, { ...opusCaps, efforts: [...opusCaps.efforts] })).toBe(r);
-    expect(
-      clampReasoning(r, { efforts: [...opusCaps.efforts], includeBudget: false }),
-    ).toBeUndefined();
+  it('leaves an unset reasoning alone when the new model still offers off', () => {
+    expect(clampReasoning(undefined, SONNET)).toBeUndefined();
   });
 
-  it('always keeps off and undefined (default)', () => {
-    const off = { mode: 'off' } as const;
-    expect(clampReasoning(off, { ...haikuCaps, efforts: [] })).toBe(off);
-    expect(
-      clampReasoning(undefined, { ...opusCaps, efforts: [...opusCaps.efforts] }),
-    ).toBeUndefined();
+  it('leaves an unresolved model’s reasoning cleared (no ladder to clamp against)', () => {
+    const r = { mode: 'effort', effort: 'high' } as const;
+    expect(clampReasoning(r, undefined)).toBeUndefined();
   });
 
-  it('keeps the on-state (an effort) for a thinking-toggle model that offers no ladder', () => {
+  it('keeps the on-state (an effort) for a thinking-toggle model that offers no graded ladder', () => {
     const on = { mode: 'effort', effort: 'high' } as const;
-    // No effort ladder, but the thinking toggle is on ⇒ the effort sentinel must survive.
-    expect(clampReasoning(on, { efforts: [], includeBudget: false, thinkingToggle: true })).toBe(
-      on,
-    );
-    // Without the toggle it would (correctly) reset.
-    expect(
-      clampReasoning(on, { efforts: [], includeBudget: false, thinkingToggle: false }),
-    ).toBeUndefined();
+    expect(clampReasoning(on, LONGCAT)).toBe(on);
+  });
+
+  it('falls back to off for a thinking-toggle model when the stored value is not its on-sentinel', () => {
+    const stale = { mode: 'effort', effort: 'low' } as const;
+    expect(clampReasoning(stale, LONGCAT)).toEqual({ mode: 'off' });
   });
 });
 
@@ -225,68 +200,6 @@ const PACKAGES: PackageSummary[] = [
   { id: 'planning', name: 'Planning', description: '', inclusion: 'opt-in', toolRefs: [] },
   { id: 'research', name: 'Research', description: '', inclusion: 'opt-in', toolRefs: [] },
 ];
-const swe = ROLES[0]!;
-const researcher = ROLES[1]!;
-
-describe('includedPackageIds', () => {
-  it('unions the defaults with the role’s opt-ins', () => {
-    const set = includedPackageIds(PACKAGES, [swe], {});
-    expect([...set].sort()).toEqual(['coa-orientation', 'coding', 'core', 'planning']);
-  });
-
-  it('adds the user’s extra opt-ins and drops the user’s exclusions', () => {
-    const set = includedPackageIds(PACKAGES, [swe], {
-      packageIds: ['research'],
-      exclude: ['core'],
-    });
-    expect(set.has('research')).toBe(true);
-    expect(set.has('core')).toBe(false);
-  });
-
-  it('is defaults-only with no roles selected', () => {
-    expect([...includedPackageIds(PACKAGES, [], {})].sort()).toEqual(['coa-orientation', 'core']);
-  });
-
-  it('unions every selected role’s opt-ins', () => {
-    const set = includedPackageIds(PACKAGES, [swe, researcher], {});
-    expect([...set].sort()).toEqual(['coa-orientation', 'coding', 'core', 'planning', 'research']);
-  });
-});
-
-describe('packageAdvisories', () => {
-  it('reports advised packages that ended up absent (a nudge)', () => {
-    const included = includedPackageIds(PACKAGES, [swe], { exclude: ['core'] });
-    expect(packageAdvisories(PACKAGES, included).map((p) => p.id)).toEqual(['core']);
-  });
-
-  it('is empty when every advised package is present', () => {
-    expect(packageAdvisories(PACKAGES, includedPackageIds(PACKAGES, [swe], {}))).toEqual([]);
-  });
-});
-
-describe('togglePackage', () => {
-  it('excludes a default package that is currently included', () => {
-    expect(togglePackage(PACKAGES, [swe], {}, 'core')).toEqual({ exclude: ['core'] });
-  });
-
-  it('excludes a role-supplied opt-in rather than fighting the role', () => {
-    expect(togglePackage(PACKAGES, [swe], {}, 'coding')).toEqual({ exclude: ['coding'] });
-  });
-
-  it('adds a fresh opt-in via packageIds', () => {
-    expect(togglePackage(PACKAGES, [swe], {}, 'research')).toEqual({ packageIds: ['research'] });
-  });
-
-  it('removes a user opt-in from packageIds when turned back off', () => {
-    expect(togglePackage(PACKAGES, [swe], { packageIds: ['research'] }, 'research')).toEqual({
-      packageIds: [],
-    });
-  });
-
-  it('re-includes an excluded package by clearing the exclusion', () => {
-    expect(togglePackage(PACKAGES, [swe], { exclude: ['core'] }, 'core')).toEqual({ exclude: [] });
-  });
-});
 
 const stateWith = (
   agents: ConsoleState['data']['agents'],
@@ -303,6 +216,15 @@ const readyState = (
 /** The derived vm — for assertions that inspect `selectAgentsVm`'s output directly. */
 const ready = (ui: Partial<ConsoleState['ui']> = {}, actions: StateOverrides['actions'] = {}) =>
   selectAgentsVm(readyState(ui, actions));
+
+/** `readyState`, plus a resolved model catalogue — the selected agent (reviewer, on
+ *  `sonnet`) needs its model actually IN `data.models` for the reasoning ladder to
+ *  have anything to render: an unresolved model offers no ladder at all (it mirrors
+ *  the chat composer's own seam, which never fakes one either). */
+const readyStateWithModels = (): ConsoleState =>
+  makeState({
+    data: { agents: { status: 'ok', value: MOCK_AGENTS }, models: { status: 'ok', value: MODELS } },
+  });
 
 describe('selectAgentsVm', () => {
   it('passes loading/error through and maps no agents to empty', () => {
@@ -323,18 +245,27 @@ describe('selectAgentsVm', () => {
   });
 });
 
-describe('buildAgentPickerGroups', () => {
-  it('groups pinned, then project, then personal, then the create row', () => {
-    const groups = buildAgentPickerGroups(MOCK_AGENTS, ['roles/refactor-bot'], 'roles/reviewer');
-    expect(groups.map((g) => g.id)).toEqual(['pinned', 'project', 'personal', 'create']);
-    expect(groups[0]?.options.map((o) => o.id)).toEqual(['roles/refactor-bot']);
-    // a pinned agent leaves its scope group (no duplicate rows)
-    expect(groups[1]?.options.map((o) => o.id)).toEqual([
-      'roles/reviewer',
-      'roles/tdd-implementer',
-    ]);
-    expect(groups[1]?.options[0]).toMatchObject({ selected: true });
-    expect(groups[3]?.actions?.[0]).toMatchObject({ id: 'new-agent' });
+describe('matchesAgent', () => {
+  it('matches on the agent name', () => {
+    expect(matchesAgent(MOCK_AGENTS[0]!, MOCK_AGENTS[0]!.name.slice(0, 3), [])).toBe(true);
+  });
+
+  it('matches on the model, so a backend name finds its agents', () => {
+    const a = { ...MOCK_AGENTS[0]!, model: 'claude-opus-5' };
+    expect(matchesAgent(a, 'opus', [])).toBe(true);
+  });
+
+  it('matches on an assigned role’s name, resolved through the catalogue', () => {
+    const a = { ...MOCK_AGENTS[0]!, roles: ['swe'] };
+    expect(matchesAgent(a, 'software engineer', ROLES)).toBe(true);
+  });
+
+  it('rejects a query that matches nothing', () => {
+    expect(matchesAgent(MOCK_AGENTS[0]!, 'zzzz', [])).toBe(false);
+  });
+
+  it('matches everything on an empty (whitespace) query', () => {
+    expect(matchesAgent(MOCK_AGENTS[0]!, '   ', [])).toBe(true);
   });
 });
 
@@ -343,21 +274,59 @@ describe('AgentsSurface', () => {
     const { container } = render(<AgentsSurface state={stateWith({ status: 'loading' })} />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
     render(<AgentsSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
-    expect(screen.getByText('daemon down')).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('daemon down');
+  });
+
+  it('lists every agent beside the detail on a wide pane', () => {
+    render(<AgentsSurface state={readyState()} />);
+    // Scoped to the list: the selected agent's name ALSO shows in the detail heading
+    // beside it, so a global query would find two matches for that one agent.
+    const list = screen.getByRole('list', { name: 'Agents' });
+    for (const a of MOCK_AGENTS) expect(within(list).getByText(a.name)).toBeInTheDocument();
+  });
+
+  it('teaches the surface when there are no agents', () => {
+    render(<AgentsSurface state={makeState({ data: { agents: { status: 'ok', value: [] } } })} />);
+    expect(screen.getByText('No agents yet')).toBeInTheDocument();
+  });
+
+  it('surfaces a read failure as an alert', () => {
+    render(
+      <AgentsSurface
+        state={makeState({ data: { agents: { status: 'error', message: 'daemon is down' } } })}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('daemon is down');
+  });
+
+  it('filters the list from the strip query', async () => {
+    useAgentsUi.setState({ query: '' });
+    const user = userEvent.setup();
+    render(
+      <>
+        <AgentsStrip />
+        <AgentsSurface state={readyState()} />
+      </>,
+    );
+    await user.type(screen.getByRole('searchbox', { name: 'Filter agents' }), MOCK_AGENTS[0]!.name);
+    // Scoped to the list for the same reason as above: the matched agent is also the
+    // selected one, so its name shows a second time in the detail heading.
+    const list = screen.getByRole('list', { name: 'Agents' });
+    expect(within(list).getByText(MOCK_AGENTS[0]!.name)).toBeInTheDocument();
+    expect(within(list).queryByText(MOCK_AGENTS[1]!.name)).not.toBeInTheDocument();
   });
 
   it('empty state offers creation', async () => {
     const createAgent = vi.fn();
     render(<AgentsSurface state={stateWith({ status: 'ok', value: [] }, {}, { createAgent })} />);
-    await userEvent.click(screen.getByRole('button', { name: 'New agent' }));
+    await userEvent.click(screen.getByRole('button', { name: /^new agent$/i }));
     expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
   });
 
-  it('switches agents through the picker', async () => {
+  it('selects an agent from the list', async () => {
     const selectAgent = vi.fn();
     render(<AgentsSurface state={readyState({}, { selectAgent })} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Switch agent' }));
-    await userEvent.click(await screen.findByRole('menuitem', { name: /tdd-implementer/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'tdd-implementer' }));
     expect(selectAgent).toHaveBeenCalledExactlyOnceWith('roles/tdd-implementer');
   });
 
@@ -368,6 +337,20 @@ describe('AgentsSurface', () => {
     const input = screen.getByRole('textbox', { name: 'Agent name' });
     await userEvent.clear(input);
     await userEvent.type(input, 'sec-reviewer{Enter}');
+    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
+      name: 'sec-reviewer',
+    });
+  });
+
+  it('commits a rename on blur too, not only Enter — clicking away must not silently discard it', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    await userEvent.click(screen.getByRole('button', { name: /Rename Agent name/ }));
+    const input = screen.getByRole('textbox', { name: 'Agent name' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'sec-reviewer');
+    // Clicking elsewhere blurs the field without pressing Enter.
+    await userEvent.click(document.body);
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
       name: 'sec-reviewer',
     });
@@ -391,8 +374,8 @@ describe('AgentsSurface', () => {
     const deleteAgent = vi.fn();
     render(<AgentsSurface state={readyState({}, { deleteAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
-    const confirm = await screen.findByRole('button', { name: 'Delete agent' });
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete…' }));
+    const confirm = await screen.findByRole('button', { name: /^delete agent$/i });
     expect(confirm).toBeDisabled();
     await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), 'reviewer');
     expect(confirm).toBeEnabled();
@@ -404,7 +387,7 @@ describe('AgentsSurface', () => {
     const togglePinAgent = vi.fn();
     render(<AgentsSurface state={readyState({}, { togglePinAgent })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Pin' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Pin' }));
     expect(togglePinAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer');
   });
 
@@ -423,16 +406,50 @@ describe('AgentsSurface', () => {
       actions,
     });
 
-  it('renders the role multi-select with the agent’s roles checked and the package checkboxes', () => {
+  it('lists the agent’s selected roles and the resolved package set, each showing how it got there', () => {
     render(<AgentsSurface state={withCatalogueState(MOCK_AGENTS)} />);
     expect(screen.getByText('Roles')).toBeTruthy();
-    // reviewer runs as the researcher role — its checkbox is checked, swe is not.
-    expect(screen.getByRole('checkbox', { name: 'Researcher' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).not.toBeChecked();
-    // its opt-ins are checked, others not.
-    expect(screen.getByRole('checkbox', { name: 'Core · default' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Research' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Coding' })).not.toBeChecked();
+    // reviewer runs as the researcher role — it shows inline as added; swe isn't
+    // selected, so — per the redesign — it has no row here at all (only the picker).
+    expect(screen.getByRole('checkbox', { name: 'Researcher' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.queryByRole('checkbox', { name: 'Software Engineer' })).not.toBeInTheDocument();
+    // core is a default, research comes from the researcher role — both inherited.
+    const core = screen.getByRole('checkbox', { name: 'Core' });
+    expect(core).toHaveAttribute('aria-checked', 'mixed');
+    // Its meta names WHY it's here — the `'default'` sentinel `membershipSource` returns,
+    // capitalised at render (not lowercase "default"; capitalize() is what does that).
+    expect(within(core).getByText('Default')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Research' })).toHaveAttribute(
+      'aria-checked',
+      'mixed',
+    );
+    // coding isn't in the resolved set, so it has no row here either.
+    expect(screen.queryByRole('checkbox', { name: 'Coding' })).not.toBeInTheDocument();
+  });
+
+  it('orders context rows inherited, then added, then excluded — not raw insertion order', () => {
+    // `core` is a default (inherited) that the agent ALSO opted into explicitly via
+    // `packageIds`, which — per `packageMembership` — reads as `added`, not `inherited`,
+    // even though it lands in the resolver's `included` set FIRST (defaults are collected
+    // before opt-ins). Left unsorted, that insertion order would put Core ahead of the
+    // (purely default) coa-orientation row — the wrong read order. `coding` is excluded
+    // outright. Only `MEMBERSHIP_RANK`'s sort produces the right sequence.
+    const agent: AgentSummary = {
+      ref: 'roles/order-check',
+      name: 'order-check',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: [],
+      packageIds: ['core'],
+      exclude: ['coding'],
+    };
+    render(<AgentsSurface state={withCatalogueState([agent])} />);
+    const names = screen.getAllByRole('checkbox').map((el) => el.getAttribute('aria-label'));
+    expect(names).toEqual(['coa orientation', 'Core', 'Coding']);
   });
 
   it('unions two selected roles’ packages', () => {
@@ -445,14 +462,26 @@ describe('AgentsSurface', () => {
       roles: ['swe', 'researcher'],
     };
     render(<AgentsSurface state={withCatalogueState([agent])} />);
-    expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Researcher' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('checkbox', { name: 'Researcher' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     // swe brings in coding+planning, researcher brings in research+planning — union of both.
-    expect(screen.getByRole('checkbox', { name: 'Coding' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Research' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Coding' })).toHaveAttribute(
+      'aria-checked',
+      'mixed',
+    );
+    expect(screen.getByRole('checkbox', { name: 'Research' })).toHaveAttribute(
+      'aria-checked',
+      'mixed',
+    );
   });
 
-  it('selects a role via the checklist, updating the agent’s role list', async () => {
+  it('adds a role through the Add Role picker, updating the agent’s role list', async () => {
     const updateAgent = vi.fn();
     const agent: AgentSummary = {
       ref: 'roles/x',
@@ -463,6 +492,7 @@ describe('AgentsSurface', () => {
       roles: ['swe'],
     };
     render(<AgentsSurface state={withCatalogueState([agent], { updateAgent })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add Role' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Researcher' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', {
       roles: ['swe', 'researcher'],
@@ -486,13 +516,31 @@ describe('AgentsSurface', () => {
     expect(screen.queryByText(/Select…/i)).toBeNull();
   });
 
-  it('toggles an off package on through updateAgent (adds a user opt-in)', async () => {
+  it('toggles an off package on through the Add Context picker (adds a user opt-in)', async () => {
     const updateAgent = vi.fn();
     render(<AgentsSurface state={withCatalogueState(MOCK_AGENTS, { updateAgent })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add Context' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Coding' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
       packageIds: ['coding'],
     });
+  });
+
+  it('keeps an excluded package visible in the agent rather than hiding it', () => {
+    const agents = [{ ...MOCK_AGENTS[0]!, exclude: ['core'] }];
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: {
+            agents: { status: 'ok', value: agents },
+            packages: { status: 'ok', value: PKGS },
+            roles: { status: 'ok', value: [] },
+          },
+          ui: { selectedAgentRef: agents[0]!.ref },
+        })}
+      />,
+    );
+    expect(screen.getByRole('checkbox', { name: 'Core' })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('nudges when an advised package is excluded', () => {
@@ -507,5 +555,316 @@ describe('AgentsSurface', () => {
     };
     const { container } = render(<AgentsSurface state={withCatalogueState([agent])} />);
     expect(container.textContent).toContain('Recommended: Core');
+  });
+
+  it('states the permissive floor when no roles are selected, rendering no tool count', () => {
+    // No roles ⇒ createRegistryAssemblePieces never reaches the package union at all —
+    // it returns the permissive floor (D85 pass-through). `core` is still a default
+    // package here (toolRefs: ['Read']), so a naive union would wrongly claim "1 tool".
+    const agent: AgentSummary = {
+      ref: 'roles/permissive',
+      name: 'permissive',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: [],
+    };
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: {
+            agents: { status: 'ok', value: [agent] },
+            packages: { status: 'ok', value: PKGS },
+            roles: { status: 'ok', value: [] },
+          },
+        })}
+      />,
+    );
+    const reach = screen.getByRole('region', { name: 'Reach' });
+    expect(
+      within(reach).getByText('This agent reaches every tool the backend offers.'),
+    ).toBeInTheDocument();
+    // The count would render as "N tool(s)" — assert that string shape is absent, not
+    // just that a particular number is missing, so reinstating the header
+    // unconditionally would fail this.
+    expect(within(reach).queryByText(/\d+\s+tools?/)).not.toBeInTheDocument();
+  });
+
+  it('enumerates the reached tool union once a role is selected', () => {
+    const roles: RoleSummary[] = [
+      { id: 'swe', name: 'Software Engineer', description: '', packageIds: ['coding'] },
+    ];
+    const agent: AgentSummary = {
+      ref: 'roles/scoped',
+      name: 'scoped',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: ['swe'],
+    };
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: {
+            agents: { status: 'ok', value: [agent] },
+            packages: { status: 'ok', value: PKGS },
+            roles: { status: 'ok', value: roles },
+          },
+        })}
+      />,
+    );
+    const reach = screen.getByRole('region', { name: 'Reach' });
+    // core (default) contributes Read; coding (via the selected role) contributes Edit.
+    // No package here declares mcpServers, and the count is tools-only regardless (the
+    // runtime doesn't realize MCP grants yet — see ReachSection's own comment).
+    expect(within(reach).getByText('2 tools')).toBeInTheDocument();
+    expect(within(reach).getByText('Read')).toBeInTheDocument();
+    expect(within(reach).getByText('Edit')).toBeInTheDocument();
+  });
+
+  it('never reports an MCP count, even when an included package declares mcpServers — the runtime does not realize the grant yet', () => {
+    const roles: RoleSummary[] = [
+      { id: 'swe', name: 'Software Engineer', description: '', packageIds: ['coding'] },
+    ];
+    const pkgsWithMcp: PackageSummary[] = [
+      ...PKGS,
+      {
+        id: 'connected',
+        name: 'Connected',
+        description: '',
+        inclusion: 'default',
+        toolRefs: [],
+        mcpServers: ['fs'],
+      },
+    ];
+    const agent: AgentSummary = {
+      ref: 'roles/scoped',
+      name: 'scoped',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      roles: ['swe'],
+    };
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: {
+            agents: { status: 'ok', value: [agent] },
+            packages: { status: 'ok', value: pkgsWithMcp },
+            roles: { status: 'ok', value: roles },
+          },
+        })}
+      />,
+    );
+    const reach = screen.getByRole('region', { name: 'Reach' });
+    expect(within(reach).queryByText(/MCP/)).not.toBeInTheDocument();
+    expect(within(reach).getByText('2 tools')).toBeInTheDocument();
+  });
+
+  it('wears the reasoning ladder rather than a separate on/off control', () => {
+    render(<AgentsSurface state={readyStateWithModels()} />);
+    expect(screen.getByRole('slider', { name: 'Reasoning effort' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Reasoning' })).not.toBeInTheDocument();
+  });
+
+  it('offers the model list through one searchable control', () => {
+    render(<AgentsSurface state={readyStateWithModels()} />);
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeInTheDocument();
+  });
+
+  it('marks a Claude model with the vendor harness coa layers its prompt onto', () => {
+    const claudeModel: ModelDescriptor = {
+      id: 'opus-claude',
+      provider: 'claude',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'high'],
+    };
+    const agent: AgentSummary = {
+      ref: 'roles/x',
+      name: 'x',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      model: 'opus-claude',
+    };
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: {
+            agents: { status: 'ok', value: [agent] },
+            models: { status: 'ok', value: [claudeModel] },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'Claude' })).toBeInTheDocument();
+  });
+
+  it('marks a pure-API model with coa’s own scaffold mark, not a vendor logo', () => {
+    const agent: AgentSummary = {
+      ref: 'roles/x',
+      name: 'x',
+      icon: 'bot',
+      color: 'slate',
+      scope: 'project',
+      model: LONGCAT.id,
+      provider: 'longcat',
+    };
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: {
+            agents: { status: 'ok', value: [agent] },
+            models: { status: 'ok', value: [LONGCAT] },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'coa' })).toBeInTheDocument();
+  });
+});
+
+describe('AgentsStrip', () => {
+  it('names the surface and counts the agents', () => {
+    publishConsoleState(readyState());
+    render(<AgentsStrip />);
+    expect(screen.getByText('Agents')).toBeInTheDocument();
+    expect(screen.getByText(`${MOCK_AGENTS.length} agents`)).toBeInTheDocument();
+  });
+
+  it('leaves the filter to the list it filters, keeping the strip to surface chrome', () => {
+    publishConsoleState(readyState());
+    render(<AgentsStrip />);
+    expect(screen.queryByRole('searchbox', { name: 'Filter agents' })).not.toBeInTheDocument();
+  });
+
+  it('carries a New Agent action wired to the real create action', async () => {
+    const createAgent = vi.fn();
+    publishConsoleState(readyState({}, { createAgent }));
+    render(<AgentsStrip />);
+    await userEvent.click(screen.getByRole('button', { name: /new agent/i }));
+    expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
+  });
+
+  it('shows the back control and the open agent’s name once a narrow drill-down is open', () => {
+    publishConsoleState(readyState({ selectedAgentRef: 'roles/tdd-implementer' }));
+    useAgentsUi.setState({ narrow: true, open: true });
+    render(<AgentsStrip />);
+    expect(screen.getByRole('button', { name: /‹ agents/i })).toBeInTheDocument();
+    expect(screen.getByText('tdd-implementer')).toBeInTheDocument();
+  });
+
+  it('keeps New Agent reachable from inside the drill-down — it acts on the surface', () => {
+    publishConsoleState(readyState({ selectedAgentRef: 'roles/tdd-implementer' }));
+    useAgentsUi.setState({ narrow: true, open: true });
+    render(<AgentsStrip />);
+    expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
+  });
+});
+
+describe('AgentsSurface — the filter', () => {
+  it('renders the filter on the list as a searchbox named Filter agents', () => {
+    render(<AgentsSurface state={readyState()} />);
+    expect(screen.getByRole('searchbox', { name: 'Filter agents' })).toBeInTheDocument();
+  });
+
+  it('bumping filterFocus (ctrl+f, via keys.tsx) moves DOM focus into the filter', () => {
+    render(<AgentsSurface state={readyState()} />);
+    const input = screen.getByRole('searchbox', { name: 'Filter agents' });
+    expect(input).not.toHaveFocus();
+    act(() => useAgentsUi.getState().focusFilter());
+    expect(input).toHaveFocus();
+  });
+
+  it('drops the filter in the drill-down, where there is no list to filter', async () => {
+    measuredNarrow = true;
+    render(<AgentsSurface state={readyState()} />);
+    // Becoming narrow lands on the list, so the filter is still there…
+    expect(screen.getByRole('searchbox', { name: 'Filter agents' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'reviewer' }));
+    // …and goes with the list column once the drill-down swaps it for the detail.
+    // `waitFor`: AnimatePresence keeps the outgoing pane mounted for its exit.
+    await waitFor(() =>
+      expect(screen.queryByRole('searchbox', { name: 'Filter agents' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('centers and caps the filter once the list has the whole pane', () => {
+    measuredNarrow = true;
+    render(<AgentsSurface state={readyState()} />);
+    const field = screen.getByRole('searchbox', { name: 'Filter agents' });
+    expect(field.parentElement?.className).toContain('max-w-80');
+  });
+});
+
+describe('AgentsSurface — containment and shape', () => {
+  /** Roles and packages must be present for every section to render at all. */
+  const catalogueState = (
+    ui: Partial<ConsoleState['ui']> = {},
+    actions: StateOverrides['actions'] = {},
+  ): ConsoleState =>
+    makeState({
+      data: {
+        agents: { status: 'ok', value: MOCK_AGENTS },
+        roles: { status: 'ok', value: ROLES },
+        packages: { status: 'ok', value: PACKAGES },
+      },
+      ui,
+      actions,
+    });
+
+  it('contains each concern in its own named region', () => {
+    render(<AgentsSurface state={catalogueState()} />);
+    for (const name of ['Runs on', 'Roles', 'Context', 'Reach']) {
+      expect(screen.getByRole('region', { name })).toBeInTheDocument();
+    }
+  });
+
+  it('lays the row list out to fill the width it is given', () => {
+    const { container } = render(<AgentsSurface state={catalogueState()} />);
+    const grid = container.querySelector('[data-row-grid]');
+    expect(grid?.className).toContain('auto-fit');
+  });
+
+  it('renames in the same face it displays', async () => {
+    const user = userEvent.setup();
+    render(<AgentsSurface state={catalogueState()} />);
+    const display = screen.getByRole('button', { name: /^Rename Agent name/ });
+    expect(display.className).toContain('text-body');
+    expect(display.className).toContain('font-semibold');
+    await user.click(display);
+    const field = screen.getByRole('textbox', { name: 'Agent name' });
+    // The edit face must NOT fall back to the shared mono/code input skin.
+    expect(field.className).not.toContain('font-mono');
+    expect(field.className).not.toContain('text-code');
+    expect(field.className).toContain('text-body');
+    expect(field.className).toContain('font-semibold');
+  });
+
+  it('offers the pin as a pressed control rather than a bare marker', async () => {
+    const user = userEvent.setup();
+    const togglePinAgent = vi.fn();
+    render(
+      <AgentsSurface
+        state={catalogueState(
+          { settings: { pinnedAgents: ['roles/reviewer'] } },
+          { togglePinAgent },
+        )}
+      />,
+    );
+    const pin = screen.getByRole('button', { name: 'Unpin agent' });
+    expect(pin).toHaveAttribute('aria-pressed', 'true');
+    await user.click(pin);
+    expect(togglePinAgent).toHaveBeenCalledWith('roles/reviewer');
+    // The pill it replaces is gone.
+    expect(screen.queryByText('Pinned')).toBeNull();
+  });
+
+  it('still offers the control when the agent is not pinned', () => {
+    render(<AgentsSurface state={catalogueState({ settings: { pinnedAgents: [] } })} />);
+    expect(screen.getByRole('button', { name: 'Pin agent' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 });

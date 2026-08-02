@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDismissLayer } from '@coa/console-kit';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 import { makeState } from '../panels/fixtures.js';
+import { useAgentsUi } from '../panels/agentsUi.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { DEFAULT_KEYBINDS } from './keybinds.js';
-import { closeOtherTabs, closeTabsRight, useGlobalKeys } from './keys.js';
+import { closeOtherTabs, closeTabsRight, COMMANDS, useGlobalKeys } from './keys.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -123,6 +124,27 @@ describe('useGlobalKeys', () => {
 
   it('lists find-in-conversation in the registry (a bind cannot exist undiscoverable)', () => {
     expect(DEFAULT_KEYBINDS.some((k) => k.keys.join('+') === 'ctrl+f')).toBe(true);
+  });
+
+  it('wires every non-fixed registry id to a command or a named matcher — the inverse of the above: nothing declared in the registry can go undispatched', () => {
+    // 'find' is consumed by `matchesFind`, which the Transcript reads directly rather
+    // than through COMMANDS (it owns its own find UI).
+    const namedMatchers = new Set(['find']);
+    for (const bind of DEFAULT_KEYBINDS) {
+      if (bind.fixed === true) continue;
+      const wired = bind.id in COMMANDS || namedMatchers.has(bind.id);
+      expect(wired, `keybind "${bind.id}" is declared but neither dispatched nor matched`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('ctrl+f on the agents surface focuses the filter, not find-in-conversation', () => {
+    useShell.setState({ surface: 'agents' });
+    render(<Keys />);
+    const before = useAgentsUi.getState().filterFocus;
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true });
+    expect(useAgentsUi.getState().filterFocus).toBe(before + 1);
   });
 
   it('alt+r toggles raw mode on the chat surface', () => {

@@ -90,7 +90,7 @@ describe('Center tabs', () => {
     publish({ ui: { activeSessionId: 'c1', rawMode: true } });
     useShell.getState().openTab('c1');
     render(<Center />);
-    expect(screen.getByText('raw')).toBeTruthy();
+    expect(screen.getByText(/^raw$/i)).toBeTruthy();
   });
 
   it('middle-click closes a tab and falls the active selection to the last remaining', () => {
@@ -114,7 +114,7 @@ describe('Center tab-strip new-session control', () => {
     publish();
     useShell.getState().openTab('c1');
     render(<Center />);
-    await user.click(screen.getByRole('button', { name: 'new session' }));
+    await user.click(screen.getByRole('button', { name: /^new session$/i }));
     // one way to start a session: the control raises the picker, it doesn't grow its own menu
     expect(useShell.getState().newSessionOpen).toBe(true);
   });
@@ -126,8 +126,8 @@ describe('Center search morph', () => {
     useShell.getState().openTab('c1');
     render(<Center />);
     act(() => useShell.getState().openSearch());
-    expect(screen.getByPlaceholderText('search sessions…')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'cancel search' }));
+    expect(screen.getByPlaceholderText(/^search sessions…$/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel search$/i }));
     expect(useShell.getState().mode).toBe('work');
   });
 
@@ -138,7 +138,7 @@ describe('Center search morph', () => {
     useShell.getState().openTab('c1');
     render(<Center />);
     act(() => useShell.getState().openSearch());
-    const cancel = screen.getByRole('button', { name: 'cancel search' });
+    const cancel = screen.getByRole('button', { name: /^cancel search$/i });
     expect(cancel.querySelector('svg')).not.toBeNull();
     expect(cancel.textContent).toBe('');
   });
@@ -148,11 +148,11 @@ describe('Center search morph', () => {
     publish();
     useShell.getState().openTab('c1');
     render(<Center />);
-    const btn = screen.getByRole('button', { name: 'search sessions' });
+    const btn = screen.getByRole('button', { name: /^search sessions$/i });
     for (let i = 0; i < 25 && document.activeElement !== btn; i++) await user.tab();
     expect(document.activeElement).toBe(btn);
     const tip = await screen.findByRole('tooltip');
-    expect(tip).toHaveTextContent(/search sessions/);
+    expect(tip).toHaveTextContent(/search sessions/i);
     expect(tip).toHaveTextContent(/ctrl/);
   });
 
@@ -165,7 +165,7 @@ describe('Center search morph', () => {
     act(() => useShell.getState().openSearch());
     // still mounted — search overlays it, never unmounts it
     expect(container.querySelectorAll('[data-canvas="chat"]')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'cancel search' }));
+    fireEvent.click(screen.getByRole('button', { name: /^cancel search$/i }));
     expect(container.querySelectorAll('[data-canvas="chat"]')).toHaveLength(1);
   });
 
@@ -174,7 +174,7 @@ describe('Center search morph', () => {
     useShell.getState().openTab('c1');
     render(<Center />);
     act(() => useShell.getState().openSearch());
-    const input = screen.getByPlaceholderText('search sessions…');
+    const input = screen.getByPlaceholderText(/^search sessions…$/i);
     const field = input.parentElement as HTMLElement;
     const row = field.parentElement as HTMLElement;
     // EVERY link in the chain must be able to shrink. A flex item's automatic minimum

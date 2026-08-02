@@ -20,68 +20,76 @@ import type { Keybind } from '@coa/console-kit';
  * NOTHING (and, being a no-op, needs no feedback) — it never acts at a distance.
  *
  * `chat` — only while the chat surface is the one you're looking at, in work mode, with
- * no dialog over it. Undefined scope = everywhere.
+ * no dialog over it. `agents` — only while the agents surface is the one you're looking
+ * at, with no dialog over it. Undefined scope = everywhere.
  */
-export type Scope = 'chat';
+export type Scope = 'chat' | 'agents';
 
 /** Every command the shell dispatches. `keys` here is the DEFAULT — the user's override wins. */
 export const DEFAULT_KEYBINDS: Keybind[] = [
-  { id: 'palette', keys: ['ctrl', 'k'], label: 'command palette', group: 'global' },
-  { id: 'search-sessions', keys: ['ctrl', 'p'], label: 'search sessions', group: 'global' },
-  { id: 'settings', keys: ['ctrl', ','], label: 'settings', group: 'global' },
-  { id: 'shortcuts', keys: ['ctrl', '/'], label: 'keyboard shortcuts', group: 'global' },
-  { id: 'new-session', keys: ['ctrl', 't'], label: 'new session', group: 'sessions' },
+  { id: 'palette', keys: ['ctrl', 'k'], label: 'Command Palette', group: 'global' },
+  { id: 'search-sessions', keys: ['ctrl', 'p'], label: 'Search Sessions', group: 'global' },
+  { id: 'settings', keys: ['ctrl', ','], label: 'Settings', group: 'global' },
+  { id: 'shortcuts', keys: ['ctrl', '/'], label: 'Keyboard Shortcuts', group: 'global' },
+  { id: 'new-session', keys: ['ctrl', 't'], label: 'New Session', group: 'sessions' },
   {
     id: 'reopen-tab',
     keys: ['ctrl', 'shift', 't'],
-    label: 'reopen closed tab',
+    label: 'Reopen Closed Tab',
     group: 'sessions',
     scope: 'chat',
   },
-  { id: 'close-tab', keys: ['ctrl', 'w'], label: 'close tab', group: 'sessions', scope: 'chat' },
-  { id: 'next-tab', keys: ['ctrl', 'tab'], label: 'next tab', group: 'sessions', scope: 'chat' },
+  { id: 'close-tab', keys: ['ctrl', 'w'], label: 'Close Tab', group: 'sessions', scope: 'chat' },
+  { id: 'next-tab', keys: ['ctrl', 'tab'], label: 'Next Tab', group: 'sessions', scope: 'chat' },
   {
     id: 'prev-tab',
     keys: ['ctrl', 'shift', 'tab'],
-    label: 'previous tab',
+    label: 'Previous Tab',
     group: 'sessions',
     scope: 'chat',
   },
   {
     id: 'jump-tab',
     keys: ['ctrl', '1…9'],
-    label: 'go to tab (9 = last)',
+    label: 'Go to Tab (9 = last)',
     group: 'sessions',
     fixed: true,
     scope: 'chat',
   },
-  { id: 'toggle-dock', keys: ['ctrl', 'b'], label: 'toggle the session panel', group: 'workbench' },
+  { id: 'toggle-dock', keys: ['ctrl', 'b'], label: 'Toggle the Session Panel', group: 'workbench' },
   {
     id: 'find',
     keys: ['ctrl', 'f'],
-    label: 'find in conversation',
+    label: 'Find in Conversation',
     group: 'workbench',
     scope: 'chat',
   },
   {
+    id: 'filter-agents',
+    keys: ['ctrl', 'f'],
+    label: 'Filter Agents',
+    group: 'workbench',
+    scope: 'agents',
+  },
+  {
     id: 'toggle-raw',
     keys: ['alt', 'r'],
-    label: 'raw mode — the unfiltered loop',
+    label: 'Raw Mode (the unfiltered loop)',
     group: 'workbench',
     scope: 'chat',
   },
   {
     id: 'dismiss',
     keys: ['esc'],
-    label: 'dismiss the topmost layer · stop a running turn',
+    label: 'Dismiss the Topmost Layer · Stop a Running Turn',
     group: 'workbench',
     fixed: true,
   },
-  { id: 'send', keys: ['enter'], label: 'send message', group: 'composer', fixed: true },
+  { id: 'send', keys: ['enter'], label: 'Send Message', group: 'composer', fixed: true },
   {
     id: 'focus-composer',
     keys: ['enter'],
-    label: 'focus the composer',
+    label: 'Focus the Composer',
     group: 'composer',
     fixed: true,
     scope: 'chat',
@@ -204,7 +212,9 @@ export function scopeOf(shell: {
     shell.projectOpen ||
     shell.newSessionOpen;
   if (dialogOpen) return undefined;
-  return shell.surface === 'chat' && shell.mode === 'work' ? 'chat' : undefined;
+  if (shell.surface === 'chat' && shell.mode === 'work') return 'chat';
+  if (shell.surface === 'agents') return 'agents';
+  return undefined;
 }
 
 /** Pure: `ctrl+<n>` names a tab by POSITION — 1-indexed, and 9 means "the last one"

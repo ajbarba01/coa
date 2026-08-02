@@ -1,6 +1,7 @@
 import type { Keybind } from '@coa/console-kit';
 import { hasOpenLayers } from '@coa/console-kit';
 import { useEffect } from 'react';
+import { useAgentsUi } from '../panels/agentsUi.js';
 import { useConsoleState } from './consoleStore.js';
 import {
   chordFromEvent,
@@ -76,8 +77,11 @@ export function reopenLastTab(): void {
 }
 
 /** The command table: one entry per registry id. Dispatch is a lookup, never a branch on
- *  a key — that's what makes the binds rebindable rather than decorative. */
-const COMMANDS: Record<string, () => void> = {
+ *  a key — that's what makes the binds rebindable rather than decorative. Exported so a
+ *  test can assert every non-`fixed` bind in the registry is actually wired to something
+ *  (here, or to a named matcher like `matchesFind`) — a bind that answers to nothing is
+ *  the shortcuts overlay lying about what the keyboard does. */
+export const COMMANDS: Record<string, () => void> = {
   palette: () => {
     const st = useShell.getState();
     st.setPaletteOpen(!st.paletteOpen);
@@ -113,6 +117,7 @@ const COMMANDS: Record<string, () => void> = {
   // D85 — the mask comes off: the same toggle the title bar and the palette drive, so the
   // three can never disagree about what raw mode is.
   'toggle-raw': () => useConsoleState.getState()?.actions.toggleRaw(),
+  'filter-agents': () => useAgentsUi.getState().focusFilter(),
 };
 
 /** The tabs the STRIP actually renders. The working set can hold an id the strip skips —

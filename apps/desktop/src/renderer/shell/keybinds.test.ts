@@ -127,10 +127,19 @@ describe('scopeOf', () => {
 
   it('is chat only while the chat surface is the thing you are looking at', () => {
     expect(scopeOf(shell)).toBe('chat');
-    expect(scopeOf({ ...shell, surface: 'agents' })).toBeUndefined();
     expect(scopeOf({ ...shell, mode: 'search' })).toBeUndefined();
     expect(scopeOf({ ...shell, paletteOpen: true })).toBeUndefined();
     expect(scopeOf({ ...shell, newSessionOpen: true })).toBeUndefined();
+  });
+
+  it('is agents while the agents surface is the thing you are looking at, unless a dialog sits over it', () => {
+    expect(scopeOf({ ...shell, surface: 'agents' })).toBe('agents');
+    expect(scopeOf({ ...shell, surface: 'agents', settingsOpen: true })).toBeUndefined();
+    expect(scopeOf({ ...shell, surface: 'agents', paletteOpen: true })).toBeUndefined();
+  });
+
+  it('is neither on a surface with no scope of its own', () => {
+    expect(scopeOf({ ...shell, surface: 'usage' })).toBeUndefined();
   });
 });
 
@@ -151,10 +160,25 @@ describe('jumpTarget', () => {
 });
 
 describe('DEFAULT_KEYBINDS', () => {
-  it('has a unique id per command and no two commands share a chord', () => {
+  it('has a unique id per command', () => {
     const ids = DEFAULT_KEYBINDS.map((b) => b.id);
     expect(new Set(ids).size).toBe(ids.length);
-    const chords = DEFAULT_KEYBINDS.filter((b) => b.fixed !== true).map((b) => canonical(b.keys));
-    expect(new Set(chords).size).toBe(chords.length);
+  });
+
+  it('never lets two commands answer to the same chord at once — sharing a chord is only safe across scopes that can never both be in force', () => {
+    const bound = DEFAULT_KEYBINDS.filter((b) => b.fixed !== true && b.keys.length > 0);
+    for (let i = 0; i < bound.length; i++) {
+      for (let j = i + 1; j < bound.length; j++) {
+        const a = bound[i]!;
+        const b = bound[j]!;
+        if (canonical(a.keys) !== canonical(b.keys)) continue;
+        // An unscoped (global) bind is in force everywhere, so it may never share a
+        // chord with anything else; two SCOPED binds may share one only when their
+        // scopes differ (mutually exclusive — only one scope is ever in force).
+        expect(a.scope).not.toBeUndefined();
+        expect(b.scope).not.toBeUndefined();
+        expect(a.scope).not.toBe(b.scope);
+      }
+    }
   });
 });
