@@ -247,7 +247,7 @@ async function renderAuth(view: AuthView = FIXTURE_VIEW): Promise<void> {
 describe('AuthStrip re-read control', () => {
   it('draws its mark rather than typing one', async () => {
     await renderAuth();
-    const reread = screen.getByRole('button', { name: 're-read logins' });
+    const reread = screen.getByRole('button', { name: /^re-read logins$/i });
     expect(reread.querySelector('svg')).not.toBeNull();
     expect(reread.textContent).toBe('');
   });
@@ -279,7 +279,7 @@ describe('credential status', () => {
 
   it('cooling carries its own countdown', () => {
     const c = credential({ coolingSec: 252 });
-    expect(statusText(c, 'cooling')).toBe('cooling down · 4m 12s');
+    expect(statusText(c, 'cooling')).toBe('Cooling down · 4m 12s');
   });
 
   it('counts a pool by health, and a zero count says nothing', () => {
@@ -292,8 +292,8 @@ describe('credential status', () => {
 describe('AuthSurface', () => {
   it('groups backends and services, and names each provider by its mark', async () => {
     await renderAuth();
-    expect(screen.getByText('agent backends')).toBeTruthy();
-    expect(screen.getByText('tool services')).toBeTruthy();
+    expect(screen.getByText(/^agent backends$/i)).toBeTruthy();
+    expect(screen.getByText(/^tool services$/i)).toBeTruthy();
     // The mark is the identity: it must survive with images or color off.
     expect(screen.getAllByRole('img', { name: 'Claude' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('img', { name: 'Tavily' }).length).toBeGreaterThan(0);
@@ -305,10 +305,10 @@ describe('AuthSurface', () => {
     await user.click(screen.getByRole('button', { name: /tavily/i }));
     // The detail pane cross-fades in (AnimatePresence mode="wait"), so it is awaited.
     // All seven keys live in that table — the list row only ever carried a count.
-    expect(await screen.findByText('keys')).toBeTruthy();
+    expect(await screen.findByText(/^keys$/i)).toBeTruthy();
     expect(screen.getAllByText(/tavily-\d/).length).toBe(7);
-    expect(screen.getByText(/cooling down/)).toBeTruthy();
-    expect(screen.getAllByText('benched').length).toBeGreaterThan(0);
+    expect(screen.getByText(/cooling down/i)).toBeTruthy();
+    expect(screen.getAllByText(/^benched$/i).length).toBeGreaterThan(0);
   });
 
   it('edits labels and pointers — never secrets: a keyed row’s edit form has no secret field', async () => {
@@ -323,15 +323,15 @@ describe('AuthSurface', () => {
     vi.mocked(rpcRenameCredential).mockResolvedValue(renamed);
 
     await user.click(screen.getByRole('button', { name: /deepseek/i }));
-    await screen.findByText('keys');
-    await user.click(screen.getByRole('button', { name: 'ds actions' }));
-    await user.click(await screen.findByText('edit…'));
+    await screen.findByText(/^keys$/i);
+    await user.click(screen.getByRole('button', { name: /^ds actions$/i }));
+    await user.click(await screen.findByText(/^edit…$/i));
     // Label only — the key itself is remove-and-re-add, so the form cannot even ask.
-    expect(screen.getByLabelText('label')).toBeTruthy();
+    expect(screen.getByLabelText(/^label$/i)).toBeTruthy();
     expect(screen.queryByLabelText(/paste/i)).toBeNull();
-    await user.clear(screen.getByLabelText('label'));
-    await user.type(screen.getByLabelText('label'), 'ds-main');
-    await user.click(screen.getByRole('button', { name: 'save' }));
+    await user.clear(screen.getByLabelText(/^label$/i));
+    await user.type(screen.getByLabelText(/^label$/i), 'ds-main');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     expect(rpcRenameCredential).toHaveBeenCalledWith('c4', 'ds-main');
     await waitFor(() =>
@@ -342,18 +342,18 @@ describe('AuthSurface', () => {
   it('replace stays for real secrets, and a healthy pointer row offers no replace at all', async () => {
     const user = userEvent.setup();
     await renderAuth();
-    await user.click(screen.getByRole('button', { name: 'worm actions' }));
-    await screen.findByText('edit…');
+    await user.click(screen.getByRole('button', { name: /^worm actions$/i }));
+    await screen.findByText(/^edit…$/i);
     // worm is a healthy config-dir login: re-pointing is edit's job; re-login is expiry's.
-    expect(screen.queryByText('re-login…')).toBeNull();
-    expect(screen.queryByText(/^replace/)).toBeNull();
+    expect(screen.queryByText(/^re-login…$/i)).toBeNull();
+    expect(screen.queryByText(/^replace/i)).toBeNull();
   });
 
   it('offers re-login on an expired login — the pointer’s one recovery act', async () => {
     const user = userEvent.setup();
     await renderAuth();
-    await user.click(screen.getByRole('button', { name: 'personal actions' }));
-    expect(await screen.findByText('re-login…')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /^personal actions$/i }));
+    expect(await screen.findByText(/^re-login…$/i)).toBeTruthy();
   });
 
   it('replaces a real secret by calling rpcReplaceSecret and applying the returned view', async () => {
@@ -373,14 +373,14 @@ describe('AuthSurface', () => {
     vi.mocked(rpcReplaceSecret).mockResolvedValue(replaced);
 
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
-    await user.click(screen.getByRole('button', { name: 'tavily-3 actions' }));
-    await user.click(await screen.findByText('replace key…'));
+    await screen.findByText(/^keys$/i);
+    await user.click(screen.getByRole('button', { name: /^tavily-3 actions$/i }));
+    await user.click(await screen.findByText(/^replace key…$/i));
     await user.type(
       await screen.findByLabelText(/paste the replacement/i),
       'tvly-brand-new-key-000zzz',
     );
-    await user.click(screen.getByRole('button', { name: 'replace' }));
+    await user.click(screen.getByRole('button', { name: /^replace$/i }));
 
     expect(rpcReplaceSecret).toHaveBeenCalledWith('t3', 'tvly-brand-new-key-000zzz');
     await waitFor(() =>
@@ -393,22 +393,22 @@ describe('AuthSurface', () => {
   it('opens the same ⋯ menu on right-click — a second door, not a second menu', async () => {
     const user = userEvent.setup();
     await renderAuth();
-    const row = screen.getByText('school').closest('div[class*="group"]');
+    const row = screen.getByText(/^school$/i).closest('div[class*="group"]');
     expect(row).toBeTruthy();
     await user.pointer({ keys: '[MouseRight]', target: row! });
-    expect(await screen.findByText('edit…')).toBeTruthy();
+    expect(await screen.findByText(/^edit…$/i)).toBeTruthy();
   });
 
   it('right-clicking the open menu does not reposition it — menus don’t get menus', async () => {
     const user = userEvent.setup();
     await renderAuth();
-    const row = screen.getByText('school').closest('div[class*="group"]');
+    const row = screen.getByText(/^school$/i).closest('div[class*="group"]');
     await user.pointer({ keys: '[MouseRight]', target: row! });
-    const item = await screen.findByText('edit…');
+    const item = await screen.findByText(/^edit…$/i);
     // The portaled popup bubbles through the React tree into the row's handler; the
     // guard must swallow it (menu stays open, exactly one instance).
     fireEvent.contextMenu(item, { clientX: 500, clientY: 500 });
-    expect(screen.getAllByText('edit…').length).toBe(1);
+    expect(screen.getAllByText(/^edit…$/i).length).toBe(1);
   });
 
   it('is its own empty state when nothing is configured', async () => {
@@ -436,7 +436,7 @@ describe('AuthSurface', () => {
 
     // Step 2 is chosen by the LOCATOR KIND (exa is key-file), never by the provider.
     await user.type(await screen.findByLabelText(/paste the key/i), 'exa-key-abc123456');
-    await user.click(screen.getByRole('button', { name: 'add key' }));
+    await user.click(screen.getByRole('button', { name: /^add key$/i }));
 
     expect(rpcAddProvider).toHaveBeenCalledWith('exa');
     expect(rpcAddCredential).toHaveBeenCalledWith('exa', 'exa', 'exa-key-abc123456');
@@ -457,11 +457,11 @@ describe('AuthSurface', () => {
     vi.mocked(rpcAddCredential).mockResolvedValue(eighth);
 
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await user.click(await screen.findByRole('button', { name: '+ add key' }));
+    await user.click(await screen.findByRole('button', { name: /^\+ add key$/i }));
 
     expect(screen.queryByRole('dialog')).toBeNull();
     await user.type(await screen.findByLabelText(/paste the key/i), 'tvly-eighth-key-99001');
-    await user.click(screen.getByRole('button', { name: 'add' }));
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
 
     expect(rpcAddCredential).toHaveBeenCalledWith('tavily', 'tavily-8', 'tvly-eighth-key-99001');
     await waitFor(() =>
@@ -480,7 +480,7 @@ describe('AuthSurface', () => {
     };
     vi.mocked(rpcMakeActive).mockResolvedValue(switched);
 
-    await user.click(screen.getByRole('button', { name: 'use school' }));
+    await user.click(screen.getByRole('button', { name: /^use school$/i }));
 
     expect(rpcMakeActive).toHaveBeenCalledWith('c2');
     await waitFor(() => expect(useMockAuth.getState().activeByProvider['claude']).toBe('c2'));
@@ -490,8 +490,8 @@ describe('AuthSurface', () => {
     const user = userEvent.setup();
     await renderAuth();
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
-    expect(screen.queryByRole('button', { name: /^use tavily-/ })).toBeNull();
+    await screen.findByText(/^keys$/i);
+    expect(screen.queryByRole('button', { name: /^use tavily-/i })).toBeNull();
   });
 
   it('un-benches a credential by calling rpcSetCredentialDisabled and applying the returned view', async () => {
@@ -506,9 +506,9 @@ describe('AuthSurface', () => {
     vi.mocked(rpcSetCredentialDisabled).mockResolvedValue(unbenched);
 
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
-    await user.click(screen.getByRole('button', { name: 'tavily-5 actions' }));
-    await user.click(await screen.findByText('un-bench'));
+    await screen.findByText(/^keys$/i);
+    await user.click(screen.getByRole('button', { name: /^tavily-5 actions$/i }));
+    await user.click(await screen.findByText(/^un-bench$/i));
 
     expect(rpcSetCredentialDisabled).toHaveBeenCalledWith('t5', false);
     await waitFor(() =>
@@ -530,9 +530,9 @@ describe('AuthSurface', () => {
     vi.mocked(rpcClearCooldown).mockResolvedValue(cleared);
 
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
-    await user.click(screen.getByRole('button', { name: 'tavily-3 actions' }));
-    await user.click(await screen.findByText('clear cooldown'));
+    await screen.findByText(/^keys$/i);
+    await user.click(screen.getByRole('button', { name: /^tavily-3 actions$/i }));
+    await user.click(await screen.findByText(/^clear cooldown$/i));
 
     expect(rpcClearCooldown).toHaveBeenCalledWith('t3');
     await waitFor(() =>
@@ -552,9 +552,9 @@ describe('AuthSurface', () => {
     vi.mocked(rpcRemoveCredential).mockResolvedValue(removed);
 
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
-    await user.click(screen.getByRole('button', { name: 'tavily-7 actions' }));
-    await user.click(await screen.findByText('remove'));
+    await screen.findByText(/^keys$/i);
+    await user.click(screen.getByRole('button', { name: /^tavily-7 actions$/i }));
+    await user.click(await screen.findByText(/^remove$/i));
 
     expect(rpcRemoveCredential).toHaveBeenCalledWith('t7', undefined);
     await waitFor(() =>
@@ -573,20 +573,20 @@ describe('AuthSurface', () => {
     vi.mocked(rpcRemoveProvider).mockResolvedValue(removed);
 
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
-    await user.click(screen.getByRole('button', { name: 'tavily actions' }));
-    await user.click(await screen.findByText('remove provider…'));
+    await screen.findByText(/^keys$/i);
+    await user.click(screen.getByRole('button', { name: /^tavily actions$/i }));
+    await user.click(await screen.findByText(/^remove provider…$/i));
 
     // Nothing removed yet — the dialog is the gate.
     const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('button', { name: 'cancel' }));
+    await user.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
     expect(rpcRemoveProvider).not.toHaveBeenCalled();
     expect(useMockAuth.getState().added).toContain('tavily');
 
-    await user.click(screen.getByRole('button', { name: 'tavily actions' }));
-    await user.click(await screen.findByText('remove provider…'));
+    await user.click(screen.getByRole('button', { name: /^tavily actions$/i }));
+    await user.click(await screen.findByText(/^remove provider…$/i));
     const again = await screen.findByRole('dialog');
-    await user.click(within(again).getByRole('button', { name: 'remove provider' }));
+    await user.click(within(again).getByRole('button', { name: /^remove provider$/i }));
 
     expect(rpcRemoveProvider).toHaveBeenCalledWith('tavily', undefined);
     await waitFor(() => expect(useMockAuth.getState().added).not.toContain('tavily'));
@@ -611,7 +611,7 @@ describe('AuthSurface', () => {
 
     // First Escape: back to the catalogue (the field must not swallow the key).
     await user.keyboard('{Escape}');
-    expect(await within(dialog).findByText('agent backends')).toBeTruthy();
+    expect(await within(dialog).findByText(/^agent backends$/i)).toBeTruthy();
     // Second Escape: the dialog itself.
     await user.keyboard('{Escape}');
     expect(useShell.getState().addProviderOpen).toBe(false);
@@ -623,22 +623,22 @@ describe('AuthSurface', () => {
       catalog: { claude: [{ id: 'claude-fable-5', label: 'fable 5', origin: 'default' }] },
     });
     await renderAuth();
-    expect(await screen.findByText('models')).toBeTruthy();
-    expect(screen.getByText('fable 5')).toBeTruthy();
+    expect(await screen.findByText(/^models$/i)).toBeTruthy();
+    expect(screen.getByText(/^fable 5$/i)).toBeTruthy();
   });
 
   it('a tool service page shows no models section — a pool has no models', async () => {
     const user = userEvent.setup();
     await renderAuth();
     await user.click(screen.getByRole('button', { name: /tavily/i }));
-    await screen.findByText('keys');
+    await screen.findByText(/^keys$/i);
     // The outgoing backend detail lingers through its exit cross-fade — wait it out.
-    await waitFor(() => expect(screen.queryByText('models')).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/^models$/i)).toBeNull());
   });
 
   it('wears the provider version in the subtitle where one applies', async () => {
     await renderAuth();
-    expect(screen.getByText(/agent sdk 0\.72/)).toBeTruthy();
+    expect(screen.getByText(/agent sdk 0\.72/i)).toBeTruthy();
   });
 
   it('benches a provider by calling rpcSetProviderEnabled — credentials stay untouched', async () => {
@@ -651,7 +651,7 @@ describe('AuthSurface', () => {
     vi.mocked(rpcSetProviderEnabled).mockResolvedValue(benched);
     const before = useMockAuth.getState().credentials.length;
 
-    await user.click(screen.getAllByRole('switch', { name: 'tavily enabled' })[0]!);
+    await user.click(screen.getAllByRole('switch', { name: /^tavily enabled$/i })[0]!);
 
     expect(rpcSetProviderEnabled).toHaveBeenCalledWith('tavily', false);
     await waitFor(() => expect(useMockAuth.getState().enabled['tavily']).toBe(false));
@@ -686,8 +686,8 @@ describe('login health on the surface', () => {
   it('a needs-relogin row wears the amber state and a one-click re-login', async () => {
     vi.mocked(rpcProbeHealth).mockResolvedValue(FLAGGED_VIEW);
     await renderAuth(FLAGGED_VIEW);
-    expect(await screen.findByText('active · needs relogin')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 're-login' })).toBeTruthy();
+    expect(await screen.findByText(/^active · needs relogin$/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^re-login$/i })).toBeTruthy();
   });
 
   it('re-login starts the driven flow with the credential’s known email — no pre-step', async () => {
@@ -699,7 +699,7 @@ describe('login health on the surface', () => {
       email: 'wormsegment1000@gmail.com',
     });
     await renderAuth(FLAGGED_VIEW);
-    await user.click(await screen.findByRole('button', { name: 're-login' }));
+    await user.click(await screen.findByRole('button', { name: /^re-login$/i }));
     expect(rpcStartLogin).toHaveBeenCalledWith({
       email: 'wormsegment1000@gmail.com',
       credentialId: 'c1',
@@ -710,8 +710,8 @@ describe('login health on the surface', () => {
     await renderAuth();
     // The claude detail is the default (first backend) — its logins header carries the
     // driven entry point, not the manual "+ add login".
-    expect(await screen.findByText('sign in')).toBeTruthy();
-    fireEvent.click(screen.getByText('sign in'));
+    expect(await screen.findByText(/^sign in$/i)).toBeTruthy();
+    fireEvent.click(screen.getByText(/^sign in$/i));
     expect(useShell.getState().loginEmailFor).toEqual({ providerId: 'claude' });
   });
 
@@ -731,8 +731,8 @@ describe('login health on the surface', () => {
     // the provider list row's active-label slot, so multiple hits are expected.
     expect((await screen.findAllByText('worm@x.org')).length).toBeGreaterThan(0);
     // label differs ⇒ nickname first, the probe identity (carrying the email) beneath.
-    expect(screen.getByText('school')).toBeTruthy();
-    expect(screen.getByText('alex@barba.edu · pro')).toBeTruthy();
+    expect(screen.getByText(/^school$/i)).toBeTruthy();
+    expect(screen.getByText(/^alex@barba\.edu · pro$/i)).toBeTruthy();
   });
 });
 
@@ -763,8 +763,8 @@ describe('removing a login with a browser profile', () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly());
     useMockAuth.setState({ removeCredential: remove });
-    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
-    await user.click(await screen.findByText('remove'));
+    await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
+    await user.click(await screen.findByText(/^remove$/i));
     expect(remove).toHaveBeenCalledWith('claude:a@b.org', undefined);
   });
 
@@ -773,8 +773,8 @@ describe('removing a login with a browser profile', () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly({ hasProfile: true }));
     useMockAuth.setState({ removeCredential: remove });
-    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
-    await user.click(await screen.findByText('remove'));
+    await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
+    await user.click(await screen.findByText(/^remove$/i));
     expect(remove).not.toHaveBeenCalled();
     await user.click(await screen.findByRole('button', { name: /remove login/i }));
     expect(remove).toHaveBeenCalledWith('claude:a@b.org', false);
@@ -785,9 +785,9 @@ describe('removing a login with a browser profile', () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly({ hasProfile: true }));
     useMockAuth.setState({ removeCredential: remove });
-    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
-    await user.click(await screen.findByText('remove'));
-    await user.click(screen.getByLabelText('also delete the browser profile'));
+    await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
+    await user.click(await screen.findByText(/^remove$/i));
+    await user.click(screen.getByLabelText(/^also delete the browser profile$/i));
     await user.click(screen.getByRole('button', { name: /remove login/i }));
     expect(remove).toHaveBeenCalledWith('claude:a@b.org', true);
   });
@@ -799,8 +799,8 @@ describe('removing a login with a browser profile', () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly({ hasProfile: true, profileShared: true }));
     useMockAuth.setState({ removeCredential: remove });
-    await user.click(screen.getByRole('button', { name: 'a@b.org actions' }));
-    await user.click(await screen.findByText('remove'));
+    await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
+    await user.click(await screen.findByText(/^remove$/i));
     expect(screen.queryByLabelText('also delete the browser profile')).toBeNull();
     expect(screen.getByText(/another login signs in as the same person/i)).toBeTruthy();
     await user.click(await screen.findByRole('button', { name: /remove login/i }));

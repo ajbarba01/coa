@@ -5,7 +5,6 @@ import {
   Icon,
   MenuItem,
   ModalShell,
-  PopoverCard,
   StatusDot,
   Toggle,
   Tooltip,
@@ -39,6 +38,7 @@ import { TextInput } from './fields.js';
 import { SignInButton, useStartRelogin } from './LoginFlow.js';
 import { providerAttention } from './loginStore.js';
 import { ModelsSection } from './ModelEditor.js';
+import { RowMenu } from './RowMenu.js';
 import { SurfaceEmpty } from './surfaceStates.js';
 import { useAuthUi } from './surfaceUi.js';
 import { useNarrow } from './useNarrow.js';
@@ -71,15 +71,15 @@ const STATUS_DOT: Record<CredentialStatus, SessionStatus> = {
 export function statusText(c: Credential, status: CredentialStatus): string {
   switch (status) {
     case 'active':
-      return 'active';
+      return 'Active';
     case 'expired':
-      return 'login expired';
+      return 'Login expired';
     case 'disabled':
-      return 'benched';
+      return 'Benched';
     case 'cooling':
-      return `cooling down · ${Math.floor((c.coolingSec ?? 0) / 60)}m ${(c.coolingSec ?? 0) % 60}s`;
+      return `Cooling down · ${Math.floor((c.coolingSec ?? 0) / 60)}m ${(c.coolingSec ?? 0) % 60}s`;
     case 'healthy':
-      return 'healthy';
+      return 'Healthy';
   }
 }
 
@@ -104,7 +104,7 @@ export function AuthStrip(): React.JSX.Element {
       <div className="flex min-w-0 items-center gap-2.5 px-4" style={NO_DRAG}>
         {drilled === undefined ? (
           <>
-            <span className="font-mono text-meta tracking-[0.06em] text-s9">auth</span>
+            <span className="font-mono text-meta tracking-[0.06em] text-s9">Auth</span>
             {added.length > 0 && (
               <span className="font-mono text-meta text-s7">{added.length} providers</span>
             )}
@@ -127,7 +127,7 @@ export function AuthStrip(): React.JSX.Element {
       <Tooltip label="re-read logins" side="bottom">
         <button
           type="button"
-          aria-label="re-read logins"
+          aria-label="Re-read logins"
           onClick={() =>
             void refresh()
               .then(() => useMockAuth.getState().probeHealth())
@@ -195,7 +195,7 @@ export function AuthSurface(): React.JSX.Element {
             hint="add one to give coa something to log in as"
           />
           <Button variant="quiet" onClick={() => setAdding(true)}>
-            + add provider
+            + Add Provider
           </Button>
         </div>
       ) : narrow ? (
@@ -272,23 +272,23 @@ function RemoveProviderDialog(): React.JSX.Element {
     provider === undefined
       ? ''
       : count === 0
-        ? `Nothing is configured under it — nothing else leaves with it.`
+        ? `Nothing is configured under it, so nothing else leaves with it.`
         : isPointerLocator(provider.locator)
-          ? `coa forgets its ${count} ${provider.noun}${count === 1 ? '' : 's'}. The ${count === 1 ? 'login itself stays' : 'logins themselves stay'} where ${count === 1 ? 'it lives' : 'they live'} — nothing is touched at ${provider.label}.`
-          : `coa forgets its ${count} ${provider.noun}${count === 1 ? '' : 's'}. Forgetting is not revoking — a burned key is revoked at ${provider.label}, not here.`;
+          ? `coa stops tracking its ${count} ${provider.noun}${count === 1 ? '' : 's'}. The ${count === 1 ? 'login itself stays' : 'logins themselves stay'} where ${count === 1 ? 'it lives' : 'they live'}, and nothing is touched at ${provider.label}.`
+          : `coa stops tracking its ${count} ${provider.noun}${count === 1 ? '' : 's'}. Removing is not revoking. A burned key is revoked at ${provider.label}, not here.`;
 
   return (
     <ModalShell
       open={provider !== undefined}
       onClose={close}
-      aria-label="remove provider"
+      aria-label="Remove Provider"
       className="w-96"
     >
       {provider !== undefined && (
         <>
           <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
             <BrandMark spec={provider.mark} />
-            <span className="text-sec font-semibold text-s11">remove {provider.label}?</span>
+            <span className="text-sec font-semibold text-s11">Remove {provider.label}?</span>
           </div>
           <div className="flex flex-col gap-3 px-4 py-4 text-code leading-relaxed text-s9">
             <span>{consequence}</span>
@@ -305,7 +305,7 @@ function RemoveProviderDialog(): React.JSX.Element {
           </div>
           <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
             <Button variant="outline" onClick={close}>
-              cancel
+              Cancel
             </Button>
             <Button
               variant="quiet"
@@ -316,7 +316,7 @@ function RemoveProviderDialog(): React.JSX.Element {
                 close();
               }}
             >
-              <span className="text-crit">remove provider</span>
+              <span className="text-crit">Remove Provider</span>
             </Button>
           </div>
         </>
@@ -344,7 +344,7 @@ function RemoveCredentialDialog(): React.JSX.Element {
     <ModalShell
       open={credential !== undefined}
       onClose={close}
-      aria-label="remove login"
+      aria-label="Remove Login"
       className="w-96"
     >
       {credential !== undefined && (
@@ -361,23 +361,23 @@ function RemoveCredentialDialog(): React.JSX.Element {
               // The jar belongs to an identity, not to this row, and another login still
               // signs in with it — deleting it would sign that one out too (docs/adr/0021).
               <span className="text-s8">
-                Its browser profile stays: another login signs in as the same person and still
-                uses it.
+                Its browser profile stays: another login signs in as the same person and still uses
+                it.
               </span>
             ) : (
               <label className="flex items-center gap-2.5">
                 <Toggle
                   on={alsoProfile}
                   onChange={setAlsoProfile}
-                  aria-label="also delete the browser profile"
+                  aria-label="Also delete the browser profile"
                 />
-                <span>also delete the browser profile (its cookies and cache, tens of MB)</span>
+                <span>Also delete the browser profile (its cookies and cache, tens of MB)</span>
               </label>
             )}
           </div>
           <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
             <Button variant="outline" onClick={close}>
-              cancel
+              Cancel
             </Button>
             <Button
               variant="quiet"
@@ -386,7 +386,7 @@ function RemoveCredentialDialog(): React.JSX.Element {
                 close();
               }}
             >
-              <span className="text-crit">remove login</span>
+              <span className="text-crit">Remove Login</span>
             </Button>
           </div>
         </>
@@ -432,9 +432,9 @@ function ProviderList({
         <span className="flex h-4 w-4 flex-none items-center justify-center font-mono text-s7 group-hover:text-s10">
           +
         </span>
-        add provider
+        Add Provider
       </button>
-      {backends.length > 0 && <CapsLabel className="px-0 pb-1.5">agent backends</CapsLabel>}
+      {backends.length > 0 && <CapsLabel className="px-0 pb-1.5">Agent backends</CapsLabel>}
       {backends.map((p) => (
         <ProviderRow
           key={p.id}
@@ -444,7 +444,7 @@ function ProviderList({
           onSelect={onSelect}
         />
       ))}
-      {services.length > 0 && <CapsLabel className="px-0 pt-5 pb-1.5">tool services</CapsLabel>}
+      {services.length > 0 && <CapsLabel className="px-0 pt-5 pb-1.5">Tool services</CapsLabel>}
       {services.map((p) => (
         <ProviderRow
           key={p.id}
@@ -518,7 +518,7 @@ function ProviderRow({
       {/* The bench switch rides ABOVE the stretched link (its own pointer events), and stays out
           of the way until you come near — a provider's on/off is a decision, not an ornament. It
           stays visible while OFF, because that IS the state you need to see. */}
-      <Tooltip label={enabled ? 'bench this provider' : 'un-bench this provider'} side="top">
+      <Tooltip label={enabled ? 'Bench this provider' : 'Un-bench this provider'} side="top">
         <span
           className={cx(
             'slip relative flex',
@@ -556,7 +556,7 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
   // The version rides the subtitle where one applies — a fact about the seam coa drives,
   // in the row of facts about the seam.
   const subtitle = [
-    provider.group === 'backend' ? 'agent backend' : 'tool service',
+    provider.group === 'backend' ? 'Agent backend' : 'Tool service',
     ...(provider.group === 'service' ? positions : [LOCATOR_LABEL[provider.locator]]),
     ...(provider.version === undefined ? [] : [provider.version]),
   ].join(' · ');
@@ -568,7 +568,7 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
           <BrandMark spec={provider.mark} size={20} muted={!enabled} />
           <span className="text-body font-semibold text-s12">{provider.label}</span>
           <div className="ml-auto flex items-center gap-2.5">
-            <Tooltip label={enabled ? 'bench this provider' : 'un-bench this provider'} side="top">
+            <Tooltip label={enabled ? 'Bench this provider' : 'Un-bench this provider'} side="top">
               <Toggle
                 on={enabled}
                 onChange={(on) => void setProviderEnabled(providerId, on).catch(() => {})}
@@ -580,12 +580,12 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
                   (strict-superset: the driven flow is primary, never the only door). */}
               {provider.locator === 'config-dir' && (
                 <MenuItem onClick={() => setAdding(true)}>
-                  point at an existing config dir…
+                  Point at an existing config dir…
                 </MenuItem>
               )}
               {/* Removal takes every credential with it — big enough to ask first. */}
               <MenuItem onClick={() => confirmRemove(providerId)}>
-                <span className="text-crit">remove provider…</span>
+                <span className="text-crit">Remove Provider…</span>
               </MenuItem>
             </RowMenu>
           </div>
@@ -604,8 +604,8 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
               <div className="mt-4 flex items-center gap-2 text-code text-s8">
                 <StatusDot status="idle" />
                 {provider.group === 'backend'
-                  ? 'Benched — its models are out of the picker. The credentials are untouched.'
-                  : 'Benched — skipped in every chain. The keys are untouched.'}
+                  ? 'Benched. Its models are out of the picker, and the credentials are untouched.'
+                  : 'Benched. It is skipped in every chain, and the keys are untouched.'}
               </div>
             </motion.div>
           )}
@@ -627,7 +627,7 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
             </span>
           ) : (
             <Button variant="text" className="ml-auto" onClick={() => setAdding(true)}>
-              + add {provider.noun}
+              + Add {provider.noun}
             </Button>
           )}
         </div>
@@ -650,7 +650,7 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
 
         {credentials.length === 0 && !adding && (
           <div className="py-6 text-center text-sec text-s7">
-            no {provider.noun}s yet — add one to use {provider.label}
+            No {provider.noun}s yet. Add one to use {provider.label}.
           </div>
         )}
 
@@ -752,7 +752,7 @@ function CredentialRow({
       {selectable && (
         <button
           type="button"
-          aria-label={`use ${credential.label}`}
+          aria-label={`Use ${credential.label}`}
           onClick={() => void makeActive(credential.id).catch(() => {})}
           className="absolute inset-0 cursor-pointer rounded-r3"
         />
@@ -797,11 +797,11 @@ function CredentialRow({
         </span>
       </span>
 
-      {/* "use" appears on approach for a row you could switch to: the affordance says what the
+      {/* "Use" appears on approach for a row you could switch to: the affordance says what the
           click does, so activating never requires opening a menu to discover it. */}
       {selectable && !needsRelogin && (
         <span className="pointer-events-none relative flex-none font-mono text-meta text-s8 opacity-0 group-hover:opacity-100">
-          use
+          Use
         </span>
       )}
       {/* Re-login is the badge's primary act — one click into the driven flow. It rides
@@ -813,7 +813,7 @@ function CredentialRow({
           onClick={() => startRelogin(credential)}
           className="slip relative flex-none cursor-pointer rounded-r1 border border-warn/40 px-1.5 py-0.5 font-mono text-meta text-warn hover:border-warn/70 hover:bg-warn/10"
         >
-          re-login
+          Re-login
         </button>
       )}
       <span
@@ -836,8 +836,8 @@ function CredentialRow({
             and it needs you. Anything else flagged just needs you. */}
         {needsRelogin
           ? status === 'active'
-            ? 'active · needs relogin'
-            : 'needs relogin'
+            ? 'Active · needs relogin'
+            : 'Needs relogin'
           : statusText(credential, status)}
       </span>
 
@@ -861,7 +861,7 @@ function CredentialRow({
               disabled={status === 'active' || status === 'disabled' || status === 'expired'}
               onClick={() => void makeActive(credential.id).catch(() => {})}
             >
-              make active
+              Make Active
             </MenuItem>
           )}
           <MenuItem
@@ -869,10 +869,10 @@ function CredentialRow({
               void setCredentialDisabled(credential.id, !credential.disabled).catch(() => {})
             }
           >
-            {credential.disabled ? 'un-bench' : 'bench'}
+            {credential.disabled ? 'Un-bench' : 'Bench'}
           </MenuItem>
           {/* Edit touches only what coa can READ BACK — the label, a pointer's target. */}
-          <MenuItem onClick={() => setEditing(true)}>edit…</MenuItem>
+          <MenuItem onClick={() => setEditing(true)}>Edit…</MenuItem>
           {/* A SECRET is never edited (coa cannot show what it cannot read): a key is
               replaced — an add that supersedes. A pointer's secret lives with the provider,
               so its only recovery act is re-login — the DRIVEN flow for a config dir
@@ -880,19 +880,19 @@ function CredentialRow({
           {isPointerLocator(provider.locator) ? (
             provider.locator === 'config-dir' ? (
               (status === 'expired' || needsRelogin) && (
-                <MenuItem onClick={() => startRelogin(credential)}>re-login…</MenuItem>
+                <MenuItem onClick={() => startRelogin(credential)}>Re-login…</MenuItem>
               )
             ) : (
               status === 'expired' && (
-                <MenuItem onClick={() => setReplacing(true)}>replace…</MenuItem>
+                <MenuItem onClick={() => setReplacing(true)}>Replace…</MenuItem>
               )
             )
           ) : (
-            <MenuItem onClick={() => setReplacing(true)}>replace {provider.noun}…</MenuItem>
+            <MenuItem onClick={() => setReplacing(true)}>Replace {provider.noun}…</MenuItem>
           )}
           {status === 'cooling' && (
             <MenuItem onClick={() => void clearCooldown(credential.id).catch(() => {})}>
-              clear cooldown
+              Clear Cooldown
             </MenuItem>
           )}
           <MenuItem
@@ -907,52 +907,11 @@ function CredentialRow({
               }
             }}
           >
-            <span className="text-crit">remove</span>
+            <span className="text-crit">Remove</span>
           </MenuItem>
         </RowMenu>
       </span>
     </div>
-  );
-}
-
-function RowMenu({
-  label,
-  open: controlledOpen,
-  onOpenChange,
-  anchorPoint,
-  children,
-}: {
-  label: string;
-  /** Controlled pair — a row that also opens this menu on right-click owns the state. */
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  /** Present while the menu was opened by right-click: anchor under the cursor. */
-  anchorPoint?: { x: number; y: number } | undefined;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  const [ownOpen, setOwnOpen] = useState(false);
-  const open = controlledOpen ?? ownOpen;
-  const setOpen = onOpenChange ?? setOwnOpen;
-  return (
-    <PopoverCard
-      open={open}
-      onOpenChange={setOpen}
-      side="bottom"
-      align={anchorPoint === undefined ? 'end' : 'start'}
-      anchorPoint={anchorPoint}
-      className="w-44"
-      trigger={
-        <button
-          type="button"
-          aria-label={label}
-          className="slip flex h-6 w-6 flex-none cursor-pointer items-center justify-center rounded-r2 text-s7 hover:bg-s4 hover:text-s11"
-        >
-          ⋯
-        </button>
-      }
-    >
-      <div onClick={() => setOpen(false)}>{children}</div>
-    </PopoverCard>
   );
 }
 
@@ -970,7 +929,9 @@ function AddCredentialRow({
   const existing = useMockAuth(
     (s) => s.credentials.filter((c) => c.providerId === provider.id).length,
   );
-  const [label, setLabel] = useState(`${provider.label}-${existing + 1}`);
+  // Seeded from the ID, not the display label: this string is a VALUE the user keeps
+  // (and the HUD's meter ids point at it), so recasing the provider's name must not move it.
+  const [label, setLabel] = useState(`${provider.id}-${existing + 1}`);
   const [secret, setSecret] = useState('');
 
   // An open inline form is a dismiss layer: Escape closes IT first, wherever focus sits,
@@ -981,7 +942,7 @@ function AddCredentialRow({
     if (secret.trim() === '') return;
     void addCredential(
       provider.id,
-      label.trim() === '' ? `${provider.label}-${existing + 1}` : label,
+      label.trim() === '' ? `${provider.id}-${existing + 1}` : label,
       secret,
     ).catch(() => {});
     onDone();
@@ -992,7 +953,7 @@ function AddCredentialRow({
     // from the box (inside the animated wrapper, so the gap grows in with it).
     <div className="mb-1.5 flex flex-col gap-2 rounded-r3 border border-s4 bg-s2 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <TextInput value={label} onChange={setLabel} placeholder="label" className="w-32" />
+        <TextInput value={label} onChange={setLabel} placeholder="Label" className="w-32" />
         {provider.locator === 'config-dir' ? (
           <DirField
             autoFocus
@@ -1015,7 +976,7 @@ function AddCredentialRow({
           />
         )}
         <Button variant="quiet" disabled={secret.trim() === ''} onClick={commit}>
-          add
+          Add
         </Button>
         <Button variant="text" onClick={onDone}>
           esc
@@ -1073,7 +1034,7 @@ function EditCredentialRow({
         onChange={setLabel}
         onCommit={commit}
         onCancel={onDone}
-        placeholder="label"
+        placeholder="Label"
         className={pointer ? 'w-32' : 'flex-1'}
       />
       {pointer &&
@@ -1096,7 +1057,7 @@ function EditCredentialRow({
           />
         ))}
       <Button variant="quiet" disabled={label.trim() === ''} onClick={commit}>
-        save
+        Save
       </Button>
       <Button variant="text" onClick={onDone}>
         esc
@@ -1135,7 +1096,7 @@ function ReplaceSecretRow({
           onChange={setSecret}
           onCommit={commit}
           onCancel={onDone}
-          placeholder="point at the config directory again…"
+          placeholder="Point at the config directory again…"
         />
       ) : (
         <TextInput
@@ -1150,7 +1111,7 @@ function ReplaceSecretRow({
         />
       )}
       <Button variant="quiet" disabled={secret.trim() === ''} onClick={commit}>
-        replace
+        Replace
       </Button>
       <Button variant="text" onClick={onDone}>
         esc
@@ -1197,7 +1158,7 @@ function DirField({
         className="flex-1"
       />
       <Button variant="text" onClick={() => void browse()}>
-        browse…
+        Browse…
       </Button>
     </span>
   );
@@ -1239,7 +1200,9 @@ function AddProviderDialog({
   const commit = (): void => {
     if (picked === undefined || secret.trim() === '') return;
     const providerId = picked.id;
-    const chosenLabel = label.trim() === '' ? picked.label : label;
+    // The default credential name is a VALUE the user keeps, so it comes from the id,
+    // not from the provider's display name.
+    const chosenLabel = label.trim() === '' ? picked.id : label;
     // The provider must exist server-side before its first credential can attach to it —
     // sequenced, not fired concurrently.
     void (async () => {
@@ -1251,13 +1214,13 @@ function AddProviderDialog({
   };
 
   return (
-    <ModalShell open={open} onClose={close} aria-label="add provider" className="w-124">
+    <ModalShell open={open} onClose={close} aria-label="Add provider" className="w-124">
       <AnimatePresence mode="wait" initial={false}>
         {picked === undefined ? (
           <motion.div key="catalogue" {...RISE}>
-            <CapsLabel className="border-b border-s3 px-4 py-3">add provider</CapsLabel>
+            <CapsLabel className="border-b border-s3 px-4 py-3">Add Provider</CapsLabel>
             <div className="max-h-100 overflow-y-auto px-4 pt-1 pb-4">
-              <CapsLabel className="px-0 pt-3 pb-1.5">agent backends</CapsLabel>
+              <CapsLabel className="px-0 pt-3 pb-1.5">Agent backends</CapsLabel>
               <div className="grid grid-cols-2 gap-1.5">
                 {PROVIDERS.filter((p) => p.group === 'backend').map((p) => (
                   <ProviderTile
@@ -1268,7 +1231,7 @@ function AddProviderDialog({
                   />
                 ))}
               </div>
-              <CapsLabel className="px-0 pt-4 pb-1.5">tool services</CapsLabel>
+              <CapsLabel className="px-0 pt-4 pb-1.5">Tool services</CapsLabel>
               <div className="grid grid-cols-2 gap-1.5">
                 {PROVIDERS.filter((p) => p.group === 'service').map((p) => (
                   <ProviderTile
@@ -1287,13 +1250,13 @@ function AddProviderDialog({
               <BrandMark spec={picked.mark} />
               <span className="text-sec font-semibold text-s11">{picked.label}</span>
               <span className="font-mono text-meta text-s7">
-                {picked.group === 'backend' ? 'agent backend' : 'tool service'}
+                {picked.group === 'backend' ? 'Agent backend' : 'Tool service'}
               </span>
             </div>
             <div className="flex flex-col gap-4 px-4 py-4">
               <label className="flex flex-col gap-1.5 text-code text-s9">
-                label
-                <TextInput value={label} onChange={setLabel} placeholder={picked.label} />
+                Label
+                <TextInput value={label} onChange={setLabel} placeholder={picked.id} />
               </label>
               <label className="flex flex-col gap-1.5 text-code text-s9">
                 {LOCATOR_LABEL[picked.locator]}
@@ -1312,7 +1275,7 @@ function AddProviderDialog({
                     onChange={setSecret}
                     onCommit={commit}
                     placeholder={
-                      picked.locator === 'env-var' ? 'GEMINI_API_KEY' : `paste the ${picked.noun}…`
+                      picked.locator === 'env-var' ? 'GEMINI_API_KEY' : `Paste the ${picked.noun}…`
                     }
                     type={picked.locator === 'key-file' ? 'password' : 'text'}
                   />
@@ -1321,16 +1284,16 @@ function AddProviderDialog({
               <span className="text-meta leading-relaxed text-s7">{picked.hint}</span>
               <div className="flex items-center gap-2 text-code text-s8">
                 <StatusDot status="idle" />
-                not verified — coa never calls a provider to check a credential. It goes live on
+                Not verified. coa never calls a provider to check a credential, so it goes live on
                 first use.
               </div>
             </div>
             <div className="flex justify-end gap-2 border-t border-s3 px-4 py-3">
               <Button variant="outline" onClick={reset}>
-                back
+                Back
               </Button>
               <Button variant="quiet" disabled={secret.trim() === ''} onClick={commit}>
-                add {picked.noun}
+                Add {picked.noun}
               </Button>
             </div>
           </motion.div>
@@ -1364,7 +1327,7 @@ function ProviderTile({
       <BrandMark spec={provider.mark} muted={already} />
       <span className="min-w-0 flex-1 truncate text-left">{provider.label}</span>
       <span className="font-mono text-meta text-s7">
-        {already ? 'added' : LOCATOR_LABEL[provider.locator].split(' ')[0]}
+        {already ? 'Added' : LOCATOR_LABEL[provider.locator].split(' ')[0]}
       </span>
     </button>
   );
