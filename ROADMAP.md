@@ -74,6 +74,32 @@ For **what each module is** (public interface, owned decisions), see the handoff
   (`streaming-output-smoke.live.test.ts`) verifies real partial-message streaming against the SDK.
   Also remaining: the system-prompt viewer and the apply-as-update injection spike
   (item G). Role/capability enforcement is now deferred — see "Someday / ideas".
+- **Agent SDK control survey** — Done (offline), live pass outstanding. A probe-backed answer to how
+  much of the Claude Agent SDK's loop coa can control, taken before the backend-independent agent arc
+  starts: nine stages rated, **no stage `Opaque`**, and **six of nine standing assumptions falsified**
+  — including the arc's "the tool name `Agent` is unavailable to coa" and the premise that the
+  harness's own subagents are ungovernable. The fork question is closed (**do not fork**: 26.8 upstream
+  releases a month, signed and checksummed binaries, no redistribution grant). 197 offline probes live
+  in `packages/adapter-claude-sdk/src/control/` and are version-stamped, so an SDK bump names the
+  verdict that expired. Ledger + the P1 delta:
+  [`docs/design/research/2026-08-02-claude-sdk-control-ledger.md`](docs/design/research/2026-08-02-claude-sdk-control-ledger.md);
+  binary findings alongside it. **Live pass complete bar two probes:** the CLI **honours `toolAliases`
+  at dispatch** (a model-emitted `Read` ran coa's MCP handler), killing the arc's naming limit — but an
+  alias only **redirects** a name the harness already advertises and never **publishes** one, so coa
+  chooses per tool between owning the implementation under Anthropic's schema and owning everything
+  under `mcp__coa__*`. All 16 delegation probes pass; risk R2 is confirmed inside one run
+  (`system:init` says `Task`, the model emits `Agent`); `maxBudgetUsd` is enforced but **raised as an
+  exception, not a result frame**; `maxTurns` outranks the close-gate; `ANTHROPIC_BASE_URL` genuinely
+  redirects real inference (P5's premise); child text reaches coa by default; coa can choose
+  compaction's **moment** via `/compact` though never veto it; and assumption 9 resolved — a
+  `role:system` message is transmitted but not obeyed, while a `shouldQuery:false` user message does
+  land in context at the cost of a turn. **The most serious finding: `allowedTools` means auto-approve,
+  so it suppresses `canUseTool` entirely — coa's per-tool governance does not run for exactly the tools
+  coa granted.** Two probes stay unsettled by choice (forcing a real auto-compaction costs several
+  dollars; the synthesised-transcript probe hangs and needs restructuring). Also surfaced: a stale
+  builtin set, an inert re-anchor path, an ungoverned child permission mode, an undeclared
+  subagent-prompt lever, `terminal_reason` never being read, `CLAUDE_CONFIG_DIR` overloaded as both
+  credential and store location, and a shared live-test helper whose allow-result the real CLI rejects.
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.

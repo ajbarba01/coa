@@ -49,6 +49,10 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0021](0021-browser-profiles-keyed-by-identity.md) — Browser profiles are keyed by identity, not by account row
 - [0022](0022-a-login-is-a-transition-not-a-state.md) — A login is a transition, not a state
 - [0023](0023-removal-deletes-the-login-coa-created.md) — Removing an account deletes the login coa created for it
+- [0024](0024-browser-profiles-share-one-user-data-dir.md) — Browser profiles share one user-data-dir, with on-request reclaim (supersedes 0021's layout)
+- [0025](0025-retire-the-legacy-console-kit.md) — The legacy console kit is retired, and the forge palette goes with it
+- [0026](0026-coa-borrows-the-harness-it-does-not-fork-it.md) — coa borrows the harness; it does not fork it
+- [0027](0027-one-tool-surface-alias-or-own.md) — A tool is aliased or owned, never both
 
 ---
 
