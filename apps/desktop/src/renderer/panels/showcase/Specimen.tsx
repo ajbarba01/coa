@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { cx } from '@coa/console-ui';
+import { cx } from '@coa/console-kit';
 
 /** A component family: a labelled section with a hairline-underlined header.
  *  Families are real groups, so the heading is meaning-bearing structure, not
@@ -13,7 +13,7 @@ export function Family({
 }): React.JSX.Element {
   return (
     <section aria-label={name} className="flex flex-col gap-4">
-      <h3 className="border-b border-hairline pb-1.5 text-body font-semibold text-fg">{name}</h3>
+      <h3 className="border-b border-s3 pb-1.5 text-body font-semibold text-s12">{name}</h3>
       <div className="flex flex-col gap-4">{children}</div>
     </section>
   );
@@ -32,7 +32,7 @@ export function Row({
 }): React.JSX.Element {
   return (
     <div className="grid grid-cols-[132px_1fr] gap-4">
-      <div className={cx('text-caption text-faint', align === 'start' ? 'pt-1' : 'self-center')}>
+      <div className={cx('text-code text-s7', align === 'start' ? 'pt-1' : 'self-center')}>
         {label}
       </div>
       <div
