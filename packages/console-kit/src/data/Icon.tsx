@@ -1,4 +1,19 @@
-import { Check, Copy, Mic, Paperclip, RotateCw, Settings, X } from 'lucide-react';
+import {
+  Check,
+  CircleCheck,
+  Copy,
+  Info,
+  Mic,
+  OctagonAlert,
+  Paperclip,
+  Pencil,
+  Pin,
+  PinOff,
+  RotateCw,
+  Settings,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 /**
@@ -27,6 +42,21 @@ const GLYPHS = {
   settings: Settings,
   refresh: RotateCw,
   close: X,
+  // The rename affordance riding an inline-edit control (Agents' identity header): the
+  // control's whole meaning is "click to rename", so the mark is drawn, not typed.
+  edit: Pencil,
+  // The pin toggle, which is both the state and the control that changes it — icon-only,
+  // so the mark carries the whole meaning and is drawn. Two glyphs rather than one styled
+  // two ways: an outline pin reads as "not pinned", a struck pin as "click to unpin".
+  pin: Pin,
+  'pin-off': PinOff,
+  // The four feedback tones. A tone is a state, and the indicator law draws state — so
+  // each tone owns a mark rather than leaning on colour alone, which is not a channel
+  // every reader has. Four silhouettes, not one shape recoloured four ways.
+  info: Info,
+  success: CircleCheck,
+  warning: TriangleAlert,
+  danger: OctagonAlert,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof GLYPHS;
