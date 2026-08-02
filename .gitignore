@@ -35,5 +35,10 @@ test-out.txt
 /TEMP.md
 /LOCAL.md
 
-# Local agent workspace: git worktrees, skills, settings — never committed
-.claude/
+# Local agent workspace: git worktrees, ad-hoc skills, settings — never committed.
+# Contents are excluded rather than the directory itself: git cannot re-include a
+# path whose parent directory is excluded, and the negation below depends on it.
+.claude/*
+# ...except skills the repo OWNS. `writing-in-voice` carries coa's derived copy
+# profile and has to travel with the repo to be the source of truth it claims.
+!.claude/skills/
