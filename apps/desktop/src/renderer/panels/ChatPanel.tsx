@@ -1,22 +1,15 @@
-import { Spinner } from '@coa/console-kit';
-import {
-  Banner as BannerCard,
-  Button,
-  InlineMessage,
-  PaneOverlayProvider,
-  Toast,
-  ToastProvider,
-  Transcript,
-} from '@coa/console-ui';
+import { InlineMessage, Spinner, Toast } from '@coa/console-kit';
+import { Transcript } from '@coa/console-transcript';
+import { PaneOverlayProvider } from '@coa/console-kit';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { RespondFn, TranscriptFrame } from '@coa/console-ui';
-import type { Banner, ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
+import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
+import type { ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
 import { matchesFind } from '../shell/keys.js';
 import { useShell } from '../shell/store.js';
 import { modelPickerLabel } from './AgentsPanel.js';
-import { computeChatBanners } from './banners.js';
+import { computeChatBanners, type ChatNotice } from './banners.js';
 import { Composer } from './Composer.js';
 import type { ConsoleState } from './state.js';
 
@@ -55,9 +48,9 @@ export type ChatVm =
       approval?:
         | { id: string; tool: string; summary: string; diffStat?: string | undefined }
         | undefined;
-      /** System banners (drift/cache notices) for the active session — surfaced above
-       *  the transcript, never sent to the agent. */
-      banners: Banner[];
+      /** System notices (drift/cache) for the active session — docked to the composer
+       *  as one quiet indicator line, never sent to the agent. */
+      banners: ChatNotice[];
       onBannerAction: (bannerId: string, actionId: string) => void;
       /** The merged model list + the active session's current model, for the in-chat
        *  switch. Picking one re-pins the session (and can raise the cache banner). */
@@ -320,7 +313,11 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const override = activeSessionId ? state.ui.modelOverride[activeSessionId] : undefined;
   // Predictive banners: derived from the pending pick + the running prompt's config the
   // session reports, so they appear the moment a model/config is changed (before send).
+  // A session with no turns yet has no warm cache that could have gone cold, so the
+  // idle-staleness reason is gated on this (the model-changed reason is not).
+  const hasRun = r.value.length > 0;
   const banners = computeChatBanners({
+    hasRun,
     ...(override !== undefined ? { override } : {}),
     ...(activeSession !== undefined
       ? {
@@ -341,6 +338,9 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     },
     ...(activeSessionId !== undefined && state.ui.dismissedDrift[activeSessionId] !== undefined
       ? { dismissedDriftKey: state.ui.dismissedDrift[activeSessionId] }
+      : {}),
+    ...(activeSessionId !== undefined && state.ui.dismissedCache[activeSessionId] !== undefined
+      ? { dismissedCacheKey: state.ui.dismissedCache[activeSessionId] }
       : {}),
     now: nowIso,
   });
@@ -408,55 +408,6 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     ...(active ? { runningSince: active.since } : {}),
     sendNonce: activeSessionId !== undefined ? (state.ui.sendNonce[activeSessionId] ?? 0) : 0,
   };
-}
-
-/** A short title per banner kind (the reason carries the detail). */
-function bannerTitle(kind: Banner['kind']): string {
-  return kind === 'drift' ? 'Prompt out of date' : 'Prompt cache';
-}
-
-/** System banners (drift/cache notices) above the transcript: the reason plus any
- *  resolution buttons. System-only — a banner is never part of the agent transcript. */
-function BannerStrip({
-  banners,
-  onAction,
-}: {
-  banners: Banner[];
-  onAction: (bannerId: string, actionId: string) => void;
-}): React.JSX.Element | null {
-  if (banners.length === 0) return null;
-  return (
-    <div className="flex flex-col gap-2 border-b border-border-default p-2.5">
-      {banners.map((b) => (
-        <BannerCard
-          key={b.id}
-          tone="warning"
-          title={bannerTitle(b.kind)}
-          // Only the actionable drift banner is dismissable; the cache notice is passive
-          // and auto-clears when the pending pick is sent or reverted.
-          {...(b.kind === 'drift' ? { onDismiss: () => onAction(b.id, 'dismiss') } : {})}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <span className="min-w-0">{b.reason}</span>
-            {b.actions && b.actions.length > 0 && (
-              <div className="flex shrink-0 items-center gap-1.5">
-                {b.actions.map((a) => (
-                  <Button
-                    key={a.id}
-                    variant={a.primary ? 'primary' : 'tertiary'}
-                    size="sm"
-                    onClick={() => onAction(b.id, a.id)}
-                  >
-                    {a.label}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </div>
-        </BannerCard>
-      ))}
-    </div>
-  );
 }
 
 /** A fresh session: teach the register in three quiet lines — who is ready, on
@@ -615,7 +566,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
           // The loading circle, centered — shown only on a cold cache; warm
           // switches render instantly from `turnsBySession`.
           <div className="flex flex-1 items-center justify-center">
-            <Spinner label="loading conversation" />
+            <Spinner label="Loading conversation" />
           </div>
         )}
         {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
@@ -640,14 +591,13 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   const currentEffortLabel =
     vm.effortOptions.find((e) => e.value === vm.effortValue)?.label ?? vm.effortValue;
   return (
-    <ToastProvider>
+    <>
       {/* Session-switching chrome (title bar, session switcher, agent rail) is retired here —
           the shell's title-bar tabs + ⌕ browser own switching now (docs/design plan A1). This
           is a plain layout container, not a re-styled Pane — the running/needs-you state now
           lives on the composer's own edge (its status-outline shimmer). */}
       <div className="flex h-full min-h-0 flex-col bg-s1">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <BannerStrip banners={vm.banners} onAction={vm.onBannerAction} />
           {/* The transcript fills the pane; the composer floats over its bottom edge
               (below) so the transcript stays visible around/behind it. The transcript's
               own scroll region reserves `composerHeight` of bottom inset so the last row
@@ -722,6 +672,8 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
             }}
           >
             <Composer
+              notices={vm.banners}
+              onNoticeAction={vm.onBannerAction}
               running={vm.sessionStatus === 'running'}
               disabled={vm.activeSessionId === undefined}
               queued={queuedMessages}
@@ -757,7 +709,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
       >
         {revealError}
       </Toast>
-    </ToastProvider>
+    </>
   );
 }
 

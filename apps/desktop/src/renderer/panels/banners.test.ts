@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeChatBanners, configKey } from './banners.js';
+import { cacheKey, computeChatBanners, configKey } from './banners.js';
 
 const NOW = '2026-07-02T12:00:00Z';
-const base = { agentConfig: { roles: ['swe'] }, now: NOW } as const;
+const base = { agentConfig: { roles: ['swe'] }, hasRun: true, now: NOW } as const;
 
 describe('configKey', () => {
   it('is order- and duplicate-independent and treats omitted as empty', () => {
@@ -79,6 +79,26 @@ describe('computeChatBanners — cache', () => {
       }),
     ).toEqual([]);
   });
+
+  it('does not call a session cold before it has ever run', () => {
+    const notices = computeChatBanners({
+      agentConfig: {},
+      hasRun: false,
+      pinned: { provider: 'claude', model: 'opus', updatedAt: '2026-07-31T10:00:00.000Z' },
+      now: '2026-07-31T11:00:00.000Z',
+    });
+    expect(notices.find((n) => n.kind === 'cache')).toBeUndefined();
+  });
+
+  it('still calls an idle session that has run cold', () => {
+    const notices = computeChatBanners({
+      agentConfig: {},
+      hasRun: true,
+      pinned: { provider: 'claude', model: 'opus', updatedAt: '2026-07-31T10:00:00.000Z' },
+      now: '2026-07-31T11:00:00.000Z',
+    });
+    expect(notices.find((n) => n.kind === 'cache')).toBeDefined();
+  });
 });
 
 describe('computeChatBanners — drift', () => {
@@ -141,5 +161,57 @@ describe('computeChatBanners — drift', () => {
       dismissedDriftKey: dismissedKey,
     });
     expect(changedAgain.some((b) => b.kind === 'drift')).toBe(true);
+  });
+});
+
+describe('computeChatBanners — the merged notice contract', () => {
+  const pinned = { provider: 'claude', model: 'opus', updatedAt: NOW };
+  const bothRaised = {
+    ...base,
+    pinned,
+    override: { model: 'sonnet' },
+    frozenConfig: { roles: ['swe'] },
+    agentConfig: { roles: ['swe'], packageIds: ['research'] },
+  };
+
+  it('leads with the actionable notice, since it is the one asking for a decision', () => {
+    expect(computeChatBanners(bothRaised).map((b) => b.kind)).toEqual(['drift', 'cache']);
+  });
+
+  it('carries a short summary alongside the full reason', () => {
+    const [drift, cache] = computeChatBanners(bothRaised);
+    expect(cache?.summary).toBe('The model changed.');
+    expect(cache?.reason).toContain('cold prompt cache');
+    expect(drift?.summary).toBe('The agent configuration changed after this prompt compiled.');
+    // The summary is a clause; the reason is the paragraph it stands in for.
+    expect(drift!.reason.length).toBeGreaterThan(drift!.summary.length);
+  });
+
+  it('says both causes in one line when both apply', () => {
+    const [cache] = computeChatBanners({
+      ...base,
+      pinned: { provider: 'claude', model: 'opus', updatedAt: '2026-07-02T11:00:00Z' },
+      override: { provider: 'deepseek' },
+    });
+    expect(cache?.summary).toBe('The backend changed. The session has been idle.');
+  });
+
+  it('suppresses a dismissed cache notice until the pick or the pin moves', () => {
+    const raised = { ...base, pinned, override: { model: 'sonnet' } };
+    const key = cacheKey(raised);
+    expect(computeChatBanners({ ...raised, dismissedCacheKey: key })).toEqual([]);
+    // Staging a DIFFERENT model is a new key, so the notice comes back.
+    const moved = { ...raised, override: { model: 'haiku' } };
+    expect(computeChatBanners({ ...moved, dismissedCacheKey: key })).toHaveLength(1);
+  });
+
+  it('keys the dismissal to the pin too, so a re-pin re-raises it', () => {
+    const raised = { ...base, pinned, override: { model: 'sonnet' } };
+    const key = cacheKey(raised);
+    const repinned = {
+      ...raised,
+      pinned: { provider: 'claude', model: 'haiku', updatedAt: NOW },
+    };
+    expect(computeChatBanners({ ...repinned, dismissedCacheKey: key })).toHaveLength(1);
   });
 });

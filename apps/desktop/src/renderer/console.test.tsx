@@ -51,9 +51,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
-    getSettings: vi
-      .fn()
-      .mockResolvedValue({ theme: 'dark', density: 'compact', motion: 'full', pinnedAgents: [] }),
+    getSettings: vi.fn().mockResolvedValue({ theme: 'dark', motion: 'full', pinnedAgents: [] }),
     saveSettings: vi.fn().mockResolvedValue(undefined),
     ...over,
   };
@@ -142,6 +140,49 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().data.cap).toEqual({ status: 'ok', value: { remaining: 2.5, capHit: false } });
   });
 
+  it('publishes nothing when a poll returns unchanged data (the 2s App.tsx timer)', async () => {
+    const { controller, publish } = await mount();
+    await controller.refresh();
+    const afterFirst = publish.mock.calls.length;
+    await controller.refresh();
+    expect(publish.mock.calls.length).toBe(afterFirst);
+  });
+
+  it('still publishes when a poll returns a changed value at the same status (cap.remaining ticks down)', async () => {
+    const capState = vi.fn().mockResolvedValueOnce({ remaining: 2.5, capHit: false });
+    const bridge = fakeBridge({ capState });
+    const { controller, publish, last } = await mount(bridge);
+    await controller.refresh();
+    const afterFirst = publish.mock.calls.length;
+
+    capState.mockResolvedValueOnce({ remaining: 2.1, capHit: false });
+    await controller.refresh();
+
+    expect(publish.mock.calls.length).toBe(afterFirst + 1);
+    expect(last().data.cap).toEqual({ status: 'ok', value: { remaining: 2.1, capHit: false } });
+  });
+
+  it('still publishes when a polled timeline array gains an entry at the same status', async () => {
+    const listTimeline = vi.fn().mockResolvedValueOnce([]);
+    const bridge = fakeBridge({ listTimeline });
+    const { controller, publish, last } = await mount(bridge);
+    await controller.refresh();
+    const afterFirst = publish.mock.calls.length;
+
+    const entry = {
+      id: 'chk1',
+      seq: 0,
+      ts: '2026-08-01T00:00:00Z',
+      worktree: '/wt',
+      pinned: false,
+    };
+    listTimeline.mockResolvedValueOnce([entry]);
+    await controller.refresh();
+
+    expect(publish.mock.calls.length).toBe(afterFirst + 1);
+    expect(last().data.timeline).toEqual({ status: 'ok', value: [entry] });
+  });
+
   it('loads the reloaded (R-7) conversation transcript into state on mount', async () => {
     const { last } = await mount();
     expect(last().data.turns).toEqual({
@@ -153,10 +194,10 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     });
   });
 
-  // Known-weak pre-existing coverage (flagged, not redesigned here): a push for a
-  // session that isn't the mounted one ('s' vs 'c1') is recorded but never merged
-  // into visible state, so this only proves the handler doesn't throw.
-  it('subscribes to the push stream and handles a live turn without throwing', async () => {
+  // Pushes under the mounted/active session ('c1', see FAKE_SESSIONS) so the frame
+  // actually merges into visible state — asserts the pushed row renders, not just
+  // that the handler doesn't throw.
+  it('subscribes to the push stream and renders a live turn for the active session', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -170,14 +211,18 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(() =>
       emit?.({
         kind: 'turn',
-        sessionId: 's',
+        sessionId: 'c1',
         worktree: 'w',
-        seq: 0,
+        seq: 2,
         frame: { t: 'text', text: 'hi' },
       }),
     ).not.toThrow();
     await flushRaf();
-    expect(last().data.turns.status).toBe('ok');
+    const turns = last().data.turns;
+    expect(turns.status).toBe('ok');
+    if (turns.status === 'ok') {
+      expect(turns.value).toContainEqual(expect.objectContaining({ text: 'hi' }));
+    }
   });
 
   it('an auth-shaped error push fires the registered auth-failure sink; others do not', async () => {

@@ -1,15 +1,9 @@
-import {
-  Button,
-  CapsLabel,
-  Icon,
-  MenuItem,
-  PopoverCard,
-  StatusDot,
-  StepSlider,
-  cx,
-} from '@coa/console-kit';
+import { Button, Icon, MenuItem, PopoverCard, StatusDot, cx } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import { useShell } from '../shell/store.js';
+import type { ChatNotice } from './banners.js';
+import { ModelPicker } from './ModelPicker.js';
+import { NoticeLine } from './NoticeLine.js';
 
 export interface QueuedMessage {
   id: string;
@@ -60,6 +54,11 @@ export interface ComposerProps {
    *  transcript's jump-to-latest pill anchors here so it always clears
    *  whatever the composer is showing. */
   above?: React.ReactNode;
+  /** Predictive prompt notices (drift/cache), rendered as sections INSIDE the
+   *  shell above the gate. A standing fact about the prompt outranks one request
+   *  inside it, and the gate keeps its adjacency to the field it blocks. */
+  notices?: ChatNotice[];
+  onNoticeAction?: (id: string, actionId: string) => void;
 }
 
 /** The composer: a floating shell over the transcript's floor, and the
@@ -102,6 +101,8 @@ export function Composer({
   onDeny,
   onRedirect,
   above,
+  notices = [],
+  onNoticeAction,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
   const [perm, setPerm] = useState<string>('ask edits');
@@ -183,6 +184,7 @@ export function Composer({
 
       {/* no overflow-hidden on the shell — the chip menus must escape its bounds */}
       <div
+        data-composer-shell
         className={cx(
           'relative rounded-r4 border bg-s3 shadow-[var(--shadow-composer)]',
           disabled
@@ -191,7 +193,13 @@ export function Composer({
               ? 'border-run/55'
               : edge === 'needs-you'
                 ? 'border-warn/55'
-                : 'border-s5 focus-within:border-s6',
+                : // A notice tints the edge ONLY while no real session state owns it.
+                  // Session state always wins, and `edge` is untouched either way, so a
+                  // passive notice can never start the shimmer — animating the composer's
+                  // outline for a cold cache would be a straight indicator-law breach.
+                  notices.length > 0
+                  ? 'border-warn/55'
+                  : 'border-s5 focus-within:border-s6',
         )}
       >
         {edge !== undefined && (
@@ -210,6 +218,9 @@ export function Composer({
             <rect pathLength={100} className="comet-core" />
           </svg>
         )}
+        {/* The notices rank above the gate: a standing fact about the prompt outranks
+            one request inside it. First child, so they wear the shell's top radius. */}
+        <NoticeLine notices={notices} onAction={(id, action) => onNoticeAction?.(id, action)} />
         {/* the gate, MERGED into the shell: the request is the composer's top
             section, and the section's two halves ARE the buttons — the whole
             left half denies, the whole right half approves. The corner labels
@@ -219,12 +230,12 @@ export function Composer({
             <div className="absolute inset-0 grid grid-cols-2">
               <button
                 type="button"
-                aria-label={`deny: ${approval.tool} ${approval.summary}`}
+                aria-label={`Deny: ${approval.tool} ${approval.summary}`}
                 onClick={() => onDeny?.(approval.id)}
                 className="group/deny slip flex cursor-pointer items-end justify-start bg-crit/6 p-2 hover:bg-crit/12"
               >
                 <span className="slip font-mono text-[9.5px] text-crit/60 group-hover/deny:text-crit">
-                  ⌫ deny
+                  ⌫ Deny
                 </span>
               </button>
               <button
@@ -234,7 +245,7 @@ export function Composer({
                 className="group/appr slip flex cursor-pointer items-end justify-end border-l border-s4/60 bg-ok/6 p-2 hover:bg-ok/12"
               >
                 <span className="slip font-mono text-[9.5px] text-ok/60 group-hover/appr:text-ok">
-                  approve ⏎
+                  Approve ⏎
                 </span>
               </button>
             </div>
@@ -244,7 +255,7 @@ export function Composer({
                   <StatusDot status="needs-you" />
                 </span>
                 <span className="font-[550] text-s11">{approval.tool}</span>
-                <span className="font-mono text-caps text-s6">wants to run</span>
+                <span className="font-mono text-caps text-s6">Needs approval</span>
                 {approval.diffStat !== undefined && (
                   <span className="ml-auto font-mono text-meta text-s7">{approval.diffStat}</span>
                 )}
@@ -302,11 +313,11 @@ export function Composer({
           }}
           placeholder={
             disabled
-              ? 'no session — start one to talk to an agent'
+              ? 'No session. Start one to talk to an agent.'
               : approval !== undefined
-                ? 'approve or deny above — or tell the agent what to do instead…'
+                ? 'Approve or deny above, or tell the agent what to do instead…'
                 : running
-                  ? 'queue a message… (⌥⏎ barges in · esc stops)'
+                  ? 'Queue a message… (⌥⏎ barges in · esc stops)'
                   : 'Message builder…'
           }
           className={cx(
@@ -325,13 +336,17 @@ export function Composer({
           <MicButton disabled={disabled} />
           <div className="flex-1" />
           <PermissionChip value={perm} onPick={setPerm} disabled={disabled} />
-          <ModelChip
-            models={models}
-            currentModelId={currentModelId}
-            onPickModel={onPickModel}
+          {/* The one model control, shared with the agent editor. The shelf has no room
+              for a ladder, so this variant names the stop on the trigger and keeps the
+              ladder in the popup's footer. */}
+          <ModelPicker
+            variant="chip"
+            models={models.map((m) => ({ id: m.id, displayName: m.label }))}
+            value={currentModelId}
+            onChange={onPickModel}
             effortOptions={effortOptions}
             effortValue={effortValue}
-            onPickEffort={onPickEffort}
+            onEffortChange={onPickEffort}
             disabled={disabled}
           />
           {!running ? (
@@ -348,23 +363,23 @@ export function Composer({
             <>
               {hasText && (
                 <>
-                  <Button onClick={queueMessage} title="waits for the turn to end (⏎)">
-                    queue
+                  <Button onClick={queueMessage} title="Sends when the turn ends (⏎)">
+                    Queue
                   </Button>
                   <Button
                     variant="outline"
                     onClick={barge}
-                    title="redirects the running turn now (⌥⏎)"
+                    title="Redirects the running turn now (⌥⏎)"
                   >
-                    barge in
+                    Barge In
                   </Button>
                 </>
               )}
               <Button
                 variant="outline"
                 icon
-                aria-label="stop the running turn"
-                title="stop (esc)"
+                aria-label="Stop the running turn"
+                title="Stop (esc)"
                 onClick={() => onStop?.()}
                 className="hover:border-crit/60 hover:text-crit"
               >
@@ -384,11 +399,18 @@ export function Composer({
 
 // The glyph is an autonomy meter — the circle fills as the agent's leash lengthens.
 // Presentational only (SC-1): a future M3 permission gate owns real enforcement.
+// `id` is the VALUE and travels; `label` is what a person reads. Keeping them
+// separate is what lets copy change without moving the mode a session is in.
 const PERMISSIONS = [
-  { id: 'read only', glyph: '○', desc: 'nothing is written' },
-  { id: 'ask edits', glyph: '◔', desc: 'writes wait for approval' },
-  { id: 'auto edits', glyph: '◑', desc: 'writes land; commands still ask' },
-  { id: 'full auto', glyph: '●', desc: 'only the cost cap says no' },
+  { id: 'read only', label: 'Read only', glyph: '○', desc: 'Nothing is written' },
+  { id: 'ask edits', label: 'Ask edits', glyph: '◔', desc: 'Writes are held for approval' },
+  {
+    id: 'auto edits',
+    label: 'Auto edits',
+    glyph: '◑',
+    desc: 'Writes land; commands still need approval',
+  },
+  { id: 'full auto', label: 'Full auto', glyph: '●', desc: 'Only the cost cap can block' },
 ] as const;
 
 function AttachButton({
@@ -409,11 +431,11 @@ function AttachButton({
       side="top"
       align="start"
       className="w-48"
-      tooltip={{ label: 'attach a file', side: 'top' }}
+      tooltip={{ label: 'Attach a file', side: 'top' }}
       trigger={
         <button
           type="button"
-          aria-label="attach"
+          aria-label="Attach"
           disabled={disabled}
           className={cx(
             'flex h-7 w-7 items-center justify-center rounded-r2 border',
@@ -436,7 +458,7 @@ function AttachButton({
         }}
       >
         <span className="w-4 text-center font-mono text-code text-s8">⇪</span>
-        upload file…
+        Upload File…
       </MenuItem>
     </PopoverCard>
   );
@@ -449,8 +471,8 @@ function MicButton({ disabled = false }: { disabled?: boolean }): React.JSX.Elem
   return (
     <button
       type="button"
-      aria-label="voice input — coming soon"
-      title="voice input — coming soon"
+      aria-label="Voice input"
+      title="Voice input is not available."
       disabled
       aria-disabled="true"
       className={cx(
@@ -522,8 +544,8 @@ function PermissionChip({
   const current = PERMISSIONS.find((p) => p.id === value);
   return (
     <ChipMenu
-      chip={`${current?.glyph ?? ''} ${value}`}
-      title="permission mode"
+      chip={`${current?.glyph ?? ''} ${current?.label ?? value}`}
+      title="Permission mode"
       open={open}
       setOpen={setOpen}
       disabled={disabled}
@@ -549,89 +571,12 @@ function PermissionChip({
             </span>
             <span className="flex flex-col gap-px">
               <span className={cx('text-[12px]', p.id === value ? 'text-s12' : 'text-s10')}>
-                {p.id}
+                {p.label}
               </span>
               <span className="text-meta text-s7">{p.desc}</span>
             </span>
           </MenuItem>
         ))}
-      </div>
-    </ChipMenu>
-  );
-}
-
-function ModelChip({
-  models,
-  currentModelId,
-  onPickModel,
-  effortOptions,
-  effortValue,
-  onPickEffort,
-  disabled = false,
-}: {
-  models: { id: string; label: string }[];
-  currentModelId?: string | undefined;
-  onPickModel: (id: string) => void;
-  effortOptions: { value: string; label: string }[];
-  effortValue: string;
-  onPickEffort: (v: string) => void;
-  disabled?: boolean;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const currentModel = models.find((m) => m.id === currentModelId);
-  const currentEffort = effortOptions.find((e) => e.value === effortValue);
-  // No pick and nothing to pick from ⇒ the backend default is what actually runs — the
-  // chip says so instead of wearing a placeholder word.
-  const modelLabel =
-    currentModel?.label ??
-    currentModelId ??
-    (models.length === 0 ? 'backend default' : 'model');
-  const chip = currentEffort !== undefined ? `${modelLabel} · ${currentEffort.label}` : modelLabel;
-  return (
-    <ChipMenu
-      chip={chip}
-      title="model · reasoning effort"
-      open={open}
-      setOpen={setOpen}
-      disabled={disabled}
-    >
-      <div className="w-60">
-        <CapsLabel>model</CapsLabel>
-        <div className="pb-1">
-          {models.map((m) => (
-            <MenuItem
-              key={m.id}
-              selected={m.id === currentModelId}
-              className="font-mono text-code"
-              onClick={() => onPickModel(m.id)}
-            >
-              {m.label}
-            </MenuItem>
-          ))}
-          {/* An emptied list degrades honestly — the backend default runs, so say so
-              rather than presenting a menu with nothing in it. */}
-          {models.length === 0 && (
-            <div className="px-3 py-1.5 text-code text-s7">
-              no models listed — the backend default runs
-            </div>
-          )}
-        </div>
-        {effortOptions.length > 0 && (
-          <div className="border-t border-s4 px-3 pt-2 pb-3">
-            <div className="flex items-baseline pb-1.5">
-              <span className="text-caps tracking-[0.07em] text-s6 uppercase">reasoning</span>
-              <span className="ml-auto font-mono text-meta text-s9">
-                {currentEffort?.label ?? effortValue}
-              </span>
-            </div>
-            <StepSlider
-              stops={effortOptions.map((e) => e.value)}
-              value={effortValue}
-              onChange={onPickEffort}
-              aria-label="reasoning effort"
-            />
-          </div>
-        )}
       </div>
     </ChipMenu>
   );

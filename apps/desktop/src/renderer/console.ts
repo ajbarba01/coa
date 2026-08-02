@@ -25,7 +25,7 @@ import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
-import { configKey } from './panels/banners.js';
+import { cacheKey, configKey } from './panels/banners.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
 import { applySettings } from './theme.js';
 
@@ -123,8 +123,14 @@ export interface ConsoleBridge {
 export const rpcAuthView = (): Promise<AuthView> => window.coa.authView();
 export const rpcAddProvider = (providerId: string): Promise<AuthView> =>
   window.coa.addProvider({ providerId });
-export const rpcRemoveProvider = (providerId: string, removeProfiles?: boolean): Promise<AuthView> =>
-  window.coa.removeProvider({ providerId, ...(removeProfiles !== undefined ? { removeProfiles } : {}) });
+export const rpcRemoveProvider = (
+  providerId: string,
+  removeProfiles?: boolean,
+): Promise<AuthView> =>
+  window.coa.removeProvider({
+    providerId,
+    ...(removeProfiles !== undefined ? { removeProfiles } : {}),
+  });
 export const rpcAddCredential = (
   providerId: string,
   label: string,
@@ -147,8 +153,7 @@ export const rpcSetProviderEnabled = (providerId: string, on: boolean): Promise<
 export const rpcSetCredentialDisabled = (id: string, disabled: boolean): Promise<AuthView> =>
   window.coa.setCredentialDisabled({ id, disabled });
 export const rpcMakeActive = (id: string): Promise<AuthView> => window.coa.makeActive({ id });
-export const rpcClearCooldown = (id: string): Promise<AuthView> =>
-  window.coa.clearCooldown({ id });
+export const rpcClearCooldown = (id: string): Promise<AuthView> => window.coa.clearCooldown({ id });
 /** Named distinctly from `ConsoleController.refresh` (a different read entirely) — this
  *  re-reads every pointer locator (identity, expiry, limits) for the auth surface's ⟳. */
 export const rpcRefreshAuth = (): Promise<AuthView> => window.coa.refresh();
@@ -244,6 +249,15 @@ async function settle<T>(read: () => Promise<T>): Promise<Remote<T>> {
   }
 }
 
+/** Cheap structural equality for a `Remote`. `cap`/`flags`/`timeline` are plain JSON
+ *  (no functions, Dates, or cycles — see `@coa/console-viewmodel`'s Zod-inferred
+ *  types), so stringifying is a fine substitute for a real deep-equal here. Used to
+ *  stop the ~2s poll (`App.tsx`) from replacing `ConsoleState` — and republishing to
+ *  every `(s) => s` subscriber — when a tick returns exactly what the last one did. */
+function remoteEqual<T>(a: Remote<T>, b: Remote<T>): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export async function startConsole(
   bridge: ConsoleBridge,
   sinks: { publish: (s: ConsoleState) => void; navigate: (surface: string) => void },
@@ -296,6 +310,15 @@ export async function startConsole(
       settle(() => bridge.flagsForUser()),
       settle(() => bridge.listTimeline()),
     ]);
+    // Most 2s poll ticks return exactly what the last one did — skip the replace
+    // (and the publish it would trigger) when nothing actually changed.
+    if (
+      remoteEqual(cap, state.data.cap) &&
+      remoteEqual(flags, state.data.flags) &&
+      remoteEqual(timeline, state.data.timeline)
+    ) {
+      return;
+    }
     state = { ...state, data: { ...state.data, cap, flags, timeline } };
     push();
   }
@@ -531,11 +554,35 @@ export async function startConsole(
     if (flushHandle === undefined) flushHandle = requestAnimationFrame(flushTurns);
   };
 
-  // The drift/cache banners are DERIVED live in the chat vm (predictive: computed from
+  // The drift/cache notices are DERIVED live in the chat vm (predictive: computed from
   // the pending pick + the running prompt's config the daemon reports), so the console
-  // only holds the two bits of banner STATE the derivation reads: the model override
-  // and the per-session drift dismissal. A banner action mutates that state.
+  // only holds the bits of notice STATE the derivation reads: the model override and the
+  // per-session drift and cache dismissals. A notice action mutates that state.
   const onBannerAction = (sessionId: string, bannerId: string, actionId: string): void => {
+    if (bannerId === 'cache' && actionId === 'dismiss') {
+      // Nothing to fix — an idle cache cannot be un-cooled — so dismissal is the only
+      // control, and it has to remember WHAT it dismissed or the derivation re-raises the
+      // notice on the very next render.
+      const session = sessions.find((s) => s.id === sessionId);
+      const override = state.ui.modelOverride[sessionId];
+      const key = cacheKey({
+        ...(override !== undefined ? { override } : {}),
+        ...(session !== undefined
+          ? {
+              pinned: {
+                ...(session.provider !== undefined ? { provider: session.provider } : {}),
+                ...(session.model !== undefined ? { model: session.model } : {}),
+              },
+            }
+          : {}),
+      });
+      state = {
+        ...state,
+        ui: { ...state.ui, dismissedCache: { ...state.ui.dismissedCache, [sessionId]: key } },
+      };
+      push();
+      return;
+    }
     if (bannerId === 'drift' && actionId === 'recompile') {
       // Drop the frozen prompt server-side, then refresh so the session's promptConfig
       // clears — the drift derivation then reads "no running prompt" ⇒ no banner.

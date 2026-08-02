@@ -65,6 +65,11 @@ export interface ConsoleUi {
    *  derived (config-a-send-would-use vs. the running prompt's config), so dismissal is
    *  suppression state — it re-shows once the config changes to a new key. */
   dismissedDrift: Record<string, string>;
+  /** The `cacheKey` the user dismissed the prompt-cache notice for, per session. Same
+   *  shape and same reason as `dismissedDrift`: the notice is derived, so hiding it means
+   *  remembering what it was raised about. It re-shows once the staged pick or the
+   *  session's pin moves. */
+  dismissedCache: Record<string, string>;
   /** Run status keyed by session so switching sessions shows the right pill and never
    *  leaks a running indicator across the switch. Set optimistically on send, then
    *  driven by the daemon's real `status` push: `running` (re)affirms it, `done`/`error`
@@ -159,6 +164,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       resolvedApprovals: {},
       modelOverride: {},
       dismissedDrift: {},
+      dismissedCache: {},
       runStatus: {},
       sendNonce: {},
       notesBySession: {},

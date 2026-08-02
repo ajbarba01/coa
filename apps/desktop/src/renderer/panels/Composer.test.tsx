@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Composer, type ComposerProps, type PendingApproval } from './Composer.js';
@@ -55,23 +55,24 @@ describe('Composer — resting', () => {
 
   it('an emptied model list degrades to backend-default copy, never an empty menu', async () => {
     render(<Composer {...baseProps({ models: [], currentModelId: undefined })} />);
-    // The chip itself says what actually runs…
-    const chip = screen.getByRole('button', { name: /backend default/ });
+    // The trigger itself says what actually runs…
+    const chip = screen.getByRole('combobox', { name: 'Model' });
+    expect(chip).toHaveTextContent(/backend default/i);
     await userEvent.click(chip);
-    // …and the open menu explains rather than presenting nothing.
-    expect(await screen.findByText(/no models listed — the backend default runs/)).toBeTruthy();
+    // …and the open popup states it as the only row rather than presenting nothing.
+    expect(await screen.findByRole('option', { name: /Backend default/ })).toBeTruthy();
   });
 });
 
 describe('Composer — running', () => {
   it('always shows Stop; Queue and Barge appear only once there is text', async () => {
     render(<Composer {...baseProps({ running: true, onStop: vi.fn() })} />);
-    expect(screen.getByRole('button', { name: 'stop the running turn' })).toBeInTheDocument();
-    expect(screen.queryByText('queue')).not.toBeInTheDocument();
-    expect(screen.queryByText('barge in')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stop the running turn/i })).toBeInTheDocument();
+    expect(screen.queryByText(/^queue$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^barge in$/i)).not.toBeInTheDocument();
     await userEvent.type(screen.getByRole('textbox'), 'go');
-    expect(screen.getByText('queue')).toBeInTheDocument();
-    expect(screen.getByText('barge in')).toBeInTheDocument();
+    expect(screen.getByText(/^queue$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^barge in$/i)).toBeInTheDocument();
   });
 
   it('Enter queues; Alt+Enter barges in', async () => {
@@ -93,9 +94,9 @@ describe('Composer — approval', () => {
     const onDeny = vi.fn();
     const onApprove = vi.fn();
     render(<Composer {...baseProps({ approval: APPROVAL, onDeny, onApprove })} />);
-    await userEvent.click(screen.getByRole('button', { name: /^deny:/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^deny:/i }));
     expect(onDeny).toHaveBeenCalledWith('a1');
-    await userEvent.click(screen.getByRole('button', { name: /^approve:/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^approve:/i }));
     expect(onApprove).toHaveBeenCalledWith('a1');
   });
 
@@ -133,35 +134,37 @@ describe('Composer — disabled', () => {
 });
 
 describe('Composer — mic', () => {
-  it('renders permanently disabled, with a coming-soon title', () => {
+  it('renders permanently disabled, and its title says it is unavailable', () => {
     render(<Composer {...baseProps()} />);
     const mic = screen.getByRole('button', { name: /voice input/i });
     expect(mic).toBeDisabled();
     expect(mic).toHaveAttribute('aria-disabled', 'true');
-    expect(mic).toHaveAttribute('title', expect.stringContaining('coming soon'));
+    // The contract is that the control explains its own unavailability — not the
+    // exact wording, and never a promise that it is arriving (docs/UI.md).
+    expect(mic).toHaveAttribute('title', expect.stringMatching(/not available/i));
   });
 });
 
-describe('Composer — model chip', () => {
+describe('Composer — model picker', () => {
   it('fires onPickModel when a model is picked', () => {
     const onPickModel = vi.fn();
     render(<Composer {...baseProps({ onPickModel })} />);
-    fireEvent.click(screen.getByRole('button', { name: /Sonnet 4\.6/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Opus 4.8' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+    fireEvent.click(screen.getByRole('option', { name: /Opus 4\.8/ }));
     expect(onPickModel).toHaveBeenCalledWith('opus');
   });
 
   it('fires onPickEffort when the reasoning slider steps', () => {
     const onPickEffort = vi.fn();
     render(<Composer {...baseProps({ onPickEffort })} />);
-    fireEvent.click(screen.getByRole('button', { name: /Sonnet 4\.6/ }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
     fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
     expect(onPickEffort).toHaveBeenCalledWith('low');
   });
 
   it('hides the reasoning control when effortOptions is empty', () => {
     render(<Composer {...baseProps({ effortOptions: [] })} />);
-    fireEvent.click(screen.getByRole('button', { name: /Sonnet 4\.6/ }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   });
 });
@@ -187,7 +190,7 @@ describe('Composer — queued', () => {
    *  that walks the real path in rather than trusting its twin above. */
   it('draws the attachment removal mark rather than typing one', () => {
     render(<Composer {...baseProps()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'attach' }));
+    fireEvent.click(screen.getByRole('button', { name: /^attach$/i }));
     fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
     const remove = screen.getByRole('button', { name: 'remove screenshot.png' });
     expect(remove.querySelector('svg')).not.toBeNull();
@@ -201,5 +204,57 @@ describe('Composer — queued', () => {
     const remove = screen.getByRole('button', { name: /remove queued message/i });
     expect(remove.querySelector('svg')).not.toBeNull();
     expect(remove.textContent).toBe('');
+  });
+});
+
+describe('Composer — merged notices', () => {
+  const DRIFT = {
+    id: 'drift',
+    kind: 'drift' as const,
+    summary: 'The agent configuration changed after this prompt compiled.',
+    reason: 'The active prompt still reflects the earlier configuration.',
+    actions: [{ id: 'recompile', label: 'Recompile', primary: true }],
+  };
+
+  const shell = (c: HTMLElement): HTMLElement =>
+    c.querySelector('[data-composer-shell]') as HTMLElement;
+
+  it('renders the notice inside the shell, above the field', () => {
+    const { container } = render(<Composer {...baseProps({ notices: [DRIFT] })} />);
+    expect(within(shell(container)).getByText('Configuration drift')).toBeInTheDocument();
+  });
+
+  it('takes the warn edge only when no session state owns it', () => {
+    const { container } = render(<Composer {...baseProps({ notices: [DRIFT] })} />);
+    expect(shell(container).className).toContain('border-warn');
+  });
+
+  it('never overrides a running turn’s edge, and never starts a shimmer of its own', () => {
+    const { container } = render(<Composer {...baseProps({ running: true, notices: [DRIFT] })} />);
+    expect(shell(container).className).toContain('border-run');
+    expect(shell(container).className).not.toContain('border-warn');
+    // One shimmer, owned by the session state — the notice must not add a second.
+    expect(container.querySelectorAll('.status-outline')).toHaveLength(1);
+  });
+
+  it('ranks the notice above the approval gate', () => {
+    const { container } = render(
+      <Composer
+        {...baseProps({
+          notices: [DRIFT],
+          approval: { id: 'a1', tool: 'Edit', summary: 'src/x.ts' },
+        })}
+      />,
+    );
+    const notice = container.querySelector('[data-notice-kind="drift"]');
+    const gate = screen.getByRole('button', { name: /^approve:/i });
+    expect(notice?.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('reports a notice action to the caller', async () => {
+    const onNoticeAction = vi.fn();
+    render(<Composer {...baseProps({ notices: [DRIFT], onNoticeAction })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
+    expect(onNoticeAction).toHaveBeenCalledWith('drift', 'recompile');
   });
 });

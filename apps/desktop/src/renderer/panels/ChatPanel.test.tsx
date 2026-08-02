@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TranscriptFrame } from '@coa/console-ui';
+import type { TranscriptFrame } from '@coa/console-transcript';
 import type { TurnFrame } from '@coa/console-viewmodel';
 import {
   ChatSurface,
@@ -535,7 +535,7 @@ describe('ChatSurface states-first', () => {
 
   it('shows the loading circle while the transcript loads cold', () => {
     render(<ChatSurface state={stateWith({ status: 'loading' })} />);
-    expect(screen.getByRole('status', { name: 'loading conversation' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: /^loading conversation$/i })).toBeTruthy();
   });
 
   it('shows an error inline', () => {
@@ -580,11 +580,15 @@ describe('ChatSurface states-first', () => {
     expect(screen.getByRole('textbox')).toBeTruthy();
   });
 
-  it('renders the new composer (its model chip), not the old console-ui Combobox', () => {
+  it('renders the shared model picker, not the retired console-ui select', () => {
     render(<ChatSurface state={readyState([])} />);
-    // The new composer's model chip — a plain button, not a native combobox.
-    expect(screen.getByRole('button', { name: 'sonnet' })).toBeTruthy();
-    expect(screen.queryByRole('combobox')).toBeNull();
+    // The composer now wears the SAME picker as the agent editor: the kit's combobox
+    // trigger, filterable, rather than the flat menu it used to grow.
+    const picker = screen.getByRole('combobox', { name: 'Model' });
+    expect(picker).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(picker).toHaveTextContent('sonnet');
+    // The retired kit's control was a native select; nothing renders one now.
+    expect(document.querySelector('select')).toBeNull();
   });
 
   // A session + agent whose configs diverge, so the derived drift banner shows.
@@ -628,22 +632,21 @@ describe('ChatSurface states-first', () => {
   const pinClock = (): void => void vi.useFakeTimers({ now: new Date(NOW), toFake: ['Date'] });
   afterEach(() => vi.useRealTimers());
 
-  it('derives the drift banner when the config diverges, offering recompile + dismiss', async () => {
+  it('derives the drift notice when the config diverges, offering recompile + dismiss', async () => {
     pinClock();
     const onBannerAction = vi.fn();
-    const { container } = render(<ChatSurface state={driftState({}, { onBannerAction })} />);
-    expect(screen.getByText(/agent configuration changed/i)).toBeTruthy();
-    // Drift-only scenario: the session ran on this config just now, so no cache banner —
-    // exactly one banner card renders.
-    expect(screen.queryByText(/cold prompt cache/i)).toBeNull();
-    expect(container.querySelectorAll('[data-tone="warning"]')).toHaveLength(1);
+    render(<ChatSurface state={driftState({}, { onBannerAction })} />);
+    expect(screen.getByText('Configuration drift')).toBeTruthy();
+    // Drift-only scenario: the session ran on this config just now, so no cache notice —
+    // exactly one notice line renders.
+    expect(screen.queryByText('Prompt cache')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
     expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'recompile');
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(onBannerAction).toHaveBeenCalledWith('s1', 'drift', 'dismiss');
   });
 
-  it('picks a model through the composer model chip, re-pinning the session', async () => {
+  it('picks a model through the composer picker, re-pinning the session', async () => {
     const setSessionModel = vi.fn();
     const state = makeState({
       data: {
@@ -662,32 +665,33 @@ describe('ChatSurface states-first', () => {
       actions: { setSessionModel },
     });
     render(<ChatSurface state={state} />);
-    // The reviewer session's agent default (sonnet) seeds the chip.
-    await userEvent.click(screen.getByRole('button', { name: 'Claude · sonnet' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Claude · opus' }));
+    // The reviewer session's agent default (sonnet) seeds the trigger.
+    await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+    await userEvent.click(screen.getByRole('option', { name: /Claude · opus/ }));
     expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', {
       model: 'opus',
       provider: 'claude',
     });
   });
 
-  it('derives a passive cache banner on a staged switch (no dismiss control)', () => {
+  it('derives a passive cache notice on a staged switch, dismissable but with no fix', () => {
     pinClock();
-    render(
+    const { container } = render(
       <ChatSurface
         state={driftState({
           modelOverride: { s1: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
         })}
       />,
     );
-    const cacheReason = screen.getByText(/cold prompt cache/i);
-    // Exactly the staged-switch reason — a pinned clock proves no idle-staleness reason
-    // rides along (the session "ran" at NOW).
-    expect(cacheReason.textContent).toContain('the backend changed');
-    expect(cacheReason.textContent).not.toContain('idle');
-    // The cache notice is informational — it has no close control (auto-clears on send/revert).
-    const cacheCard = cacheReason.closest('[data-tone]');
-    expect(cacheCard?.querySelector('[aria-label="Dismiss"]')).toBeNull();
+    // The cache notice is informational: there is nothing to recompile, because an idle
+    // cache cannot be un-cooled. Dismiss is therefore its ONLY control — unlike the drift
+    // notice riding alongside it, which also offers Recompile.
+    const cacheRow = container.querySelector('[data-notice-kind="cache"]');
+    expect(cacheRow).not.toBeNull();
+    expect(cacheRow?.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
+    expect(within(cacheRow as HTMLElement).queryByRole('button', { name: 'Recompile' })).toBeNull();
+    const driftRow = container.querySelector('[data-notice-kind="drift"]') as HTMLElement;
+    expect(within(driftRow).getByRole('button', { name: 'Recompile' })).toBeInTheDocument();
   });
 
   it('the dedicated Stop control while running wires to interruptSession (SC-1, not an error affordance)', async () => {
@@ -775,15 +779,15 @@ describe('ChatSurface states-first', () => {
       expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
       // The composer's merged gate is what's showing instead.
-      expect(screen.getByRole('button', { name: /^approve:/ })).toBeTruthy();
-      expect(screen.getByRole('button', { name: /^deny:/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^approve:/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^deny:/i })).toBeTruthy();
     });
 
     it('approving via the composer calls onRespond(requestId, "approve")', async () => {
       const respondApproval = vi.fn();
       const state = stateWith({ status: 'ok', value: approvalStream }, {}, { respondApproval });
       render(<ChatSurface state={state} />);
-      await userEvent.click(screen.getByRole('button', { name: /^approve:/ }));
+      await userEvent.click(screen.getByRole('button', { name: /^approve:/i }));
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'approve');
     });
 
@@ -791,7 +795,7 @@ describe('ChatSurface states-first', () => {
       const respondApproval = vi.fn();
       const state = stateWith({ status: 'ok', value: approvalStream }, {}, { respondApproval });
       render(<ChatSurface state={state} />);
-      await userEvent.click(screen.getByRole('button', { name: /^deny:/ }));
+      await userEvent.click(screen.getByRole('button', { name: /^deny:/i }));
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'deny');
     });
 
