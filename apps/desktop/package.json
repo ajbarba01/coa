@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@coa/console-kit": "workspace:*",
-    "@coa/console-ui": "workspace:*",
+    "@coa/console-transcript": "workspace:*",
     "@coa/console-viewmodel": "workspace:*",
     "@coa/core": "workspace:*",
     "@coa/shared": "workspace:*",

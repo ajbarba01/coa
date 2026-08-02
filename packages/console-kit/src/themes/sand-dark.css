@@ -28,9 +28,27 @@
   --color-warn: #d8a03d;
   --color-crit: #c65a54;
 
+  /* The focus ring. It rides the running hue rather than a brand accent: the sand scale
+   * has no accent to spend, and focus is an interactive state, so it belongs with the
+   * state vocabulary above. (It was the retired brass, which the theme no longer owns.) */
+  --color-focus: #5b7fd0;
+
   /* Diff tints (quiet register — tinted text, not filled rows). */
   --color-diff-add: #8fb896;
   --color-diff-del: #c68f8b;
+
+  /* Categorical AGENT identity — which agent, not what state. Assigned by the user when
+   * they name an agent, so this is a chooser's palette: eight hues that stay separable
+   * from each other and from the state set above (an agent must never read as "critical").
+   * Carried over intact from the retired kit, where the vocabulary was already settled. */
+  --color-agent-slate: #a3adb8;
+  --color-agent-sky: #6ec3f0;
+  --color-agent-blue: #6b9bd8;
+  --color-agent-teal: #45b48e;
+  --color-agent-green: #96bd70;
+  --color-agent-mauve: #d48fb4;
+  --color-agent-violet: #ab93e0;
+  --color-agent-coral: #e28f68;
 
   /* Series palette — IDENTITY inside a chart (which model, which category), assigned in
    * fixed order and never cycled. Deliberately disjoint from the status set above: a

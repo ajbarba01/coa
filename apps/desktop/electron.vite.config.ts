@@ -22,8 +22,8 @@ export default defineConfig({
     plugins: [react(), tailwind()],
     resolve: {
       alias: {
-        '@coa/console-ui': fileURLToPath(
-          new URL('../../packages/console-ui/src/index.ts', import.meta.url),
+        '@coa/console-transcript': fileURLToPath(
+          new URL('../../packages/console-transcript/src/index.ts', import.meta.url),
         ),
         '@coa/shared': fileURLToPath(
           new URL('../../packages/shared/src/index.ts', import.meta.url),

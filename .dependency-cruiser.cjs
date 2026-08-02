@@ -66,9 +66,17 @@ module.exports = {
       name: 'console-ui-no-electron-core',
       severity: 'error',
       comment:
-        'The UI kit is a pure renderer-side library; it never imports electron or the daemon core (only react/radix/lucide/react-virtuoso).',
-      from: { path: '^packages/console-ui/src' },
+        'The kit and the conversation renderer are pure renderer-side libraries; neither imports electron or the daemon core (only react/@base-ui/lucide/react-markdown and friends).',
+      from: { path: '^packages/(console-kit|console-transcript)/src' },
       to: { path: 'node_modules/electron/|^packages/core/' },
+    },
+    {
+      name: 'kit-never-depends-on-the-transcript',
+      severity: 'error',
+      comment:
+        'The kit is the vocabulary and the transcript is one surface built from it. The dependency runs one way; if it ever runs both, the split that keeps the kit reviewable has collapsed (docs/adr/0025).',
+      from: { path: '^packages/console-kit/src' },
+      to: { path: '^packages/console-transcript/' },
     },
     {
       name: 'renderer-isolation',

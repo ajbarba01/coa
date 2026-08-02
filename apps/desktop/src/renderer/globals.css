@@ -1,18 +1,21 @@
 @import 'tailwindcss';
-/* The legacy content tokens — the not-yet-redrawn surfaces (drift/cache banners, the
-   W3/W4 surfaces, the retiring showcase composer) still render on console-ui's semantic
-   tokens; it retires as the rebuild lands. */
-@import '../../../../packages/console-ui/src/theme.css';
-/* The workbench shell's token substrate (sand-dark scale, Slipstream, type/z scales).
-   Imported LAST so kit wins the two token collisions (--font-mono and --text-body): now
-   that the conversation renders on the sand scale, the code face is kit's mono and body
-   text is the kit 13px step, matching the design prototype. console-ui's semantic tokens
-   (colors/spacing kit does not define) are unaffected. */
+/* The console's ONE token substrate: the sand-dark scale, Slipstream motion, and the
+   type/z/radius scales. There is no second theme to lose a collision to — the retired
+   kit's runtime-injected palette is gone (docs/adr/0025). */
 @import '@coa/console-kit/tokens.css';
 
-/* Utilities used inside both kits must be visible to the scanner. */
+/* Utilities used inside both kits must be visible to the scanner. Excluding the
+   ~89 *.test.{ts,tsx} files (a third of both trees) drops only utilities that
+   never appear in shipped source — verified by diffing the built CSS with and
+   without this exclusion: the only classes it removes are ones a test file's own
+   assertion strings coincidentally contain (e.g. a bare `outline-focus` inside a
+   `toContain('outline-focus')` check) that production only ever uses compounded
+   with a variant. Measured saving is small (85.62 KB → 85.42 KB) — worth taking
+   since it's free and correct, not because it moves a startup number. */
 @source '../../../../packages/console-kit/src';
-@source '../../../../packages/console-ui/src';
+@source '../../../../packages/console-transcript/src';
+@source not '../../../../packages/console-kit/src/**/*.test.{ts,tsx}';
+@source not '../../../../packages/console-transcript/src/**/*.test.{ts,tsx}';
 
 :root {
   color-scheme: dark;

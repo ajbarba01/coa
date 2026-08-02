@@ -14,7 +14,7 @@
     { "path": "../../packages/shared" },
     { "path": "../../packages/core" },
     { "path": "../../packages/console-viewmodel" },
-    { "path": "../../packages/console-ui" }
+    { "path": "../../packages/console-transcript" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "dist", "node_modules"]

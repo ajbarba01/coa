@@ -9,6 +9,8 @@ export { WindowControls, type WindowControlsProps } from './chrome/WindowControl
 export { cx } from './cx.js';
 export { Meter, meterTone, type MeterProps, type MeterTone } from './data/Meter.js';
 export { Icon, type IconName, type IconProps } from './data/Icon.js';
+export { InlineMessage, type InlineMessageProps, type Status } from './feedback/InlineMessage.js';
+export { Toast, type ToastProps } from './feedback/Toast.js';
 export { DialogSearchHead, SettingRow, TocRail } from './frame/SettingsFrame.js';
 export { Spinner, type SpinnerProps } from './Spinner.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';
@@ -24,7 +26,13 @@ export {
   type CollapseSpec,
   type CollapseResult,
 } from './layout/resolve-collapse.js';
-export { Select, type SelectProps } from './inputs/Select.js';
+export { Select, type SelectOption, type SelectProps } from './inputs/Select.js';
+export {
+  Combobox,
+  filterOptions,
+  type ComboboxOption,
+  type ComboboxProps,
+} from './inputs/Combobox.js';
 export { StepSlider, type StepSliderProps } from './inputs/StepSlider.js';
 export { Toggle, type ToggleProps } from './inputs/Toggle.js';
 export {
@@ -41,6 +49,11 @@ export {
   type FloatPlacement,
 } from './overlay/FloatCard.js';
 export { ModalShell, type ModalShellProps } from './overlay/ModalShell.js';
+export {
+  PaneOverlayProvider,
+  usePaneOverlay,
+  type PaneOverlayProviderProps,
+} from './overlay/PaneOverlay.js';
 export { PopoverCard, type PopoverCardProps } from './overlay/PopoverCard.js';
 export {
   Tooltip,
@@ -51,3 +64,4 @@ export {
 export { Kbd, type Keybind } from './keys/Kbd.js';
 export { filterKeybinds, ShortcutsOverlay, type KeybindEditing } from './keys/ShortcutsOverlay.js';
 export { ZoomProvider, useZoom } from './zoom.js';
+export { allIntents } from './registry.js';
