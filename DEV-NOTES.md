@@ -14,6 +14,7 @@
 - better file grep (recency or hotspot based)
 - external web chat panels? (for chatgpt)
 - completely honest tool input fed back to model (no more gaslighting the model)
+- notification system (needs approval, etc...)
 
 ## New design
 - title bar should act as a surface that you can click off a dialog/layer with
