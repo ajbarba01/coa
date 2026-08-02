@@ -76,6 +76,30 @@ Utilization against a known ceiling, as a bar that earns its color.
 - **Accessibility:** role="meter" with aria-valuenow/min/max; the caller renders the number in text beside it, so the reading never depends on the bar.
 - **Related:** StatusDot, BrandMark
 
+## Feedback
+
+### InlineMessage
+
+State about the thing beside it, said once and in place.
+
+- **Use it when:** A field, panel, or row needs to report its own state (saved, unsaved, failed to load).
+- **Don't use it when:** The state belongs to the whole surface — dock a notice instead. The message is transient and must be noticed after focus has moved — that is a Toast. The state is one word with no detail — that is a StatusDot plus its label.
+- **Anatomy:** A decorative tone mark and the message, on one inline baseline.
+- **Variants & states:** info (muted ground), success (ok), warning (warn), danger (crit)
+- **Accessibility:** The mark is aria-hidden; the message is the accessible content, so nothing announces twice.
+- **Related:** Toast, StatusDot
+
+### Toast
+
+A transient result the user must notice after their attention has moved on.
+
+- **Use it when:** An action the user started elsewhere failed or finished, and its own surface is no longer in view.
+- **Don't use it when:** The state belongs beside a field or row — that is an InlineMessage. The message must be acted on before continuing — that is a modal. The state persists until something changes it — dock a notice instead.
+- **Anatomy:** A bottom-right card: title, optional detail, and a labelled dismiss control.
+- **Variants & states:** info (ground rim), success (ok rim), warning (warn rim), danger (crit rim), closed (renders nothing)
+- **Accessibility:** role=status with aria-live=polite, so it is announced without taking focus; the whole card dismisses on click and the close control carries its own name.
+- **Related:** InlineMessage
+
 ## Foundations
 
 ### CapsLabel
@@ -124,14 +148,25 @@ The indicator law's state vocabulary: state is a dot, never a word.
 
 ## Inputs
 
+### Combobox
+
+Pick one value from a set too long to scan: a trigger chip that grows a searchable, filter-as-you-type option popup.
+
+- **Use it when:** A set too long to scan at a glance, where the value is one choice (a model picker across every provider).
+- **Don't use it when:** Fewer than about seven fixed options — Select. The choice is set membership, not one value — the resolved-set row. Two states — Toggle.
+- **Anatomy:** A trigger button (role="combobox") wearing either the Select chip skin (bordered, the default) or the composer shelf's borderless chip, growing a PopoverCard whose popup holds a filter input and a role="listbox" of role="option" rows; a group header (CapsLabel's caps style — size, tracking, colour — without its uppercase transform, since a group can be a deliberately-cased literal) renders where an option's group differs from its neighbour; the selected row carries the s4 tint and the trailing mono `Current` marker; an unmatched query renders "No match" instead of an empty list; an optional footer sits beneath the listbox on its own hairline, carrying a second axis of the same choice.
+- **Variants & states:** closed, open (trigger border steps up, filter input focused), filtered (options narrow as you type), no-match ("No match"), option hover/cursor, option selected (tint + Current), active (trigger and option rows press with the kit scale tick), disabled (no hover, no press), focus-visible (global interior ring on the trigger; the filter input opts out — its own border step-up is the cue), bordered trigger (default) · chip trigger (dense control rows), with footer (second axis on its own hairline) · without (no region, no hairline)
+- **Accessibility:** Trigger carries role="combobox", aria-expanded and aria-haspopup="listbox"; ArrowUp/ArrowDown move a cursor over the filtered rows, Enter selects it; Escape runs through the kit dismiss-layer stack via PopoverCard.
+- **Related:** Select, PopoverCard, MenuItem
+
 ### Select
 
 Pick one value from a flat list: a quiet mono chip that grows a positioned option popup.
 
 - **Use it when:** Settings rows and toolbars choosing one of a few named values (theme, density).
 - **Don't use it when:** Rich option rows with glyphs or descriptions — PopoverCard + MenuItem. Two states — Toggle. Free text — a text input.
-- **Anatomy:** Controlled Base UI Select (Root/Trigger/Value/Portal/Positioner/Popup/Item); the popup wears menuSurface below the trigger; the selected item carries the `current` marker.
-- **Variants & states:** closed, open (trigger border steps up), item hover/highlighted, item selected (tint + current), focus-visible (global interior ring)
+- **Anatomy:** Controlled Base UI Select (Root/Trigger/Value/Portal/Positioner/Popup/Item); the popup wears menuSurface below the trigger; the selected item carries the `Current` marker. An option is a bare string, or a {value,label} pair when the displayed word must not be the stored value.
+- **Variants & states:** closed, open (trigger border steps up), item hover/highlighted, item selected (tint + Current), focus-visible (global interior ring)
 - **Accessibility:** Base UI combobox/listbox semantics with typeahead and keyboard selection; Escape runs through the kit dismiss-layer stack; selection mirrored by aria-selected.
 - **Related:** PopoverCard, MenuItem, Toggle
 
@@ -180,6 +215,17 @@ A zero-width column seam: a 7px grab strip straddling a panel border, resizing i
 - **Variants & states:** idle (transparent, hover brightens), active/dragging (bg-s7 hairline)
 - **Accessibility:** role="separator" aria-orientation="vertical" aria-label="resize panel"; pointer-driven, no keyboard resize.
 - **Related:** resolveCollapse
+
+### PaneOverlay
+
+A modal-like overlay confined to its own pane, never the whole window.
+
+- **Use it when:** Expanding a truncated in-pane detail (e.g. a full tool diff/output) over just the chat pane.
+- **Don't use it when:** A window-level modal is wanted — use Dialog. A transient message is enough — use Toast.
+- **Anatomy:** A provider wrapping a relative pane container; an absolute-inset overlay layer with a pane-confined scrim and a scrollable titled panel (close button); an open/close API exposed via usePaneOverlay.
+- **Variants & states:** closed, open
+- **Accessibility:** role=dialog + aria-modal with an aria-label; Escape and backdrop/close-button dismiss; initial focus lands on close, Tab is trapped within the panel, and focus is restored to the opener on close; the panel is a scrollable region.
+- **Related:** Dialog, Sheet, Toast
 
 ### SettingRow
 

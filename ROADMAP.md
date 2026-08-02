@@ -21,7 +21,7 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
 | M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`): it holds one `query()` open across turns, selected by the abstract `sessionStrategy(provider)` verdict (never a backend branch), and a **live smoke** (`streaming-smoke.live.test.ts`, `COA_LIVE`-gated) verified held-open multi-turn + cross-turn memory + graceful termination against the real SDK. A pushed steer is **queued** as the next turn (the SDK has no mid-turn inject). **Barge-in (true mid-turn redirect) now ships** (`docs/adr/0012`): `steerSession` carries a `mode` (`queue | barge-in`) realized per strategy — Claude via the SDK's turn-level `query.interrupt()` (keeps the query alive) + a framed push, pure-API via a two-buffer drain (`drainSteer` at the round-trip boundary, `drainQueuedSteer` at the close-gate) — with a `pendingTurns` boundary count (the I3 fix) and SC-1 suppression of the interrupt's `error_during_execution` result, all live-verified in `barge-in-smoke.live.test.ts`. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; role/capability enforcement (deferred — see "Someday / ideas"). |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
-| M10 Console | Partial / rich | Electron shell, the `console-ui` kit, live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue/Steer buttons + Enter-to-barge-in, wired to `steerSession`). | The **workbench rebuild** (see "In flight" — the 2026-07 UX overhaul's new design system at `docs/adr/0014`; W1 the shell has landed on `@coa/console-kit`, W2–W4 remain); live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
+| M10 Console | Partial / rich | Electron shell on `@coa/console-kit` (+ `@coa/console-transcript` for the conversation), live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue/Steer buttons + Enter-to-barge-in, wired to `steerSession`). | The **workbench rebuild** (see "In flight" — the 2026-07 UX overhaul's new design system at `docs/adr/0014`; W0–W5 have landed); live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
 
 **Cross-cutting workstreams**
 
@@ -160,18 +160,22 @@ items (role/capability enforcement, the P1/P2 packages, P3 CC-mirroring) are the
 The remaining hardening items — role/capability enforcement, the P1 AGENTS.md-into-context package,
 the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**; see "Someday / ideas".
 
-## In flight
+## Completed arcs
 
-### The console workbench rebuild (Gate 4 plan of the 2026-07 UX overhaul)
+### The console workbench rebuild (Gate 4 plan of the 2026-07 UX overhaul) — ✅ closed 2026-08-02
 
-**Authority:** [`docs/adr/0014`](docs/adr/0014-workbench-design-system.md) (the why) +
-[`docs/UI.md`](docs/UI.md) (the laws). **Reference implementation:** `apps/workbench-proto` (motion-true,
-mock-data; the design lab until it's superseded) + `packages/console-kit` (the token substrate). Work lives on
-branch `worktree-ux-overhaul` until the first phase merges. Every phase leaves the console **runnable and
-strictly no worse** than before it (D85 discipline applied to the migration itself), and every phase opens
-with its own execution-time implementation plan, designed through the impeccable skill per `docs/UI.md`.
+All six phases (W0–W5) shipped. **Authority:** [`docs/adr/0014`](docs/adr/0014-workbench-design-system.md)
+(the why) + [`docs/UI.md`](docs/UI.md) (the laws). The reference implementation is now the console's own
+[showcase surface](apps/desktop/src/renderer/panels/ShowcasePanel.tsx) — `apps/workbench-proto` was deleted
+once that surface lived in the real console. Every phase left the console **runnable and strictly no worse**
+than before it (D85 discipline applied to the migration itself), and each opened with its own execution-time
+implementation plan, designed through the impeccable skill per `docs/UI.md`.
 
-Standing rulings the phases encode (maintainer-resolved 2026-07-10): the streaming transcript renderer is
+The arc ends with **one kit**: `@coa/console-kit` is the vocabulary, `@coa/console-transcript` is the
+conversation renderer built on it, and the retired `@coa/console-ui` — with the forge palette it injected at
+runtime — no longer exists ([ADR-0025](docs/adr/0025-retire-the-legacy-console-kit.md)).
+
+Standing rulings the phases encoded (maintainer-resolved 2026-07-10): the streaming transcript renderer is
 **re-skinned, never rebuilt**; the agents editor keeps a first-class home; drift/cache banners keep their
 function in quiet indicator-law form; the forge/brass identity returns later as a re-tailored theme;
 everything else the new design overwrites.
@@ -199,8 +203,8 @@ everything else the new design overwrites.
   surface/tabs/columns). Acceptance held: sessions (create/subscribe/switch), the push stream, the streaming
   transcript, interrupt (Stop + Esc anywhere) and steer (Queue/Barge-in), the account selector, settings
   persistence, and the drift/cache banner functions all work inside the new shell — plus a cold-boot rehydrate
-  so a daemon that comes up late repopulates the boot reads. Center-surface content still renders on legacy
-  `console-ui` by design (W2 re-skins conversation; W3 redraws surfaces).
+  so a daemon that comes up late repopulates the boot reads. Center-surface content still rendered on the legacy
+  kit at that point by design (W2 re-skinned conversation; W3 redrew surfaces; W4 deleted the kit).
 - **W2 — Conversation re-skin [L]. ✅ Done.** Re-token the streaming transcript (StreamingMarkdown, reasoning block,
   plan checklist, tool cards + openPath links, subagent roll-ups, approval cards, DenyNotice) onto the
   sand scale with a Slipstream motion audit (durations/easing/fill-mode; reduced-motion). New composer:
@@ -218,14 +222,27 @@ everything else the new design overwrites.
   labeled "not tracked yet" floors (their data is deferred, items E/I). The flags nav item keeps the app's
   only red count. The nav HUD content (usage/account/flags mini-states) was deferred out of this arc — see
   "Someday / ideas".
-- **W4 — Orphan homes [M].** The redesigned **agents editor** (role/package picker, thinking toggles,
-  scope, pin) lands as its designed home in the new IA; drift/cache **notices** ship in indicator-law form
-  (one quiet line docked to the composer: dot + name + inline action); the project-switch dialog at its
-  floor. `apps/workbench-proto` retires once the showcase surface lives in the real console. Acceptance: no
-  audited feature of the old console lacks a working home; the perf items under "Known issues" that the
-  push-store architecture was meant to kill are re-measured and closed or re-filed.
-  **Account management is no longer part of W4** — credentials outgrew the ◐ foot button and became the
-  `auth` surface (below), which also retired the old `AccountPanel`.
+- **W4 — Orphan homes [M]. ✅ Done.** The redesigned **agents editor** (role/package picker, thinking
+  toggles, scope, pin) landed as its designed home in the new IA; drift/cache **notices** ship in
+  indicator-law form (one quiet line docked to the composer: dot + name + inline action); the project-switch
+  dialog at its floor; `apps/workbench-proto` retired once the showcase surface moved into the real console;
+  and the "Known issues" perf items were each re-verified against current code, then closed or re-filed with
+  their measurement. **Account management was not part of W4** — credentials outgrew the ◐ foot button and
+  became the `auth` surface (below), which also retired the old `AccountPanel`.
+  A first drive-the-app pass then closed the arc's four unseen-risk areas (the `AddPicker` popover is
+  unclipped, the narrow drill-down and its Escape work, `SetBox`'s four membership marks read as four
+  states, and all 25 kit specimens render outside jsdom) and turned up three defects, since fixed: the
+  create control sat on the title bar's top edge, the agent editor's two columns were keyed to the
+  *surface* width so the right column clipped instead of collapsing (now a container query on the editor's
+  own box), and the showcase was still wrapped in the legacy `Pane` — a second title bar over a retired
+  brown ground.
+  **The legacy kit is now gone entirely** ([ADR-0025](docs/adr/0025-retire-the-legacy-console-kit.md)):
+  `@coa/console-ui` is deleted, its 39 unreachable files with it; the conversation renderer moved to a new
+  `@coa/console-transcript`; `InlineMessage`, `Toast` (ported off Radix), `PaneOverlay`, the `agent-*`
+  identity colours and `--color-focus` moved into `@coa/console-kit`; and the runtime-injected forge palette
+  — a hex table no theme control could reach — stops existing, verified as zero occurrences in the shipped
+  bundle. `radix-ui` left the dependency tree. The density control was removed rather than shipped as a
+  visible no-op, since the kit scale never answered to it.
 - **W5 — Auth + Usage surfaces [M]. ✅ Auth backend wired + usage mock.** Two new center surfaces
   (`AUTH-*`/`USAGE-*` in the [M10 spec](docs/design/handoff/spec/M10.md)): **auth** (credentials only —
   master–detail over a provider **descriptor registry**, an add-flow that branches on **locator kind** so a
@@ -300,6 +317,9 @@ Captured from prior scratch notes; none of these are planned or sized yet:
   designed and built (the meters you tick, auto-quieting below 50%, a projection of the usage reads); the
   **account** and **flags** mini-states are still floors, and what they should show remains an open design
   question rather than something to guess at.
+- **A density scale for the kit** *(surfaced by ADR-0025)* — the old density control only ever scaled the
+  retired kit's type ramp, so it was removed rather than shipped as a visible no-op. Making density mean
+  something again is a real feature and its own design question: which of the kit's members respond, and how.
 - **Conversation naming** — auto-name conversations instead of leaving them titled by their first
   message.
 - **Constraint → flag authoring** — a lighter-weight authoring path for turning an observed
@@ -319,24 +339,73 @@ Captured from prior scratch notes; none of these are planned or sized yet:
 
 Surfaced during this refactor; not fixed here — flagged for the later architecture/quality phase:
 
-- **`apps/desktop/src/renderer/console.test.tsx`, "subscribes to the push stream and handles a
-  live turn without throwing"** — this test only proves the push handler doesn't throw. It emits a
-  turn push for `sessionId: 's'`, but the mounted/active session in the test fixture is `'c1'`
-  (see `FAKE_SESSIONS` at the top of the file), so the push is recorded but never merged into
-  visible state and the test cannot actually assert that the pushed row renders. The test's own
-  comment acknowledges this. Fix by pushing under the active session id and asserting the row
-  appears.
-- **Console startup/render performance (now owned by the workbench rebuild arc — W4 re-measures and
-  closes or re-files each item; the push-store architecture is that arc's cure for the poll-and-replace
-  root cause).** Still-open
-  items from an earlier console-perf audit, each verified against current code: no
-  `optimizeDeps.include` in the dev Vite config (cold-start regression); Tailwind `@source` scans the
-  whole `console-ui` tree including tests; the ~2s poll replaces the entire state with no
-  shallow-equality guard; `React.memo`/`useCallback` are applied only to `Transcript`/`ChatPanel`, not
-  the broader kit; layout persistence (`onLayout`) fires on every drag pixel with no debounce; no Vite
-  CSS `devSourcemap` tuning; ~7 sequential IPC round-trips on startup. The transcript-grouping
-  `useMemo` gap is already fixed. Note: the audit predated the deliberate removal of transcript
-  virtualization (full-text selection + Ctrl-F), so its windowing-related framings are moot by design.
+- **Console startup/render performance — re-measured and closed 2026-08-01 (W4).** The earlier
+  console-perf audit's items, each re-verified against current code rather than trusted as-is:
+  - **`optimizeDeps.include`** — measured, not added. `vite optimize --force` against the real
+    renderer config (react + tailwind plugins, the four `@coa/*` aliases) already auto-discovers
+    and pre-bundles every bare import the app has (`react-syntax-highlighter` + its 12 language
+    modules, `radix-ui`, `@base-ui/react/*`, `@floating-ui/react`, `cmdk`, `motion/react`,
+    `lucide-react`, `zustand`, `react-markdown`/`remark-gfm`, `zod`) with no `include` declared —
+    every import in this app is static, so Vite's crawl-scan finds it all on its own. Timing 5
+    fresh (`--force`) runs against 5 runs of the identical set declared as `optimizeDeps.include`:
+    baseline ~11.0–11.4s (tight), with `include` ~11.7–12.0s (one 7.4s outlier) — declaring it
+    measured *slower*, never faster. Nothing to add.
+  - **Tailwind `@source` scanning tests — fixed.** `globals.css` now carries `@source not` for
+    `**/*.test.{ts,tsx}` under both `console-kit/src` and the conversation renderer's src (a third of those two
+    trees by file count). Verified safe by diffing the built CSS with and without the exclusion:
+    the only rules it drops are ones that existed purely because a test's own assertion string
+    contained a bare utility name production only ever uses compounded with a variant (e.g.
+    `cx.test.ts`'s `toContain('outline-focus')` synthesized a bare `.outline-focus` that no
+    shipped markup renders — `cx.ts`/`Composer.tsx` only ever emit
+    `focus-visible:outline-focus`/`focus-within:outline-focus`). Measured saving: 85.62 KB → 85.42
+    KB — small, but free and correct, not claimed as a startup win.
+  - **The ~2s poll replaces state with no equality guard — the cheap guard added; the
+    architecture stays re-filed.** `console.ts`'s `refresh()` (driven by `App.tsx`'s
+    `setInterval(..., 2000)`) built a fresh `ConsoleState` and published it every tick regardless
+    of whether `capState`/`flagsForUser`/`listTimeline` actually changed. `consoleStore.ts`
+    publishes via `useConsoleState.setState(s, true)` (a full replace), and eight surfaces
+    subscribe with an unmemoized `(s) => s` selector — `AgentsPanel.tsx:1084`, `Center.tsx:130`,
+    `Nav.tsx:273`, `NewSession.tsx:13`, `Palette.tsx:22`, `Settings.tsx:225`, `Work.tsx:19`,
+    `Workbench.tsx:112` — so every tick re-rendered all eight regardless of content. Added a
+    cheap structural-equality guard (`remoteEqual`, `JSON.stringify` — the three Remote values are
+    plain Zod-inferred JSON, no functions/Dates) that skips the replace+publish when nothing
+    changed; covered by a new test (`console.test.tsx`, "publishes nothing when a poll returns
+    unchanged data"), verified load-bearing by breaking the guard and watching it fail. The real
+    cure — a push-based store instead of a poll-and-replace one — is its own phase of work and is
+    **not** built here; re-filed below.
+  - **`React.memo`/`useCallback` coverage — documented, not widened.** Current exact set: `memo`
+    wraps `Freeze` (`shell/deferredMount.tsx`), `CompletedBlock`
+    (`console-transcript/src/dense/StreamingMarkdown.tsx`), and `MemoRow`
+    (`console-transcript/src/dense/Transcript.tsx`); `useCallback` appears in `ChatPanel.tsx` and
+    `console-kit/src/overlay/PaneOverlay.tsx`. No measured hot path beyond the transcript justifies
+    widening this pre-emptively; re-filed under "Someday / ideas" if a future profile finds one.
+  - **Layout persistence debounce — already fixed, closed by inspection.** `layoutPersistence.ts`
+    already trailing-debounces `saveLayout` 300ms (`SAVE_DEBOUNCE_MS = 300`, `setTimeout`/
+    `clearTimeout` around every persisted-field change) — the audit's premise (fires per drag
+    pixel) no longer matches the code. No change made.
+  - **Vite CSS `devSourcemap` tuning — closed, already at the perf-optimal default.**
+    `css.devSourcemap` is unset in `electron.vite.config.ts`, which is Vite's `false` default (no
+    dev sourcemap generation cost). There is nothing to tune; the flagged "issue" was already the
+    fast setting.
+  - **~7 sequential IPC round-trips on startup — closed, the number was stale.** `console.ts`
+    already fires its five top-level boot reads (`loadAccounts`/`loadModels`/`loadCatalogue`/
+    `initAgents`/`initSessions`) concurrently via `Promise.allSettled`, not as a waterfall. Of the
+    underlying calls, `getSettings`/`getLayout`/`listAgents` are local synchronous-file reads
+    proxied over IPC (`main/index.ts`'s `readJson`), not daemon round trips. The one real
+    sequential daemon chain left is `listSessions → reloadConversation` inside `initSessions` (2
+    deep) — an unavoidable data dependency, since the transcript read needs the session id the
+    list read returns. Today's real critical-path depth is 2, not ~7; whatever produced the
+    original count predates the `Promise.allSettled` parallelization. The transcript-grouping
+    `useMemo` gap was already fixed before this pass. Note: the original audit predated the
+    deliberate removal of transcript virtualization (full-text selection + Ctrl-F), so its
+    windowing-related framings were already moot.
+- **Poll-and-replace console state (re-filed, architectural — not built here).** The cheap
+  equality guard above stops an *unchanged* poll from re-rendering the eight `(s) => s`
+  subscribers, but a poll that DOES change anything (cap/flags/timeline) still replaces and
+  republishes the entire `ConsoleState`, and the live turn-frame path (`appendTurns`/`flushTurns`)
+  still rebuilds+republishes the whole state object on every rAF-coalesced flush. The durable fix
+  is a push-based store (subscribers read slices, not the whole object) instead of the current
+  poll-and-replace one; that is its own phase of work, out of scope for this pass.
 
 ## Do not build for v1
 
@@ -345,4 +414,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-07-31_
+_Last reviewed: 2026-08-02_

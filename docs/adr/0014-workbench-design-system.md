@@ -57,3 +57,6 @@ prototypes, and the maintainer approved the result at Gates 1–2.
   orphan surfaces (agents editor, banners' successor, account management) last.
 - 0007's structural machinery that the new system keeps — intent blocks, the semantic-token-only rule, the
   no-windowing transcript reversal, DenyNotice's render-only contract — continues to bind.
+- **2026-08-01:** the motion-true prototype (`apps/workbench-proto`) is retired. Its showcase was ported into
+  the console itself (a specimen per registered kit member, enforced by a test), which is now the living
+  reference implementation of the laws.

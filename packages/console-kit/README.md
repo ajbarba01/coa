@@ -7,7 +7,8 @@ the identity — geometry, ink, motion — is the kit's own.
 
 **Design authority:** [docs/UI.md](../../docs/UI.md) (the laws + authoring rules) and
 [docs/adr/0014](../../docs/adr/0014-workbench-design-system.md) (the why). The living spec is the
-`▦ showcase` surface in `apps/workbench-proto` — every member and every state renders there.
+console's own showcase surface (`apps/desktop/src/renderer/panels/ShowcasePanel.tsx`): every registered
+kit member renders a specimen there, enforced by a test.
 
 ## Adding a member
 
@@ -22,4 +23,4 @@ pnpm vitest run packages/console-kit   # tests enforce catalogue byte-equality +
 
 ---
 
-_Last reviewed: 2026-07-11_
+_Last reviewed: 2026-08-01_

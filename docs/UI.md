@@ -6,11 +6,14 @@
 > [ADR-0014](adr/0014-workbench-design-system.md), superseding the forge/brass direction (whose governance
 > machinery — intent blocks, token tiers, the no-windowing reversal — still binds via
 > [ADR-0007](adr/0007-console-design-system.md)). **Exact token values live in code**:
-> [`packages/console-kit`](../packages/console-kit) (`tokens.css`: the s1–s12 scale, Slipstream durations,
-> status colors) during migration; the motion-true reference implementation is
-> [`apps/workbench-proto`](../apps/workbench-proto). The legacy kit
-> ([`packages/console-ui`](../packages/console-ui)) and its `COMPONENTS.md` remain authoritative for surfaces
-> not yet migrated; the rebuild sequence is ROADMAP-owned.
+> [`packages/console-kit`](../packages/console-kit) (`tokens.css` + `themes/sand-dark.css`: the s1–s12 scale,
+> Slipstream durations, status/agent/focus colors) — the console's ONE token substrate, with no second theme
+> to lose a collision to ([ADR-0025](adr/0025-retire-the-legacy-console-kit.md)). The living reference
+> implementation is the console's own
+> [showcase surface](../apps/desktop/src/renderer/panels/ShowcasePanel.tsx), a specimen per registered kit
+> member enforced by test. The conversation renderer lives in
+> [`packages/console-transcript`](../packages/console-transcript), a composite built on the kit rather than a
+> kit member.
 >
 > Authority for the product behavior behind the GUI is [design/handoff/SPEC.md](design/handoff/SPEC.md) (M10 +
 > the M8 JSON-RPC surface). UI engineering principles inherit from [ENGINEERING.md](ENGINEERING.md) and
@@ -47,7 +50,10 @@
   idle); magnitude is a **count** (zero renders nothing); text is for names; detail is proximity
   (hover/focus). Accent hues never decorate inactive chrome.
 - **Elevation grounds.** In-flow surfaces s2/s4 with no shadow · floating surfaces s3/s5 + shadow · modals
-  s2/s5 + heavy shadow + scrim. **Hairlines:** s3 internal · s4 structural · s5 floating edges.
+  s2/s5 + heavy shadow + scrim. **Hairlines:** s3 internal · s4 structural · s5 floating edges. The in-flow
+  step is a **panel** (header / body / optional footer, `r3`, never a shadow and never nested) — the agent
+  editor's sections are its first consumers. A panel is not a card: it does not float, does not sit in a
+  uniform tile grid, and a selected row's own tint inside it is a tint, not a second surface.
 - **Slipstream motion.** swift 80 / base 140 / move 200 / enter 180 ms, expo-out, ≤ 12 px travel, never
   bouncy. Transitions for interruptible state; keyframes only for mount/unmount, with fill-mode `backwards`
   (a filled end-state transform turns the element into a containing block and breaks `position: fixed`
@@ -69,7 +75,27 @@
   dot.** One carve-out: `WindowControls` keeps its `─ ▢/❐ ✕` characters, because that chrome exists to
   mirror the platform's own window vocabulary and a lucide mark would read as foreign there.
 
-- **Selection marker.** A selected option row is an s4 tint + a trailing mono `current` — one vocabulary in
+- **Capitalization is a function of element kind.** Not one case everywhere — the element decides, and then
+  it holds without exception. **A command or action is Title Case** (`Remove Profile`, `Check for Updates`);
+  articles and prepositions inside it stay lowercase. **A label that names a thing or reports a state is
+  sentence case** (`Agent backend`, `No flags`, `Signed in`). **Prose is sentence case and takes a terminal
+  period**; a label never does. Everything starts with a capital letter. Measured against ~233 000 words of
+  shipped interface copy (VS Code, Spotify, Notion, Slack, GitHub Desktop, Docker Desktop): commands run 100 %
+  capital-first and 66 % Title Case, state labels 33 % Title, prose 96 % capital-first with 96 % terminal
+  periods. The **quiet register is visual, not typographic** — loudness is earned through ground, hue and
+  motion, and lowercasing a button never bought any of it. **An accessible name matches its visible label
+  verbatim**; with no visible label it takes the case of what it is — a menu-item-shaped command Title Case
+  (`Remove Provider`), a descriptive phrase for an icon-only control sentence case (`Stop the running turn`),
+  a field or state sentence case (`Reduce motion`). **Keycap hints stay lowercase** (`esc`, `ctrl+`, `⌥⏎`):
+  they name a physical key, not a word. Derivation and the full trait set live in
+  `.claude/skills/writing-in-voice`.
+- **Copy states, it does not sell.** One fact per string, said once, at the moment it is load-bearing. Name
+  the object and its state rather than the reader (second person is ~5 % of shipped copy — reserve it for the
+  user's own property or choice). **No em dashes**: they are absent from the reference corpus, at 0.00 per
+  1000 words; a qualifier takes parentheses or a second sentence. Labels run 1–5 words, prose 5–24. Write
+  copy through the **writing-in-voice** skill, whose profile is derived from that corpus and is coa's source
+  of truth for wording.
+- **Selection marker.** A selected option row is an s4 tint + a trailing mono `Current` — one vocabulary in
   every menu, picker, and select.
 - **Keybinds are a registry.** One table drives both the dispatch and the shortcuts UI (settings section +
   the quick overlay), so a bind cannot exist without being discoverable. Shortcuts render as kbd chips.
@@ -79,8 +105,14 @@
   math divides by it). Scrollbars are boxy, constant-width, palette-stepped — a deliberate, flagged exception
   to "never restyle scrollbars", justified by category convention (VS Code) and constancy.
 - **Banners' function, not banners.** Predictive notices (drift, cold cache) surface as one quiet line in
-  indicator-law form — dot + name + inline action — docked to the surface they concern; they never take the
-  frame and never persist past relevance.
+  indicator-law form — dot + name + inline action — **merged into the composer's own rect** above the
+  approval gate, the same construction the gate itself uses; they never take the frame and never persist
+  past relevance. Severity stays the dot (amber needs-you for drift, ground idle for cache); the warn tint
+  says only that attention is due. **The session state owns the shell's edge** — a notice tints it only
+  while nothing is running and no gate waits, and never starts the status shimmer. **Flagged deviation:** a
+  notice shows one clause of cause permanently, against "detail is proximity, never permanent prose". A
+  warning that carries an action must say what happened, or it asks for a decision the reader cannot make;
+  the copy law's "at the moment it is load-bearing" wins, and the full paragraph stays on hover/focus.
 
 ---
 
@@ -121,4 +153,4 @@
 
 ---
 
-_Last reviewed: 2026-07-21_
+_Last reviewed: 2026-08-01_

@@ -25,11 +25,11 @@ coa/
     adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     adapter-longcat/         M9 impl  — @coa/adapter-longcat (thin pure-API backend: LongCat `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
-    console-ui/              M10 — @coa/console-ui (design tokens + the component kit + COMPONENTS.md; pure react/radix, no electron/core). `dense/` holds the chat-surface members (Composer, the non-virtualized Transcript + its internal FindBar, the rich `ToolCard` + its supporting `ToolDiffView.tsx`/`syntaxTheme.tsx`/`pathLanguage.ts`/`clampLines.ts`/`matchLines.ts` (clickable search-match parser)/`runChecks.tsx` (run_checks status chips)/`errorMarks.tsx` (red error-token marker), plus pure helpers scrollState.ts/find.ts); `smoothScroll.ts` was removed with the virtualized transcript. `layout/` gained `PaneOverlay.tsx` (the pane-confined expand surface `ToolCard` opens into).
+    console-transcript/      M10 — @coa/console-transcript (the streaming conversation renderer: the non-virtualized Transcript + its internal FindBar, StreamingMarkdown, the rich `ToolCard` and its supporting members, and `DenyNotice`; a composite built ON the kit, never the reverse; pure react, no electron/core).
     console-kit/             M10 — @coa/console-kit (the workbench design system's kit: sand-dark theme seam + structural tokens + component vocabulary, COMPONENTS.md generated; pure react/@base-ui, no electron/core)
   apps/                      shippable binaries (M10 Console)
     cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
-    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer is the three-column workbench (`src/renderer/shell/`: nav + center canvas + collapsible session column, daemon gate, ⌘K palette, settings dialog) composed from `@coa/console-kit`, fed by the controller in `src/renderer/console.ts` publishing one `ConsoleState` into a store; center surfaces (`src/renderer/panels/`) still render on `console-ui` until the conversation/surfaces re-skins land. The IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); the shell arrangement (surface/tabs/columns) and console settings (density/motion) persist per-user via the main process (`src/main/persistence.ts`: `layout.json` + `settings.json`). Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated).
+    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer is the three-column workbench (`src/renderer/shell/`: nav + center canvas + collapsible session column, daemon gate, ⌘K palette, settings dialog) composed from `@coa/console-kit`, fed by the controller in `src/renderer/console.ts` publishing one `ConsoleState` into a store; The IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); the shell arrangement (surface/tabs/columns) and console settings (theme/motion) persist per-user via the main process (`src/main/persistence.ts`: `layout.json` + `settings.json`). Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated).
   docs/
     design/handoff/          SPEC.md (a per-module index over spec/M0..M10.md) · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
     adr/                     architecture decision records — immutable, the durable "why" (README is the index)
@@ -62,7 +62,7 @@ shippable apps.
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
 | M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
 | M9 Runtime Adapter           | `packages/spi` + `packages/loop-driver` + `packages/adapter-claude-sdk` + `packages/adapter-deepseek` + `packages/adapter-longcat` | Ports (types) + the shared pure-API loop driver + the SDK backend + the thin DeepSeek backend + the thin LongCat backend. |
-| M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-ui` + `packages/console-kit` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-ui` owns the design tokens + component kit; `console-kit` owns the workbench design system's kit (theme seam, structural tokens, component vocabulary). |
+| M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-kit` + `packages/console-transcript` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-kit` owns the design system (theme seam, structural tokens, component vocabulary, COMPONENTS.md); `console-transcript` owns the conversation renderer built on it. |
 
 **Why M1 and M3–M8 share one `core` package.** They are the daemon's rings around the spine; they share the
 in-process graph and the single-writer WAL, and the SPEC keeps them co-located. The discipline that prevents this
@@ -104,8 +104,9 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
   the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.
 - **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
   `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
-- **`console-ui` is a pure UI kit** — it imports only `react`/`radix-ui`/`lucide-react` (+ its own tokens), never
-  `electron`/`core` (enforced: `console-ui-no-electron-core`).
+- **`console-kit` and `console-transcript` are pure UI packages** — they import only
+  `react`/`@base-ui`/`lucide-react` (+ the kit's tokens), never `electron`/`core` (enforced:
+  `console-ui-no-electron-core`). `console-transcript` depends on `console-kit`; never the reverse.
 
 A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
 **same commit** (the same-commit doc rule).
