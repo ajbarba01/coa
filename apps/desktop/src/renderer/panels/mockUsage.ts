@@ -23,6 +23,15 @@ import { providerById } from './providers.js';
 export type Range = 'today' | '7d' | '30d' | 'all';
 export const RANGES: Range[] = ['today', '7d', '30d', 'all'];
 
+/** Value/label split: the ids key the ledger arithmetic and the view state, the labels are
+ *  the only thing the range control shows. `7d`/`30d` are durations, not words. */
+export const RANGE_LABEL: Record<Range, string> = {
+  today: 'Today',
+  '7d': '7d',
+  '30d': '30d',
+  all: 'All',
+};
+
 /** The mock ledger is 30 days deep, so `all` is 30 — an honest "everything we have", not an
  *  invented longer history. */
 export const LEDGER_DAYS = 30;
@@ -54,6 +63,10 @@ export interface DaySpend {
   /** Cost per model, index-aligned to `byModel`. */
   costs: number[];
 }
+
+/** The one unknown a row must not sit quietly on: coa cannot read this login at all. Named
+ *  so the row tests identity rather than the prose, which is free to be reworded. */
+export const LIMITS_UNREADABLE = 'Limits unknown · re-login to read them';
 
 export interface AccountUsage {
   credentialId: string;
@@ -91,9 +104,9 @@ interface Fixture {
 const FIXTURES: Record<string, Fixture> = {
   worm: {
     limits: [
-      { id: '5h', label: '5-hour', percent: 0, resets: 'resets 17:40' },
-      { id: '7d', label: '7-day', percent: 52, resets: 'resets fri 07:00' },
-      { id: '7d-opus', label: 'opus 7-day', percent: 78, resets: 'resets fri 07:00' },
+      { id: '5h', label: '5-hour', percent: 0, resets: 'Resets 17:40' },
+      { id: '7d', label: '7-day', percent: 52, resets: 'Resets Fri 07:00' },
+      { id: '7d-opus', label: 'opus 7-day', percent: 78, resets: 'Resets Fri 07:00' },
     ],
     models: [
       { model: 'claude-opus-4-8', series: 1, perDay: 2.05, tokensPerDollar: 600_000 },
@@ -104,9 +117,9 @@ const FIXTURES: Record<string, Fixture> = {
   },
   school: {
     limits: [
-      { id: '5h', label: '5-hour', percent: 12, resets: 'resets 19:05' },
-      { id: '7d', label: '7-day', percent: 4, resets: 'resets sun 09:00' },
-      { id: '7d-opus', label: 'opus 7-day', percent: 0, resets: 'resets sun 09:00' },
+      { id: '5h', label: '5-hour', percent: 12, resets: 'Resets 19:05' },
+      { id: '7d', label: '7-day', percent: 4, resets: 'Resets Sun 09:00' },
+      { id: '7d-opus', label: 'opus 7-day', percent: 0, resets: 'Resets Sun 09:00' },
     ],
     models: [{ model: 'claude-sonnet-5', series: 2, perDay: 0.05, tokensPerDollar: 1_800_000 }],
     rhythm: [0, 1.4, 0, 2.1, 0, 1.1, 0.3],
@@ -190,10 +203,10 @@ export function accountUsage(c: Credential, range: Range = 'today'): AccountUsag
 
   // Three honest shapes, in priority order: a broken pointer can't be read at all; a provider
   // with no limits API has nothing to read; otherwise, the snapshot.
-  if (c.expired === true) usage.limitsUnknown = 'limits unknown — re-login to read them';
-  else if (provider?.id !== 'claude') usage.limitsUnknown = 'no limits API — spend only';
+  if (c.expired === true) usage.limitsUnknown = LIMITS_UNREADABLE;
+  else if (provider?.id !== 'claude') usage.limitsUnknown = 'No limits API · spend only';
   else if (fixture?.limits !== undefined) usage.limits = fixture.limits;
-  else usage.limitsUnknown = 'limits not read yet';
+  else usage.limitsUnknown = 'Limits not read yet';
 
   return usage;
 }
@@ -344,11 +357,11 @@ export function attentionItems(accounts: AccountUsage[]): AttentionItem[] {
   const logins: AttentionItem[] = [];
   const limits: AttentionItem[] = [];
   for (const a of accounts) {
-    if (a.limitsUnknown?.startsWith('limits unknown') === true) {
+    if (a.limitsUnknown === LIMITS_UNREADABLE) {
       logins.push({
         door: { kind: 'account', credentialId: a.credentialId },
         title: a.label,
-        detail: 'login expired — coa cannot read its limits',
+        detail: 'Login expired · its limits cannot be read',
       });
     }
     for (const l of a.limits ?? []) {
@@ -375,21 +388,21 @@ export function poolAttention(
     return {
       door: { kind: 'keys', providerId: provider.id },
       title: provider.label,
-      detail: 'benched — not serving',
+      detail: 'Benched · not serving',
     };
   }
   if (usage.healthy === 0) {
     return {
       door: { kind: 'keys', providerId: provider.id },
       title: provider.label,
-      detail: 'no healthy keys',
+      detail: 'No healthy keys',
     };
   }
   if (usage.cooling > 0) {
     return {
       door: { kind: 'keys', providerId: provider.id },
       title: provider.label,
-      detail: `${usage.cooling} cooling — the breaker is holding traffic`,
+      detail: `${usage.cooling} cooling · the breaker is holding traffic`,
     };
   }
   return undefined;

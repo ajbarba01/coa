@@ -35,7 +35,7 @@ export function Work(): React.JSX.Element {
     <div className="flex flex-none flex-col border-l border-s4 bg-s2" style={{ width: workWidth }}>
       {/* the whole strip drags; interactive children opt out (appRegion policy) */}
       <div className="flex h-(--titlebar-h) flex-none items-stretch" style={DRAG}>
-        <CapsLabel className="self-center px-3.5 pt-0 pb-0">agents</CapsLabel>
+        <CapsLabel className="self-center px-3.5 pt-0 pb-0">Agents</CapsLabel>
         <div className="flex-1" />
         <AppWindowControls />
       </div>
@@ -45,12 +45,12 @@ export function Work(): React.JSX.Element {
           <div className="flex items-center gap-2 px-3.5 py-1 text-sec font-[550] text-s12">
             <StatusDot status={running ? 'running' : 'idle'} />
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{session.title}</span>
-            <span className="ml-auto font-mono text-caps text-s6">root</span>
+            <span className="ml-auto font-mono text-caps text-s6">Root</span>
           </div>
 
           {planItems !== undefined && planItems.length > 0 ? (
             <Section
-              title="plan"
+              title="Plan"
               meta={`${planItems.filter((i) => i.status === 'done').length}/${planItems.length}`}
             >
               {planItems.map((it, i) => (
@@ -80,26 +80,26 @@ export function Work(): React.JSX.Element {
           ) : (
             // Plan IS supported (unlike the floors below) — it is just empty for this
             // session/backend, so its empty line reads "no plan yet", not "not tracked yet".
-            <Section title="plan">
-              <div className="px-3.5 py-1 text-meta text-s6">no plan yet</div>
+            <Section title="Plan">
+              <div className="px-3.5 py-1 text-meta text-s6">No plan yet</div>
             </Section>
           )}
 
-          <FloorSection title="subagents" />
-          <FloorSection title="changes" />
-          <FloorSection title="worktree" />
-          <FloorSection title="record" />
-          <FloorSection title="cost" />
+          <FloorSection title="Subagents" />
+          <FloorSection title="Changes" />
+          <FloorSection title="Worktree" />
+          <FloorSection title="Record" />
+          <FloorSection title="Cost" />
         </div>
       ) : (
-        <div className="px-3.5 pt-4 text-code text-s7">no session</div>
+        <div className="px-3.5 pt-4 text-code text-s7">No session</div>
       )}
 
       <div className="mt-auto flex items-center border-t border-s3 px-3.5 py-2">
-        <Tooltip label="hide session panel" keys={bindFor('toggle-dock')} side="top">
+        <Tooltip label="Hide session panel" keys={bindFor('toggle-dock')} side="top">
           <button
             type="button"
-            aria-label="hide session panel"
+            aria-label="Hide session panel"
             onClick={toggleWork}
             className="slip ml-auto cursor-pointer font-mono text-body text-s7 hover:text-s9"
           >
@@ -116,10 +116,10 @@ export function Work(): React.JSX.Element {
 export function ReopenWork(): React.JSX.Element {
   const toggleWork = useShell((s) => s.toggleWork);
   return (
-    <Tooltip label="show session panel" keys={bindFor('toggle-dock')} side="top">
+    <Tooltip label="Show session panel" keys={bindFor('toggle-dock')} side="top">
       <button
         type="button"
-        aria-label="show session panel"
+        aria-label="Show session panel"
         onClick={toggleWork}
         className="slip fixed right-1.5 bottom-1.5 z-(--z-seam) flex h-8 w-8 cursor-pointer items-center justify-center font-mono text-body text-s7 hover:text-s9"
       >
@@ -155,7 +155,7 @@ function Section({
 function FloorSection({ title }: { title: string }): React.JSX.Element {
   return (
     <Section title={title}>
-      <div className="px-3.5 py-1 text-meta text-s6">not tracked yet</div>
+      <div className="px-3.5 py-1 text-meta text-s6">Not tracked yet</div>
     </Section>
   );
 }

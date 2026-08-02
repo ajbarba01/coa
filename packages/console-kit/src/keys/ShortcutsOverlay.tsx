@@ -76,7 +76,7 @@ export function ShortcutsOverlay({
     const keys = editing?.chordFromEvent(e.nativeEvent);
     if (keys === undefined) return; // a modifier alone: keep listening
     if (editing !== undefined && !editing.isBindable(keys)) {
-      setCapture({ id: capture.id, error: 'needs ctrl or alt' });
+      setCapture({ id: capture.id, error: 'Needs ctrl or alt' });
       return;
     }
     setCapture({ id: capture.id, keys });
@@ -89,24 +89,24 @@ export function ShortcutsOverlay({
     <ModalShell
       open
       onClose={onClose}
-      aria-label="keyboard shortcuts"
+      aria-label="Keyboard shortcuts"
       className="flex max-h-[75vh] w-120 flex-col pb-0"
     >
       <div className="flex items-center border-b border-s3 px-4 py-2.5 text-caps tracking-[0.07em] text-s7 uppercase">
-        keyboard shortcuts
+        Keyboard shortcuts
         {editing !== undefined && (
           <Button
             variant="text"
             onClick={editing.onResetAll}
             className="ml-auto tracking-normal normal-case"
           >
-            reset all
+            Reset All
           </Button>
         )}
         <Button
           variant="ghost"
           icon
-          aria-label="close shortcuts"
+          aria-label="Close Shortcuts"
           onClick={onClose}
           className={cx('h-6 w-6 tracking-normal', editing === undefined && 'ml-auto')}
         >
@@ -120,8 +120,8 @@ export function ShortcutsOverlay({
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="filter shortcuts…"
-          aria-label="filter shortcuts"
+          placeholder="Filter shortcuts…"
+          aria-label="Filter shortcuts"
           className="w-full min-w-0 bg-transparent text-sec text-s11 outline-none placeholder:text-s7"
         />
       </div>
@@ -154,7 +154,7 @@ export function ShortcutsOverlay({
                           <button
                             type="button"
                             aria-label={
-                              recording ? `stop recording ${k.label}` : `rebind ${k.label}`
+                              recording ? `Stop Recording ${k.label}` : `Rebind ${k.label}`
                             }
                             onClick={() => setCapture(recording ? undefined : { id: k.id })}
                             onKeyDown={onCaptureKey}
@@ -184,7 +184,7 @@ export function ShortcutsOverlay({
                             <Button
                               variant="ghost"
                               icon
-                              aria-label={`reset ${k.label}`}
+                              aria-label={`Reset ${k.label}`}
                               onClick={() => editing.onReset(k.id)}
                               className="h-5 w-5 text-code"
                             >
@@ -196,9 +196,9 @@ export function ShortcutsOverlay({
                     {recording && (
                       <div className="pt-0.5 text-right font-mono text-meta text-s7">
                         {capture?.keys === undefined
-                          ? 'press a chord · esc to cancel'
+                          ? 'Press a chord · esc to cancel'
                           : conflict !== undefined
-                            ? `${conflict} holds this — enter to reassign it`
+                            ? `${conflict} holds this. Press enter to reassign it.`
                             : 'enter to apply · esc to cancel'}
                       </div>
                     )}
@@ -209,7 +209,7 @@ export function ShortcutsOverlay({
         ))}
 
         {hits.length === 0 && (
-          <div className="px-4 py-6 text-center text-sec text-s7">no shortcut matches</div>
+          <div className="px-4 py-6 text-center text-sec text-s7">No shortcut matches</div>
         )}
       </div>
     </ModalShell>
@@ -229,10 +229,10 @@ function ChordFace({
 }): React.JSX.Element {
   if (error !== undefined) return <span className="font-mono text-caps text-crit">{error}</span>;
   if (recording && keys === undefined) {
-    return <span className="font-mono text-caps text-run">listening…</span>;
+    return <span className="font-mono text-caps text-run">Listening…</span>;
   }
   if (keys === undefined || keys.length === 0) {
-    return <span className="font-mono text-caps text-warn">unbound</span>;
+    return <span className="font-mono text-caps text-warn">Unbound</span>;
   }
   return (
     <>

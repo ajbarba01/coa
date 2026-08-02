@@ -12,7 +12,7 @@ describe('PanelResize', () => {
         <PanelResize onDrag={onDrag} onReset={() => {}} />
       </ZoomProvider>,
     );
-    const sep = screen.getByRole('separator', { name: 'resize panel' });
+    const sep = screen.getByRole('separator', { name: /^resize panel$/i });
     fireEvent.pointerDown(sep, { pointerId: 1, clientX: 100 });
     fireEvent.pointerMove(sep, { clientX: 240 });
     expect(onDrag).toHaveBeenLastCalledWith(120);

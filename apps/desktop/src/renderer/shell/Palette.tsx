@@ -40,7 +40,7 @@ export function Palette(): React.JSX.Element | null {
       }}
     >
       <Command
-        label="command palette"
+        label="Command palette"
         // cmdk's vim bindings claim ctrl+k/ctrl+p/ctrl+n/ctrl+j for list navigation and
         // preventDefault them — which silently ate the palette's OWN summon chord, so
         // ctrl+k opened it but could never close it. The arrows navigate; the chords are
@@ -50,15 +50,15 @@ export function Palette(): React.JSX.Element | null {
       >
         <div className="flex items-center gap-2.5 border-b border-s3 px-4">
           <span className="text-[15px] text-s8">❯</span>
-          <Command.Input autoFocus placeholder="type a command or session…" />
+          <Command.Input autoFocus placeholder="Type a command or session…" />
         </div>
         <Command.List>
-          <Command.Empty>nothing matches</Command.Empty>
+          <Command.Empty>Nothing matches</Command.Empty>
 
-          <Command.Group heading="actions">
+          <Command.Group heading="Actions">
             <Command.Item onSelect={() => run(() => state.actions.toggleRaw())}>
               <span className="glyph">≡</span>
-              {state.ui.rawMode ? 'raw mode off' : 'raw mode — show the unfiltered loop'}
+              {state.ui.rawMode ? 'Raw Mode Off' : 'Raw Mode On (show the unfiltered loop)'}
             </Command.Item>
             <Command.Item
               disabled={!running}
@@ -68,28 +68,28 @@ export function Palette(): React.JSX.Element | null {
                 })
               }
             >
-              <span className="glyph">■</span>interrupt running turn
+              <span className="glyph">■</span>Interrupt Running Turn
               <kbd>esc</kbd>
             </Command.Item>
             <Command.Item onSelect={() => run(() => shell.setNewSessionOpen(true))}>
-              <span className="glyph">+</span>new session
+              <span className="glyph">+</span>New Session
               <Chord id="new-session" />
             </Command.Item>
             <Command.Item onSelect={() => run(() => shell.openSearch())}>
-              <span className="glyph">⌕</span>search sessions
+              <span className="glyph">⌕</span>Search Sessions
               <Chord id="search-sessions" />
             </Command.Item>
             <Command.Item onSelect={() => run(() => shell.setSettingsOpen(true))}>
-              <span className="glyph">⚙</span>settings
+              <span className="glyph">⚙</span>Settings
               <Chord id="settings" />
             </Command.Item>
             <Command.Item onSelect={() => run(() => shell.setShortcutsOpen(true))}>
-              <span className="glyph">⌨</span>keyboard shortcuts
+              <span className="glyph">⌨</span>Keyboard Shortcuts
               <Chord id="shortcuts" />
             </Command.Item>
           </Command.Group>
 
-          <Command.Group heading="go to">
+          <Command.Group heading="Go to">
             {SURFACES.map((s) => (
               <Command.Item key={s.id} onSelect={() => run(() => shell.setSurface(s.id))}>
                 <span className="glyph">›</span>
@@ -98,7 +98,7 @@ export function Palette(): React.JSX.Element | null {
             ))}
           </Command.Group>
 
-          <Command.Group heading="sessions">
+          <Command.Group heading="Sessions">
             {sessions.slice(0, 20).map((s) => (
               <Command.Item
                 key={s.id}

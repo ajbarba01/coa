@@ -8,7 +8,7 @@ describe('MenuItem', () => {
     render(<MenuItem selected>fable-5</MenuItem>);
     const el = screen.getByRole('button', { name: /fable-5/ });
     expect(el.className).toContain('bg-s4');
-    expect(screen.getByText('current')).toBeInTheDocument();
+    expect(screen.getByText(/^current$/i)).toBeInTheDocument();
   });
 
   it('unselected renders hover affordance and no marker', () => {

@@ -98,7 +98,7 @@ describe('honest degradation', () => {
     const deepseek = accountUsage(credential({ providerId: 'deepseek', label: 'ds' }));
     expect(claude.limits?.length).toBe(3);
     expect(deepseek.limits).toBeUndefined();
-    expect(deepseek.limitsUnknown).toBe('no limits API — spend only');
+    expect(deepseek.limitsUnknown).toMatch(/^no limits API · spend only$/i);
   });
 
   it('says a broken login is unreadable rather than showing zeros', () => {
@@ -127,7 +127,7 @@ describe('honest degradation', () => {
     // A benched provider serves nothing, whatever its keys say.
     expect(
       healthWords({ providerId: 'parallel', healthy: 1, cooling: 0, disabled: 0 }, false),
-    ).toBe('benched');
+    ).toBe('Benched');
   });
 });
 
@@ -264,7 +264,7 @@ describe('needs-you items', () => {
         { providerId: 'parallel', healthy: 1, cooling: 0, disabled: 0 },
         false,
       )?.detail,
-    ).toMatch(/benched/);
+    ).toMatch(/benched/i);
   });
 });
 
@@ -297,20 +297,20 @@ describe('UsageSurface', () => {
     expect(screen.getByLabelText('worm 7-day')).toHaveAttribute('aria-valuenow', '52');
     expect(screen.getByLabelText('school 7-day')).toHaveAttribute('aria-valuenow', '4');
     // Both keyed backends (deepseek, longcat) say it — a bar we cannot fill is never drawn.
-    expect(screen.getAllByText('no limits API — spend only').length).toBe(2);
+    expect(screen.getAllByText(/^no limits API · spend only$/i).length).toBe(2);
   });
 
   it('leads with the workspace spend, stacked by provider — the legend is the totals line', () => {
     renderUsage();
     // The lede chart's legend names the providers that actually spent (identity ≠ color alone).
-    expect(screen.getAllByText('claude').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('deepseek').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^claude$/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^deepseek$/i).length).toBeGreaterThan(0);
   });
 
   it('surfaces the honest exceptions as doors — and only the exceptions', async () => {
     const user = userEvent.setup();
     renderUsage();
-    expect(screen.getByText('needs you')).toBeTruthy();
+    expect(screen.getByText(/^needs you$/i)).toBeTruthy();
     // personal's login is expired; worm's opus window is at 78%. school is fine — no row.
     expect(screen.getByText(/login expired/i)).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /worm · opus 7-day/i }));
@@ -331,35 +331,35 @@ describe('UsageSurface', () => {
     const user = userEvent.setup();
     renderUsage();
     // Providers view carries no service rows any more…
-    expect(screen.queryByRole('button', { name: 'tavily keys' })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'tools' }));
+    expect(screen.queryByRole('button', { name: /^tavily keys$/i })).toBeNull();
+    await user.click(screen.getByRole('button', { name: /^tools$/i }));
     // …and the tools view carries no account rows.
-    expect(await screen.findByRole('button', { name: 'tavily keys' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^tavily keys$/i })).toBeTruthy();
     await waitFor(() => expect(screen.queryByLabelText('worm 7-day')).toBeNull());
   });
 
   it('scopes the reading to any combination of providers; clearing every tile reads as all', async () => {
     const user = userEvent.setup();
     renderUsage();
-    await user.click(screen.getByRole('button', { name: 'scope deepseek' }));
+    await user.click(screen.getByRole('button', { name: /^scope deepseek$/i }));
     // The claude accounts leave the inventory (exit animation → awaited)…
     await waitFor(() => expect(screen.queryByLabelText('worm 7-day')).toBeNull());
     // …the deepseek account stays, and so does its "spend only" honesty.
-    expect(screen.getAllByText('no limits API — spend only').length).toBe(1);
+    expect(screen.getAllByText(/^no limits API · spend only$/i).length).toBe(1);
     // Adding claude widens the combination — both providers' accounts show.
-    await user.click(screen.getByRole('button', { name: 'scope claude' }));
+    await user.click(screen.getByRole('button', { name: /^scope claude$/i }));
     expect(await screen.findByLabelText('worm 7-day')).toBeTruthy();
     // Toggling both off clears the scope entirely: everything is back.
-    await user.click(screen.getByRole('button', { name: 'scope deepseek' }));
-    await user.click(screen.getByRole('button', { name: 'scope claude' }));
-    expect(screen.getAllByText('no limits API — spend only').length).toBe(2); // ds + lc again
+    await user.click(screen.getByRole('button', { name: /^scope deepseek$/i }));
+    await user.click(screen.getByRole('button', { name: /^scope claude$/i }));
+    expect(screen.getAllByText(/^no limits API · spend only$/i).length).toBe(2); // ds + lc again
   });
 
   it('sends a tool service to its keys on auth — it has no dashboard of its own', async () => {
     const user = userEvent.setup();
     useUsageUi.getState().setView('tools');
     renderUsage();
-    await user.click(screen.getByRole('button', { name: 'tavily keys' }));
+    await user.click(screen.getByRole('button', { name: /^tavily keys$/i }));
     expect(useShell.getState().surface).toBe('auth');
     expect(useAuthUi.getState().selected).toBe('tavily');
   });

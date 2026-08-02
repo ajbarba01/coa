@@ -54,13 +54,13 @@ describe('App', () => {
     stubCoa('stopped');
     render(<App />);
     expect(await screen.findByText('the coa daemon is not running')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /timeline/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /timeline/i })).toBeNull();
   });
 
   it('swaps to the workbench once the daemon reports running', async () => {
     stubCoa('running');
     render(<App />);
-    expect(await screen.findByRole('button', { name: /timeline/ })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /timeline/i })).toBeTruthy();
     expect(screen.queryByText('the coa daemon is not running')).toBeNull();
   });
 });

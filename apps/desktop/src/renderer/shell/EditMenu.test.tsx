@@ -30,41 +30,41 @@ describe('EditMenu', () => {
     field.setSelectionRange(0, 8);
     fireEvent.contextMenu(field, { clientX: 40, clientY: 40 });
 
-    expect(screen.getByText('paste')).toBeTruthy();
-    await user.click(screen.getByText('paste'));
+    expect(screen.getByText(/^paste$/i)).toBeTruthy();
+    await user.click(screen.getByText(/^paste$/i));
     expect(editCommand).toHaveBeenCalledWith({ command: 'paste' });
     // Acting closes the menu.
-    expect(screen.queryByText('paste')).toBeNull();
+    expect(screen.queryByText(/^paste$/i)).toBeNull();
   });
 
   it('cut/copy need a selection', () => {
     const field = renderWithField();
     field.setSelectionRange(2, 2);
     fireEvent.contextMenu(field, { clientX: 40, clientY: 40 });
-    expect((screen.getByText('cut') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByText('paste') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByText(/^cut$/i) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText(/^paste$/i) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('a password field never offers its text — cut/copy stay disabled with a selection', () => {
     const field = renderWithField('password');
     field.setSelectionRange(0, 8);
     fireEvent.contextMenu(field, { clientX: 40, clientY: 40 });
-    expect((screen.getByText('copy') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByText('paste') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByText(/^copy$/i) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText(/^paste$/i) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('a right-click with no text context opens nothing', () => {
     renderWithField();
-    fireEvent.contextMenu(screen.getByText('prose to select'), { clientX: 40, clientY: 40 });
-    expect(screen.queryByText('paste')).toBeNull();
+    fireEvent.contextMenu(screen.getByText(/^prose to select$/i), { clientX: 40, clientY: 40 });
+    expect(screen.queryByText(/^paste$/i)).toBeNull();
   });
 
   it('a right-click on the open menu itself neither repositions nor closes it', () => {
     const field = renderWithField();
     field.setSelectionRange(0, 8);
     fireEvent.contextMenu(field, { clientX: 40, clientY: 40 });
-    const menu = screen.getByText('paste');
+    const menu = screen.getByText(/^paste$/i);
     fireEvent.contextMenu(menu, { clientX: 300, clientY: 300 });
-    expect(screen.getByText('paste')).toBeTruthy();
+    expect(screen.getByText(/^paste$/i)).toBeTruthy();
   });
 });

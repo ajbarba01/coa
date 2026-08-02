@@ -4,8 +4,12 @@ import { cx } from '../cx.js';
 import { menuSurface } from '../overlay/MenuCard.js';
 import { useDismissLayer } from '../overlay/layers.js';
 
+/** An option is its own label when the two are the same word; a pair splits them, so a
+ *  displayed option can be cased without recasing the value it stands for. */
+export type SelectOption = string | { value: string; label: string };
+
 export interface SelectProps {
-  options: readonly string[];
+  options: readonly SelectOption[];
   value: string;
   onChange: (value: string) => void;
   'aria-label'?: string;
@@ -13,9 +17,13 @@ export interface SelectProps {
 
 /** The quiet select: a bordered mono chip that grows a positioned option popup.
  *  Base UI owns focus, typeahead, keyboard selection, and placement; the kit
- *  owns the skin and the `current` marker. */
+ *  owns the skin and the `Current` marker. */
 export function Select({ options, value, onChange, ...aria }: SelectProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const items = options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o));
+  // Base UI's `Value` renders the raw value, not the item's label, so the trigger
+  // takes the resolved label as its child instead.
+  const current = items.find((o) => o.value === value)?.label ?? value;
   useDismissLayer(open, () => setOpen(false));
   return (
     <BaseSelect.Root
@@ -42,7 +50,7 @@ export function Select({ options, value, onChange, ...aria }: SelectProps): Reac
         )}
         {...aria}
       >
-        <BaseSelect.Value /> ▾
+        <BaseSelect.Value>{current}</BaseSelect.Value> ▾
       </BaseSelect.Trigger>
       <BaseSelect.Portal>
         <BaseSelect.Positioner
@@ -53,21 +61,21 @@ export function Select({ options, value, onChange, ...aria }: SelectProps): Reac
           className="z-(--z-dropdown)"
         >
           <BaseSelect.Popup className={cx('slip-enter', menuSurface)}>
-            {options.map((o) => (
+            {items.map((o) => (
               <BaseSelect.Item
-                key={o}
-                value={o}
+                key={o.value}
+                value={o.value}
                 className={cx(
                   'slip flex w-full cursor-pointer items-center gap-4 px-3 py-1.5 text-left font-mono text-code whitespace-nowrap',
-                  o === value
+                  o.value === value
                     ? 'bg-s4 text-s12'
                     : 'text-s9 data-[highlighted]:bg-s4 data-[highlighted]:text-s11',
                 )}
               >
-                <BaseSelect.ItemText>{o}</BaseSelect.ItemText>
-                {o === value && (
+                <BaseSelect.ItemText>{o.label}</BaseSelect.ItemText>
+                {o.value === value && (
                   <span className="ml-auto font-mono text-caps tracking-normal text-s7">
-                    current
+                    Current
                   </span>
                 )}
               </BaseSelect.Item>

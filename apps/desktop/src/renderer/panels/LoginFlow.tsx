@@ -42,7 +42,7 @@ export function SignInButton({ provider }: { provider: ProviderDescriptor }): Re
   const setLoginEmailFor = useShell((s) => s.setLoginEmailFor);
   return (
     <Button variant="text" onClick={() => setLoginEmailFor({ providerId: provider.id })}>
-      sign in
+      Sign In
     </Button>
   );
 }
@@ -109,7 +109,7 @@ export function LoginDialog(): React.JSX.Element | null {
   };
 
   return (
-    <ModalShell open onClose={close} aria-label="sign in" className="w-120">
+    <ModalShell open onClose={close} aria-label="Sign in" className="w-120">
       {flow !== undefined ? (
         <FlowBody flow={flow} onClose={close} />
       ) : pre !== undefined ? (
@@ -151,11 +151,11 @@ function EmailStep({
     <>
       <header className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
         <StatusDot status="needs-you" />
-        <span className="text-sec font-semibold text-s11">sign in with {providerId}</span>
+        <span className="text-sec font-semibold text-s11">Sign in with {providerId}</span>
       </header>
       <div className="flex flex-col gap-3 px-4 py-4">
         <label className="flex flex-col gap-1.5 text-code text-s9">
-          email
+          Email
           <TextInput
             autoFocus
             type="email"
@@ -163,23 +163,23 @@ function EmailStep({
             onChange={setEmail}
             onCommit={commit}
             placeholder="you@example.org"
-            aria-label="email"
+            aria-label="Email"
           />
         </label>
         {/* Isolation is real now (ADR-0018) — the copy names the dedicated profile only
             when it's actually live, never as an aspiration. */}
         <span className="text-meta leading-relaxed text-s7">
           {isolated
-            ? 'Claude’s sign-in opens in its own browser profile for this account, pre-filled with this email — so the account you name is the account that lands.'
+            ? 'Claude’s sign-in opens in its own browser profile for this account, pre-filled with this email. The account you name is the account that lands.'
             : 'Claude’s sign-in opens in your browser, pre-filled with this email.'}
         </span>
       </div>
       <footer className="flex items-center justify-end gap-2 border-t border-s3 px-4 py-3">
         <Button variant="outline" onClick={() => setLoginEmailFor(undefined)}>
-          cancel
+          Cancel
         </Button>
         <Button variant="quiet" disabled={!valid} onClick={commit}>
-          continue
+          Continue
         </Button>
       </footer>
     </>
@@ -211,10 +211,10 @@ function FlowBody({
   // names the provider honestly rather than pretending a parameter exists.
   const title =
     flow.phase === 'registered'
-      ? 'signed in'
+      ? 'Signed in'
       : flow.mode === 'relogin'
-        ? `re-login ${flow.email ?? ''}`
-        : 'sign in — new claude login';
+        ? `Re-login ${flow.email ?? ''}`
+        : 'New Claude login';
 
   const retry = (): void => {
     if (flow.email === undefined) return;
@@ -251,7 +251,7 @@ function FlowBody({
           >
             {flow.phase === 'launching' && (
               <Step
-                heading="starting Claude sign-in"
+                heading="Starting Claude sign-in"
                 body={`Opening the browser for ${flow.email ?? 'this account'}.`}
               />
             )}
@@ -259,7 +259,7 @@ function FlowBody({
             {flow.phase === 'awaiting' && (
               <div className="flex flex-col gap-3">
                 <Step
-                  heading="finish signing in"
+                  heading="Finish signing in"
                   body={`Complete the sign-in as ${flow.email ?? 'your account'} in your browser. This updates as soon as it lands.`}
                 />
                 {flow.oauthUrl !== undefined ? (
@@ -268,8 +268,8 @@ function FlowBody({
                   // Degraded, honest, never blocking: without a PTY the CLI prints no URL,
                   // but the browser still opened and the probe still completes the flow.
                   <div className="rounded-r3 border border-s5 bg-s1 px-3 py-3 font-mono text-meta leading-relaxed text-s7">
-                    the browser opened with your email pre-filled — the copyable link isn&apos;t
-                    available on this system
+                    The browser opened with your email pre-filled. The copyable link is not
+                    available on this system.
                   </div>
                 ) : null}
                 {/* Always present, never behind a click. The field is cheap to ignore and
@@ -284,8 +284,8 @@ function FlowBody({
                     onCommit={() => {
                       if (code.trim() !== '') void submitCode(code.trim()).catch(() => {});
                     }}
-                    placeholder="paste the code here, if the browser gives you one"
-                    aria-label="authorization code"
+                    placeholder="Paste the code here, if the browser gives you one."
+                    aria-label="Authorization code"
                     className="flex-1"
                   />
                   <Button
@@ -293,7 +293,7 @@ function FlowBody({
                     disabled={code.trim() === ''}
                     onClick={() => void submitCode(code.trim()).catch(() => {})}
                   >
-                    submit
+                    Submit
                   </Button>
                 </div>
               </div>
@@ -301,21 +301,21 @@ function FlowBody({
 
             {flow.phase === 'watching' && (
               <Step
-                heading="confirming your login"
+                heading="Confirming your login"
                 body="Signed in. Confirming with Claude before this account is registered."
               />
             )}
 
             {flow.phase === 'preexisting' && (
               <Step
-                heading={`already signed in as ${flow.landedEmail ?? 'another account'}`}
-                body="This login still holds a session from before — nothing was signed in just now. Use it, or cancel and sign that login out first."
+                heading={`Already signed in as ${flow.landedEmail ?? 'another account'}`}
+                body="This login still holds a session from before, so nothing was signed in just now. Use it, or cancel and sign that login out first."
               />
             )}
 
             {flow.phase === 'mismatch' && (
               <Step
-                heading={`signed in as ${flow.landedEmail ?? 'a different account'}`}
+                heading={`Signed in as ${flow.landedEmail ?? 'a different account'}`}
                 // The heading already names who landed — repeating it here would say the
                 // same fact twice in one card.
                 body={`You asked for ${flow.email ?? 'another email'}. Keep this account, or try again.`}
@@ -324,7 +324,7 @@ function FlowBody({
 
             {flow.phase === 'registered' && (
               <Step
-                heading="you're in"
+                heading="Account registered"
                 // The one sanctioned credential-blindness statement: said here, where it
                 // describes what coa just wrote to disk, and nowhere else in the flow.
                 body={`Signed in as ${flow.identity ?? flow.email ?? 'your account'}. coa stored a pointer to the login folder, not the token.`}
@@ -334,10 +334,10 @@ function FlowBody({
             {flow.phase === 'failed' && (
               <Step
                 tone="crit"
-                heading="sign-in didn't finish"
+                heading="Sign-in did not finish"
                 body={
                   flow.error ??
-                  'No login landed. Nothing was changed. Try again, or point coa at an existing config dir from the provider menu.'
+                  'No login landed and nothing was changed. Try again, or point coa at an existing config dir from the provider menu.'
                 }
               />
             )}
@@ -348,15 +348,15 @@ function FlowBody({
       <footer className="flex items-center justify-end gap-2 border-t border-s3 px-4 py-3">
         {flow.phase === 'registered' ? (
           <Button variant="quiet" onClick={onClose}>
-            done
+            Done
           </Button>
         ) : flow.phase === 'failed' ? (
           <>
             <Button variant="outline" onClick={onClose}>
-              close
+              Close
             </Button>
             <Button variant="quiet" onClick={retry}>
-              try again
+              Try Again
             </Button>
           </>
         ) : flow.phase === 'mismatch' ? (
@@ -364,10 +364,10 @@ function FlowBody({
           // not a warning to bully past.
           <>
             <Button variant="outline" onClick={() => void resolveMismatch('retry').catch(() => {})}>
-              try again
+              Try Again
             </Button>
             <Button variant="quiet" onClick={() => void resolveMismatch('keep').catch(() => {})}>
-              keep {flow.landedEmail ?? 'this account'}
+              Keep {flow.landedEmail ?? 'this account'}
             </Button>
           </>
         ) : flow.phase === 'preexisting' ? (
@@ -375,15 +375,15 @@ function FlowBody({
           // rather than reporting success is the whole point: the choice is the user's.
           <>
             <Button variant="outline" onClick={onClose}>
-              cancel
+              Cancel
             </Button>
             <Button variant="quiet" onClick={() => void resolveMismatch('keep').catch(() => {})}>
-              use {flow.landedEmail ?? 'this login'}
+              Use {flow.landedEmail ?? 'this login'}
             </Button>
           </>
         ) : (
           <Button variant="outline" onClick={onClose}>
-            cancel
+            Cancel
           </Button>
         )}
       </footer>
@@ -400,7 +400,7 @@ function CopyLink({ url }: { url: string }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-2 rounded-r3 border border-s5 bg-s1 px-3 py-3">
       <span className="flex items-center gap-2 font-mono text-meta text-s7">
-        didn&apos;t open? paste this into the browser that knows your email
+        If the browser did not open, or opened the wrong account, paste this link.
         <Button
           variant="text"
           className="ml-auto flex items-center gap-1.5"
@@ -414,7 +414,7 @@ function CopyLink({ url }: { url: string }): React.JSX.Element {
           }}
         >
           <Icon name={copied ? 'check' : 'copy'} />
-          {copied ? 'copied' : 'copy link'}
+          {copied ? 'Copied' : 'Copy Link'}
         </Button>
       </span>
       <span className="font-mono text-code break-all text-s10">{url}</span>

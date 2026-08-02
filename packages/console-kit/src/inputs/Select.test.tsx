@@ -10,7 +10,7 @@ describe('Select', () => {
     const onChange = vi.fn();
     render(<Select options={OPTIONS} value="sand dark" onChange={onChange} aria-label="theme" />);
     fireEvent.click(screen.getByRole('combobox', { name: 'theme' }));
-    expect(screen.getByText('current')).toBeInTheDocument();
+    expect(screen.getByText(/^current$/i)).toBeInTheDocument();
     // a real mouse selection starts on the item — Base UI ignores clicks that don't
     const option = screen.getByRole('option', { name: /system/ });
     fireEvent.pointerDown(option);

@@ -50,7 +50,7 @@ function renderEmailStep(): void {
       <LoginDialog />
     </>,
   );
-  fireEvent.click(screen.getByText('sign in'));
+  fireEvent.click(screen.getByText(/^sign in$/i));
 }
 
 describe('the driven login dialog', () => {
@@ -69,7 +69,7 @@ describe('the driven login dialog', () => {
         <LoginDialog />
       </>,
     );
-    fireEvent.click(screen.getByText('sign in'));
+    fireEvent.click(screen.getByText(/^sign in$/i));
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'a@x.org' } });
     fireEvent.click(screen.getByText(/continue/i));
     expect(rpc.rpcStartLogin).toHaveBeenCalledWith({ email: 'a@x.org' });
@@ -101,7 +101,7 @@ describe('the driven login dialog', () => {
     });
     render(<LoginDialog />);
     expect(screen.getByText('https://claude.com/cai/oauth/x')).toBeInTheDocument();
-    expect(screen.getByText('copy link')).toBeInTheDocument();
+    expect(screen.getByText(/^copy link$/i)).toBeInTheDocument();
   });
 
   /** Removing an account leaves the login's credentials on disk, so re-adding the same email
@@ -132,7 +132,7 @@ describe('the driven login dialog', () => {
       flow: { phase: 'awaiting', mode: 'new', email: 'a@x.org', ptyCaptured: false },
     });
     render(<LoginDialog />);
-    expect(screen.getByText(/isn't available on this system/)).toBeInTheDocument();
+    expect(screen.getByText(/not available on this system/i)).toBeInTheDocument();
   });
 
   /** The code field used to hide behind a disclosure click. It is reachable the moment the
@@ -148,7 +148,7 @@ describe('the driven login dialog', () => {
       },
     });
     render(<LoginDialog />);
-    expect(screen.getByLabelText('authorization code')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^authorization code$/i)).toBeInTheDocument();
     expect(screen.queryByText(/prompted for a code instead/)).not.toBeInTheDocument();
   });
 
@@ -159,7 +159,7 @@ describe('the driven login dialog', () => {
       flow: { phase: 'awaiting', mode: 'new', email: 'a@x.org', ptyCaptured: true },
     });
     render(<LoginDialog />);
-    expect(screen.getByLabelText('authorization code')).not.toBe(document.activeElement);
+    expect(screen.getByLabelText(/^authorization code$/i)).not.toBe(document.activeElement);
   });
 
   it('mismatch offers keep-landed and try-again, never a block', () => {
@@ -168,8 +168,8 @@ describe('the driven login dialog', () => {
       flow: { phase: 'mismatch', mode: 'new', email: 'a@x.org', landedEmail: 'b@x.org' },
     });
     render(<LoginDialog />);
-    expect(screen.getByText(/signed in as b@x.org/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('keep b@x.org'));
+    expect(screen.getByText(/signed in as b@x.org/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/^keep b@x.org$/i));
     expect(rpc.rpcResolveLoginMismatch).toHaveBeenCalledWith('keep');
   });
 });

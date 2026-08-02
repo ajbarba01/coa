@@ -31,6 +31,7 @@ export type ProviderGroup = 'backend' | 'service';
 
 export interface ProviderDescriptor {
   id: string;
+  /** The vendor's own casing, for display only. `id` is the value that travels. */
   label: string;
   group: ProviderGroup;
   locator: LocatorKind;
@@ -47,37 +48,37 @@ export interface ProviderDescriptor {
 export const PROVIDERS: ProviderDescriptor[] = [
   {
     id: 'claude',
-    label: 'claude',
+    label: 'Claude',
     group: 'backend',
     locator: 'config-dir',
     noun: 'login',
     mark: CLAUDE_MARK,
-    hint: 'coa stores a pointer, not a credential — the login lives in that directory, owned by Claude.',
-    version: 'agent sdk 0.72',
+    hint: 'coa stores a pointer, not a credential. The login lives in that directory, owned by Claude.',
+    version: 'Agent SDK 0.72',
   },
   {
     id: 'codex',
-    label: 'codex',
+    label: 'Codex',
     group: 'backend',
     locator: 'cli-login',
     noun: 'login',
     mark: CODEX_MARK,
-    hint: 'Run `codex login` against this profile; coa watches for the token it writes.',
-    version: 'cli 0.48',
+    hint: 'Run `codex login` against this profile. The token it writes is detected when it lands.',
+    version: 'CLI 0.48',
   },
   {
     id: 'deepseek',
-    label: 'deepseek',
+    label: 'DeepSeek',
     group: 'backend',
     locator: 'key-file',
     noun: 'key',
     mark: DEEPSEEK_MARK,
     hint: 'Written 0600 under ~/.coa/keys. Never read back, never logged, never returned by a read.',
-    version: 'api v3',
+    version: 'API v3',
   },
   {
     id: 'longcat',
-    label: 'longcat',
+    label: 'LongCat',
     group: 'backend',
     locator: 'key-file',
     noun: 'key',
@@ -86,17 +87,17 @@ export const PROVIDERS: ProviderDescriptor[] = [
   },
   {
     id: 'gemini',
-    label: 'gemini',
+    label: 'Gemini',
     group: 'backend',
     locator: 'env-var',
     noun: 'key',
     mark: GEMINI_MARK,
-    hint: 'coa stores the VARIABLE NAME and reads it from the environment at session start.',
-    version: 'api v1beta',
+    hint: 'coa stores the variable name, not its value. The environment is read at session start.',
+    version: 'API v1beta',
   },
   {
     id: 'tavily',
-    label: 'tavily',
+    label: 'Tavily',
     group: 'service',
     locator: 'key-file',
     noun: 'key',
@@ -105,7 +106,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
   },
   {
     id: 'firecrawl',
-    label: 'firecrawl',
+    label: 'Firecrawl',
     group: 'service',
     locator: 'key-file',
     noun: 'key',
@@ -114,7 +115,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
   },
   {
     id: 'parallel',
-    label: 'parallel',
+    label: 'Parallel',
     group: 'service',
     locator: 'key-file',
     noun: 'key',
@@ -123,7 +124,7 @@ export const PROVIDERS: ProviderDescriptor[] = [
   },
   {
     id: 'exa',
-    label: 'exa',
+    label: 'Exa',
     group: 'service',
     locator: 'key-file',
     noun: 'key',
@@ -142,11 +143,13 @@ export function isPointerLocator(locator: LocatorKind | undefined): boolean {
   return locator === 'config-dir' || locator === 'env-var';
 }
 
-/** The label a locator kind wears in the add-flow. The FORM is chosen by this, not by provider. */
+/** The label a locator kind wears in the add-flow. The FORM is chosen by this, not by provider.
+ *  The key is the VALUE; only the string is displayed. Its FIRST WORD is also the provider
+ *  tile's badge, sharing that slot with `Added` — the two have to be cased alike. */
 export const LOCATOR_LABEL: Record<LocatorKind, string> = {
-  'key-file': 'api key',
-  'config-dir': 'config directory',
-  'env-var': 'environment variable',
-  ambient: 'ambient login',
-  'cli-login': 'cli login',
+  'key-file': 'API key',
+  'config-dir': 'Config directory',
+  'env-var': 'Environment variable',
+  ambient: 'Ambient login',
+  'cli-login': 'CLI login',
 };

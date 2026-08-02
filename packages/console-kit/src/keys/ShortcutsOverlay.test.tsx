@@ -44,7 +44,7 @@ describe('filterKeybinds', () => {
 describe('ShortcutsOverlay', () => {
   it('renders every bind under its group with kbd chips', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} />);
-    expect(screen.getByRole('dialog', { name: 'keyboard shortcuts' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /^keyboard shortcuts$/i })).toBeInTheDocument();
     expect(screen.getByText('global')).toBeInTheDocument();
     expect(screen.getByText('workbench')).toBeInTheDocument();
     expect(screen.getByText('command palette')).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe('ShortcutsOverlay', () => {
   /** Label-adjacency law (UI.md): an icon-ONLY control carries a drawn mark. */
   it('draws its close mark rather than typing one', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} />);
-    const close = screen.getByRole('button', { name: 'close shortcuts' });
+    const close = screen.getByRole('button', { name: /^close shortcuts$/i });
     expect(close.querySelector('svg')).not.toBeNull();
     expect(close.textContent).toBe('');
   });
@@ -69,12 +69,12 @@ describe('ShortcutsOverlay', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} editing={editing} />);
     // The clickable control IS the chord: its chips are inside it, so there is nothing to
     // learn beyond "click the keys to change the keys".
-    const field = screen.getByRole('button', { name: 'rebind command palette' });
+    const field = screen.getByRole('button', { name: /^rebind command palette$/i });
     expect(field).toHaveTextContent('ctrl');
     expect(field).toHaveTextContent('k');
 
     fireEvent.click(field);
-    expect(field).toHaveTextContent('listening…');
+    expect(field).toHaveTextContent(/listening…/i);
     fireEvent.keyDown(field, { key: 'j', ctrlKey: true });
     expect(field).toHaveTextContent('j'); // the captured chord shows in the field itself
     fireEvent.keyDown(field, { key: 'Enter' });
@@ -83,12 +83,12 @@ describe('ShortcutsOverlay', () => {
 
   it('focuses the filter on open — finding a shortcut is why the card was summoned', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} />);
-    expect(document.activeElement).toBe(screen.getByLabelText('filter shortcuts'));
+    expect(document.activeElement).toBe(screen.getByLabelText(/^filter shortcuts$/i));
   });
 
   it('filters the rows as the user types', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} />);
-    fireEvent.change(screen.getByLabelText('filter shortcuts'), { target: { value: 'close' } });
+    fireEvent.change(screen.getByLabelText(/^filter shortcuts$/i), { target: { value: 'close' } });
     expect(screen.getByText('close tab')).toBeInTheDocument();
     expect(screen.queryByText('command palette')).toBeNull();
   });
@@ -96,7 +96,7 @@ describe('ShortcutsOverlay', () => {
   it('captures a chord and applies it only on Enter', () => {
     const editing = editingStub();
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} editing={editing} />);
-    const record = screen.getByRole('button', { name: 'rebind command palette' });
+    const record = screen.getByRole('button', { name: /^rebind command palette$/i });
 
     fireEvent.click(record);
     fireEvent.keyDown(record, { key: 'j', ctrlKey: true });
@@ -111,11 +111,11 @@ describe('ShortcutsOverlay', () => {
   it('warns whose bind a chord would take BEFORE it is applied', () => {
     const editing = editingStub();
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} editing={editing} />);
-    const record = screen.getByRole('button', { name: 'rebind command palette' });
+    const record = screen.getByRole('button', { name: /^rebind command palette$/i });
 
     fireEvent.click(record);
     fireEvent.keyDown(record, { key: 'w', ctrlKey: true });
-    expect(screen.getByText('close tab holds this — enter to reassign it')).toBeInTheDocument();
+    expect(screen.getByText(/close tab holds this/i)).toBeInTheDocument();
     expect(editing.onRebind).not.toHaveBeenCalled();
 
     fireEvent.keyDown(record, { key: 'Enter' });
@@ -125,21 +125,21 @@ describe('ShortcutsOverlay', () => {
   it('refuses a chord that cannot carry a binding, and Escape cancels the recording', () => {
     const editing = editingStub();
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} editing={editing} />);
-    const record = screen.getByRole('button', { name: 'rebind command palette' });
+    const record = screen.getByRole('button', { name: /^rebind command palette$/i });
 
     fireEvent.click(record);
     fireEvent.keyDown(record, { key: 'j' }); // no modifier
-    expect(screen.getByText('needs ctrl or alt')).toBeInTheDocument();
+    expect(screen.getByText(/needs ctrl or alt/i)).toBeInTheDocument();
 
     fireEvent.keyDown(record, { key: 'Escape' });
-    expect(screen.queryByText('needs ctrl or alt')).toBeNull();
+    expect(screen.queryByText(/needs ctrl or alt/i)).toBeNull();
     expect(editing.onRebind).not.toHaveBeenCalled();
   });
 
   it('never offers to rebind a fixed row', () => {
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} editing={editingStub()} />);
-    expect(screen.queryByRole('button', { name: /rebind dismiss/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'rebind close tab' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /rebind dismiss/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /^rebind close tab$/i })).toBeInTheDocument();
   });
 
   it('shows an unbound command as unbound rather than as having no shortcut', () => {
@@ -147,14 +147,14 @@ describe('ShortcutsOverlay', () => {
       { id: 'palette', keys: [], label: 'command palette', group: 'global' },
     ];
     render(<ShortcutsOverlay keybinds={binds} onClose={() => {}} editing={editingStub()} />);
-    expect(screen.getByText('unbound')).toBeInTheDocument();
+    expect(screen.getByText(/^unbound$/i)).toBeInTheDocument();
   });
 
   it('offers a reset only for a bind the user has customised', () => {
     const editing = editingStub({ isCustom: (id) => id === 'close-tab' });
     render(<ShortcutsOverlay keybinds={BINDS} onClose={() => {}} editing={editing} />);
-    expect(screen.queryByRole('button', { name: 'reset command palette' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'reset close tab' }));
+    expect(screen.queryByRole('button', { name: /^reset command palette$/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^reset close tab$/i }));
     expect(editing.onReset).toHaveBeenCalledExactlyOnceWith('close-tab');
   });
 });

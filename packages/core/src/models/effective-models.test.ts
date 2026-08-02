@@ -28,7 +28,7 @@ describe('effectiveModels', () => {
   it('falls back to catalog caps when the live fetch lacks the id', () => {
     const out = effectiveModels('claude', [entry('claude-opus-4-8')], []);
     expect(out[0]?.supportsEffort).toBe(true);
-    expect(out[0]?.displayName).toBe('opus 4.8');
+    expect(out[0]?.displayName).toBe('Opus 4.8');
   });
 
   it('an unknown hand-typed id degrades to a bare runnable descriptor (never-cage)', () => {
@@ -45,7 +45,7 @@ describe('effectiveModels', () => {
       { id: 'claude-opus-4-8', supportsEffort: true, supportedEffortLevels: ['low', 'high'] },
     ];
     const out = effectiveModels('claude', [entry('claude-opus-4-8')], live);
-    expect(out[0]?.displayName).toBe('opus 4.8'); // catalog fills the missing field
+    expect(out[0]?.displayName).toBe('Opus 4.8'); // catalog fills the missing field
     expect(out[0]?.supportedEffortLevels).toEqual(['low', 'high']); // live still wins its fields
   });
 

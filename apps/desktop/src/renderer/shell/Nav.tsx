@@ -28,18 +28,18 @@ import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 
 export const SURFACES = [
-  { id: 'chat', glyph: '❯', label: 'chat' },
-  { id: 'graph', glyph: '◉', label: 'graph' },
-  { id: 'flags', glyph: '⚑', label: 'flags' },
-  { id: 'timeline', glyph: '◷', label: 'timeline' },
+  { id: 'chat', glyph: '❯', label: 'Chat' },
+  { id: 'graph', glyph: '◉', label: 'Graph' },
+  { id: 'flags', glyph: '⚑', label: 'Flags' },
+  { id: 'timeline', glyph: '◷', label: 'Timeline' },
   // Credentials and money are two questions, so they are two surfaces: `auth` answers "what
   // can coa log in as", `usage` answers "what has it spent, and how much room is left".
   // Both retire something: `usage` replaces the old one-line `cost` surface, and `auth`
   // replaces the ◐ foot-button's account popover.
-  { id: 'auth', glyph: '⬡', label: 'auth' },
-  { id: 'usage', glyph: '$', label: 'usage' },
-  { id: 'agents', glyph: '◇', label: 'agents' },
-  { id: 'showcase', glyph: '▦', label: 'showcase' },
+  { id: 'auth', glyph: '⬡', label: 'Auth' },
+  { id: 'usage', glyph: '$', label: 'Usage' },
+  { id: 'agents', glyph: '◇', label: 'Agents' },
+  { id: 'showcase', glyph: '▦', label: 'Showcase' },
 ] as const;
 
 /** Pure: the flags row's red count — CRITICAL flags only (red is criticality,
@@ -123,7 +123,7 @@ export function Nav(): React.JSX.Element {
           `auth` surface now. The foot keeps what is genuinely app-level: settings, daemon. */}
       <div className="flex items-center gap-1.5 border-t border-s3 px-3 py-2">
         <FootButton
-          label="settings"
+          label="Settings"
           keys={bindFor('settings')}
           onClick={() => setSettingsOpen(true)}
         >
@@ -161,11 +161,11 @@ function DaemonButton(): React.JSX.Element {
         side="top"
         align="end"
         className="w-36"
-        tooltip={{ label: `daemon: ${daemon}`, side: 'top' }}
+        tooltip={{ label: `Daemon: ${daemon}`, side: 'top' }}
         trigger={
           <button
             type="button"
-            aria-label={`daemon: ${daemon}`}
+            aria-label={`Daemon: ${daemon}`}
             className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 hover:bg-s3"
           >
             <span className={cx('h-2 w-2 rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
@@ -173,20 +173,20 @@ function DaemonButton(): React.JSX.Element {
         }
       >
         <div className="flex items-center gap-2 px-3 py-1.5 text-caps tracking-[0.07em] text-s7 uppercase">
-          daemon <span className={cx('h-1.5 w-1.5 rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
+          Daemon <span className={cx('h-1.5 w-1.5 rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
           <span className="tracking-normal lowercase">{daemon}</span>
         </div>
         <MenuItem
           disabled={daemon === 'running' || daemon === 'starting'}
           onClick={() => act('start')}
         >
-          start
+          Start
         </MenuItem>
         <MenuItem disabled={daemon !== 'running'} onClick={() => act('restart')}>
-          restart
+          Restart
         </MenuItem>
         <MenuItem disabled={daemon !== 'running'} onClick={() => act('stop')}>
-          stop
+          Stop
         </MenuItem>
       </PopoverCard>
     </div>
@@ -194,8 +194,8 @@ function DaemonButton(): React.JSX.Element {
 }
 
 /** The project switch — a level above the surfaces. The dialog is the honest
- *  floor: one open project (main derives it from the daemon's cwd); switching
- *  arrives with the orphan-homes pass. */
+ *  floor: the daemon is one process on one pipe, and the workspace is derived
+ *  from its cwd, so there is no second project to switch to yet. */
 function ProjectButton(): React.JSX.Element {
   const open = useShell((s) => s.projectOpen);
   const setOpen = useShell((s) => s.setProjectOpen);
@@ -227,23 +227,22 @@ function ProjectButton(): React.JSX.Element {
       <ModalShell
         open={open}
         onClose={() => setOpen(false)}
-        aria-label="switch project"
+        aria-label="Switch Project"
         className="w-105"
       >
-        <CapsLabel className="border-b border-s3 px-4 py-2.5">projects</CapsLabel>
+        <CapsLabel className="border-b border-s3 px-4 py-2.5">Projects</CapsLabel>
         <div className="flex w-full flex-col gap-0.5 bg-s3 px-4 py-2.5 text-left">
           <span className="flex items-center gap-2 text-body font-[550] text-s11">
             {name}
-            <span className="ml-auto font-mono text-caps text-s7">open</span>
+            <span className="ml-auto font-mono text-caps text-s7">Open</span>
           </span>
           {workspace?.root !== undefined && (
             <span className="truncate font-mono text-meta text-s7">{workspace.root}</span>
           )}
         </div>
-        <MenuItem disabled className="border-t border-s4 px-4 py-2.5">
-          open folder…
-          <span className="ml-auto font-mono text-caps text-s6">arrives later</span>
-        </MenuItem>
+        <p className="border-t border-s4 px-4 py-2.5 text-meta text-s7">
+          Opening another project is not available yet.
+        </p>
       </ModalShell>
     </>
   );
@@ -251,6 +250,10 @@ function ProjectButton(): React.JSX.Element {
 
 const HUDS = ['usage', 'account', 'flags'] as const;
 type Hud = (typeof HUDS)[number];
+
+/** Value/label split: the id keys the panel switch, the label is the only thing shown
+ *  (header and picker row) and the only thing type-to-filter matches. */
+const HUD_LABEL: Record<Hud, string> = { usage: 'Usage', account: 'Account', flags: 'Flags' };
 
 /** The dashboard HUD: ‹ title › header, seamless picker above it (type-to-filter,
  *  arrow keys; the highlighted entry previews live on the panel below). */
@@ -269,7 +272,7 @@ function HudDash(): React.JSX.Element {
   useExclusivePopover(open, () => setOpen(false), { rootRef: cardRef });
   const state = useConsoleState((s) => s);
 
-  const hits = HUDS.filter((h) => h.includes(q.trim().toLowerCase()));
+  const hits = HUDS.filter((h) => HUD_LABEL[h].toLowerCase().includes(q.trim().toLowerCase()));
   const highlighted: Hud = open ? (hits[Math.min(hi, hits.length - 1)] ?? hud) : hud;
 
   const openPicker = (): void => {
@@ -312,10 +315,10 @@ function HudDash(): React.JSX.Element {
                   onMouseEnter={() => setHi(i)}
                   className={cx('px-3.5', h === highlighted && h !== hud && 'bg-s4 text-s12')}
                 >
-                  {h}
+                  {HUD_LABEL[h]}
                 </MenuItem>
               ))}
-              {hits.length === 0 && <div className="px-3.5 py-1.5 text-code text-s7">no hud</div>}
+              {hits.length === 0 && <div className="px-3.5 py-1.5 text-code text-s7">No HUD</div>}
             </div>
             <div className="flex items-center gap-2 border-t border-s5 px-3 py-1.5">
               <span className="text-body text-s7">⌕</span>
@@ -333,7 +336,7 @@ function HudDash(): React.JSX.Element {
                     commit(hits[Math.min(hi, hits.length - 1)] as Hud);
                   // Escape is handled by the dismiss-layer stack.
                 }}
-                placeholder="find hud…"
+                placeholder="Find a HUD…"
                 className="w-full min-w-0 flex-1 bg-transparent text-sec text-s11 outline-none placeholder:text-s7"
               />
             </div>
@@ -344,10 +347,10 @@ function HudDash(): React.JSX.Element {
             glyphs render optically small, so they wear a raw 26px (no token
             exists for oversized glyph marks; the hit target stays h-9/w-9). */}
         <div className="flex items-center px-2 pb-1.5">
-          <Tooltip label="previous hud" side="top">
+          <Tooltip label="Previous HUD" side="top">
             <button
               type="button"
-              aria-label="previous hud"
+              aria-label="Previous HUD"
               onClick={() => cycle(-1)}
               className="slip flex h-9 w-9 flex-none cursor-pointer items-center justify-center text-[26px] leading-none text-s7 hover:text-s11"
             >
@@ -359,12 +362,12 @@ function HudDash(): React.JSX.Element {
             onClick={() => (open ? setOpen(false) : openPicker())}
             className="slip flex-1 cursor-pointer py-0.5 text-center text-caps tracking-[0.07em] text-s7 uppercase hover:text-s11"
           >
-            {highlighted}
+            {HUD_LABEL[highlighted]}
           </button>
-          <Tooltip label="next hud" side="top">
+          <Tooltip label="Next HUD" side="top">
             <button
               type="button"
-              aria-label="next hud"
+              aria-label="Next HUD"
               onClick={() => cycle(1)}
               className="slip flex h-9 w-9 flex-none cursor-pointer items-center justify-center text-[26px] leading-none text-s7 hover:text-s11"
             >
@@ -449,7 +452,7 @@ function UsageHud(): React.JSX.Element {
     <div className="group/hud flex min-h-0 flex-1 flex-col">
       <div className="flex items-center px-4 pb-1">
         <span className="flex-1 font-mono text-meta text-s7">
-          {onlyAboveHalf ? 'above 50%' : 'watching'}
+          {onlyAboveHalf ? 'Above 50%' : 'Watching'}
         </span>
         <PopoverCard
           open={open}
@@ -457,11 +460,11 @@ function UsageHud(): React.JSX.Element {
           side="top"
           align="end"
           className="w-56"
-          tooltip={{ label: 'what the hud tracks', side: 'top' }}
+          tooltip={{ label: 'What the HUD tracks', side: 'top' }}
           trigger={
             <button
               type="button"
-              aria-label="customize usage hud"
+              aria-label="Customize Usage HUD"
               className={cx(
                 'slip cursor-pointer text-s7 opacity-0 hover:text-s11',
                 'group-hover/hud:opacity-100 focus-visible:opacity-100',
@@ -472,9 +475,9 @@ function UsageHud(): React.JSX.Element {
             </button>
           }
         >
-          <CapsLabel>usage hud</CapsLabel>
+          <CapsLabel>Usage HUD</CapsLabel>
           {choices.length === 0 && (
-            <div className="px-3 py-1.5 text-code text-s7">no readable meters</div>
+            <div className="px-3 py-1.5 text-code text-s7">No readable meters</div>
           )}
           {choices.map((c) => (
             <MenuItem key={c.id} onClick={() => toggleMeter(c.id)}>
@@ -485,18 +488,18 @@ function UsageHud(): React.JSX.Element {
           <div className="my-1 h-px bg-s5" />
           <MenuItem onClick={() => setShowSpend(!showSpend)}>
             <Tick on={showSpend} />
-            spend today
+            Spend today
           </MenuItem>
           <MenuItem onClick={() => setOnlyAboveHalf(!onlyAboveHalf)}>
             <Tick on={onlyAboveHalf} />
-            only show above 50%
+            Only show above 50%
           </MenuItem>
         </PopoverCard>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && (
-          <Unresolved text={onlyAboveHalf ? 'nothing near a limit' : 'no meters picked'} />
+          <Unresolved text={onlyAboveHalf ? 'Nothing near a limit' : 'No meters picked'} />
         )}
         {rows.map((r) => (
           // Mount entrance only (the kit's one keyframe): ticking a meter should feel like it
@@ -522,7 +525,7 @@ function UsageHud(): React.JSX.Element {
 
       {showSpend && (
         <div className="flex items-baseline border-t border-s3 px-4 py-1.5 font-mono text-meta text-s7">
-          spend today
+          Spend today
           <span className="ml-auto text-s10">{usd(spend)}</span>
         </div>
       )}
@@ -552,30 +555,31 @@ function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.E
   const startRelogin = useStartRelogin();
   const accounts = state?.data.accounts;
   if (accounts === undefined || accounts.status === 'loading')
-    return <Unresolved text="reading accounts…" />;
-  if (accounts.status === 'error') return <Unresolved text="accounts unavailable" />;
+    return <Unresolved text="Reading accounts…" />;
+  if (accounts.status === 'error') return <Unresolved text="Accounts unavailable" />;
   const active = Object.entries(accounts.value.active);
-  if (active.length === 0) return <Unresolved text="ambient credentials" />;
+  if (active.length === 0) return <Unresolved text="Ambient credentials" />;
   return (
     <>
       {active.map(([provider, label]) => {
         // A broken ACTIVE login is FLAGGED here too, its re-login one click away — never
         // swapped out from under you (badge surface #3, SC-1).
         const broken = activeNeedsRelogin(activeByProvider, provider, credentials);
-        if (!broken) return <Kv key={provider} k={provider} v={label} />;
+        const name = providerById(provider)?.label ?? provider;
+        if (!broken) return <Kv key={provider} k={name} v={label} />;
         const cred = credentials.find((c) => c.id === activeByProvider[provider]);
         return (
           <div key={provider} className="flex items-center gap-2 px-4 py-0.75 text-code">
             <StatusDot status="needs-you" />
-            <span className="text-s8">{provider}</span>
-            <span className="truncate font-mono text-meta text-warn">needs relogin</span>
+            <span className="text-s8">{name}</span>
+            <span className="truncate font-mono text-meta text-warn">Needs relogin</span>
             {cred !== undefined && (
               <button
                 type="button"
                 onClick={() => startRelogin(cred)}
                 className="slip ml-auto cursor-pointer rounded-r1 border border-warn/40 px-1.5 font-mono text-meta text-warn hover:border-warn/70 hover:bg-warn/10"
               >
-                re-login
+                Re-login
               </button>
             )}
           </div>
@@ -588,15 +592,15 @@ function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.E
 function FlagsHud({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
   const flags = state?.data.flags;
   if (flags === undefined || flags.status === 'loading')
-    return <Unresolved text="reading flags…" />;
-  if (flags.status === 'error') return <Unresolved text="flags unavailable" />;
+    return <Unresolved text="Reading flags…" />;
+  if (flags.status === 'error') return <Unresolved text="Flags unavailable" />;
   const crit = flags.value.expanded.filter((f) => f.severity === 'crit').length;
   const advisory =
     flags.value.expanded.length - crit + flags.value.collapsed.reduce((n, c) => n + c.count, 0);
   return (
     <>
-      <Kv k="critical" v={String(crit)} />
-      <Kv k="advisory" v={String(advisory)} />
+      <Kv k="Critical" v={String(crit)} />
+      <Kv k="Advisory" v={String(advisory)} />
     </>
   );
 }

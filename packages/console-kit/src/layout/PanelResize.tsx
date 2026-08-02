@@ -30,7 +30,7 @@ export function PanelResize({
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="resize panel"
+        aria-label="Resize panel"
         onPointerDown={(e) => {
           e.preventDefault();
           setDrag(true);

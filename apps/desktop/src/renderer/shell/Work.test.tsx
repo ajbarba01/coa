@@ -46,26 +46,26 @@ describe('Work', () => {
     publish({ c1: { since: 1 } });
     render(<Work />);
     expect(screen.getByText('wire the dock')).toBeTruthy();
-    expect(screen.getByText('root')).toBeTruthy();
+    expect(screen.getByText(/^root$/i)).toBeTruthy();
   });
 
   it('falls to the quiet empty line with no active session', () => {
     publishConsoleState(makeState({ data: { sessions: { status: 'ok', value: [] } } }));
     render(<Work />);
-    expect(screen.getByText('no session')).toBeTruthy();
+    expect(screen.getByText(/^no session$/i)).toBeTruthy();
   });
 
   it('collapses through the foot control', () => {
     publish();
     render(<Work />);
-    fireEvent.click(screen.getByRole('button', { name: 'hide session panel' }));
+    fireEvent.click(screen.getByRole('button', { name: /^hide session panel$/i }));
     expect(useShell.getState().workOpen).toBe(false);
   });
 
   it('carries the window controls in its title-bar segment', () => {
     publish();
     render(<Work />);
-    expect(screen.getByRole('button', { name: 'close' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^close$/i })).toBeTruthy();
   });
 
   it('shows the agent plan checklist from the active session plan frame', () => {

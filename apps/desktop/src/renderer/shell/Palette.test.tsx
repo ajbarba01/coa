@@ -29,7 +29,7 @@ describe('Palette', () => {
     const toggleRaw = vi.fn();
     open({ actions: { toggleRaw } });
     render(<Palette />);
-    fireEvent.click(screen.getByText(/raw mode — show the unfiltered loop/));
+    fireEvent.click(screen.getByText(/show the unfiltered loop/i));
     expect(toggleRaw).toHaveBeenCalledTimes(1);
     expect(useShell.getState().paletteOpen).toBe(false);
   });
@@ -41,7 +41,7 @@ describe('Palette', () => {
       actions: { interruptSession },
     });
     render(<Palette />);
-    fireEvent.click(screen.getByText('interrupt running turn'));
+    fireEvent.click(screen.getByText(/^interrupt running turn$/i));
     expect(interruptSession).toHaveBeenCalledWith('c1');
   });
 
@@ -49,14 +49,14 @@ describe('Palette', () => {
     const interruptSession = vi.fn();
     open({ actions: { interruptSession } });
     render(<Palette />);
-    const item = screen.getByText('interrupt running turn').closest('[cmdk-item]');
+    const item = screen.getByText(/^interrupt running turn$/i).closest('[cmdk-item]');
     expect(item?.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('navigates surfaces', () => {
     open();
     render(<Palette />);
-    fireEvent.click(screen.getByText('timeline'));
+    fireEvent.click(screen.getByText(/^timeline$/i));
     expect(useShell.getState().surface).toBe('timeline');
   });
 });

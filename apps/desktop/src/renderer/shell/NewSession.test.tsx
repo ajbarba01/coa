@@ -31,7 +31,7 @@ describe('NewSessionDialog', () => {
   it('is closed until something opens it', () => {
     publishConsoleState(makeState({ data: { agents: { status: 'ok', value: AGENTS } } }));
     render(<NewSessionDialog />);
-    expect(screen.queryByPlaceholderText('new session with…')).toBeNull();
+    expect(screen.queryByPlaceholderText(/^new session with…$/i)).toBeNull();
   });
 
   it('lists the agents and starts a session with the one picked', () => {
@@ -43,7 +43,7 @@ describe('NewSessionDialog', () => {
 
   it('filters the agents as the user types', () => {
     mount();
-    fireEvent.change(screen.getByPlaceholderText('new session with…'), {
+    fireEvent.change(screen.getByPlaceholderText(/^new session with…$/i), {
       target: { value: 'doc' },
     });
     expect(screen.getByText('docs')).toBeInTheDocument();

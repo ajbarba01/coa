@@ -173,11 +173,11 @@ describe('Browser', () => {
       />,
     );
     fireEvent.click(screen.getByRole('combobox', { name: 'Group sessions by' }));
-    const option = screen.getByRole('option', { name: 'status' });
+    const option = screen.getByRole('option', { name: /^status$/i });
     fireEvent.pointerDown(option);
     fireEvent.click(option);
-    expect(screen.getByText('running')).toBeTruthy();
-    expect(screen.getByText('idle')).toBeTruthy();
+    expect(screen.getByText(/^running$/i)).toBeTruthy();
+    expect(screen.getByText(/^idle$/i)).toBeTruthy();
   });
 });
 
@@ -205,9 +205,10 @@ describe('arrangeSessions', () => {
 
   it('groups by run status', () => {
     const groups = arrangeSessions(THREE, 'recent', 'status', agentName, isRunning);
-    expect(groups.map((g) => g.key)).toEqual(['idle', 'running']);
-    expect(groups.find((g) => g.key === 'idle')?.sessions.map((s) => s.id)).toEqual(['a2', 'a1']);
-    expect(groups.find((g) => g.key === 'running')?.sessions.map((s) => s.id)).toEqual(['a3']);
+    // The key is the group's HEADER text, so it is cased for display.
+    expect(groups.map((g) => g.key)).toEqual(['Idle', 'Running']);
+    expect(groups.find((g) => g.key === 'Idle')?.sessions.map((s) => s.id)).toEqual(['a2', 'a1']);
+    expect(groups.find((g) => g.key === 'Running')?.sessions.map((s) => s.id)).toEqual(['a3']);
   });
 
   it('sort: title reorders alphabetically', () => {

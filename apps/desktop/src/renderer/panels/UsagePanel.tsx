@@ -16,7 +16,9 @@ import { useShell } from '../shell/store.js';
 import { RISE, SLIP_MOVE } from './motion.js';
 import { addedProviders, chainPositions, credentialsOf, useMockAuth } from './mockAuth.js';
 import {
+  LIMITS_UNREADABLE,
   RANGES,
+  RANGE_LABEL,
   accountStackedUsage,
   accountUsage,
   attentionItems,
@@ -31,7 +33,13 @@ import {
 } from './mockUsage.js';
 import { providerById, type ProviderDescriptor } from './providers.js';
 import { SurfaceEmpty } from './surfaceStates.js';
-import { USAGE_VIEWS, useAuthUi, useUsageUi, type UsageView } from './surfaceUi.js';
+import {
+  USAGE_VIEWS,
+  USAGE_VIEW_LABEL,
+  useAuthUi,
+  useUsageUi,
+  type UsageView,
+} from './surfaceUi.js';
 import { useNarrow } from './useNarrow.js';
 
 /**
@@ -61,12 +69,12 @@ const SERIES: Record<1 | 2 | 3, string> = {
 /** Pure: the pool's health in words. A count of zero says nothing (the count law); a benched
  *  provider isn't serving at all, whatever its keys say. */
 export function healthWords(usage: ServiceUsage, enabled: boolean): string {
-  if (!enabled) return 'benched';
+  if (!enabled) return 'Benched';
   const parts: string[] = [];
   if (usage.healthy > 0) parts.push(`${usage.healthy} healthy`);
   if (usage.cooling > 0) parts.push(`${usage.cooling} cooling`);
   if (usage.disabled > 0) parts.push(`${usage.disabled} benched`);
-  return parts.join(' · ') || 'no keys';
+  return parts.join(' · ') || 'No keys';
 }
 
 /** The accounts, as usage — one hook, so the strip, the canvas and the HUD share a reading. */
@@ -108,7 +116,7 @@ export function UsageStrip(): React.JSX.Element {
       <div className="flex min-w-0 items-center gap-2.5 px-4" style={NO_DRAG}>
         {account === undefined ? (
           <>
-            <span className="font-mono text-meta tracking-[0.06em] text-s9">usage</span>
+            <span className="font-mono text-meta tracking-[0.06em] text-s9">Usage</span>
             {view === 'providers' ? (
               <span className="font-mono text-sec text-s11">{usd(total)}</span>
             ) : (
@@ -122,7 +130,7 @@ export function UsageStrip(): React.JSX.Element {
         ) : (
           <>
             <Button variant="text" onClick={() => open(undefined)}>
-              ‹ usage
+              ‹ Usage
             </Button>
             <span className="truncate text-sec font-[550] text-s12">{account.label}</span>
             <span className="truncate font-mono text-meta text-s7">
@@ -137,7 +145,7 @@ export function UsageStrip(): React.JSX.Element {
       {account === undefined && (
         <div className="flex items-center pr-3" style={NO_DRAG}>
           <Segmented
-            options={USAGE_VIEWS}
+            options={VIEW_OPTIONS}
             value={view}
             onChange={(v) => setView(v as UsageView)}
             layoutId="usage-view"
@@ -150,14 +158,15 @@ export function UsageStrip(): React.JSX.Element {
 
 /** A segmented control, not a row of buttons: one track, and the selection is a tile that
  *  SLIDES between cells (layoutId) — the multi-state control the console already implies.
- *  `layoutId` must be unique per instance, or the tile flies between controls. */
+ *  `layoutId` must be unique per instance, or the tile flies between controls.
+ *  Options are value/label pairs so a cell can be cased without recasing the view state. */
 function Segmented({
   options,
   value,
   onChange,
   layoutId,
 }: {
-  options: readonly string[];
+  options: readonly { value: string; label: string }[];
   value: string;
   onChange: (next: string) => void;
   layoutId: string;
@@ -166,15 +175,15 @@ function Segmented({
     <div className="flex gap-0.5 rounded-r2 border border-s4 bg-s2 p-0.5">
       {options.map((o) => (
         <button
-          key={o}
+          key={o.value}
           type="button"
-          onClick={() => onChange(o)}
+          onClick={() => onChange(o.value)}
           className={cx(
             'slip relative cursor-pointer rounded-r1 px-2.5 py-0.5 text-code',
-            o === value ? 'text-s12' : 'text-s8 hover:text-s11',
+            o.value === value ? 'text-s12' : 'text-s8 hover:text-s11',
           )}
         >
-          {o === value && (
+          {o.value === value && (
             <motion.span
               layoutId={`${layoutId}-tile`}
               aria-hidden
@@ -182,12 +191,15 @@ function Segmented({
               transition={SLIP_MOVE}
             />
           )}
-          <span className="relative">{o}</span>
+          <span className="relative">{o.label}</span>
         </button>
       ))}
     </div>
   );
 }
+
+const RANGE_OPTIONS = RANGES.map((r) => ({ value: r, label: RANGE_LABEL[r] }));
+const VIEW_OPTIONS = USAGE_VIEWS.map((v) => ({ value: v, label: USAGE_VIEW_LABEL[v] }));
 
 /* ---------------------------------- the surface ---------------------------------- */
 
@@ -202,7 +214,10 @@ export function UsageSurface(): React.JSX.Element {
   // must not depend on the user having visited auth first (idempotent, mirrors AuthSurface).
   // Advisory (SC-1): a failed read degrades to whatever the store already held.
   useEffect(() => {
-    void useMockAuth.getState().hydrate().catch(() => {});
+    void useMockAuth
+      .getState()
+      .hydrate()
+      .catch(() => {});
   }, []);
   const account =
     view === 'providers' ? accounts.find((a) => a.credentialId === opened) : undefined;
@@ -302,7 +317,7 @@ function ProvidersOverview({
   const attention = attentionItems(scoped);
 
   if (accounts.length === 0) {
-    return <SurfaceEmpty title="Nothing to meter" hint="add a provider on the auth surface" />;
+    return <SurfaceEmpty title="Nothing to meter" hint="Add a provider on the auth surface." />;
   }
 
   const tiles = (
@@ -325,12 +340,12 @@ function ProvidersOverview({
           <SectionHead
             caption={
               selected.length === 1
-                ? `spend · ${providerById(selected[0] ?? '')?.label ?? selected[0]}`
-                : 'spend'
+                ? `Spend · ${providerById(selected[0] ?? '')?.label ?? selected[0]}`
+                : 'Spend'
             }
             right={
               <Segmented
-                options={RANGES}
+                options={RANGE_OPTIONS}
                 value={range}
                 onChange={(r) => setRange(r as Range)}
                 layoutId="overview-range"
@@ -338,7 +353,7 @@ function ProvidersOverview({
             }
           />
           {chart.days.length === 0 ? (
-            <div className="py-6 text-sec text-s7">nothing has run yet</div>
+            <div className="py-6 text-sec text-s7">Nothing has run yet</div>
           ) : (
             <StackedDayChart
               series={chart.series}
@@ -350,7 +365,7 @@ function ProvidersOverview({
           <AnimatePresence initial={false}>
             {attention.length > 0 && (
               <motion.div key="attention" {...RISE} className="pt-8">
-                <SectionHead caption="needs you" right={`${attention.length} to look at`} />
+                <SectionHead caption="Needs you" right={`${attention.length} to look at`} />
                 {attention.map((item) => (
                   <AttentionRow key={`${item.title}:${item.detail}`} item={item} />
                 ))}
@@ -360,15 +375,15 @@ function ProvidersOverview({
 
           <div className="pt-8">
             <SectionHead
-              caption="accounts"
-              right={range === 'today' ? 'limits live · spend today' : `spend over ${range}`}
+              caption="Accounts"
+              right={range === 'today' ? 'Limits live · spend today' : `Spend over ${range}`}
             />
             {scoped.map((a) => (
               <AccountRow key={a.credentialId} account={a} tight={tight} />
             ))}
             {scoped.length === 0 && (
               <div className="py-4 text-sec text-s7">
-                no logins yet — add one on the auth surface
+                No logins yet. Add one on the auth surface.
               </div>
             )}
           </div>
@@ -417,7 +432,7 @@ function ScopeTiles({
               type="button"
               aria-pressed={on}
               // Named for what the click DOES — the mark's own img label stays out of it.
-              aria-label={`scope ${p.label}`}
+              aria-label={`Scope ${p.label}`}
               onClick={() => toggle(p.id)}
               // The retired filter row's chip vocabulary (border + press), so the tile
               // reads as the toggle it is, not as a decorated logo.
@@ -518,7 +533,7 @@ function AccountRow({
   const worst = [...(account.limits ?? [])].sort((a, b) => b.percent - a.percent)[0];
   const shown = tight && worst !== undefined ? [worst] : (account.limits ?? []);
   // A login coa cannot read at all is the one state this row must not sit quietly on.
-  const blind = account.limitsUnknown?.startsWith('limits unknown') === true;
+  const blind = account.limitsUnknown === LIMITS_UNREADABLE;
 
   return (
     <button
@@ -593,13 +608,13 @@ function ToolsView(): React.JSX.Element {
   const services = addedProviders(added, 'service');
 
   if (services.length === 0) {
-    return <SurfaceEmpty title="No tool services" hint="add one on the auth surface" />;
+    return <SurfaceEmpty title="No tool services" hint="Add one on the auth surface." />;
   }
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-6 pb-8">
       <div className="mx-auto max-w-220">
-        <SectionHead caption="tool services" right="key health · coa's circuit breaker" />
+        <SectionHead caption="Tool services" right="Key health · coa's circuit breaker" />
         {services.map((p) => (
           <ServiceRow
             key={p.id}
@@ -652,7 +667,7 @@ function ServiceRow({
         <span className="min-w-0">
           <span className="block truncate text-sec text-s11">{provider.label}</span>
           <span className="block truncate font-mono text-meta text-s7">
-            {positions.join(' · ') || 'in no chain'}
+            {positions.join(' · ') || 'In no chain'}
           </span>
         </span>
       </div>
@@ -684,7 +699,7 @@ function ServiceRow({
         <span className="font-mono text-meta text-s7">calls</span>
       </span>
       <span className="slip flex-none font-mono text-meta text-s7 opacity-0 group-hover:opacity-100">
-        keys ›
+        Keys ›
       </span>
     </button>
   );
@@ -705,10 +720,10 @@ function AccountDashboard({
       <div className="mx-auto flex max-w-220 flex-col gap-7 lg:flex-row lg:gap-8">
         <div className="min-w-0 flex-1">
           <SectionHead
-            caption="spend by day"
+            caption="Spend by day"
             right={
               <Segmented
-                options={RANGES}
+                options={RANGE_OPTIONS}
                 value={range}
                 onChange={(r) => setRange(r as Range)}
                 layoutId="account-range"
@@ -716,7 +731,7 @@ function AccountDashboard({
             }
           />
           {account.byDay.length === 0 ? (
-            <div className="py-6 text-sec text-s7">this account has not run a turn yet</div>
+            <div className="py-6 text-sec text-s7">This account has not run a turn yet</div>
           ) : (
             <StackedDayChart
               series={account.byModel.map((m) => ({
@@ -731,7 +746,7 @@ function AccountDashboard({
 
           <div className="pt-8">
             <SectionHead
-              caption={`by model · ${range}`}
+              caption={`By model · ${range}`}
               right={`${account.tokens} tokens · modelled cost`}
             />
             {account.byModel.map((m) => {
@@ -764,7 +779,7 @@ function AccountDashboard({
         </div>
 
         <div className="w-full flex-none lg:w-56">
-          <SectionHead caption="limits now" right={account.limits ? 'experimental' : undefined} />
+          <SectionHead caption="Limits now" right={account.limits ? 'Experimental' : undefined} />
           {account.limits === undefined ? (
             <div className="flex items-start gap-2 py-1 text-code text-s7">
               <span className="pt-1">
@@ -789,7 +804,7 @@ function AccountDashboard({
             // The one honesty this whole surface turns on — a quiet line, not a callout box.
             <div className="mt-7 border-t border-s3 pt-3 text-code leading-relaxed text-s7">
               <span className="text-s9">These dollars were never billed.</span> {account.label} is a
-              flat-fee {account.plan} subscription; this is the modelled API-equivalent cost of what
+              flat-fee {account.plan} subscription. This is the modelled API-equivalent cost of what
               you ran, so models and accounts stay comparable. The real ceiling is the limits above.
             </div>
           )}
@@ -916,7 +931,7 @@ function StackedDayChart({
             );
           })}
           <div className="mt-1.5 flex border-t border-s5 pt-1.5 text-code">
-            <span className="flex-1 text-s9">total</span>
+            <span className="flex-1 text-s9">Total</span>
             <span className="font-mono font-semibold text-s12">{usd(hoverTotal)}</span>
           </div>
         </FloatCard>

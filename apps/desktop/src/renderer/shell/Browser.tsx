@@ -8,8 +8,16 @@ import { useShell } from './store.js';
 type SortKey = 'recent' | 'title';
 type GroupKey = 'agent' | 'status' | 'none';
 
-const SORTS: readonly SortKey[] = ['recent', 'title'];
-const GROUPS: readonly GroupKey[] = ['agent', 'status', 'none'];
+// Value/label split: the keys drive `arrangeSessions`, the labels are what the pickers show.
+const SORTS: readonly { value: SortKey; label: string }[] = [
+  { value: 'recent', label: 'Recent' },
+  { value: 'title', label: 'Title' },
+];
+const GROUPS: readonly { value: GroupKey; label: string }[] = [
+  { value: 'agent', label: 'Agent' },
+  { value: 'status', label: 'Status' },
+  { value: 'none', label: 'None' },
+];
 
 export interface SessionGroup {
   /** The group header text; `''` marks the ungrouped/flat case (header hidden). */
@@ -39,7 +47,7 @@ export function arrangeSessions(
   const keyOf =
     group === 'agent'
       ? (s: SessionSummary): string => agentName(s.agentRef)
-      : (s: SessionSummary): string => (isRunning(s.id) ? 'running' : 'idle');
+      : (s: SessionSummary): string => (isRunning(s.id) ? 'Running' : 'Idle');
 
   const groups = new Map<string, SessionSummary[]>();
   for (const s of sorted) {
@@ -138,7 +146,7 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
     <div className="slip-enter min-h-0 flex-1 overflow-y-auto px-8 pt-12 pb-4">
       <div className="flex items-center gap-3.5 pb-3 font-mono text-meta text-s7">
         <div className="flex items-center gap-1.5">
-          <span>sort</span>
+          <span>Sort</span>
           <Select
             options={SORTS}
             value={sort}
@@ -147,7 +155,7 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
           />
         </div>
         <div className="flex items-center gap-1.5">
-          <span>group</span>
+          <span>Group</span>
           <Select
             options={GROUPS}
             value={group}
@@ -216,7 +224,7 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
 
       {hits.length === 0 && (
         <div className="pt-10 text-center text-sec text-s7">
-          {sessions.length === 0 ? 'no sessions yet' : `no sessions match “${query}”`}
+          {sessions.length === 0 ? 'No sessions yet' : `No sessions match “${query}”`}
         </div>
       )}
     </div>

@@ -19,7 +19,7 @@ describe('DialogSearchHead', () => {
       target: { value: 'theme' },
     });
     expect(onChange).toHaveBeenCalledWith('theme');
-    fireEvent.click(screen.getByRole('button', { name: 'close settings' }));
+    fireEvent.click(screen.getByRole('button', { name: /^close settings$/i }));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -30,7 +30,7 @@ describe('DialogSearchHead', () => {
     render(
       <DialogSearchHead value="" onChange={vi.fn()} onClose={vi.fn()} placeholder="search…" />,
     );
-    const close = screen.getByRole('button', { name: 'close settings' });
+    const close = screen.getByRole('button', { name: /^close settings$/i });
     expect(close.querySelector('svg')).not.toBeNull();
     expect(close.textContent).toBe('');
   });

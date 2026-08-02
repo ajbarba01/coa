@@ -45,7 +45,7 @@ describe('DaemonGate', () => {
     useShell.getState().setDaemon('error');
     render(<DaemonGate />);
     expect(screen.getByText('the coa daemon hit an error')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'close' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^close$/i })).toBeTruthy();
   });
 
   it('retries start on an interval while the daemon stays down, and stops once it is up', () => {

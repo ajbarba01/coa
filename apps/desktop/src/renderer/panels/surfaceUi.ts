@@ -33,6 +33,12 @@ export const useAuthUi = create<AuthUiState>((set) => ({
 export type UsageView = 'providers' | 'tools';
 export const USAGE_VIEWS: UsageView[] = ['providers', 'tools'];
 
+/** Value/label split: the ids key the view state, the labels are what the switcher shows. */
+export const USAGE_VIEW_LABEL: Record<UsageView, string> = {
+  providers: 'Providers',
+  tools: 'Tools',
+};
+
 export interface UsageUiState {
   view: UsageView;
   range: Range;

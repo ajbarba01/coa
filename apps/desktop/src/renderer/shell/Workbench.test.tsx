@@ -40,29 +40,29 @@ describe('column seams keep the center whole', () => {
 describe('Workbench', () => {
   it('renders the nav, both resize seams, and the dock', () => {
     render(<Workbench />);
-    expect(screen.getByRole('button', { name: /chat/ })).toBeTruthy();
-    expect(screen.getAllByRole('separator', { name: 'resize panel' })).toHaveLength(2);
-    expect(screen.getByRole('button', { name: 'hide session panel' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /chat/i })).toBeTruthy();
+    expect(screen.getAllByRole('separator', { name: /^resize panel$/i })).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /^hide session panel$/i })).toBeTruthy();
   });
 
   it('collapsing the dock leaves the reopen affordance', () => {
     render(<Workbench />);
     act(() => useShell.getState().setWorkOpen(false));
-    expect(screen.getByRole('button', { name: 'show session panel' })).toBeTruthy();
-    expect(screen.getAllByRole('separator', { name: 'resize panel' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^show session panel$/i })).toBeTruthy();
+    expect(screen.getAllByRole('separator', { name: /^resize panel$/i })).toHaveLength(1);
   });
 
   it('hosts the store-selected surface in the center once state is published', () => {
     publishConsoleState(makeState());
     useShell.getState().setSurface('graph');
     render(<Workbench />);
-    expect(screen.getByText(/graph isn't designed yet/)).toBeTruthy();
+    expect(screen.getByText(/graph is not designed yet/i)).toBeTruthy();
   });
 
   it('renders no surface before the first console-state publish', () => {
     useShell.getState().setSurface('graph');
     render(<Workbench />);
-    expect(screen.queryByText(/graph isn't designed yet/)).toBeNull();
+    expect(screen.queryByText(/graph is not designed yet/i)).toBeNull();
   });
 
   it('routes the auth surface to its pane — credentials outgrew the ◐ foot popover', async () => {
@@ -75,7 +75,7 @@ describe('Workbench', () => {
     // that).
     useMockAuth.setState({ added: ['claude', 'tavily'], enabled: { claude: true, tavily: true } });
     render(<Workbench />);
-    await waitFor(() => expect(screen.getByText('agent backends')).toBeTruthy());
-    expect(screen.getByText('tool services')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/^agent backends$/i)).toBeTruthy());
+    expect(screen.getByText(/^tool services$/i)).toBeTruthy();
   });
 });

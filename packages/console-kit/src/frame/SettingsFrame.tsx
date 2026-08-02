@@ -27,7 +27,7 @@ export function DialogSearchHead({
       <Button
         variant="ghost"
         icon
-        aria-label="close settings"
+        aria-label="Close Settings"
         onClick={onClose}
         className="-mr-1 h-6 w-6"
       >

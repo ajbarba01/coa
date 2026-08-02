@@ -136,25 +136,25 @@ export function EditMenu(): React.JSX.Element | null {
         {ctx.kind === 'field' ? (
           <>
             <MenuItem disabled={!ctx.canTake} onClick={() => run('cut')}>
-              cut
+              Cut
               {chord('x')}
             </MenuItem>
             <MenuItem disabled={!ctx.canTake} onClick={() => run('copy')}>
-              copy
+              Copy
               {chord('c')}
             </MenuItem>
             <MenuItem onClick={() => run('paste')}>
-              paste
+              Paste
               {chord('v')}
             </MenuItem>
             <MenuItem onClick={() => run('selectAll')}>
-              select all
+              Select All
               {chord('a')}
             </MenuItem>
           </>
         ) : (
           <MenuItem onClick={() => run('copy')}>
-            copy
+            Copy
             {chord('c')}
           </MenuItem>
         )}

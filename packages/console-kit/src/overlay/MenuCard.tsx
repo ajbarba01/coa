@@ -17,7 +17,7 @@ export function MenuCard({
 }
 
 export interface MenuItemProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Selected = s4 tint + the trailing mono `current` marker (one vocabulary everywhere). */
+  /** Selected = s4 tint + the trailing mono `Current` marker (one vocabulary everywhere). */
   selected?: boolean;
 }
 
@@ -46,7 +46,7 @@ export function MenuItem({
     >
       {children}
       {selected && (
-        <span className="ml-auto pl-4 font-mono text-caps tracking-normal text-s7">current</span>
+        <span className="ml-auto pl-4 font-mono text-caps tracking-normal text-s7">Current</span>
       )}
     </button>
   );

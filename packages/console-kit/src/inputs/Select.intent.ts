@@ -12,12 +12,12 @@ export const selectIntent: ComponentIntent = assertIntent({
     'Free text — a text input.',
   ],
   anatomy:
-    'Controlled Base UI Select (Root/Trigger/Value/Portal/Positioner/Popup/Item); the popup wears menuSurface below the trigger; the selected item carries the `current` marker.',
+    'Controlled Base UI Select (Root/Trigger/Value/Portal/Positioner/Popup/Item); the popup wears menuSurface below the trigger; the selected item carries the `Current` marker. An option is a bare string, or a {value,label} pair when the displayed word must not be the stored value.',
   variantsStates: [
     'closed',
     'open (trigger border steps up)',
     'item hover/highlighted',
-    'item selected (tint + current)',
+    'item selected (tint + Current)',
     'focus-visible (global interior ring)',
   ],
   accessibility:
