@@ -32,32 +32,39 @@ beforeEach(() => {
 describe('SettingsDialog', () => {
   it('persists a motion change through the console settings action', () => {
     const setSettings = open();
-    fireEvent.click(screen.getByRole('switch', { name: 'reduce motion' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Reduce motion' }));
     expect(setSettings).toHaveBeenCalledWith({ motion: 'reduce' });
   });
 
   it('shows the pinned theme as a read-only value', () => {
     open();
-    expect(screen.getByText('sand dark')).toBeTruthy();
-    // No theme control to operate within appearance — one switch (motion) and one
-    // select (density); the logins section carries its own switch separately.
+    // Anchored: the row's description also says "sand dark", and only the value span is
+    // the read-only control under test.
+    expect(screen.getByText(/^sand dark$/i)).toBeTruthy();
+    // No theme control to operate within appearance — one switch (motion) and nothing
+    // else; the logins section carries its own switch separately.
     const appearance = document.querySelector('[data-section="appearance"]') as HTMLElement;
     expect(within(appearance).getAllByRole('switch')).toHaveLength(1);
   });
 
   it('search filters rows and keybinds together', () => {
     open();
-    fireEvent.change(screen.getByPlaceholderText('search settings…'), {
+    fireEvent.change(screen.getByPlaceholderText(/search settings/i), {
       target: { value: 'palette' },
     });
-    expect(screen.getByText('command palette')).toBeTruthy();
+    expect(screen.getByText(/^command palette$/i)).toBeTruthy();
+    expect(screen.queryByText('Reduce motion')).toBeNull();
+  });
+
+  it('offers no density control, because the current scale never answered to it', () => {
+    open();
     expect(screen.queryByText('Density')).toBeNull();
   });
 
   it('renders every keybind from the registry as chips', () => {
     open();
-    expect(screen.getByText('command palette')).toBeTruthy();
-    expect(screen.getByText('toggle the session panel')).toBeTruthy();
+    expect(screen.getByText(/^command palette$/i)).toBeTruthy();
+    expect(screen.getByText(/^toggle the session panel$/i)).toBeTruthy();
   });
 });
 
@@ -81,7 +88,7 @@ describe('login settings rows', () => {
       browserSession: { enabled: true, available: true, reclaimable: [] },
     });
     render(<ReclaimProfilesRow />);
-    expect(screen.getByText('none')).toBeTruthy();
+    expect(screen.getByText(/^none$/i)).toBeTruthy();
   });
 
   it('lists jars behind a review action and deletes one by name', async () => {
@@ -95,9 +102,9 @@ describe('login settings rows', () => {
       reclaimBrowserProfiles: reclaim,
     });
     render(<ReclaimProfilesRow />);
-    await userEvent.click(screen.getByText('review 2'));
+    await userEvent.click(screen.getByText(/review 2/i));
     expect(screen.getByText('ghost-a-1a2b3c')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: /remove browser profile ghost-a/ }));
+    await userEvent.click(screen.getByRole('button', { name: /remove browser profile ghost-a/i }));
     expect(reclaim).toHaveBeenCalledWith(['ghost-a-1a2b3c']);
   });
 
@@ -108,8 +115,8 @@ describe('login settings rows', () => {
       reclaimBrowserProfiles: reclaim,
     });
     render(<ReclaimProfilesRow />);
-    await userEvent.click(screen.getByText('review 2'));
-    await userEvent.click(screen.getByText('remove all 2'));
+    await userEvent.click(screen.getByText(/review 2/i));
+    await userEvent.click(screen.getByText(/^remove all$/i));
     expect(reclaim).toHaveBeenCalledWith(['a-1a2b3c', 'b-4d5e6f']);
   });
 
@@ -123,11 +130,16 @@ describe('login settings rows', () => {
   it('prefills the override from detection and commits an edit', async () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({
-      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe', reclaimable: [] },
+      browserSession: {
+        enabled: true,
+        available: true,
+        detectedPath: 'C:\\chrome.exe',
+        reclaimable: [],
+      },
       setBrowserPath: setPath,
     });
     render(<BrowserPathRow />);
-    const field = screen.getByLabelText('browser');
+    const field = screen.getByLabelText('Browser');
     expect((field as HTMLInputElement).value).toBe('C:\\chrome.exe');
     await userEvent.clear(field);
     await userEvent.type(field, 'D:\\brave.exe{Enter}');
@@ -137,11 +149,16 @@ describe('login settings rows', () => {
   it('does not pin auto-detection as an override when Enter is pressed without editing', async () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({
-      browserSession: { enabled: true, available: true, detectedPath: 'C:\\chrome.exe', reclaimable: [] },
+      browserSession: {
+        enabled: true,
+        available: true,
+        detectedPath: 'C:\\chrome.exe',
+        reclaimable: [],
+      },
       setBrowserPath: setPath,
     });
     render(<BrowserPathRow />);
-    const field = screen.getByLabelText('browser');
+    const field = screen.getByLabelText('Browser');
     field.focus();
     await userEvent.keyboard('{Enter}');
     expect(setPath).not.toHaveBeenCalled();
@@ -154,7 +171,7 @@ describe('login settings rows', () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({ setBrowserPath: setPath });
     render(<BrowserPathRow />);
-    const field = screen.getByLabelText('browser');
+    const field = screen.getByLabelText('Browser');
     expect((field as HTMLInputElement).value).toBe('');
     field.focus();
     await userEvent.keyboard('{Enter}');

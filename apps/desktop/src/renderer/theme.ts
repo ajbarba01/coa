@@ -1,4 +1,3 @@
-import { tokensToCss } from '@coa/console-ui';
 import type { ConsoleSettings } from '../shared/settings.js';
 
 type ResolvedTheme = 'dark' | 'light';
@@ -20,18 +19,11 @@ export function resolveTheme(theme: ConsoleSettings['theme']): ResolvedTheme {
  *  light/dark flip repaints without a settings write. */
 let osListener: (() => void) | undefined;
 
-/** Apply the console settings to the document: re-resolve token CSS for the (resolved)
- *  theme/density into the shared <style>, set the OS color-scheme, flag reduced motion,
- *  and — when following the OS — keep tracking it. */
+/** Apply the console settings to the document: set the OS color-scheme, flag reduced
+ *  motion, and — when following the OS — keep tracking it. Colour itself is pure CSS now
+ *  (the kit's theme file); nothing is injected at runtime. */
 export function applySettings(settings: ConsoleSettings): void {
   const theme = resolveTheme(settings.theme);
-  let style = document.getElementById('coa-tokens');
-  if (!style) {
-    style = document.createElement('style');
-    style.id = 'coa-tokens';
-    document.head.appendChild(style);
-  }
-  style.textContent = tokensToCss(theme, settings.density);
   document.documentElement.style.colorScheme = theme;
   if (settings.motion === 'reduce') document.documentElement.dataset['motion'] = 'reduce';
   else document.documentElement.removeAttribute('data-motion');

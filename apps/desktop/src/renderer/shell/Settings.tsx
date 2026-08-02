@@ -4,7 +4,6 @@ import {
   filterKeybinds,
   Kbd,
   ModalShell,
-  Select,
   SettingRow,
   Toggle,
   TocRail,
@@ -52,11 +51,11 @@ export function IsolatedBrowserRow(): React.JSX.Element {
   const setOn = useMockAuth((s) => s.setIsolatedBrowserLogins);
   return (
     <span className="flex flex-none items-center gap-2.5">
-      {!session.available && <span className="font-mono text-meta text-s7">no browser found</span>}
+      {!session.available && <span className="font-mono text-meta text-s7">No browser found</span>}
       <Toggle
         on={session.enabled}
         onChange={(on) => void setOn(on).catch(() => {})}
-        aria-label="dedicated browser profile"
+        aria-label="Dedicated browser profile"
       />
     </span>
   );
@@ -87,8 +86,8 @@ export function BrowserPathRow(): React.JSX.Element {
       value={value}
       onChange={setValue}
       onCommit={commit}
-      placeholder="auto-detect"
-      aria-label="browser"
+      placeholder="Auto-detect"
+      aria-label="Browser"
       className="w-64 flex-none"
     />
   );
@@ -112,7 +111,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
   const run = (names: string[]): void => void reclaim(names).catch(() => {});
 
   if (reclaimable.length === 0) {
-    return <span className="flex-none font-mono text-code text-s7">none</span>;
+    return <span className="flex-none font-mono text-code text-s7">None</span>;
   }
   return (
     <span className="flex flex-none flex-col items-end gap-1.5">
@@ -121,7 +120,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
         className="font-mono text-code text-s8 underline-offset-2 hover:underline"
         onClick={() => setOpen((was) => !was)}
       >
-        {open ? 'hide' : `review ${reclaimable.length}`}
+        {open ? 'Hide' : `Review ${reclaimable.length}`}
       </button>
       {open && (
         <span className="flex flex-col items-stretch gap-1">
@@ -131,7 +130,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
               <button
                 type="button"
                 className="font-mono text-meta text-s7 hover:text-s9"
-                aria-label={`remove browser profile ${name}`}
+                aria-label={`Remove browser profile ${name}`}
                 onClick={() => run([name])}
               >
                 ✕
@@ -143,7 +142,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
             className="self-end font-mono text-meta text-s7 underline-offset-2 hover:underline"
             onClick={() => run([...reclaimable])}
           >
-            {`remove all ${reclaimable.length}`}
+            Remove All
           </button>
         </span>
       )}
@@ -154,37 +153,25 @@ export function ReclaimProfilesRow(): React.JSX.Element {
 const SECTIONS: SectionSpec[] = [
   {
     id: 'appearance',
-    title: 'appearance',
+    title: 'Appearance',
     rows: [
       {
         id: 'theme',
         name: 'Theme',
-        desc: 'Palette scale for the whole console. Pinned to sand dark until the light scale lands.',
+        desc: 'Controls the palette used across the whole console. Pinned to sand dark.',
         // Maintainer ruling: theme is pinned dark for now — a read-only value is
         // more honest than a one-option select pretending to be a choice.
-        render: () => <span className="flex-none font-mono text-code text-s7">sand dark</span>,
-      },
-      {
-        id: 'density',
-        name: 'Density',
-        desc: 'Row spacing across lists and transcripts.',
-        render: (settings, apply) => (
-          <Select
-            options={['compact', 'comfortable']}
-            value={settings.density}
-            onChange={(v) => apply({ density: v === 'comfortable' ? 'comfortable' : 'compact' })}
-          />
-        ),
+        render: () => <span className="flex-none font-mono text-code text-s7">Sand dark</span>,
       },
       {
         id: 'motion',
         name: 'Reduce motion',
-        desc: 'Collapse transitions to instant state changes.',
+        desc: 'Collapses transitions to instant state changes.',
         render: (settings, apply) => (
           <Toggle
             on={settings.motion === 'reduce'}
             onChange={(on) => apply({ motion: on ? 'reduce' : 'full' })}
-            aria-label="reduce motion"
+            aria-label="Reduce motion"
           />
         ),
       },
@@ -192,24 +179,24 @@ const SECTIONS: SectionSpec[] = [
   },
   {
     id: 'logins',
-    title: 'logins',
+    title: 'Logins',
     rows: [
       {
         id: 'isolated-browser',
         name: 'Dedicated browser profile',
-        desc: 'Sign each account in through its own browser profile, so the account you name is the account that lands. Off keeps today’s browser.',
+        desc: 'Signs each account in through its own browser profile, so the account you name is the account that lands. When off, logins use the default browser.',
         render: () => <IsolatedBrowserRow />,
       },
       {
         id: 'browser-binary',
         name: 'Browser',
-        desc: 'Which browser those profiles open in. Detected automatically — set a path only to correct it.',
+        desc: 'Controls which browser those profiles open in. Set a path only to correct what was detected.',
         render: () => <BrowserPathRow />,
       },
       {
         id: 'reclaim-profiles',
         name: 'Unused browser profiles',
-        desc: 'Sign-in jars no login uses any more. coa never deletes one on its own — review them and choose.',
+        desc: 'Browser profiles no login uses any more. Nothing is deleted until you choose it.',
         render: () => <ReclaimProfilesRow />,
       },
     ],
@@ -251,7 +238,7 @@ export function SettingsDialog(): React.JSX.Element {
   const bindHits = filterKeybinds(keybinds, query);
   const railEntries = [
     ...visible.map((s) => ({ id: s.id, title: s.title })),
-    ...(bindHits.length > 0 ? [{ id: 'keybinds', title: 'keybinds' }] : []),
+    ...(bindHits.length > 0 ? [{ id: 'keybinds', title: 'Keybinds' }] : []),
   ];
 
   const jump = (id: string): void => {
@@ -263,14 +250,14 @@ export function SettingsDialog(): React.JSX.Element {
     <ModalShell
       open={open}
       onClose={() => setOpen(false)}
-      aria-label="settings"
+      aria-label="Settings"
       className="flex h-[70%] w-[70%] flex-col"
     >
       <DialogSearchHead
         value={q}
         onChange={setQ}
         onClose={() => setOpen(false)}
-        placeholder="search settings…"
+        placeholder="Search settings…"
       />
 
       <div className="flex min-h-0 flex-1">
@@ -292,14 +279,14 @@ export function SettingsDialog(): React.JSX.Element {
               ))}
             {bindHits.length > 0 && (
               <div data-section="keybinds" className="pt-4">
-                <CapsLabel className="p-0 pb-1">keybinds</CapsLabel>
+                <CapsLabel className="p-0 pb-1">Keybinds</CapsLabel>
                 {bindHits.map((k) => (
                   <SettingRow key={k.id} name={k.label} desc={k.group}>
                     <span className="flex flex-none gap-1">
                       {k.keys.length > 0 ? (
                         k.keys.map((key) => <Kbd key={key}>{key}</Kbd>)
                       ) : (
-                        <span className="font-mono text-caps text-warn">unbound</span>
+                        <span className="font-mono text-caps text-warn">Unbound</span>
                       )}
                     </span>
                   </SettingRow>
