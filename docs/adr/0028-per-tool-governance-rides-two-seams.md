@@ -65,6 +65,16 @@ keep.
 
 ## Consequences
 
+**Measured after acceptance (2026-08-03), and it narrows the "Good" below.** The live gate found
+that `canUseTool` is **also** not consulted for an ordinary in-cwd `Read` when the `claude_code`
+system-prompt preset is present — which `buildBaseOptions` always sets. The split this ADR draws is
+unchanged and `PreToolUse` is still the only seam that sees delegation, but the premise that
+`canUseTool` is *shown* every non-delegation call is false as shipped. The mechanism is hypothesised
+(the preset likely carries Claude Code's own default allow-rules) rather than measured, and settling
+it is its own spike; the evidence and the open question live in the
+[control ledger](../design/research/2026-08-02-claude-sdk-control-ledger.md#the-p1a-gate-run--2026-08-03).
+Read the paragraph below as the decision's intent, not as a claim about current behaviour.
+
 **Good.** Governance runs on every tool call, including the spawn. The two seams are split
 by a measurable property — what each can see — rather than by taste, so the rule survives
 someone re-reading it later. The vocabulary keeps SC-1's "only two blocks" line honest, and

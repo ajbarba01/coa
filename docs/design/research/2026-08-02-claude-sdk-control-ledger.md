@@ -108,9 +108,12 @@ Not spike artifacts. These are current behaviour in `packages/adapter-claude-sdk
    the options object by the wrapper and transmitted (probe-verified). It appends coa's authority to
    every native child's system prompt. Undeclared means unsupported — recorded as a finding, not
    something to build on without a live check.
-5. **FIXED 2026-08-02.** **`allowedTools` disables coa's own per-tool gate.** The adapter maps coa's allow-intent onto
+5. **FIXED 2026-08-02, but the gate still does not fire.** **`allowedTools` disables coa's own per-tool gate.** The adapter maps coa's allow-intent onto
    `allowedTools`, which auto-approves — so `canUseTool` never fires for a granted tool and M3/M7
    decisions do not run. Live-verified in both directions. This is the highest-severity item here.
+   The mapping is fixed and the fix was re-verified live — but the gate is **still** not consulted
+   for an ordinary in-cwd read, for an independent reason found afterwards; see
+   [The P1a gate run](#the-p1a-gate-run--2026-08-03).
 6. **FIXED 2026-08-02.** **A shared live-test helper's allow result is rejected by the real CLI.** `allowAllTools` in
    `live-smoke-helpers.ts` returns a bare `{behavior:'allow'}`; the CLI treats it as a permission error
    for every tool. The allow result must echo `updatedInput` back. Shipped smokes share this helper.
@@ -242,7 +245,9 @@ callback fires for the same call. `allowedTools` means **auto-approve**, and an 
 never reaches the permission callback.
 
 `claude-sdk-adapter.ts` maps coa's allow-intent onto `allowedTools`, and M3/M7 per-tool decisions ride
-`canUseTool`. **So coa's per-tool governance does not run for exactly the tools coa granted.** This does
+`canUseTool`. **So coa's per-tool governance does not run for exactly the tools coa granted.** Fixing
+that mapping was necessary but **not sufficient**: with `allowedTools` empty, the callback is still
+not consulted for a plain in-cwd `Read` — see [The P1a gate run](#the-p1a-gate-run--2026-08-03). This does
 **not** explain the delegation result above. That probe's `liveOptions` sets no `allowedTools` at all,
 so `canUseTool`'s blindness to a native spawn is independent and intrinsic — delegation *is* a special
 case, and `PreToolUse` is the only seam that sees it
@@ -286,6 +291,66 @@ relocating the account it authenticates as.
    rather than failing (10-minute timeout), so it needs the same abort-on-evidence restructuring the
    base-URL probe got before it can produce an answer.
 
+## The P1a gate run — 2026-08-03
+
+The one live smoke gating [P1a](../../superpowers/specs/2026-08-02-p1a-foundation-fixes-design.md)
+(`packages/adapter-claude-sdk/src/governed-gate.live.test.ts`) ran twice against the real CLI. It
+asserts two halves of a single run: that `canUseTool` was consulted for a built-in `Read`, **and**
+that the read actually executed.
+
+**Half 2 passed — the allow-result repair holds.** The `Read` ran and the file marker came back in
+the final text. That is the half offline probes genuinely could not prove, because a bare
+`{behavior:'allow'}` is type-valid and passes every offline probe while the real CLI refuses the
+call. Live bug 6 is now closed by measurement rather than by types.
+
+**Half 1 failed, twice.** `canUseTool` was never consulted for the `Read`. Neither cause the P1a
+design predicted is the reason: both fixes were re-verified intact in the same runs — `autoApprove`
+is unconditionally empty, and `allowedTools: []` does reach the SDK.
+
+### ★ The `claude_code` preset suppresses `canUseTool` for an ordinary in-cwd read — measured effect, hypothesised mechanism
+
+Isolated with raw `query()` probes, changing one option at a time:
+
+| `systemPrompt` | runs | `canUseTool` consulted for `Read` |
+| --- | --- | --- |
+| `{ type: 'preset', preset: 'claude_code' }` | 2 | **0 / 2** |
+| omitted | 6 | **6 / 6** |
+
+Hooks and `includePartialMessages` made no difference in either arm.
+
+`buildBaseOptions` always layers coa's rendered prompt on that preset (`sdk-options.ts`) — a
+deliberate, documented choice, not an accident (stage 1 above: the preset is all-or-nothing). So if
+this holds, **coa's per-tool governance does not see ordinary in-project reads in any governed
+session, and never has.**
+
+**Recorded as a strong hypothesis, not a settled fact.** n is small, and "preset absent" changes a
+great deal at once. A system prompt influencing permission routing is architecturally odd; the more
+likely mechanism is that the preset carries Claude Code's *own* default permission rules with it,
+under which a read inside the working directory is already allowed — the same auto-approve path
+`allowedTools` travels, reached by a different lever. That mechanism is **inferred, not measured**.
+Settling it means running the preset arm against a call the CLI's defaults would *not* allow (a
+write, or a read outside the cwd) and watching whether the callback fires. That is a scoped
+follow-up spike with a real design decision behind it — route everything through `PreToolUse`, or
+drop the preset and lose Claude Code's baseline — and it is priced deliberately, not continued off
+the end of this run.
+
+Consequence for [ADR-0028](../../adr/0028-per-tool-governance-rides-two-seams.md): the two-seam
+split still holds, and `PreToolUse` remains the only seam that sees delegation — but the ADR's
+claim that `canUseTool` judges every call it is *shown* now has a measured exception, and the set of
+calls it is shown is smaller than the split assumed.
+
+### The delegation half is unrun
+
+The second `it` in the same file — does a `PreToolUse` deny of a native `Task`/`Agent` call actually
+stop child work — never executed; the run stopped and escalated at the primary gate's failure. It is
+written to fail loudly rather than pass when the model never attempts a delegation, so it can be run
+on its own once a budget is set. Until then, ADR-0028's `PreToolUse` deny is verified against
+TypeScript types only.
+
+**Cost, recorded honestly.** The approved envelope for this run was pennies; actual spend was on the
+order of a few US dollars — two primary-gate runs plus roughly ten capped diagnostic calls. The
+overrun happened before the escalation, not after it.
+
 ---
 
-_Last reviewed: 2026-08-02_
+_Last reviewed: 2026-08-03_

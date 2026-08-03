@@ -95,7 +95,10 @@ For **what each module is** (public interface, owned decisions), see the handoff
   `role:system` message is transmitted but not obeyed, while a `shouldQuery:false` user message does
   land in context at the cost of a turn. **The most serious finding: `allowedTools` means auto-approve,
   so it suppresses `canUseTool` entirely — coa's per-tool governance does not run for exactly the tools
-  coa granted.** Two probes stay unsettled by choice (forcing a real auto-compaction costs several
+  coa granted.** Fixing that mapping proved **necessary but not sufficient**: the P1a gate run
+  (2026-08-03) found the callback is still not consulted for a plain in-cwd read, this time because of
+  the `claude_code` system-prompt preset — measured effect, hypothesised mechanism, now item K below.
+  Two probes stay unsettled by choice (forcing a real auto-compaction costs several
   dollars; the synthesised-transcript probe hangs and needs restructuring). Also surfaced: a stale
   builtin set, an inert re-anchor path, an ungoverned child permission mode, an undeclared
   subagent-prompt lever, `terminal_reason` never being read, `CLAUDE_CONFIG_DIR` overloaded as both
@@ -108,11 +111,20 @@ For **what each module is** (public interface, owned decisions), see the handoff
   ([ADR-0028](docs/adr/0028-per-tool-governance-rides-two-seams.md)); the built-in tool list
   carries both delegation spellings and has a drift test; a governed stop renders as a `deny`
   frame instead of a crash; the inert `.claude/CLAUDE.md` re-anchor is gone; and `skills: []`
-  closes the one isolation leak that was closable. **Not yet closed:**
-  `packages/adapter-claude-sdk/src/governed-gate.live.test.ts` — the live smoke proving the gate
-  repair holds against the real CLI — does not exist yet, and the design spec is explicit that
-  P1a is not done until it is green. Next: run that smoke, then **P1b — the orchestration
-  slice.**
+  closes the one isolation leak that was closable. **The gating live smoke now exists and has run**
+  (`packages/adapter-claude-sdk/src/governed-gate.live.test.ts`, `COA_LIVE`-gated, committed red):
+  its second half **passed** — the allow-result repair holds against the real CLI, which is the half
+  offline probes could not prove — while its first half **failed twice**, for a cause the P1a design
+  did not predict and did not introduce. Both P1a fixes were re-verified intact in the same runs;
+  what suppresses the callback is the **`claude_code` system-prompt preset**, which
+  `buildBaseOptions` always sets (measured 0/2 consulted with the preset, 6/6 without; mechanism
+  hypothesised, not measured —
+  [ledger](docs/design/research/2026-08-02-claude-sdk-control-ledger.md#the-p1a-gate-run--2026-08-03)).
+  So P1a is **code-complete with one named live gap**: per-tool governance still does not see an
+  ordinary in-project read. The file's second probe — that a `PreToolUse` deny of a native
+  `Task`/`Agent` call actually stops child work — is written but **unrun**, so ADR-0028's delegation
+  deny is still verified against types alone. Both are item K below, not a continuation of this
+  plan. Next: **P1b — the orchestration slice.**
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.
@@ -163,6 +175,18 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   named-pipe transport [M].
 - **J. M1 graph hardening (GRF-*)** — calls/inherits/weight edges, an SCC model, temporal
   projection [L]; underpins M3 staleness and M4 health scoring.
+- **K. The preset-vs-`canUseTool` spike [S–M, live spend].** The named live gap P1a leaves behind
+  (above). Two questions, both needing real calls and a deliberate budget: (1) **why** the
+  `claude_code` preset suppresses `canUseTool` for an in-cwd read — probe the preset arm against a
+  call the CLI's own defaults would *not* allow (a write, a read outside the cwd) to test the
+  default-allow-rules hypothesis; and (2) run the **written-but-unrun delegation probe**, so
+  ADR-0028's `PreToolUse` deny stops being types-only. Fold in one cheap third arm while paying for
+  the run: **does a coa-owned `mcp__coa__*` tool reach `canUseTool` under the preset?** Only a
+  built-in `Read` was tested, and P1b's whole thesis is a *governed* `spawn_agent` — if coa's own
+  tools are suppressed too, the governed spawn is ungoverned by construction. The design decision behind (1) is real —
+  route everything through `PreToolUse`, or drop the preset and lose Claude Code's baseline — so it
+  is its own spike, not a fix to slot in. This gates the *value* of per-tool governance on the
+  Claude path; it does not block P1b from building.
 
 ### Agent-hardening increment (phase dissolved; what shipped)
 
