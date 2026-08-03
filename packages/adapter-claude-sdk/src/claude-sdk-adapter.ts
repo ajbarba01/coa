@@ -108,6 +108,23 @@ export interface ClaudeSdkAdapterInit {
 const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
 
 /**
+ * Whether a throw out of `query()` is the enforced cost cap.
+ *
+ * The SDK raises the cap as a plain `Error` ("Reached maximum budget ($X)") with no
+ * inspectable subtype and no `result` frame, so a message match is the only signal
+ * available. Matching a vendor string is fragile, which is why the guard is narrow —
+ * coa must have set a cap for this run — and the fallback is to rethrow. A missed match
+ * degrades to today's generic error frame; it never swallows a real failure.
+ */
+function isCostCapStop(err: unknown, maxBudgetUsd: number | undefined): err is Error {
+  return (
+    maxBudgetUsd !== undefined &&
+    err instanceof Error &&
+    /reached maximum budget/i.test(err.message)
+  );
+}
+
+/**
  * The one Claude Agent SDK backend implementation of the M9 `RuntimeAdapter`
  * port. The pure halves (`renderNative`, the option/hook assembly) are the tested
  * core; `runLoop` drives the rented `query()` loop with the two SC-1 blocks on
@@ -281,28 +298,41 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     if (typeof this.#init.input !== 'string' && this.#init.onTurnInterrupt !== undefined) {
       this.#init.onTurnInterrupt(() => sdkQuery.interrupt());
     }
-    for await (const message of sdkQuery) {
-      // Capture the backend's own session id once — M8 stores it to `resume` the
-      // conversation's memory on the next send (R-7 continuity).
-      if (
-        !backendSessionReported &&
-        'session_id' in message &&
-        typeof message.session_id === 'string'
-      ) {
-        backendSessionReported = true;
-        this.#init.onBackendSession?.(message.session_id);
+    try {
+      for await (const message of sdkQuery) {
+        // Capture the backend's own session id once — M8 stores it to `resume` the
+        // conversation's memory on the next send (R-7 continuity).
+        if (
+          !backendSessionReported &&
+          'session_id' in message &&
+          typeof message.session_id === 'string'
+        ) {
+          backendSessionReported = true;
+          this.#init.onBackendSession?.(message.session_id);
+        }
+        for (const { frame, full } of messageToEnrichedFrames(message))
+          this.#init.onTurn?.(frame, full);
+        if (message.type === 'result') {
+          this.#lastUsage = {
+            tokensIn: message.usage.input_tokens,
+            tokensOut: message.usage.output_tokens,
+            costUsd: message.total_cost_usd,
+            cacheReadTokens: message.usage.cache_read_input_tokens,
+          };
+          this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
+        }
       }
-      for (const { frame, full } of messageToEnrichedFrames(message))
-        this.#init.onTurn?.(frame, full);
-      if (message.type === 'result') {
-        this.#lastUsage = {
-          tokensIn: message.usage.input_tokens,
-          tokensOut: message.usage.output_tokens,
-          costUsd: message.total_cost_usd,
-          cacheReadTokens: message.usage.cache_read_input_tokens,
-        };
-        this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
-      }
+    } catch (err) {
+      if (!isCostCapStop(err, this.#init.maxBudgetUsd)) throw err;
+      // SC-1: the cap is a deliberate stop, so it settles the turn as a governed deny
+      // rather than propagating a crash to the session's error path. See docs/adr/0028.
+      // The boundary is REQUIRED, not decoration: M8 resolves its turn driver on a
+      // boundary, so a cap that emits only the deny would leave the session pending
+      // forever. It carries no `terminal` — the SDK threw instead of producing a result,
+      // so there is no terminal_reason to report, and `max_budget` is not a member of the
+      // SDK's TerminalReason union, so inventing it would be a fiction.
+      this.#init.onTurn?.({ t: 'deny', denyKind: 'cost-cap', reason: err.message });
+      this.#init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
     }
   }
 }

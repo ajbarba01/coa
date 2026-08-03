@@ -346,6 +346,23 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
     expect(handlers['createSession']!.params?.safeParse({}).success).toBe(false);
   });
+
+  it('emits a governed deny frame through the same path as any other frame', async () => {
+    // A deny is NOT an error, so the barge-in error-suppression must not swallow it, and
+    // `stamp` must pass it through unreshaped. If either is false, M8 needs a fix.
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      deps([{ t: 'deny', denyKind: 'cost-cap', reason: 'capped' }]),
+      conn,
+      undefined,
+      new LiveSessionRegistry(),
+    );
+    await handlers['createSession']!.handle({ input: 'go' });
+    await conn.settled;
+
+    const frames = pushesOf(conn.pushes).flatMap((p) => (p.kind === 'turn' ? [p.frame] : []));
+    expect(frames).toContainEqual({ t: 'deny', denyKind: 'cost-cap', reason: 'capped' });
+  });
 });
 
 function depsFlushThenFail(): SessionDeps {

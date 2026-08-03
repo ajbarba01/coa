@@ -1,4 +1,4 @@
-import type { BackendMessage, CapabilitySet, NeutralConfig } from '@coa/shared';
+import type { BackendMessage, CapabilitySet, NeutralConfig, TurnFrame } from '@coa/shared';
 import { capabilityProfileSchema } from '@coa/shared';
 import type { CanUseTool, StopPredicate } from '@coa/spi';
 import type { query as SdkQuery } from '@anthropic-ai/claude-agent-sdk';
@@ -42,6 +42,9 @@ const session = {
   capabilityFrame: { allow: [], deny: [] },
 };
 
+const allow: CanUseTool = () => ({ behavior: 'allow' });
+const stop: StopPredicate = () => ({ allow: true });
+
 describe('ClaudeSdkAdapter — pure ports + floor state', () => {
   it('renderNative delegates to the pure renderer and returns the rendered config', () => {
     expect(adapter().renderNative(neutral()).systemPrompt).toBe('# coa governance layer\n\nBODY');
@@ -63,9 +66,6 @@ describe('ClaudeSdkAdapter — pure ports + floor state', () => {
 });
 
 describe('ClaudeSdkAdapter — runLoop preconditions', () => {
-  const allow: CanUseTool = () => ({ behavior: 'allow' });
-  const stop: StopPredicate = () => ({ allow: true });
-
   it('throws if renderNative was not called before runLoop', async () => {
     const a = adapter();
     a.interceptTool(allow);
@@ -190,5 +190,54 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
     expect(reported).toBeTypeOf('function');
     await reported!();
     expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runLoop — the cost cap is a block, not a fault', () => {
+  /** A `query` that yields nothing and throws out of iteration, like the SDK's cap does. */
+  const throwingQuery = (message: string) =>
+    (() => ({
+      async *[Symbol.asyncIterator]() {
+        throw new Error(message);
+        // eslint-disable-next-line no-unreachable
+        yield undefined as never;
+      },
+      interrupt: () => Promise.resolve(),
+    })) as unknown as ClaudeSdkAdapterInit['query'];
+
+  const wired = (over: Partial<ClaudeSdkAdapterInit>) => {
+    const a = adapter(over);
+    a.renderNative(neutral());
+    a.interceptTool(allow);
+    a.interceptStop(stop);
+    return a;
+  };
+
+  it('emits a cost-cap deny instead of propagating the budget throw', async () => {
+    const frames: TurnFrame[] = [];
+    const a = wired({
+      maxBudgetUsd: 0.02,
+      onTurn: (f) => frames.push(f),
+      query: throwingQuery('Reached maximum budget ($0.02)'),
+    });
+
+    await expect(a.runLoop(session)).resolves.toBeUndefined();
+
+    expect(frames).toEqual([
+      { t: 'deny', denyKind: 'cost-cap', reason: 'Reached maximum budget ($0.02)' },
+      { t: 'turn-boundary', role: 'assistant' },
+    ]);
+  });
+
+  it('rethrows a transient network failure unchanged', async () => {
+    // Recognition is narrow on purpose: a missed match must degrade to today's behaviour,
+    // never to a swallowed error.
+    const a = wired({ maxBudgetUsd: 0.02, query: throwingQuery('fetch failed') });
+    await expect(a.runLoop(session)).rejects.toThrow('fetch failed');
+  });
+
+  it('rethrows a budget-shaped error when coa set no cap', async () => {
+    const a = wired({ query: throwingQuery('Reached maximum budget ($0.02)') });
+    await expect(a.runLoop(session)).rejects.toThrow('Reached maximum budget');
   });
 });
