@@ -42,6 +42,13 @@ export interface SessionAdapterInit {
   /** M9's settlement step → M7.charge, called once per settled result. */
   onSettle: (sessionId: string, usage: RuntimeUsage) => void;
   /**
+   * M1 producer ② — record on-disk changes no governed tool made. Every backend fires it
+   * at its own tool boundary (the SDK's PostToolUse hook; the pure-API loop's per-call
+   * block), which is what keeps the change spine identical across backends. Optional so
+   * a backend or test that omits it behaves exactly as before (D85).
+   */
+  observeChanges?: () => void;
+  /**
    * Per-frame session output: the backend maps its stream to neutral M0 frames; M8
    * sequences + pushes them. `full`, when present (a `tool_result`), is the complete
    * body the model saw — the append-only log's fidelity companion to the lossy
@@ -168,6 +175,12 @@ export interface SessionDeps {
   baseCatalogue: ToolCatalogue;
   /** M1 checkpoint at the session boundary. */
   checkpoint: () => void;
+  /**
+   * M1 producer ② — record on-disk changes no governed tool made. Handed to every
+   * adapter, which fires it at its own tool boundary, so the same facts reach the spine
+   * whichever backend runs the loop.
+   */
+  observeChanges: () => void;
   /** Construct the per-session backend adapter (M9, injected — M8 holds no backend type). */
   createAdapter: (init: SessionAdapterInit) => RuntimeAdapter;
   /** Optional API-route per-session ceiling; absent ⇒ subscription model. */
@@ -280,6 +293,7 @@ export async function createSession(
     ...(req.model ? { model: req.model } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
+    observeChanges: deps.observeChanges,
     ...(account?.locator ? { locator: account.locator } : {}),
     ...(req.resume !== undefined ? { resume: req.resume } : {}),
     ...(req.onBackendSession ? { onBackendSession: req.onBackendSession } : {}),

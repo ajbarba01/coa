@@ -96,12 +96,16 @@ describe('stage 3 — per-call interception', () => {
       expect([...HOOK_EVENTS].sort()).toEqual([...KNOWN_HOOK_EVENTS].sort());
     });
 
-    it('registers exactly two of the thirty available hook events today (session-options.ts wires Stop + PreToolUse)', () => {
+    it('registers exactly three of the thirty available hook events today (session-options.ts wires Stop + PreToolUse + PostToolUse)', () => {
       // A real call through the production assembler — not a text scrape — so a
-      // future change that wires a third event moves this EXPECTATION, and that
+      // future change that wires a further event moves this EXPECTATION, and that
       // diff is the thing a reviewer sees. PreToolUse joined Stop once the native
-      // spawn call turned out to bypass canUseTool entirely (docs/adr/0028); it
-      // judges only the delegation spellings, so it is not a general-purpose gate.
+      // spawn call turned out to bypass canUseTool entirely (docs/adr/0028), and
+      // has since become the general per-tool gate rather than a delegation-only
+      // one, because canUseTool proved unreliable for ordinary calls too.
+      // PostToolUse joined them as the producer trigger: it governs nothing and
+      // drives the reconciler, so a change made by a native tool reaches M1 at all
+      // (docs/adr/0029, which supersedes 0028).
       const options = assembleSessionOptions({
         sessionId: 'probe',
         backend: emptyBackend(),
@@ -110,14 +114,14 @@ describe('stage 3 — per-call interception', () => {
         stopPredicate: () => ({ allow: true }),
       });
       const registered = Object.keys(options.hooks ?? {});
-      expect(registered).toEqual(['Stop', 'PreToolUse']);
+      expect(registered).toEqual(['Stop', 'PreToolUse', 'PostToolUse']);
 
       // The gap is the finding in its own right: PreCompact/PostCompact bear on
       // stage 5 (context over time), SubagentStart/SubagentStop on stage 7
       // (delegation), and PermissionRequest/PermissionDenied on the arc's own
       // deny channel — all available, none wired.
       const unregistered = KNOWN_HOOK_EVENTS.filter((event) => !registered.includes(event));
-      expect(unregistered).toHaveLength(28);
+      expect(unregistered).toHaveLength(27);
       expect(unregistered).toEqual(
         expect.arrayContaining([
           'PreCompact',

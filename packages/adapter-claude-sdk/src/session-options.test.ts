@@ -106,6 +106,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'allow' }),
       sessionId: 's',
+      observeChanges: () => {},
     });
     expect(hooks.Stop).toHaveLength(1);
   });
@@ -115,6 +116,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
       stopPredicate: () => ({ allow: false, message: 'open invariant' }),
       canUseTool: () => ({ behavior: 'allow' }),
       sessionId: 's1',
+      observeChanges: () => {},
     });
     const out = await hooks.Stop?.[0]?.hooks[0]?.({ hook_event_name: 'Stop' } as never, undefined, {
       signal: new AbortController().signal,
@@ -129,6 +131,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'deny', message: 'cost cap reached' }),
       sessionId: 's1',
+      observeChanges: () => {},
     });
     for (const name of ['Task', 'Agent']) {
       expect(await preToolUse(hooks, name, { prompt: 'go' })).toEqual({
@@ -149,6 +152,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'allow' }),
       sessionId: 's1',
+      observeChanges: () => {},
     });
     expect(await preToolUse(hooks, 'Agent', { prompt: 'go' })).toEqual({});
   });
@@ -166,6 +170,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
         return { behavior: 'allow' };
       },
       sessionId: 's1',
+      observeChanges: () => {},
     });
     for (const name of ['Read', 'Bash', 'Write', 'Agent']) await preToolUse(hooks, name, {});
     expect(seen).toEqual(['Read', 'Bash', 'Write', 'Agent']);
@@ -180,6 +185,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
         return { behavior: 'allow' };
       },
       sessionId: 'sess-99',
+      observeChanges: () => {},
     });
     await preToolUse(hooks, 'Agent', {});
     expect(seen).toBe('sess-99');
@@ -192,6 +198,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'deny', message: 'over cap' }),
       sessionId: 's1',
+      observeChanges: () => {},
     });
     expect(await preToolUse(hooks, 'Read', { file_path: 'a.ts' })).toEqual({
       hookSpecificOutput: {
@@ -209,7 +216,38 @@ describe('buildHooks — the multi-event hook assembly', () => {
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'allow' }),
       sessionId: 's1',
+      observeChanges: () => {},
     });
     expect(await preToolUse(hooks, 'Bash', { command: 'ls' })).toEqual({});
+  });
+
+  it('drives observeChanges after every tool call, whatever the tool was', async () => {
+    // coa does NOT parse tool_input per tool: the reconciler scans the worktree itself,
+    // so one trigger covers a native Edit, a Write, and any file a Bash command touched —
+    // which per-tool parsing would miss entirely.
+    let observed = 0;
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => {
+        observed += 1;
+      },
+    });
+    const postToolUse = (name: string) =>
+      hooks.PostToolUse?.[0]?.hooks[0]?.(
+        {
+          hook_event_name: 'PostToolUse',
+          tool_name: name,
+          tool_input: {},
+          tool_response: {},
+          tool_use_id: 'tu_1',
+        } as never,
+        undefined,
+        ctx,
+      );
+    expect(await postToolUse('Edit')).toEqual({});
+    await postToolUse('Bash');
+    expect(observed).toBe(2);
   });
 });

@@ -62,6 +62,13 @@ export interface ClaudeSdkAdapterInit {
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** The native mid-loop hard stop: `min(perSessionCeiling?, M7.capState().remaining)`. */
   maxBudgetUsd?: number;
+  /**
+   * Record on-disk changes coa did not perform itself (producer ②, M8-owned): the
+   * adapter fires it after every tool call, since a native Edit — or any file a Bash
+   * command touched — reaches M1 through no other path. Absent ⇒ a no-op, so a caller
+   * that does not supply it behaves exactly as today (D85).
+   */
+  observeChanges?: () => void;
   /** The active account's neutral login pointer (M8 from the registry); absent ⇒ ambient (today's auth). */
   locator?: Locator;
   /** A prior backend session id to resume (R-7 continuity), so the model has the conversation's memory. */
@@ -265,6 +272,9 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       sandbox: this.#init.sandbox,
       canUseTool: this.#canUseTool,
       stopPredicate: this.#stopPredicate,
+      ...(this.#init.observeChanges !== undefined
+        ? { observeChanges: this.#init.observeChanges }
+        : {}),
       ...(transport.tools ? { tools: transport.tools } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(this.#init.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.#init.maxBudgetUsd } : {}),

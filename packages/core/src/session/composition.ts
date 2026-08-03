@@ -97,6 +97,7 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     catalogue: core.catalogue,
     baseCatalogue: core.baseCatalogue,
     checkpoint: core.checkpoint,
+    observeChanges: core.observeChanges,
     createAdapter: wiring.createAdapter,
     ...(wiring.trust !== undefined ? { trust: wiring.trust } : {}),
     ...(wiring.perSessionCeiling !== undefined

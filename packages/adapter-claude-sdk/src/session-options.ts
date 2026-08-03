@@ -17,8 +17,14 @@ export function buildHooks(args: {
   stopPredicate: StopPredicate;
   canUseTool: CanUseTool;
   sessionId: string;
+  /**
+   * Drive producer ② after a tool runs (M8-owned). REQUIRED rather than optional so it
+   * is impossible to register the hooks while forgetting the recorder — the gap this
+   * closes was exactly that: nothing observed a native tool's writes.
+   */
+  observeChanges: () => void;
 }): NonNullable<Options['hooks']> {
-  const { stopPredicate, canUseTool, sessionId } = args;
+  const { stopPredicate, canUseTool, sessionId, observeChanges } = args;
 
   // `PreToolUse` is the per-tool gate for the WHOLE session, not just delegation.
   // `canUseTool` is never consulted for a native spawn, and the 2026-08-03 gate run
@@ -47,9 +53,19 @@ export function buildHooks(args: {
     };
   };
 
+  // The producer trigger. coa does not parse `tool_input` per tool: the reconciler scans
+  // the worktree itself, so one trigger covers a native Edit, a Write, and any file a Bash
+  // command touched — which per-tool parsing would miss entirely. Abstains always;
+  // observation is not governance (docs/adr/0029).
+  const observeAfterTool: HookCallback = async () => {
+    observeChanges();
+    return {};
+  };
+
   return {
     Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
     PreToolUse: [{ hooks: [gateToolCall] }],
+    PostToolUse: [{ hooks: [observeAfterTool] }],
   };
 }
 
@@ -69,6 +85,11 @@ export function assembleSessionOptions(args: {
   canUseTool: CanUseTool;
   /** M3's close-gate, read on each Stop event. */
   stopPredicate: StopPredicate;
+  /**
+   * Drive producer ② after each tool call (M8: the daemon's reconciler). Absent ⇒ a
+   * no-op, so a caller that does not supply it behaves exactly as before (D85).
+   */
+  observeChanges?: () => void;
   mcpServers?: Record<string, McpServerConfig>;
   maxBudgetUsd?: number;
   /** The restricted built-in tool set (from the resolved frame); absent ⇒ the SDK default (no restriction). */
@@ -94,6 +115,7 @@ export function assembleSessionOptions(args: {
     sandbox,
     canUseTool,
     stopPredicate,
+    observeChanges,
     mcpServers,
     maxBudgetUsd,
     tools,
@@ -121,7 +143,12 @@ export function assembleSessionOptions(args: {
     // Stream partial assistant messages (Piece B / G7): the adapter maps their content-block
     // deltas to delivery-only `text-delta`/`thinking-delta` frames (docs/adr/0013).
     includePartialMessages: true,
-    hooks: buildHooks({ stopPredicate, canUseTool, sessionId }),
+    hooks: buildHooks({
+      stopPredicate,
+      canUseTool,
+      sessionId,
+      observeChanges: observeChanges ?? ((): void => {}),
+    }),
     ...(mcpServers ? { mcpServers } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(env ? { env } : {}),
