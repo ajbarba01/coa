@@ -227,7 +227,6 @@ function backend(overrides: Partial<BackendConfig> = {}): BackendConfig {
     allowedTools: [],
     disallowedTools: [],
     perAgent: {},
-    files: [],
     ...overrides,
   };
 }

@@ -174,7 +174,6 @@ const emptyBackend = (): BackendConfig => ({
   allowedTools: [],
   disallowedTools: [],
   perAgent: {},
-  files: [],
 });
 
 const neutral = (overrides: Partial<NeutralConfig> = {}): NeutralConfig => ({
@@ -308,29 +307,15 @@ describe('assumption 2 — FALSE: "settingSources: [] fully isolates the session
     expect(doc).toContain("'project' - .claude/agent-memory/<agentType>/");
   });
 
-  it('LIVE COA BUG surfaced by the same doc line: coa’s re-anchor file can never load', () => {
-    // `render-native.ts` writes standing authority to `.claude/CLAUDE.md` and its comment
-    // calls it "re-read-each-request". The settingSources doc says, flatly: "Must include
-    // 'project' to load CLAUDE.md files." coa sets `settingSources: []`. So the re-anchor is
-    // inert by construction — and, separately, nothing in the adapter ever writes the file:
-    // `BackendConfig.files` is produced by renderNative and consumed by nobody.
+  it('the re-anchor file is GONE: standing authority ships only where it can load', () => {
+    // Was a live bug: renderNative wrote `.claude/CLAUDE.md`, which cannot load under
+    // settingSources: [], and BackendConfig.files was consumed by nobody.
     expect(sdkTypes('sdk.d.ts')).toContain("Must include `'project'` to load CLAUDE.md files.");
-
     const rendered = renderNative(
       neutral({ systemReminders: [{ rule: 'no-silent-pretend', reason: 'SC-1', tier: 0 }] }),
     );
-    expect(rendered.files).toEqual([
-      { path: '.claude/CLAUDE.md', content: '[no-silent-pretend] SC-1' },
-    ]);
-
-    const opts = buildBaseOptions({ backend: emptyBackend(), sandbox: sandboxSet() });
-    expect(opts.settingSources).toEqual([]);
-
-    const adapterSource = readFileSync(
-      new URL('../claude-sdk-adapter.ts', import.meta.url),
-      'utf8',
-    );
-    expect(adapterSource).not.toContain('backend.files');
+    expect(rendered).not.toHaveProperty('files');
+    expect(rendered.systemPrompt).toContain('no-silent-pretend');
   });
 });
 

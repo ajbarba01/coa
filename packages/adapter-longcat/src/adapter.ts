@@ -127,7 +127,6 @@ export class LongCatAdapter implements RuntimeAdapter {
       allowedTools: neutralConfig.toolIntents.allow,
       disallowedTools: neutralConfig.toolIntents.deny,
       perAgent: {},
-      files: [],
     };
     return this.#backend;
   }

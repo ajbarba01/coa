@@ -41,7 +41,6 @@ function echoAdapter(init: SessionAdapterInit): RuntimeAdapter {
       allowedTools: [],
       disallowedTools: [],
       perAgent: {},
-      files: [],
     }),
     registerTools: () => {},
     denyBuiltins: () => {},

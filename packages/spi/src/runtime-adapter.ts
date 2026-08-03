@@ -24,17 +24,10 @@ import type { ZodRawShape } from 'zod';
  * them.
  */
 
-/** A file the renderer emits for the backend to materialize (e.g. `.claude/CLAUDE.md`). */
-export interface BackendFile {
-  /** Worktree-relative path. Written gitignored + reconciler-excluded (S-5). */
-  path: string;
-  content: string;
-}
-
 /**
  * The backend-native config `renderNative` produces from M5's neutral output —
  * the **internal D109 port shape** (D126), not the deferred public SPI (D110).
- * Carries the static options + files; the two hooks (`canUseTool` / `Stop`) are
+ * Carries the static options; the two hooks (`canUseTool` / `Stop`) are
  * wired separately via {@link RuntimeAdapter.interceptTool}/`interceptStop`.
  */
 export interface BackendConfig {
@@ -45,7 +38,6 @@ export interface BackendConfig {
   disallowedTools: string[];
   /** Per-subagent frames (the `perAgent` intents), rendered structurally. */
   perAgent: Record<string, { allowedTools: string[]; disallowedTools: string[] }>;
-  files: BackendFile[];
 }
 
 /** The deterministic close-gate decision M3 returns; M9 maps it onto the SDK `Stop` hook. */

@@ -68,7 +68,7 @@ class FrameAdapter implements RuntimeAdapter {
     readonly cleanBreakAbortable = false,
   ) {}
   renderNative(): BackendConfig {
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {}
   denyBuiltins(): void {}
@@ -152,7 +152,7 @@ class EnrichedFrameAdapter implements RuntimeAdapter {
     readonly enriched: ReadonlyArray<{ frame: TurnFrame; full?: string }>,
   ) {}
   renderNative(): BackendConfig {
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {}
   denyBuiltins(): void {}
@@ -1455,7 +1455,7 @@ class HeldOpenAdapter implements RuntimeAdapter {
     readonly abortable = false,
   ) {}
   renderNative(): BackendConfig {
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {}
   denyBuiltins(): void {}
@@ -1561,7 +1561,7 @@ class BargeInAdapter implements RuntimeAdapter {
     readonly interruptRejects = false,
   ) {}
   renderNative(): BackendConfig {
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {}
   denyBuiltins(): void {}
@@ -1632,7 +1632,7 @@ class QueueSteerAdapter implements RuntimeAdapter {
 
   constructor(readonly init: SessionAdapterInit) {}
   renderNative(): BackendConfig {
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {}
   denyBuiltins(): void {}

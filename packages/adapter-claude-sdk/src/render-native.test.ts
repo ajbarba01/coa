@@ -94,21 +94,12 @@ describe('renderNative — standing authority (systemReminders → prompt + re-a
     expect(out.systemPrompt).toContain('use the query builder');
   });
 
-  it('re-anchors standing authority into a worktree-relative, gitignorable .claude file (S-5)', () => {
+  it('keeps standing authority in the systemPrompt, the only channel that loads', () => {
+    // The `.claude/CLAUDE.md` re-anchor could never load: it needs settingSources to
+    // include 'project', and coa sets [] precisely to keep the target repo's config out.
     const out = renderNative(config({ systemReminders: [reminder] }));
-
-    const file = out.files.find((f) => f.path === '.claude/CLAUDE.md');
-    expect(file).toBeDefined();
-    expect(file?.content).toContain('no-raw-sql');
-    // S-5: never absolute, never an escape.
-    for (const f of out.files) {
-      expect(f.path.startsWith('/')).toBe(false);
-      expect(f.path).not.toContain('..');
-    }
-  });
-
-  it('emits no files when there is no standing authority to re-anchor', () => {
-    expect(renderNative(config()).files).toEqual([]);
+    expect(out.systemPrompt).toContain('no-raw-sql');
+    expect(out).not.toHaveProperty('files');
   });
 });
 

@@ -40,7 +40,7 @@ class FakeAdapter implements RuntimeAdapter {
   renderNative(config: NeutralConfig): BackendConfig {
     this.calls.push('renderNative');
     void config;
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {
     this.calls.push('registerTools');

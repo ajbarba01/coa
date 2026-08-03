@@ -141,7 +141,6 @@ export class DeepSeekAdapter implements RuntimeAdapter {
       allowedTools: neutralConfig.toolIntents.allow,
       disallowedTools: neutralConfig.toolIntents.deny,
       perAgent: {},
-      files: [],
     };
     return this.#backend;
   }

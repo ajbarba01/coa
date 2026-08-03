@@ -1,8 +1,5 @@
 import { renderSections, type NeutralConfig, type Reminder } from '@coa/shared';
-import type { BackendConfig, BackendFile } from '@coa/spi';
-
-/** The worktree-relative re-anchor file — gitignored + reconciler-excluded (S-5). */
-const REANCHOR_PATH = '.claude/CLAUDE.md';
+import type { BackendConfig } from '@coa/spi';
 
 /** Render one standing-authority reminder to a single, stable line. */
 function renderReminder(r: Reminder): string {
@@ -39,16 +36,15 @@ export function renderNative(neutralConfig: NeutralConfig): BackendConfig {
     .filter((piece) => !PRESET_COVERED_PIECES.has(piece.name));
   const sections = renderSections(pieces);
 
-  // Standing authority (the salient systemReminders): there is no programmatic
-  // mid-session role:system channel (verified SDK fact), so it lands in the
-  // systemPrompt (head/tail, D108) and is re-anchored into a re-read-each-request
-  // .claude file. Pull-only + scope-pushed content is deferred (TAX-1) and never
-  // folded into the static prompt.
+  // Standing authority (the salient systemReminders) lands in the systemPrompt (head/tail,
+  // D108). A mid-session channel DOES exist — a `shouldQuery:false` user message lands its
+  // content in context — but it costs its own turn, so using it is a policy decision and
+  // waits for a caller that wants to pay. A streamed `role:system` message is transmitted
+  // and NOT obeyed, so it is not that channel. Pull-only + scope-pushed content is deferred
+  // (TAX-1) and never folded into the static prompt.
   const authority = neutralConfig.systemReminders.map(renderReminder);
   const inner = [sections, authority.join('\n')].filter((s) => s !== '').join('\n\n');
   const systemPrompt = inner === '' ? '' : `# coa governance layer\n\n${inner}`;
-  const files: BackendFile[] =
-    authority.length > 0 ? [{ path: REANCHOR_PATH, content: authority.join('\n') }] : [];
 
   const { allow, deny, perAgent } = neutralConfig.toolIntents;
   const renderedPerAgent: BackendConfig['perAgent'] = {};
@@ -61,6 +57,5 @@ export function renderNative(neutralConfig: NeutralConfig): BackendConfig {
     allowedTools: allow,
     disallowedTools: deny,
     perAgent: renderedPerAgent,
-    files,
   };
 }

@@ -37,7 +37,7 @@ function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } 
 class FakeAdapter implements RuntimeAdapter {
   constructor(readonly init: SessionAdapterInit) {}
   renderNative(_c: NeutralConfig): BackendConfig {
-    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {}, files: [] };
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
   registerTools(): void {}
   denyBuiltins(): void {}

@@ -34,7 +34,6 @@ const emptyBackend = (): BackendConfig => ({
   allowedTools: [],
   disallowedTools: [],
   perAgent: {},
-  files: [],
 });
 
 const emptySandbox = (): CapabilitySet => ({
