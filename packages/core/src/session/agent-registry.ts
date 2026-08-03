@@ -57,7 +57,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       behaviorPiece(
         'coa-orientation',
         'what coa is and how it governs',
-        'You run inside coa. Your file changes are recorded on a change spine and may be flagged for review, and a human can watch and steer. Prefer coa’s governed tools (get_symbol, find_references, edit_symbol) where they are available.',
+        'You run inside coa. Your file changes are recorded on a change spine and may be flagged for review, and a human can watch and steer. Reach for coa’s governed tools (get_symbol, find_references, edit_symbol) when you want symbol-precise work: they resolve a symbol rather than a path, and their results carry grounding and any flags already raised against what you touched.',
         'governance',
       ),
     ],

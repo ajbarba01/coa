@@ -12,7 +12,7 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | Module | Status | What's real | What's missing |
 | --- | --- | --- | --- |
 | M0 Shared Schema | Done (living) | The cross-module Zod schema set; validated at every external boundary. | Evolves with new modules; no open gaps flagged. |
-| M1 Change Kernel | Partial | The change-event spine is live (the single append path all producers/consumers point at). | GRF-* graph-relation hardening (see item J below). |
+| M1 Change Kernel | Partial | The change-event spine is live (the single append path all producers/consumers point at), and **producer ② now runs** — the git reconciler is constructed in the daemon and driven by both backends at their tool boundary, so a change made by a tool coa does not execute itself (a native `Edit`, or anything a `Bash` command touched) reaches the spine. Degrades to a no-op outside a git worktree. | GRF-* graph-relation hardening (see item J below). |
 | M2 Code Lens | Partial | tree-sitter parsing, canonicalization, symbol table, metrics. | `refs` (reference resolution) runs at its honest floor only. |
 | M3 Constraint/Flag | Partial | Constraint producers + the Type-1 close-gate are live. | No `perToolDeny` rules yet. |
 | M4 Context Engine | Partial | Grounding, SSOT drift detection, and origin-anchor verification are live. | L-ASM (assembly/sizing) is spike-gated on the v0 calibration turn (keystone B below); G5 model-confirm needs M9's `runEval`. |
@@ -20,7 +20,7 @@ For **what each module is** (public interface, owned decisions), see the handoff
 | M6 Workbench | Partial | Governed tools, base tools, and the M6↔M9 bridge (the rented loop is genuinely governed) are live. | AST-ops (rename/rewrite), fork, and the diff engine are not built. |
 | M7 Governance & Audit | Partial | Cost-cap, ledger, and sandbox/process-isolation posture are live. | Subscription-plan cost is still a notional (not metered) figure. |
 | M8 Daemon | Partial / runnable | `coa serve` + `coa run` over a real JSON-RPC pipe transport; the R-7 conversation store; provider-independent persistent session memory and frozen/cached prompts with drift detection (session hardening); `interruptSession`/`steerSession` RPC verbs over a per-session neutral `AbortSignal` + steer queue, wired to both backends (interrupt) and the pure-API path (steering); the daemon now owns a live session's lifecycle **across turns** — a daemon-singleton `LiveSessionRegistry` (keyed by conversation id, constructed once in `apps/cli`'s daemon composition and torn down via `closeAll()` on shutdown) holds one `LiveSession` per conversation, `createSession` is send-or-create (a second send on a live conversation queues as its next turn rather than starting a new one), and a `subscribeSession` verb reattaches a connection with an immediate run-status hydration, now called by the console on every conversation-open (G4 proven end to end: a reload mid-run reads `running` from the daemon snapshot; see `docs/adr/0011`); idle-timeout eviction is running-aware (re-arms rather than evicting a session still mid-turn) and its single teardown path (`registry.close`) runs the M1 checkpoint + worktree release exactly once, on eviction, the `closeSession` verb, or shutdown alike; the fan-out to subscribers is crash-safe (a throwing/dropped sink is dropped, never aborts delivery to the rest) and a closed connection's sinks are pruned. The Claude backend is now genuinely long-lived (P-β; `docs/adr/0012`): it holds one `query()` open across turns, selected by the abstract `sessionStrategy(provider)` verdict (never a backend branch), and a **live smoke** (`streaming-smoke.live.test.ts`, `COA_LIVE`-gated) verified held-open multi-turn + cross-turn memory + graceful termination against the real SDK. A pushed steer is **queued** as the next turn (the SDK has no mid-turn inject). **Barge-in (true mid-turn redirect) now ships** (`docs/adr/0012`): `steerSession` carries a `mode` (`queue | barge-in`) realized per strategy — Claude via the SDK's turn-level `query.interrupt()` (keeps the query alive) + a framed push, pure-API via a two-buffer drain (`drainSteer` at the round-trip boundary, `drainQueuedSteer` at the close-gate) — with a `pendingTurns` boundary count (the I3 fix) and SC-1 suppression of the interrupt's `error_during_execution` result, all live-verified in `barge-in-smoke.live.test.ts`. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree manager, subagent depth-1 fan-out; role/capability enforcement (deferred — see "Someday / ideas"). |
-| M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. | `runEval`/Tier-B path, `registerMcp` resolver. |
+| M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. The Claude session now advertises a bounded eight-tool built-in floor and registers three hook events (`Stop` + `PreToolUse` gate + `PostToolUse` producer trigger); see item L. | `runEval`/Tier-B path, `registerMcp` resolver. |
 | M10 Console | Partial / rich | Electron shell on `@coa/console-kit` (+ `@coa/console-transcript` for the conversation), live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue/Steer buttons + Enter-to-barge-in, wired to `steerSession`). | The **workbench rebuild** (see "In flight" — the 2026-07 UX overhaul's new design system at `docs/adr/0014`; W0–W5 have landed); live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
 
 **Cross-cutting workstreams**
@@ -186,7 +186,30 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   tools are suppressed too, the governed spawn is ungoverned by construction. The design decision behind (1) is real —
   route everything through `PreToolUse`, or drop the preset and lose Claude Code's baseline — so it
   is its own spike, not a fix to slot in. This gates the *value* of per-tool governance on the
-  Claude path; it does not block P1b from building.
+  Claude path; it does not block P1b from building. **The agent-surface convergence work
+  (below) added three more questions to the same batch:** is a `PreToolUse` deny actually
+  honoured by the CLI (now load-bearing for the whole gate), does `PostToolUse` fire for
+  every tool including `Bash`, and does the `FileChanged` hook fire at all — it is present
+  in the SDK's `HOOK_EVENTS`, never tried, and would be a finer producer trigger than
+  scanning after every call.
+- **L. Agent-surface convergence** — Code-complete, live gate outstanding. The Claude
+  built-in surface is now a bounded floor of eight (`Read`/`Glob`/`Grep`/`Write`/`Edit`/
+  `Bash`/`WebSearch`/`WebFetch`) instead of the CLI's ~37, and `tools` is set
+  unconditionally — an empty capability frame yields the floor rather than an unrestricted
+  pass-through. Per-tool governance moved to a single seam: `PreToolUse` judges every call
+  and only ever denies or abstains, never granting. **coa owns no native tool
+  implementation** — a trained prior covers the whole contract, output shape included, so
+  substituting a body would break `Read`→`Edit` chains for no gain
+  ([ADR-0029](docs/adr/0029-one-bounded-tool-surface-governed-at-one-seam.md), superseding
+  0028). Producer ② is finally live: the `Reconciler` shipped tested and **never
+  constructed**, so a file written by a native `Edit` — or by anything a `Bash` command ran
+  — reached M1 on *no* backend; both loops now drive one neutral `observeChanges` port at
+  their own tool boundary. Retired with the trim: `TodoWrite`, and with it the console's
+  plan checklist, plus native delegation ahead of the governed `spawn_agent` that replaces
+  it. **Not proven:** the gate rests on a `PreToolUse` deny being honoured, which is
+  verified against TypeScript types only — item K's probe decides it, and if the deny is
+  not honoured the design loses its governance leg and coa-owned tool implementations win
+  by default.
 
 ### Agent-hardening increment (phase dissolved; what shipped)
 

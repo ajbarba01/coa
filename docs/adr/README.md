@@ -53,7 +53,8 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0025](0025-retire-the-legacy-console-kit.md) — The legacy console kit is retired, and the forge palette goes with it
 - [0026](0026-coa-borrows-the-harness-it-does-not-fork-it.md) — coa borrows the harness; it does not fork it
 - [0027](0027-one-tool-surface-alias-or-own.md) — A tool is aliased or owned, never both
-- [0028](0028-per-tool-governance-rides-two-seams.md) — Per-tool governance rides two seams
+- [0028](0028-per-tool-governance-rides-two-seams.md) — Per-tool governance rides two seams (superseded by 0029)
+- [0029](0029-one-bounded-tool-surface-governed-at-one-seam.md) — One bounded tool surface, governed at one seam
 
 ---
 

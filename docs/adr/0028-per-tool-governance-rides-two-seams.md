@@ -1,6 +1,6 @@
 # 0028 — Per-tool governance rides two seams
 
-- Status: accepted
+- Status: superseded by [0029](0029-one-bounded-tool-surface-governed-at-one-seam.md)
 - Date: 2026-08-03
 
 ## Context and problem

@@ -351,6 +351,30 @@ TypeScript types only.
 order of a few US dollars — two primary-gate runs plus roughly ten capped diagnostic calls. The
 overrun happened before the escalation, not after it.
 
+### The batch this leaves to run
+
+Six questions, one live run, priced deliberately. The first is the most load-bearing thing in the
+project right now: the agent-surface convergence work
+([ADR-0029](../../adr/0029-one-bounded-tool-surface-governed-at-one-seam.md)) moved **all** per-tool
+governance onto `PreToolUse`, and whether that seam's deny is honoured is verified against
+TypeScript types alone — `sdk.mjs` never reads `hookSpecificOutput`, the bundled binary does.
+
+1. **Is a `PreToolUse` deny honoured?** The written-but-unrun probe in
+   `governed-gate.live.test.ts`. If not, ADR-0029 loses its governance leg and coa-owned tool
+   implementations win by default.
+2. **Why does the preset suppress `canUseTool`?** Probe the preset arm against a call the CLI's own
+   defaults would *not* allow — a write, or a read outside the cwd — to test the
+   default-allow-rules hypothesis.
+3. **Does a coa-owned `mcp__coa__*` tool reach `canUseTool` under the preset?** Only a built-in
+   `Read` was ever measured.
+4. **Does `PostToolUse` fire for every tool, including `Bash`?** It is now the only path by which a
+   native edit reaches M1.
+5. **Does `FileChanged` fire at all?** Present in the SDK's `HOOK_EVENTS` with a `watchPaths` output
+   on `SessionStart`/`CwdChanged`/`FileChanged`, and never tried. It maps 1:1 onto M1's file-change
+   kinds and would be a finer producer trigger than scanning after every call.
+6. **What does `system:init` advertise under an alias?** The dispatch redirection is measured; that
+   the model sees Anthropic's *schema* is inferred from the built-in being the advertised entry.
+
 ---
 
 _Last reviewed: 2026-08-03_
