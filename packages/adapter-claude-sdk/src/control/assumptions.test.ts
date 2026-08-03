@@ -754,7 +754,9 @@ describe('sibling challenge — stage 7: "coa’s own builtin tool set is stale"
     // Direction 1: granting the real name silently loses it.
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
     expect(granted.tools).toEqual(['Read']);
-    expect(granted.allowedTools).toEqual(['Read']);
+    // autoApprove is always empty now (docs/adr/0028) — the staleness this probe demonstrates
+    // lives entirely in `tools`, which KNOWN_BUILTINS still drives.
+    expect(granted.autoApprove).toEqual([]);
 
     // Direction 2 — NOT probed by the sibling and worse: granting the stale name is accepted,
     // so coa would send `--tools Read,Task`, a set naming a tool this CLI does not have.

@@ -242,7 +242,7 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       sessionId: this.#init.sessionId,
       backend: {
         ...backend,
-        allowedTools: transport.allowedTools,
+        allowedTools: transport.autoApprove,
         disallowedTools: [...transport.disallowedTools, ...this.#disallowedBuiltins],
       },
       sandbox: this.#init.sandbox,

@@ -4,9 +4,10 @@ import { mcpToolName } from './mcp-tools.js';
  * Map a neutral capability frame (coa tool names) onto the Claude Agent SDK's
  * tool transport. This is the backend-specific half of the agent-assembly model:
  * a resolved {@link import('@coa/shared').CapabilityFrame}'s `allow`/`deny` are
- * neutral names; here they become the SDK's `tools` (availability), `allowedTools`
- * (auto-approve), `disallowedTools` (removal), and the subset of the coa MCP
- * catalogue to register.
+ * neutral names; here they become the SDK's `tools` (availability), `disallowedTools`
+ * (removal), and the subset of the coa MCP catalogue to register. The SDK's
+ * `allowedTools` is an auto-approve list and is deliberately left EMPTY: governance
+ * rides `canUseTool`, and an auto-approved tool never reaches it.
  *
  * Key SDK facts this encodes (verified against `sdk.d.ts`): `allowedTools` is an
  * *auto-approve* list, not an availability gate; **availability** of built-ins is
@@ -38,8 +39,15 @@ export const KNOWN_BUILTINS: ReadonlySet<string> = new Set([
 export interface ToolTransport {
   /** Restrict the SDK built-in set (undefined ⇒ leave the default — no restriction). */
   tools?: string[];
-  /** Auto-approve list — granted built-ins (bare) + granted coa tools (mcp names). */
-  allowedTools: string[];
+  /**
+   * The SDK `allowedTools` list — an AUTO-APPROVE set, not an availability gate.
+   * **Always empty.** A tool listed here never reaches `canUseTool`, so anything put
+   * here is a tool coa has chosen not to govern. Availability is `tools` (built-ins)
+   * and MCP registration (coa tools); routing allow-intent here instead is the defect
+   * this field's name now makes unmissable. Kept on the type so a future deliberate
+   * bypass has somewhere honest to live. See docs/adr/0028.
+   */
+  autoApprove: string[];
   /** Removal list — denied built-ins/rules + denied coa tools (mcp names). */
   disallowedTools: string[];
   /** The coa catalogue tool names to actually register (all when unrestricted). */
@@ -64,7 +72,7 @@ export function resolveToolTransport(args: {
 
   return {
     ...(restrict ? { tools: allowBuiltin } : {}),
-    allowedTools: [...allowBuiltin, ...registerCoaTools.map(mcpToolName)],
+    autoApprove: [],
     disallowedTools: [...denyOther, ...denyCoa],
     registerCoaTools,
   };

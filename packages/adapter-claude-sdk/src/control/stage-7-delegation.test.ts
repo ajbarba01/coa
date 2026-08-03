@@ -507,7 +507,9 @@ describe('stage 7 — the Task/Agent rename (arc risk R2)', () => {
 
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
     expect(granted.tools).toEqual(['Read']);
-    expect(granted.allowedTools).toEqual(['Read']);
+    // autoApprove is always empty now (docs/adr/0028) — the staleness this probe demonstrates
+    // lives entirely in `tools`, which KNOWN_BUILTINS still drives.
+    expect(granted.autoApprove).toEqual([]);
   });
 
   it('keeps BOTH spellings out of a restricted frame, which is what demotion needs', () => {
