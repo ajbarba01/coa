@@ -100,6 +100,11 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
         origin: frame.origin,
         ...d,
       };
+    case 'deny':
+      // A governed stop, not a fault — the transcript draws it as a DenyNotice rather
+      // than an error bubble (SC-1). Carries no `depth`: a block is the session's, not
+      // a nested turn's.
+      return { id, kind: 'deny', denyKind: frame.denyKind, reason: frame.reason };
     case 'tool_use':
       if (frame.tool === 'TodoWrite')
         return { id, role: 'agent', kind: 'plan', items: toPlanItems(frame.input), ...d };

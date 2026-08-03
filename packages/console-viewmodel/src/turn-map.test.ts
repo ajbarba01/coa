@@ -1,6 +1,6 @@
 import type { Push, TurnFrame as WireTurnFrame } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
-import { pushToBanner, pushToViewFrames } from './turn-map.js';
+import { pushToBanner, pushToViewFrames, reloadToViewFrames } from './turn-map.js';
 
 /** Wrap a wire turn frame in its `turn` Push (sessionId `s`, given seq). */
 const turn = (frame: WireTurnFrame, seq = 0): Push => ({
@@ -154,6 +154,40 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
       banner: { id: 'drift', kind: 'drift', reason: 'r' },
     };
     expect(pushToViewFrames(banner)).toEqual([]);
+  });
+});
+
+describe('mapping a governed deny', () => {
+  it('maps a cost-cap deny to the view frame the transcript already renders', () => {
+    expect(
+      pushToViewFrames({
+        kind: 'turn',
+        sessionId: 's1',
+        worktree: '/w',
+        seq: 4,
+        frame: { t: 'deny', denyKind: 'cost-cap', reason: 'cost cap reached' },
+      }),
+    ).toEqual([{ id: 's1:4', kind: 'deny', denyKind: 'cost-cap', reason: 'cost cap reached' }]);
+  });
+
+  it('maps a close-gate deny the same way', () => {
+    expect(
+      pushToViewFrames({
+        kind: 'turn',
+        sessionId: 's1',
+        worktree: '/w',
+        seq: 5,
+        frame: { t: 'deny', denyKind: 'close-gate', reason: 'open invariant' },
+      }),
+    ).toEqual([{ id: 's1:5', kind: 'deny', denyKind: 'close-gate', reason: 'open invariant' }]);
+  });
+
+  it('reloads a persisted deny identically to the live push', () => {
+    expect(
+      reloadToViewFrames([
+        { seq: 7, frame: { t: 'deny', denyKind: 'cost-cap', reason: 'capped' } },
+      ]),
+    ).toEqual([{ id: 't7', kind: 'deny', denyKind: 'cost-cap', reason: 'capped' }]);
   });
 });
 

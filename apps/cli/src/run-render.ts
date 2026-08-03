@@ -106,6 +106,9 @@ function renderFrame(frame: TurnFrame): string[] {
       return [`  ${frame.ok ? '✓' : '✗'} ${firstLine(frame.pointer)}`];
     case 'error':
       return [`✗ error (${frame.origin}): ${frame.message}`];
+    case 'deny':
+      // A governed stop, not a fault (SC-1) — its own marker so it never reads as an error.
+      return [`⊘ blocked (${frame.denyKind}): ${frame.reason}`];
     case 'turn-boundary':
       return [''];
     default:
