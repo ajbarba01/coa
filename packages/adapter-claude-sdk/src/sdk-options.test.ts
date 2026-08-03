@@ -1,5 +1,5 @@
 import type { CapabilitySet } from '@coa/shared';
-import type { BackendConfig, StopDecision, ToolPermissionDecision } from '@coa/spi';
+import type { BackendConfig, StopDecision } from '@coa/spi';
 import { describe, expect, it } from 'vitest';
 import { buildBaseOptions, toSdkPermission, toStopHookOutput } from './sdk-options.js';
 
@@ -24,15 +24,29 @@ function sandbox(overrides: Partial<CapabilitySet> = {}): CapabilitySet {
   };
 }
 
-describe('toSdkPermission — the canUseTool decision → SDK PermissionResult', () => {
-  it('maps an allow decision to a behavior:allow result', () => {
-    const decision: ToolPermissionDecision = { behavior: 'allow' };
-    expect(toSdkPermission(decision)).toEqual({ behavior: 'allow' });
+describe('toSdkPermission — the allow result must echo the input back', () => {
+  it('carries updatedInput on allow', () => {
+    // A bare `{behavior:'allow'}` is type-valid but the real CLI treats it as a
+    // permission error for every tool, so nothing executes.
+    const input = { file_path: 'a.ts' };
+    expect(toSdkPermission({ behavior: 'allow' }, input)).toEqual({
+      behavior: 'allow',
+      updatedInput: input,
+    });
   });
 
-  it('maps a deny decision to a behavior:deny result carrying the message verbatim', () => {
-    const decision: ToolPermissionDecision = { behavior: 'deny', message: 'cap hit' };
-    expect(toSdkPermission(decision)).toEqual({ behavior: 'deny', message: 'cap hit' });
+  it('echoes an empty input as an empty object, never omitted', () => {
+    expect(toSdkPermission({ behavior: 'allow' }, {})).toEqual({
+      behavior: 'allow',
+      updatedInput: {},
+    });
+  });
+
+  it('leaves a deny unchanged — no input echo on the deny branch', () => {
+    expect(toSdkPermission({ behavior: 'deny', message: 'capped' }, { a: 1 })).toEqual({
+      behavior: 'deny',
+      message: 'capped',
+    });
   });
 });
 

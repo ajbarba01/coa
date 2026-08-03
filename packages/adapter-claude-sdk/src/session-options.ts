@@ -60,7 +60,7 @@ export function assembleSessionOptions(args: {
 
   const sdkCanUseTool: SdkCanUseTool = async (toolName, input) => {
     const call: ToolCall = { tool: toolName, args: input, sessionId };
-    return toSdkPermission(await canUseTool(call));
+    return toSdkPermission(await canUseTool(call), input);
   };
 
   return {

@@ -32,6 +32,12 @@ export function minimalNeutralConfig(): NeutralConfig {
   };
 }
 
+/**
+ * Allow every tool. Deliberately does NOT echo the tool input: `ToolPermissionDecision` has
+ * no field for it, and the echo the real CLI requires is applied once, centrally, in
+ * `toSdkPermission`. A raw callback handed straight to `query()` must echo for itself — the
+ * control probes do, because they bypass the adapter.
+ */
 export const allowAllTools: CanUseTool = () => ({ behavior: 'allow' });
 export const neverStop: StopPredicate = () => ({ allow: true });
 

@@ -34,10 +34,20 @@ function asPermissionMode(value: string): PermissionMode {
     : 'default';
 }
 
-/** Map M3/M7's per-tool decision (assembled by M8) onto the SDK `canUseTool` result. */
-export function toSdkPermission(decision: ToolPermissionDecision): PermissionResult {
+/**
+ * Map M3/M7's per-tool decision (assembled by M8) onto the SDK `canUseTool` result.
+ *
+ * The allow branch MUST echo `input` back as `updatedInput`. It is optional on
+ * `PermissionResult`, so a bare `{behavior:'allow'}` typechecks — but the real CLI
+ * reads the absence as a permission error and refuses the call, so every tool fails
+ * while the types stay green. Verified live against CLI 2.1.196.
+ */
+export function toSdkPermission(
+  decision: ToolPermissionDecision,
+  input: Record<string, unknown>,
+): PermissionResult {
   return decision.behavior === 'allow'
-    ? { behavior: 'allow' }
+    ? { behavior: 'allow', updatedInput: input }
     : { behavior: 'deny', message: decision.message };
 }
 

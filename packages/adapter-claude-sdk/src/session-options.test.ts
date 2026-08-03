@@ -41,7 +41,7 @@ describe('assembleSessionOptions — the per-session query() options', () => {
     expect(opts.allowedTools).toEqual(['get_symbol']);
   });
 
-  it('wires the injected per-tool predicate onto the SDK canUseTool, mapping a deny verbatim', async () => {
+  it('wires the injected per-tool predicate onto the SDK canUseTool, echoing input on allow', async () => {
     const denyEdit: CanUseTool = (call) =>
       call.tool === 'Edit' ? { behavior: 'deny', message: 'demoted' } : { behavior: 'allow' };
     const opts = assemble({ canUseTool: denyEdit });
@@ -51,7 +51,10 @@ describe('assembleSessionOptions — the per-session query() options', () => {
       behavior: 'deny',
       message: 'demoted',
     });
-    expect(await opts.canUseTool?.('Read', {}, ctx)).toEqual({ behavior: 'allow' });
+    expect(await opts.canUseTool?.('Read', { file_path: 'b.ts' }, ctx)).toEqual({
+      behavior: 'allow',
+      updatedInput: { file_path: 'b.ts' },
+    });
   });
 
   it('threads the sessionId into the ToolCall handed to the predicate', async () => {

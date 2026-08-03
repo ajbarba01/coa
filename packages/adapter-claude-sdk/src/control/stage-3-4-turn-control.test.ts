@@ -197,12 +197,16 @@ describe('stage 3 — per-call interception', () => {
   });
 
   describe('per-tool decision mapping (canUseTool result ↔ SDK PermissionResult)', () => {
-    it('maps an allow decision to the SDK allow shape', () => {
-      expect(toSdkPermission({ behavior: 'allow' })).toEqual({ behavior: 'allow' });
+    it('maps an allow decision to the SDK allow shape, echoing the input back', () => {
+      const input = { file_path: 'a.ts' };
+      expect(toSdkPermission({ behavior: 'allow' }, input)).toEqual({
+        behavior: 'allow',
+        updatedInput: input,
+      });
     });
 
     it('maps a deny decision to the SDK deny shape, carrying the message', () => {
-      expect(toSdkPermission({ behavior: 'deny', message: 'cost cap exceeded' })).toEqual({
+      expect(toSdkPermission({ behavior: 'deny', message: 'cost cap exceeded' }, {})).toEqual({
         behavior: 'deny',
         message: 'cost cap exceeded',
       });
