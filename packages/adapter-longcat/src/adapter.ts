@@ -88,6 +88,12 @@ export interface LongCatAdapterInit {
    * boundary (see {@link drainSteer} for the `barge-in` counterpart).
    */
   drainQueuedSteer?: () => readonly string[];
+  /**
+   * Record on-disk changes no governed tool made (producer ②, M8-owned). Fired after
+   * every tool call: coa executes its own tools, but a shell command can touch anything
+   * and only a worktree scan sees that. Absent ⇒ byte-identical to today (D85).
+   */
+  observeChanges?: () => void;
 }
 
 /**
@@ -180,6 +186,9 @@ export class LongCatAdapter implements RuntimeAdapter {
       ...(this.#init.drainSteer !== undefined ? { drainSteer: this.#init.drainSteer } : {}),
       ...(this.#init.drainQueuedSteer !== undefined
         ? { drainQueuedSteer: this.#init.drainQueuedSteer }
+        : {}),
+      ...(this.#init.observeChanges !== undefined
+        ? { observeChanges: this.#init.observeChanges }
         : {}),
       onSettle: (sessionId, usage) => {
         this.#lastUsage = usage;

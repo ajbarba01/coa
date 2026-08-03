@@ -76,6 +76,13 @@ export interface GovernedLoopDeps {
   /** Override the round-trip bound (tests / tuning). */
   maxIterations?: number;
   /**
+   * Record on-disk changes the loop did not make through a catalogue tool — a file a
+   * Bash command wrote, for instance. Driven at the same boundary the Claude backend
+   * drives it from (its `PostToolUse` hook), so both backends record the same facts.
+   * Absent ⇒ byte-identical to today (D85).
+   */
+  observeChanges?: () => void;
+  /**
    * A user-initiated stop (interrupt/steer), checked at the safe boundary — the top of
    * the loop. SC-1: this is a user stop, not a governance block. Absent ⇒ current
    * behavior byte-identical.
@@ -244,6 +251,10 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
         // SDK's short pointer), so the append-only log gets the same text as the frame.
         emit({ t: 'tool_result', handle, ok, pointer: display }, display);
         messages.push({ role: 'tool', toolCallId: call.id, content: display });
+        // Producer ② at the same boundary the SDK backend uses. coa executes this tool
+        // itself, so its own writes are already on the spine — but a shell command can
+        // touch anything, and only a worktree scan sees that (docs/adr/0029).
+        deps.observeChanges?.();
       }
     }
   } finally {

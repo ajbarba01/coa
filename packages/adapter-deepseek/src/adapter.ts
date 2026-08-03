@@ -73,6 +73,12 @@ export interface DeepSeekAdapterInit {
    * settled charge — not a budget passed to the backend.
    */
   maxBudgetUsd?: number;
+  /**
+   * Record on-disk changes no governed tool made (producer ②, M8-owned). Fired after
+   * every tool call: coa executes its own tools, but a shell command can touch anything
+   * and only a worktree scan sees that. Absent ⇒ byte-identical to today (D85).
+   */
+  observeChanges?: () => void;
   /** Injectable seams (tests / config). */
   env?: Record<string, string | undefined>;
   baseUrl?: string;
@@ -194,6 +200,9 @@ export class DeepSeekAdapter implements RuntimeAdapter {
       ...(this.#init.drainSteer !== undefined ? { drainSteer: this.#init.drainSteer } : {}),
       ...(this.#init.drainQueuedSteer !== undefined
         ? { drainQueuedSteer: this.#init.drainQueuedSteer }
+        : {}),
+      ...(this.#init.observeChanges !== undefined
+        ? { observeChanges: this.#init.observeChanges }
         : {}),
       onSettle: (sessionId, usage) => {
         this.#lastUsage = usage;

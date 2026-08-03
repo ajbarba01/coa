@@ -632,6 +632,41 @@ describe('runGovernedLoop', () => {
     // in-flight tool_use never got its result.
     expect(onSettle).toHaveBeenCalledExactlyOnceWith('s1', USAGE);
   });
+
+  it('observes on-disk changes after each tool call', async () => {
+    // The same producer-② trigger the SDK backend fires from PostToolUse. It runs after
+    // EVERY call, not just an edit verb, because a shell command can touch any file and
+    // the reconciler — not this loop — is what works out whether anything changed.
+    const observeChanges = vi.fn();
+    const complete = scriptedComplete([
+      {
+        text: '',
+        toolCalls: [{ id: 'c1', name: 'Bash', arguments: { command: 'touch x' } }],
+        usage: USAGE,
+      },
+      text('done'),
+    ]);
+
+    await runGovernedLoop(
+      deps({ catalogue: [tool('Bash')], complete: complete.fn, observeChanges }),
+    );
+
+    expect(observeChanges).toHaveBeenCalledTimes(1);
+  });
+
+  it('is byte-identical when no observeChanges port is supplied (D85)', async () => {
+    const complete = scriptedComplete([
+      {
+        text: '',
+        toolCalls: [{ id: 'c1', name: 'Bash', arguments: { command: 'touch x' } }],
+        usage: USAGE,
+      },
+      text('done'),
+    ]);
+    await expect(
+      runGovernedLoop(deps({ catalogue: [tool('Bash')], complete: complete.fn })),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe('toToolDefs', () => {
