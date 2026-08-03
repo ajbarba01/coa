@@ -54,10 +54,13 @@ export const KNOWN_BUILTINS: ReadonlySet<string> = new Set([
   'ListMcpResources',
   'Monitor',
   'NotebookEdit',
+  'Projects',
   'PushNotification',
   'Read',
   'ReadMcpResource',
+  'ReadMcpResourceDir',
   'RemoteTrigger',
+  'REPL',
   'ReportFindings',
   'ScheduleWakeup',
   'TaskCreate',
@@ -74,18 +77,14 @@ export const KNOWN_BUILTINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Schema names in the pinned SDK that are NOT tool names a model can be granted —
- * internal plumbing and onboarding surfaces. Listed rather than ignored so the drift
- * test can require every schema to be classified one way or the other; a
- * misclassification here is a judgement call the next SDK bump forces back into view.
+ * Schema names in the pinned SDK that are definitively NOT grantable tool names.
+ * Over-including a name is harmless — an unknown entry in the SDK's `tools` list
+ * simply matches nothing. Under-including silently drops a grant, repeating the bug
+ * this catalogue prevents. When the typings cannot settle which schemas are model-facing,
+ * the classification errs toward the harmless error. Listed rather than ignored so the
+ * drift test can require every schema to be classified one way or the other.
  */
-export const NOT_MODEL_VISIBLE: ReadonlySet<string> = new Set([
-  'Mcp',
-  'Projects',
-  'REPL',
-  'ReadMcpResourceDir',
-  'ShowOnboardingRolePicker',
-]);
+export const NOT_MODEL_VISIBLE: ReadonlySet<string> = new Set(['Mcp', 'ShowOnboardingRolePicker']);
 
 export interface ToolTransport {
   /** Restrict the SDK built-in set (undefined ⇒ leave the default — no restriction). */

@@ -744,30 +744,35 @@ describe('assumption 9 — UNSETTLED: "there is no programmatic mid-session role
 // ===========================================================================
 
 describe('stage 7: the Task/Agent rename — coa guards both spellings', () => {
-  it("guards the fix: KNOWN_BUILTINS carries both `Task` and `Agent`, the SDK's dual interface", () => {
+  it('guards the fix: KNOWN_BUILTINS carries both `Task` and `Agent`', () => {
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
     expect(sdkTypes('sdk-tools.d.ts')).toContain('export interface AgentInput {');
   });
 
   it('guards both spellings in a frame: Agent and Task are both granted when named', () => {
-    // Direction 1: granting the real name Agent now survives the frame.
+    // Direction 1: granting the real name Agent passes through the frame.
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
     expect(granted.tools).toEqual(['Read', 'Agent']);
-    // autoApprove is always empty now (docs/adr/0028) — availability lives entirely in
+    // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
     // `tools`, which KNOWN_BUILTINS drives.
     expect(granted.autoApprove).toEqual([]);
 
     // Direction 2: both spellings are deliberately carried in the grant vocabulary because
     // the pinned CLI advertises Task in system:init.tools while the model emits Agent in
-    // the same run. Granting either name is accepted.
-    const stale = resolveToolTransport({ allow: ['Read', 'Task'], deny: [], coaToolNames: [] });
-    expect(stale.tools).toEqual(['Read', 'Task']);
+    // the same run (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184).
+    // Granting either name is accepted.
+    const advertisedSpelling = resolveToolTransport({
+      allow: ['Read', 'Task'],
+      deny: [],
+      coaToolNames: [],
+    });
+    expect(advertisedSpelling.tools).toEqual(['Read', 'Task']);
   });
 
-  it('guards the full catalogue: KNOWN_BUILTINS now covers all the tools the SDK advertises', () => {
-    // Every one of these is a tool the pinned package generates a schema for, and all are now in
-    // coa's grant/deny vocabulary — so a frame naming any of them is recognized and routed.
+  it('guards the full catalogue: KNOWN_BUILTINS covers all the tools the SDK advertises', () => {
+    // Every one of these is a tool the pinned package generates a schema for, and all are
+    // in coa's grant/deny vocabulary — so a frame naming any of them is recognized and routed.
     const tools = sdkTypes('sdk-tools.d.ts');
     const names = ['Agent', 'TaskStop', 'ExitPlanMode', 'AskUserQuestion', 'EnterWorktree'];
     for (const name of names) {

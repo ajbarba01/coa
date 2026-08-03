@@ -79,6 +79,14 @@ describe('KNOWN_BUILTINS', () => {
     }
   });
 
+  it('includes ReadMcpResourceDir, REPL, and Projects (asymmetry: over-include is safe)', () => {
+    // Over-including a name is harmless — an unknown entry in tools just matches nothing.
+    // Under-including silently drops a grant, repeating the bug this catalogue prevents.
+    for (const name of ['ReadMcpResourceDir', 'REPL', 'Projects']) {
+      expect(KNOWN_BUILTINS.has(name), name).toBe(true);
+    }
+  });
+
   it('keeps the two classifications disjoint', () => {
     for (const name of NOT_MODEL_VISIBLE) expect(KNOWN_BUILTINS.has(name), name).toBe(false);
   });

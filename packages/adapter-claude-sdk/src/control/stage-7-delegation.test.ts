@@ -501,14 +501,15 @@ describe('stage 7 — the Task/Agent rename (arc risk R2)', () => {
 
   it('carries BOTH delegation spellings, so a granted Agent survives the frame', () => {
     // The pinned CLI advertises `Task` in `system:init.tools` while the model emits `Agent`
-    // in the same run. coa's grant vocabulary carries both spellings so neither is silently
-    // dropped from a frame that names them.
+    // in the same run (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184).
+    // coa's grant vocabulary carries both spellings so neither is silently dropped from a
+    // frame that names them.
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
 
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
     expect(granted.tools).toEqual(['Read', 'Agent']);
-    // autoApprove is always empty now (docs/adr/0028) — availability lives entirely in
+    // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
     // `tools`, which KNOWN_BUILTINS drives.
     expect(granted.autoApprove).toEqual([]);
   });
