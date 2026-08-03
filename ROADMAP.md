@@ -192,7 +192,7 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   every tool including `Bash`, and does the `FileChanged` hook fire at all — it is present
   in the SDK's `HOOK_EVENTS`, never tried, and would be a finer producer trigger than
   scanning after every call.
-- **L. Agent-surface convergence** — Code-complete, live gate outstanding. The Claude
+- **L. Agent-surface convergence** — **Done, proven live 2026-08-03.** The Claude
   built-in surface is now a bounded floor of eight (`Read`/`Glob`/`Grep`/`Write`/`Edit`/
   `Bash`/`WebSearch`/`WebFetch`) instead of the CLI's ~37, and `tools` is set
   unconditionally — an empty capability frame yields the floor rather than an unrestricted
@@ -206,10 +206,15 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   — reached M1 on *no* backend; both loops now drive one neutral `observeChanges` port at
   their own tool boundary. Retired with the trim: `TodoWrite`, and with it the console's
   plan checklist, plus native delegation ahead of the governed `spawn_agent` that replaces
-  it. **Not proven:** the gate rests on a `PreToolUse` deny being honoured, which is
-  verified against TypeScript types only — item K's probe decides it, and if the deny is
-  not honoured the design loses its governance leg and coa-owned tool implementations win
-  by default.
+  it. **Proven:** three live probes passed in one run — the predicate is consulted for an
+  ordinary built-in `Read` and the read executes; a `PreToolUse` deny of that `Read` is
+  honoured and the contents never reach the model; and a deny of coa's **own**
+  `mcp__coa__` tool is honoured with the handler never running (the result that makes a
+  governed `spawn_agent` viable). The floor was confirmed from the model's own account of
+  its tools. The P1a probe that failed twice under the two-seam split passed unchanged,
+  since the predicate now reaches it via `PreToolUse`. The delegation deny probe is
+  retired-by-success: the floor removes the tool, so the path is unreachable until P1c
+  chooses to alias `Agent` onto a governed spawn.
 
 ### Agent-hardening increment (phase dissolved; what shipped)
 

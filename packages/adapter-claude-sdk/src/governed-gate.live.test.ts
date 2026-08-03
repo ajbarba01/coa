@@ -95,7 +95,16 @@ describe.skipIf(!live)('the governed gate, live', () => {
    * exactly what the model emitted instead, so a human can tell "the deny was honoured"
    * apart from "the model never tried" apart from "the deny was NOT honoured".
    */
-  it('denies a native delegation call (Task/Agent) via PreToolUse AND runs no child work', async () => {
+  // RETIRED BY ITS OWN SUCCESS, 2026-08-03. This probe can no longer run: the built-in
+  // floor (docs/adr/0029) removes delegation from the session, so the model has no
+  // Task/Agent tool to attempt and the deny path is unreachable. The live run confirmed
+  // exactly that — the model reported its tools as "Bash, Edit, Glob, Grep, Read,
+  // WebFetch, WebSearch, and Write" and nothing else.
+  //
+  // Kept rather than deleted because P1c may deliberately reintroduce the name: aliasing
+  // `Agent` onto a governed `spawn_agent` is a live design option, and the moment it lands
+  // this probe becomes meaningful again. Un-skip it then.
+  it.skip('denies a native delegation call (Task/Agent) via PreToolUse AND runs no child work', async () => {
     const worktree = mkdtempSync(join(tmpdir(), 'coa-gate-delegation-'));
 
     const seenDelegation: string[] = [];

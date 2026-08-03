@@ -100,15 +100,26 @@ capabilities on the floor (`Bash`, and the two web tools) run Anthropic's implem
 with coa observing rather than executing, so coa's visibility there is only as good as the
 hook.
 
-**Unproven.** The whole gate rests on a `PreToolUse` deny being honoured by the CLI, which
-is verified against TypeScript types only: `sdk.mjs` never reads `hookSpecificOutput` while
-the bundled binary does. The probe exists and is unrun. **If the deny is not honoured, this
-decision loses its governance leg and option 1 wins by default.** Recorded as the condition
-of this ADR, not as a detail.
+**Proven live, 2026-08-03.** The condition this decision rested on holds. Against the real
+CLI (SDK 0.3.196 / CLI 2.1.196), three probes passed in one run
+(`governed-gate.live.test.ts`): the permission predicate is consulted for an ordinary
+built-in `Read` and the read still executes; a `PreToolUse` deny of that `Read` is
+**honoured**, and the file's contents never reach the model; and a `PreToolUse` deny of
+coa's **own** `mcp__coa__` tool is honoured too, with coa's handler never running. The last
+of those is what makes a governed `spawn_agent` possible at all.
 
-Also unmeasured: whether `PostToolUse` fires for every tool including `Bash`, and whether
+The floor was confirmed from the model's own account of itself: asked to delegate, it
+replied that its available tools were "Bash, Edit, Glob, Grep, Read, WebFetch, WebSearch,
+and Write" — the eight, and nothing else.
+
+A side effect worth recording: the P1a gate probe that failed twice under the two-seam
+split passed unchanged here, because the predicate now reaches it through `PreToolUse`.
+That is independent evidence the seam swap did what it claimed.
+
+**Still unmeasured.** Whether `PostToolUse` fires for every tool including `Bash`; whether
 the `FileChanged` hook — present in the SDK's `HOOK_EVENTS`, never tried — would be a finer
-trigger than scanning after every call.
+trigger than scanning after every call; and the mechanism behind the preset's suppression
+of `canUseTool`, which this decision routes around rather than explains.
 
 **Degradation.** The reconciler baselines itself with `git ls-files`, so outside a git
 worktree it cannot run. It is built lazily and its failure latches to a no-op: coa must

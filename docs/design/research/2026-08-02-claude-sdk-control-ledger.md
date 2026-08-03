@@ -359,9 +359,12 @@ project right now: the agent-surface convergence work
 governance onto `PreToolUse`, and whether that seam's deny is honoured is verified against
 TypeScript types alone — `sdk.mjs` never reads `hookSpecificOutput`, the bundled binary does.
 
-1. **Is a `PreToolUse` deny honoured?** The written-but-unrun probe in
-   `governed-gate.live.test.ts`. If not, ADR-0029 loses its governance leg and coa-owned tool
-   implementations win by default.
+1. ~~**Is a `PreToolUse` deny honoured?**~~ **ANSWERED 2026-08-03: yes, at both seams.** A
+   `PreToolUse` deny of a built-in `Read` is honoured (the file's contents never reach the model),
+   and a deny of coa's **own** `mcp__coa__` tool is honoured too (coa's handler never runs). The
+   second is what makes a governed `spawn_agent` viable, and it also answers question 3 below for
+   the deny path. ADR-0029's governance leg holds. The eight-tool floor was confirmed from the
+   model's own account of its tools; the delegation deny probe is now unreachable by design.
 2. **Why does the preset suppress `canUseTool`?** Probe the preset arm against a call the CLI's own
    defaults would *not* allow — a write, or a read outside the cwd — to test the
    default-allow-rules hypothesis.
