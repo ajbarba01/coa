@@ -141,31 +141,34 @@ describe('buildHooks — the multi-event hook assembly', () => {
     }
   });
 
-  it('allows a permitted spawn without rewriting its input', async () => {
+  it('lets a permitted spawn through by abstaining, never by granting', async () => {
+    // This previously asserted an explicit `allow`. An explicit allow at PreToolUse is an
+    // AUTO-APPROVE — the same class of mistake as routing allow-intent onto `allowedTools`
+    // — so coa now abstains and lets the harness's own flow proceed (docs/adr/0029).
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'allow' }),
       sessionId: 's1',
     });
-    expect(await preToolUse(hooks, 'Agent', { prompt: 'go' })).toEqual({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' },
-    });
+    expect(await preToolUse(hooks, 'Agent', { prompt: 'go' })).toEqual({});
   });
 
-  it('abstains on every non-delegation tool, leaving it to canUseTool', async () => {
-    // De-dup: canUseTool sees everything EXCEPT delegation, so PreToolUse judging a
-    // Read as well would run the predicate twice for one call.
-    let calls = 0;
+  it('consults the predicate for every tool, not just delegation', async () => {
+    // This asserted the opposite until docs/adr/0029: the de-dup rule of docs/adr/0028
+    // kept canUseTool primary and had PreToolUse abstain on everything but a spawn. The
+    // gate run of 2026-08-03 measured canUseTool not firing for an ordinary in-cwd Read,
+    // so abstaining here left the call ungoverned by BOTH seams rather than one.
+    const seen: string[] = [];
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
-      canUseTool: () => {
-        calls += 1;
-        return { behavior: 'deny', message: 'should not be consulted' };
+      canUseTool: (call) => {
+        seen.push(call.tool);
+        return { behavior: 'allow' };
       },
       sessionId: 's1',
     });
-    expect(await preToolUse(hooks, 'Read', { file_path: 'a.ts' })).toEqual({});
-    expect(calls).toBe(0);
+    for (const name of ['Read', 'Bash', 'Write', 'Agent']) await preToolUse(hooks, name, {});
+    expect(seen).toEqual(['Read', 'Bash', 'Write', 'Agent']);
   });
 
   it('threads the sessionId into the ToolCall handed to the predicate', async () => {
@@ -180,5 +183,33 @@ describe('buildHooks — the multi-event hook assembly', () => {
     });
     await preToolUse(hooks, 'Agent', {});
     expect(seen).toBe('sess-99');
+  });
+
+  it('denies an ordinary built-in call at PreToolUse', async () => {
+    // The 2026-08-03 gate run measured canUseTool not being consulted for a plain in-cwd
+    // Read, so a gate that only judged delegation left every other call ungoverned.
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'deny', message: 'over cap' }),
+      sessionId: 's1',
+    });
+    expect(await preToolUse(hooks, 'Read', { file_path: 'a.ts' })).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: 'over cap',
+      },
+    });
+  });
+
+  it('abstains rather than asserting allow, so coa only ever blocks', async () => {
+    // SC-1 gives coa two blocks and zero grants. An explicit `allow` here is an
+    // auto-approve that would suppress any prompt the harness would otherwise raise.
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+    });
+    expect(await preToolUse(hooks, 'Bash', { command: 'ls' })).toEqual({});
   });
 });

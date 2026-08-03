@@ -7,7 +7,6 @@ import type {
   Options,
 } from '@anthropic-ai/claude-agent-sdk';
 import { buildBaseOptions, toSdkPermission, toStopHookOutput } from './sdk-options.js';
-import { DELEGATION_TOOL_NAMES } from './tool-frame.js';
 
 /**
  * Assemble the SDK hook registrations for one session. Kept separate from the
@@ -21,12 +20,16 @@ export function buildHooks(args: {
 }): NonNullable<Options['hooks']> {
   const { stopPredicate, canUseTool, sessionId } = args;
 
-  // `canUseTool` is never consulted for a native spawn — verified live in a run that
-  // set no `allowedTools`, so this is intrinsic to the delegation tool rather than a
-  // consequence of auto-approval. `PreToolUse` is the only seam that sees it, and it
-  // judges ONLY delegation so no other call is judged by both seams. See docs/adr/0028.
-  const gateDelegation: HookCallback = async (input) => {
-    if (!('tool_name' in input) || !DELEGATION_TOOL_NAMES.includes(input.tool_name)) return {};
+  // `PreToolUse` is the per-tool gate for the WHOLE session, not just delegation.
+  // `canUseTool` is never consulted for a native spawn, and the 2026-08-03 gate run
+  // measured it not firing for an ordinary in-cwd read either; this seam sees both.
+  // See docs/adr/0029, which supersedes the two-seam split of docs/adr/0028.
+  //
+  // It DENIES or ABSTAINS and never asserts `allow`: SC-1 gives coa two blocks and no
+  // grants, and an explicit allow here is an auto-approve that would suppress a prompt
+  // the harness would otherwise raise.
+  const gateToolCall: HookCallback = async (input) => {
+    if (!('tool_name' in input)) return {};
     const args_ = 'tool_input' in input ? input.tool_input : {};
     const call: ToolCall = {
       tool: input.tool_name,
@@ -34,20 +37,19 @@ export function buildHooks(args: {
       sessionId,
     };
     const decision = await canUseTool(call);
-    return decision.behavior === 'allow'
-      ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
-      : {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'deny',
-            permissionDecisionReason: decision.message,
-          },
-        };
+    if (decision.behavior === 'allow') return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: decision.message,
+      },
+    };
   };
 
   return {
     Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
-    PreToolUse: [{ hooks: [gateDelegation] }],
+    PreToolUse: [{ hooks: [gateToolCall] }],
   };
 }
 
