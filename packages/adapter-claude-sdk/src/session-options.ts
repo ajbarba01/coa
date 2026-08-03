@@ -2,20 +2,52 @@ import type { CapabilitySet, ClaudeReasoning, ToolCall } from '@coa/shared';
 import type { BackendConfig, CanUseTool, StopPredicate } from '@coa/spi';
 import type {
   CanUseTool as SdkCanUseTool,
+  HookCallback,
   McpServerConfig,
   Options,
 } from '@anthropic-ai/claude-agent-sdk';
 import { buildBaseOptions, toSdkPermission, toStopHookOutput } from './sdk-options.js';
+import { DELEGATION_TOOL_NAMES } from './tool-frame.js';
 
 /**
  * Assemble the SDK hook registrations for one session. Kept separate from the
  * option spread because the SDK exposes 30 hook events and coa registers a growing
  * subset of them; a hardcoded literal made adding the second one a rewrite.
  */
-export function buildHooks(args: { stopPredicate: StopPredicate }): NonNullable<Options['hooks']> {
-  const { stopPredicate } = args;
+export function buildHooks(args: {
+  stopPredicate: StopPredicate;
+  canUseTool: CanUseTool;
+  sessionId: string;
+}): NonNullable<Options['hooks']> {
+  const { stopPredicate, canUseTool, sessionId } = args;
+
+  // `canUseTool` is never consulted for a native spawn — verified live in a run that
+  // set no `allowedTools`, so this is intrinsic to the delegation tool rather than a
+  // consequence of auto-approval. `PreToolUse` is the only seam that sees it, and it
+  // judges ONLY delegation so no other call is judged by both seams. See docs/adr/0028.
+  const gateDelegation: HookCallback = async (input) => {
+    if (!('tool_name' in input) || !DELEGATION_TOOL_NAMES.includes(input.tool_name)) return {};
+    const args_ = 'tool_input' in input ? input.tool_input : {};
+    const call: ToolCall = {
+      tool: input.tool_name,
+      args: (args_ ?? {}) as Record<string, unknown>,
+      sessionId,
+    };
+    const decision = await canUseTool(call);
+    return decision.behavior === 'allow'
+      ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } }
+      : {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: decision.message,
+          },
+        };
+  };
+
   return {
     Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
+    PreToolUse: [{ hooks: [gateDelegation] }],
   };
 }
 
@@ -87,7 +119,7 @@ export function assembleSessionOptions(args: {
     // Stream partial assistant messages (Piece B / G7): the adapter maps their content-block
     // deltas to delivery-only `text-delta`/`thinking-delta` frames (docs/adr/0013).
     includePartialMessages: true,
-    hooks: buildHooks({ stopPredicate }),
+    hooks: buildHooks({ stopPredicate, canUseTool, sessionId }),
     ...(mcpServers ? { mcpServers } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(env ? { env } : {}),

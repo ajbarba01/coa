@@ -94,18 +94,80 @@ describe('assembleSessionOptions — the per-session query() options', () => {
 });
 
 describe('buildHooks — the multi-event hook assembly', () => {
+  const ctx = { signal: new AbortController().signal };
+  const preToolUse = (hooks: ReturnType<typeof buildHooks>, name: string, input: unknown) =>
+    hooks.PreToolUse?.[0]?.hooks[0]?.(
+      { hook_event_name: 'PreToolUse', tool_name: name, tool_input: input } as never,
+      undefined,
+      ctx,
+    );
+
   it('registers the close-gate on Stop', () => {
-    const hooks = buildHooks({ stopPredicate: () => ({ allow: true }) });
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's',
+    });
     expect(hooks.Stop).toHaveLength(1);
   });
 
-  it('blocks the close and feeds the gate message back when the gate denies', async () => {
+  it('denies a spawn at PreToolUse under BOTH delegation spellings', async () => {
+    // `system:init.tools` advertises `Task` while the model emits `Agent` in the SAME
+    // live run, so a set matching one spelling misses the other.
     const hooks = buildHooks({
-      stopPredicate: () => ({ allow: false, message: 'open invariant' }),
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'deny', message: 'cost cap reached' }),
+      sessionId: 's1',
     });
-    const out = await hooks.Stop?.[0]?.hooks[0]?.({ hook_event_name: 'Stop' } as never, undefined, {
-      signal: new AbortController().signal,
+    for (const name of ['Task', 'Agent']) {
+      expect(await preToolUse(hooks, name, { prompt: 'go' })).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'cost cap reached',
+        },
+      });
+    }
+  });
+
+  it('allows a permitted spawn without rewriting its input', async () => {
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
     });
-    expect(out).toEqual({ decision: 'block', reason: 'open invariant' });
+    expect(await preToolUse(hooks, 'Agent', { prompt: 'go' })).toEqual({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' },
+    });
+  });
+
+  it('abstains on every non-delegation tool, leaving it to canUseTool', async () => {
+    // De-dup: canUseTool sees everything EXCEPT delegation, so PreToolUse judging a
+    // Read as well would run the predicate twice for one call.
+    let calls = 0;
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => {
+        calls += 1;
+        return { behavior: 'deny', message: 'should not be consulted' };
+      },
+      sessionId: 's1',
+    });
+    expect(await preToolUse(hooks, 'Read', { file_path: 'a.ts' })).toEqual({});
+    expect(calls).toBe(0);
+  });
+
+  it('threads the sessionId into the ToolCall handed to the predicate', async () => {
+    let seen = '';
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: (call) => {
+        seen = call.sessionId;
+        return { behavior: 'allow' };
+      },
+      sessionId: 'sess-99',
+    });
+    await preToolUse(hooks, 'Agent', {});
+    expect(seen).toBe('sess-99');
   });
 });

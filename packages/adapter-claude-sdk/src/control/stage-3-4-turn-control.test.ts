@@ -97,10 +97,12 @@ describe('stage 3 — per-call interception', () => {
       expect([...HOOK_EVENTS].sort()).toEqual([...KNOWN_HOOK_EVENTS].sort());
     });
 
-    it('registers exactly one of the thirty available hook events today (session-options.ts wires only Stop)', () => {
+    it('registers exactly two of the thirty available hook events today (session-options.ts wires Stop + PreToolUse)', () => {
       // A real call through the production assembler — not a text scrape — so a
-      // future change that wires a second event moves this EXPECTATION, and that
-      // diff is the thing a reviewer sees.
+      // future change that wires a third event moves this EXPECTATION, and that
+      // diff is the thing a reviewer sees. PreToolUse joined Stop once the native
+      // spawn call turned out to bypass canUseTool entirely (docs/adr/0028); it
+      // judges only the delegation spellings, so it is not a general-purpose gate.
       const options = assembleSessionOptions({
         sessionId: 'probe',
         backend: emptyBackend(),
@@ -109,14 +111,14 @@ describe('stage 3 — per-call interception', () => {
         stopPredicate: () => ({ allow: true }),
       });
       const registered = Object.keys(options.hooks ?? {});
-      expect(registered).toEqual(['Stop']);
+      expect(registered).toEqual(['Stop', 'PreToolUse']);
 
       // The gap is the finding in its own right: PreCompact/PostCompact bear on
       // stage 5 (context over time), SubagentStart/SubagentStop on stage 7
       // (delegation), and PermissionRequest/PermissionDenied on the arc's own
       // deny channel — all available, none wired.
       const unregistered = KNOWN_HOOK_EVENTS.filter((event) => !registered.includes(event));
-      expect(unregistered).toHaveLength(29);
+      expect(unregistered).toHaveLength(28);
       expect(unregistered).toEqual(
         expect.arrayContaining([
           'PreCompact',

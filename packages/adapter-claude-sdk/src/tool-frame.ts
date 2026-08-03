@@ -21,6 +21,14 @@ import { mcpToolName } from './mcp-tools.js';
  * coa-control tool) is dropped rather than sent to the SDK.
  */
 
+/**
+ * Both spellings of the native delegation tool. It was renamed `Task` → `Agent`, and
+ * the pinned CLI still disagrees with itself inside one run: `system:init.tools`
+ * advertises `Task` while the model emits `Agent`. Matching one spelling misses the
+ * other, so every list that names this tool carries both.
+ */
+export const DELEGATION_TOOL_NAMES: readonly string[] = ['Task', 'Agent'];
+
 /** The SDK built-in tool names coa may grant/deny — backend-specific, so it lives here. */
 export const KNOWN_BUILTINS: ReadonlySet<string> = new Set([
   'Read',
