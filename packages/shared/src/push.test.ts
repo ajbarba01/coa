@@ -112,3 +112,33 @@ describe('turnFrameSchema delta kinds', () => {
     expect(parsed).toEqual({ t: 'thinking-delta', text: 'ponder' });
   });
 });
+
+describe('turnFrameSchema — the deliberate-stop vocabulary', () => {
+  it('accepts a cost-cap deny', () => {
+    const frame = { t: 'deny', denyKind: 'cost-cap', reason: 'cost cap reached' };
+    expect(turnFrameSchema.parse(frame)).toEqual(frame);
+  });
+
+  it('accepts a close-gate deny', () => {
+    const frame = { t: 'deny', denyKind: 'close-gate', reason: 'open invariant' };
+    expect(turnFrameSchema.parse(frame)).toEqual(frame);
+  });
+
+  it('rejects a denyKind the console cannot render', () => {
+    // The enum matches console-viewmodel's `reads.ts` exactly; widening it here without
+    // widening the renderer would ship a frame nothing can draw.
+    expect(() =>
+      turnFrameSchema.parse({ t: 'deny', denyKind: 'max-turns', reason: 'x' }),
+    ).toThrow();
+  });
+
+  it('carries an optional terminal reason on a turn boundary', () => {
+    expect(
+      turnFrameSchema.parse({ t: 'turn-boundary', role: 'assistant', terminal: 'max_turns' }),
+    ).toEqual({ t: 'turn-boundary', role: 'assistant', terminal: 'max_turns' });
+    expect(turnFrameSchema.parse({ t: 'turn-boundary', role: 'assistant' })).toEqual({
+      t: 'turn-boundary',
+      role: 'assistant',
+    });
+  });
+});

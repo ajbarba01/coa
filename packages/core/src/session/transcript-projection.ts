@@ -84,7 +84,9 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
       case 'reconcile':
       case 'permission':
       case 'subagent':
-        // No transcript memory — these frames are dropped.
+      case 'deny':
+        // No transcript memory — these frames are dropped. A governed stop ends the
+        // session; nothing here needs to fold into the model-facing transcript.
         break;
       case 'text-delta':
       case 'thinking-delta':

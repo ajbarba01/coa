@@ -46,6 +46,16 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     message: z.string(),
     origin: z.enum(['tool', 'loop', 'daemon']),
   }),
+  // A DELIBERATE stop, not a fault — one of the system's only two blocks (SC-1): M3's
+  // close-gate and M7's cost cap. Distinct from `error` so a governed stop never renders
+  // as a crash. `denyKind` matches the console's renderer enum exactly. A vendor bound
+  // like `maxTurns` is NOT a coa block and rides `turn-boundary.terminal` instead.
+  // See docs/adr/0028.
+  z.object({
+    t: z.literal('deny'),
+    denyKind: z.enum(['close-gate', 'cost-cap']),
+    reason: z.string(),
+  }),
   z.object({ t: z.literal('permission'), requestId: z.string() }),
   // A user interrupt (bare stop) recorded into the append-only log: it settles the turn, makes
   // the model aware next turn (the fold surfaces it as a "[Request interrupted by user]" notice),
@@ -61,6 +71,10 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     t: z.literal('turn-boundary'),
     role: z.enum(['user', 'assistant']),
     stop: z.string().optional(),
+    // The backend's own terminal reason (the SDK's `TerminalReason`), reported verbatim.
+    // Without it a close-gate block, a turn-cap cutoff and a clean finish are
+    // indistinguishable. Reported, never reinterpreted as governance.
+    terminal: z.string().optional(),
   }),
 ]);
 export type TurnFrame = z.infer<typeof turnFrameSchema>;
