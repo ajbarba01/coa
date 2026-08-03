@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolCall, TurnFrame } from '@coa/shared';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
 import {
   barebonesSandbox,
+  collectText,
   minimalNeutralConfig,
   neverStop,
   resolveLiveLocator,
@@ -177,5 +179,125 @@ describe.skipIf(!live)('the governed gate, live', () => {
       delegationResults.every((f) => f.ok === false),
       diagnostic,
     ).toBe(true);
+  });
+});
+
+/**
+ * THE TWO PROBES THAT GATE THE ORCHESTRATION SLICE (docs/adr/0029).
+ *
+ * ADR-0029 moved ALL per-tool governance onto `PreToolUse`. That decision is verified
+ * against TypeScript types only: `sdk.mjs` never reads `hookSpecificOutput`, the bundled
+ * CLI binary does, so types cannot settle whether a type-valid deny is honoured.
+ *
+ * Both probes assert the EFFECT, not that a predicate fired. coa's predicate is consulted
+ * from both seams, so "the callback ran" proves nothing about whether the CLI obeyed it —
+ * only "the work did not happen" does.
+ *
+ * If either fails, ADR-0029 loses its governance leg and coa-owned tool implementations
+ * win by default. Neither is expensive: one capped turn each.
+ */
+describe.skipIf(!live)('the gate that ADR-0029 rests on, live', () => {
+  it('honours a PreToolUse deny for a built-in: the read never happens', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'coa-gate-deny-'));
+    const marker = 'COA_DENY_MARKER_9f04';
+    writeFileSync(join(worktree, 'secret.txt'), marker, 'utf8');
+
+    const seen: string[] = [];
+    const frames: TurnFrame[] = [];
+    const adapter = new ClaudeSdkAdapter({
+      sessionId: 'live-gate-deny',
+      sandbox: barebonesSandbox(),
+      input:
+        'Read the file secret.txt in the current directory and reply with its exact contents.',
+      locator: resolveLiveLocator(),
+      maxBudgetUsd: 0.25,
+      onTurn: (frame) => frames.push(frame),
+    });
+    adapter.renderNative(minimalNeutralConfig());
+    adapter.registerTools([]);
+    // Deny EVERY tool. The model cannot obtain the marker except by a tool coa blocked.
+    adapter.interceptTool((call: ToolCall) => {
+      seen.push(call.tool);
+      return { behavior: 'deny', message: 'denied by coa for this probe' };
+    });
+    adapter.interceptStop(neverStop);
+
+    await adapter.runLoop({
+      role: 'probe',
+      scope: '.',
+      worktree,
+      capabilityFrame: { allow: [], deny: [] },
+    });
+
+    const text = collectText(frames);
+    const diagnostic = `predicate saw ${JSON.stringify(seen)}; text = ${JSON.stringify(text)}`;
+
+    // The gate must have been consulted at all — otherwise the run says nothing.
+    expect(seen, diagnostic).not.toHaveLength(0);
+
+    // THE DECIDING ASSERTION. The marker reaching the model's output means the read
+    // executed despite coa denying it — the deny was NOT honoured, and every per-tool
+    // block in the system (including M7's cost cap) is decorative on this path.
+    expect(text, diagnostic).not.toContain(marker);
+  });
+
+  it("honours a PreToolUse deny for coa's OWN mcp tool: the handler never runs", async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'coa-gate-mcp-'));
+
+    // P1b measured the gate against a BUILT-IN Read only. P1c's `spawn_agent` will be a
+    // coa-owned MCP tool, so whether the gate covers `mcp__coa__*` is the question that
+    // decides if a governed spawn is governed at all.
+    let handlerRuns = 0;
+    const probeTool = {
+      name: 'probe_echo',
+      description: 'Echo a message back. Call this when asked to echo something.',
+      partition: 'kernel' as const,
+      inputSchema: { message: z.string() },
+      invoke: (args: unknown) => {
+        handlerRuns += 1;
+        return { result: { echoed: args }, handle: 'probe:echo', pointer: 'echoed' };
+      },
+    };
+
+    const seen: string[] = [];
+    const frames: TurnFrame[] = [];
+    const adapter = new ClaudeSdkAdapter({
+      sessionId: 'live-gate-mcp',
+      sandbox: barebonesSandbox(),
+      input: 'Use the probe_echo tool to echo the word "hello". Do nothing else.',
+      locator: resolveLiveLocator(),
+      maxBudgetUsd: 0.25,
+      onTurn: (frame) => frames.push(frame),
+    });
+    adapter.renderNative(minimalNeutralConfig());
+    adapter.registerTools([probeTool]);
+    adapter.interceptTool((call: ToolCall) => {
+      seen.push(call.tool);
+      return { behavior: 'deny', message: 'denied by coa for this probe' };
+    });
+    adapter.interceptStop(neverStop);
+
+    await adapter.runLoop({
+      role: 'probe',
+      scope: '.',
+      worktree,
+      capabilityFrame: { allow: [], deny: [] },
+    });
+
+    const attempted = frames.some((f) => f.t === 'tool_use' && f.tool.includes('probe_echo'));
+    const diagnostic =
+      `predicate saw ${JSON.stringify(seen)}; handlerRuns=${handlerRuns}; ` +
+      `attempted=${attempted}; text = ${JSON.stringify(collectText(frames))}`;
+
+    // An unattempted call proves nothing about the deny — fail loudly rather than pass.
+    if (!attempted) {
+      throw new Error(
+        `MCP GATE PROBE INCONCLUSIVE — the model never called probe_echo, so the deny ` +
+          `path was never exercised. ${diagnostic}`,
+      );
+    }
+
+    // THE DECIDING ASSERTION: coa denied it, so coa's own handler must not have run.
+    expect(handlerRuns, diagnostic).toBe(0);
   });
 });
