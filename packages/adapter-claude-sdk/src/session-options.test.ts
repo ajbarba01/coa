@@ -1,7 +1,7 @@
 import type { CapabilitySet } from '@coa/shared';
 import type { BackendConfig, CanUseTool, StopPredicate } from '@coa/spi';
 import { describe, expect, it } from 'vitest';
-import { assembleSessionOptions } from './session-options.js';
+import { assembleSessionOptions, buildHooks } from './session-options.js';
 
 function backend(overrides: Partial<BackendConfig> = {}): BackendConfig {
   return {
@@ -90,5 +90,22 @@ describe('assembleSessionOptions — the per-session query() options', () => {
     const env = { CLAUDE_CONFIG_DIR: '/d', ANTHROPIC_API_KEY: undefined };
     expect(assemble({ env }).env).toEqual(env);
     expect(assemble().env).toBeUndefined();
+  });
+});
+
+describe('buildHooks — the multi-event hook assembly', () => {
+  it('registers the close-gate on Stop', () => {
+    const hooks = buildHooks({ stopPredicate: () => ({ allow: true }) });
+    expect(hooks.Stop).toHaveLength(1);
+  });
+
+  it('blocks the close and feeds the gate message back when the gate denies', async () => {
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: false, message: 'open invariant' }),
+    });
+    const out = await hooks.Stop?.[0]?.hooks[0]?.({ hook_event_name: 'Stop' } as never, undefined, {
+      signal: new AbortController().signal,
+    });
+    expect(out).toEqual({ decision: 'block', reason: 'open invariant' });
   });
 });

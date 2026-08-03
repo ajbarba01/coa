@@ -8,6 +8,18 @@ import type {
 import { buildBaseOptions, toSdkPermission, toStopHookOutput } from './sdk-options.js';
 
 /**
+ * Assemble the SDK hook registrations for one session. Kept separate from the
+ * option spread because the SDK exposes 30 hook events and coa registers a growing
+ * subset of them; a hardcoded literal made adding the second one a rewrite.
+ */
+export function buildHooks(args: { stopPredicate: StopPredicate }): NonNullable<Options['hooks']> {
+  const { stopPredicate } = args;
+  return {
+    Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
+  };
+}
+
+/**
  * Assemble one session's `query()` options from the rendered config, the M7
  * sandbox set, and the injected predicates M8 hands the adapter at session
  * construction (D121). This is where the two SC-1 blocks are wired onto the two
@@ -75,9 +87,7 @@ export function assembleSessionOptions(args: {
     // Stream partial assistant messages (Piece B / G7): the adapter maps their content-block
     // deltas to delivery-only `text-delta`/`thinking-delta` frames (docs/adr/0013).
     includePartialMessages: true,
-    hooks: {
-      Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
-    },
+    hooks: buildHooks({ stopPredicate }),
     ...(mcpServers ? { mcpServers } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(env ? { env } : {}),
