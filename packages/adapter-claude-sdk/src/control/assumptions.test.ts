@@ -20,7 +20,7 @@ import { sessionAuthEnv } from '../auth-env.js';
 import { mcpToolName } from '../mcp-tools.js';
 import { renderNative } from '../render-native.js';
 import { buildBaseOptions } from '../sdk-options.js';
-import { KNOWN_BUILTINS, resolveToolTransport } from '../tool-frame.js';
+import { CLAUDE_BUILTIN_FLOOR, KNOWN_BUILTINS, resolveToolTransport } from '../tool-frame.js';
 import { captureSpawn } from './probe-kit.js';
 
 /**
@@ -473,9 +473,11 @@ describe('assumption 5 — FALSE: "removing the native delegation tool requires 
     );
     expect(adapterSource).toContain('...(transport.tools ? { tools: transport.tools } : {})');
 
-    // The pass-through case is the one where no restriction ships, and it is deliberate (D85).
+    // The pass-through case USED to ship no restriction at all. It now ships the built-in
+    // floor (docs/adr/0029): an unrestricted session was one coa could neither govern nor
+    // record across most of its surface, so "no frame" means the floor, not everything.
     const passthrough = resolveToolTransport({ allow: [], deny: [], coaToolNames: [] });
-    expect(passthrough.tools).toBeUndefined();
+    expect(passthrough.tools).toEqual([...CLAUDE_BUILTIN_FLOOR]);
     // So the arc's MECHANISM works; its NAMING is wrong. The lever is `tools`, derived from the
     // allow intent — not `allowedTools`.
   });
@@ -742,24 +744,28 @@ describe('stage 7: the Task/Agent rename — coa guards both spellings', () => {
     expect(sdkTypes('sdk-tools.d.ts')).toContain('export interface AgentInput {');
   });
 
-  it('guards both spellings in a frame: Agent and Task are both granted when named', () => {
-    // Direction 1: granting the real name Agent passes through the frame.
-    const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
-    expect(granted.tools).toEqual(['Read', 'Agent']);
-    // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
-    // `tools`, which KNOWN_BUILTINS drives.
-    expect(granted.autoApprove).toEqual([]);
+  it('guards both spellings in the vocabulary, and demotes both at the floor', () => {
+    // Both spellings are deliberately carried in the grant vocabulary because the pinned
+    // CLI advertises Task in system:init.tools while the model emits Agent in the same run
+    // (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184). That is the
+    // SDK fact this probe exists to pin, and it is unchanged.
+    expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
+    expect(KNOWN_BUILTINS.has('Task')).toBe(true);
 
-    // Direction 2: both spellings are deliberately carried in the grant vocabulary because
-    // the pinned CLI advertises Task in system:init.tools while the model emits Agent in
-    // the same run (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184).
-    // Granting either name is accepted.
-    const advertisedSpelling = resolveToolTransport({
-      allow: ['Read', 'Task'],
-      deny: [],
-      coaToolNames: [],
-    });
-    expect(advertisedSpelling.tools).toEqual(['Read', 'Task']);
+    // coa's transport policy changed under it: the built-in floor (docs/adr/0029) demotes
+    // delegation whichever spelling names it, so neither reaches the model. A rename that
+    // slipped past the vocabulary would still be caught by the assertions above.
+    for (const spelling of ['Agent', 'Task']) {
+      const granted = resolveToolTransport({
+        allow: ['Read', spelling],
+        deny: [],
+        coaToolNames: [],
+      });
+      expect(granted.tools, spelling).toEqual(['Read']);
+      // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
+      // `tools`, which KNOWN_BUILTINS and the floor together drive.
+      expect(granted.autoApprove, spelling).toEqual([]);
+    }
   });
 
   it('guards the full catalogue: KNOWN_BUILTINS covers all the tools the SDK advertises', () => {

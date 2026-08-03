@@ -498,18 +498,22 @@ describe('stage 7 — the Task/Agent rename (arc risk R2)', () => {
     expect(declBlock(types, 'SDKSystemMessage')).toContain('tools: string[];');
   });
 
-  it('carries BOTH delegation spellings, so a granted Agent survives the frame', () => {
+  it('carries BOTH delegation spellings in the vocabulary, while the floor demotes them', () => {
     // The pinned CLI advertises `Task` in `system:init.tools` while the model emits `Agent`
     // in the same run (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184).
     // coa's grant vocabulary carries both spellings so neither is silently dropped from a
-    // frame that names them.
+    // frame that names them. THAT is the SDK fact, and it is unchanged.
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
 
+    // What changed is coa's transport POLICY, not the fact above. This probe originally
+    // asserted a granted `Agent` survived the frame; the built-in floor (docs/adr/0029)
+    // now demotes delegation deliberately, to be replaced by a governed spawn tool. The
+    // vocabulary assertions are what still guard the rename — absence here is intent.
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
-    expect(granted.tools).toEqual(['Read', 'Agent']);
+    expect(granted.tools).toEqual(['Read']);
     // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
-    // `tools`, which KNOWN_BUILTINS drives.
+    // `tools`, which KNOWN_BUILTINS and the floor together drive.
     expect(granted.autoApprove).toEqual([]);
   });
 

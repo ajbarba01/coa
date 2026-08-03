@@ -86,9 +86,32 @@ export const KNOWN_BUILTINS: ReadonlySet<string> = new Set([
  */
 export const NOT_MODEL_VISIBLE: ReadonlySet<string> = new Set(['Mcp', 'ShowOnboardingRolePicker']);
 
+/**
+ * The built-in tools a governed session may use. Everything else the CLI ships is
+ * removed: coa neither governs nor records it, and no other backend can match it.
+ *
+ * `Bash`, `WebSearch` and `WebFetch` keep Anthropic's implementations deliberately —
+ * as does every name here. coa owns no native tool implementation anywhere, because a
+ * trained tool prior covers the whole contract, output shape included: `Read` emits
+ * numbered lines that `Edit`'s exact match is calibrated against, so substituting the
+ * body while keeping the name breaks the chains built on it. See docs/adr/0029.
+ */
+export const CLAUDE_BUILTIN_FLOOR: readonly string[] = [
+  'Read',
+  'Glob',
+  'Grep',
+  'Write',
+  'Edit',
+  'Bash',
+  'WebSearch',
+  'WebFetch',
+];
+
+const FLOOR_SET: ReadonlySet<string> = new Set(CLAUDE_BUILTIN_FLOOR);
+
 export interface ToolTransport {
-  /** Restrict the SDK built-in set (undefined ⇒ leave the default — no restriction). */
-  tools?: string[];
+  /** The built-in set this session advertises — always the floor, or a narrowing of it. */
+  tools: string[];
   /**
    * The SDK `allowedTools` list — an AUTO-APPROVE set, not an availability gate.
    * **Always empty.** A tool listed here never reaches `canUseTool`, so anything put
@@ -114,14 +137,20 @@ export function resolveToolTransport(args: {
   const restrict = args.allow.length > 0;
 
   const allowCoa = args.allow.filter((name) => coa.has(name));
-  const allowBuiltin = args.allow.filter((name) => !coa.has(name) && KNOWN_BUILTINS.has(name));
   const registerCoaTools = restrict ? allowCoa : [...args.coaToolNames];
+
+  // The floor is a ceiling too: an allow list narrows it and never widens it, so a
+  // frame cannot grant a built-in the session does not carry. An empty frame is no
+  // longer an unrestricted pass-through — it is the floor.
+  const tools = restrict
+    ? args.allow.filter((name) => !coa.has(name) && KNOWN_BUILTINS.has(name) && FLOOR_SET.has(name))
+    : [...CLAUDE_BUILTIN_FLOOR];
 
   const denyCoa = args.deny.filter((name) => coa.has(name)).map(mcpToolName);
   const denyOther = args.deny.filter((name) => !coa.has(name)); // a built-in name or a raw deny-rule string
 
   return {
-    ...(restrict ? { tools: allowBuiltin } : {}),
+    tools,
     autoApprove: [],
     disallowedTools: [...denyOther, ...denyCoa],
     registerCoaTools,

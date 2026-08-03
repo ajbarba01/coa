@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { resolveToolTransport, KNOWN_BUILTINS, NOT_MODEL_VISIBLE } from './tool-frame.js';
+import {
+  resolveToolTransport,
+  CLAUDE_BUILTIN_FLOOR,
+  KNOWN_BUILTINS,
+  NOT_MODEL_VISIBLE,
+} from './tool-frame.js';
 
 const COA = ['get_symbol', 'edit_symbol', 'why'];
 const mcp = (n: string) => `mcp__coa__${n}`;
@@ -18,9 +23,13 @@ describe('resolveToolTransport', () => {
     ).toEqual([]);
   });
 
-  it('empty allow is the D85 pass-through: no tools restriction, every coa tool registered', () => {
+  it('empty allow registers every coa tool and bounds built-ins to the floor', () => {
+    // The D85 pass-through still holds for the COA catalogue (all registered, nothing
+    // denied), but built-ins are no longer unrestricted: an empty frame now yields the
+    // floor rather than the CLI's whole ~37-tool set, because coa governs and records
+    // only the floor and no other backend can match the rest.
     const t = resolveToolTransport({ allow: [], deny: [], coaToolNames: COA });
-    expect(t.tools).toBeUndefined();
+    expect(t.tools).toEqual([...CLAUDE_BUILTIN_FLOOR]);
     expect(t.registerCoaTools).toEqual(COA);
     expect(t.disallowedTools).toEqual([]);
   });
@@ -51,6 +60,25 @@ describe('resolveToolTransport', () => {
     expect(t.registerCoaTools).toEqual(['get_symbol']);
   });
 
+  it('advertises exactly the floor when the frame is an empty pass-through', () => {
+    const transport = resolveToolTransport({ allow: [], deny: [], coaToolNames: ['get_symbol'] });
+    expect(transport.tools).toEqual([...CLAUDE_BUILTIN_FLOOR]);
+  });
+
+  it('drops TodoWrite and both delegation spellings even when explicitly granted', () => {
+    const transport = resolveToolTransport({
+      allow: ['Read', 'TodoWrite', 'Task', 'Agent'],
+      deny: [],
+      coaToolNames: [],
+    });
+    expect(transport.tools).toEqual(['Read']);
+  });
+
+  it('keeps the floor as an intersection, never a widening', () => {
+    const transport = resolveToolTransport({ allow: ['Read', 'Bash'], deny: [], coaToolNames: [] });
+    expect(transport.tools).toEqual(['Read', 'Bash']);
+  });
+
   it('routes deny: coa tools → mcp names, built-ins/rules → bare', () => {
     const t = resolveToolTransport({
       allow: [],
@@ -68,9 +96,16 @@ describe('KNOWN_BUILTINS', () => {
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
   });
 
-  it('no longer drops a granted Agent from the transport', () => {
+  it('drops a granted Agent by the FLOOR, not by failing to recognise the name', () => {
+    // Two different reasons a name can vanish from the transport, and only one is a bug.
+    // The original defect was an unknown name silently discarded; the catalogue still
+    // knows both spellings, which is what keeps a deny rule and the drift test honest.
+    // Absence here is now the deliberate floor: delegation is demoted, to be replaced by
+    // a governed spawn tool. If KNOWN_BUILTINS ever forgets the name again, the
+    // membership assertions above fail — this one would not.
+    expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
     const t = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
-    expect(t.tools).toEqual(['Read', 'Agent']);
+    expect(t.tools).toEqual(['Read']);
   });
 
   it('knows the tools the previous list was missing', () => {
