@@ -29,19 +29,62 @@ import { mcpToolName } from './mcp-tools.js';
  */
 export const DELEGATION_TOOL_NAMES: readonly string[] = ['Task', 'Agent'];
 
-/** The SDK built-in tool names coa may grant/deny — backend-specific, so it lives here. */
+/**
+ * The SDK built-in tool names coa may grant/deny, derived from the tool schemas the
+ * pinned package generates (`sdk-tools.d.ts`, SDK 0.3.196 / CLI 2.1.196). A name absent
+ * from this set is dropped from the transport, so an omission silently discards a valid
+ * grant — which is how `Agent` was lost. `tool-catalogue-drift.test.ts` fails when the
+ * SDK's schema list moves, naming what expired instead of letting this rot.
+ */
 export const KNOWN_BUILTINS: ReadonlySet<string> = new Set([
-  'Read',
-  'Write',
-  'Edit',
+  ...DELEGATION_TOOL_NAMES,
+  'Artifact',
+  'AskUserQuestion',
   'Bash',
+  'CronCreate',
+  'CronDelete',
+  'CronList',
+  'Edit',
+  'EnterPlanMode',
+  'EnterWorktree',
+  'ExitPlanMode',
+  'ExitWorktree',
   'Glob',
   'Grep',
+  'ListMcpResources',
+  'Monitor',
+  'NotebookEdit',
+  'PushNotification',
+  'Read',
+  'ReadMcpResource',
+  'RemoteTrigger',
+  'ReportFindings',
+  'ScheduleWakeup',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
+  'TaskOutput',
+  'TaskStop',
+  'TaskUpdate',
+  'TodoWrite',
   'WebFetch',
   'WebSearch',
-  'NotebookEdit',
-  'Task',
-  'TodoWrite',
+  'Workflow',
+  'Write',
+]);
+
+/**
+ * Schema names in the pinned SDK that are NOT tool names a model can be granted —
+ * internal plumbing and onboarding surfaces. Listed rather than ignored so the drift
+ * test can require every schema to be classified one way or the other; a
+ * misclassification here is a judgement call the next SDK bump forces back into view.
+ */
+export const NOT_MODEL_VISIBLE: ReadonlySet<string> = new Set([
+  'Mcp',
+  'Projects',
+  'REPL',
+  'ReadMcpResourceDir',
+  'ShowOnboardingRolePicker',
 ]);
 
 export interface ToolTransport {
