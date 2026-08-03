@@ -294,10 +294,16 @@ describe('assumption 2 — FALSE: "settingSources: [] fully isolates the session
     const opts = buildBaseOptions({ backend: emptyBackend(), sandbox: sandboxSet() });
     expect(opts.skills).toEqual([]);
 
-    // And the argv the SDK builds carries no Skill grant — coa's explicit empty list closes
-    // the same gap an omitted option would otherwise leave open.
-    const capture = await captureSpawn({ settingSources: [], skills: [] });
-    expect(capture.flag('--allowedTools')).toBeUndefined();
+    // The fix is invisible on argv: an empty array folds to zero `Skill(...)` entries, the
+    // same as an omitted option producing none — so argv cannot tell "closed" from "leaky"
+    // apart. The distinction lives on the OTHER wire channel, the stdio `initialize` request:
+    // `Array.isArray(skills) ? skills : void 0` transmits `[]` as an empty array but transmits
+    // an omitted option as absent. That contrast is the actual measured effect of the fix.
+    const closed = await captureInit({ settingSources: [], skills: [] });
+    expect(closed.initialize?.['skills']).toEqual([]);
+
+    const leaky = await captureInit({ settingSources: [] });
+    expect(leaky.initialize?.['skills']).toBeUndefined();
   }, 30_000);
 
   it('BREAKS the claim: a per-agent `memory` scope reads the target repo regardless of settingSources', () => {
