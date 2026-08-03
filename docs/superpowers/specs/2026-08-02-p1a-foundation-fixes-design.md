@@ -197,9 +197,12 @@ close until it is green.
 
 Subject-only Conventional Commits, no body, no trailers, no scopes, staged by name.
 
-1. `fix: stop auto-approving the tools coa governs` — the empty auto-approve set, the allow-result
-   echo, the generalised hook assembly, and `PreToolUse`. One commit, because any split ships a broken
-   intermediate state.
+1. The gate repair — the allow-result echo, the empty auto-approve set, the generalised hook assembly,
+   and `PreToolUse`. **In that order**, which is what makes it safe to split: echoing `updatedInput`
+   is correct today and strictly improves a path that is currently cold, and only then does emptying
+   the auto-approve list make that path hot. Splitting the other way round — empty first, echo later —
+   would ship a state where every tool call fails, which is the hazard this ordering removes. The
+   implementation plan takes this as four commits accordingly.
 2. `fix: recognise the delegation tool under both spellings` — the expanded built-in set and its drift
    test.
 3. `feat: distinguish a governed stop from a loop error` — the deny frame end to end, M0 through the
@@ -208,9 +211,9 @@ Subject-only Conventional Commits, no body, no trailers, no scopes, staged by na
 5. `fix: close the skills leak in session isolation` — plus the two comment corrections.
 6. `docs: record the two-seam governance split` — ADR-0028, the ledger correction, the ROADMAP entry.
 
-Commit 1 changes the main backend's behaviour and its proof is the live run. Commits 2–6 are
-independent of it, so they can land while an account is unavailable — but P1a is not done until commit
-1 is verified live.
+The gate repair changes the main backend's behaviour and its proof is the live run. Commits 2–6 are
+independent of it, so they can land while an account is unavailable — but P1a is not done until the
+gate repair is verified live.
 
 ## Out of scope
 
