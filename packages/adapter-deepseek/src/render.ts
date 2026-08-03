@@ -6,9 +6,8 @@ import { renderSections, type NeutralConfig, type Reminder } from '@coa/shared';
  * most-stable-first prefix (byte-stable — cache invariant honored), rendered into
  * the DC-6 section skeleton, followed by the standing-authority reminders. Unlike
  * the Claude adapter there is no drop-set and no boundary heading — DeepSeek has no
- * preset to defer to, so it renders every Piece. There is no re-anchor file (that is
- * a Claude-SDK concern) and pull-only/scope-pushed content is deferred (TAX-1),
- * never folded in.
+ * preset to defer to, so it renders every Piece. Pull-only/scope-pushed content is
+ * deferred (TAX-1), never folded in.
  */
 function renderReminder(reminder: Reminder): string {
   return `[${reminder.rule}] ${reminder.reason}`;
