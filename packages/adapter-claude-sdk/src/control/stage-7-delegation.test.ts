@@ -499,16 +499,17 @@ describe('stage 7 — the Task/Agent rename (arc risk R2)', () => {
     expect(declBlock(types, 'SDKSystemMessage')).toContain('tools: string[];');
   });
 
-  it('shows coa’s own builtin set is stale: it knows `Task`, not `Agent`', () => {
-    // The rendered-frame half. coa's demote/grant vocabulary predates the rename, so a frame
-    // that grants `Agent` silently drops it as an unknown name.
+  it('carries BOTH delegation spellings, so a granted Agent survives the frame', () => {
+    // The pinned CLI advertises `Task` in `system:init.tools` while the model emits `Agent`
+    // in the same run. coa's grant vocabulary carries both spellings so neither is silently
+    // dropped from a frame that names them.
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
-    expect(KNOWN_BUILTINS.has('Agent')).toBe(false);
+    expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
 
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
-    expect(granted.tools).toEqual(['Read']);
-    // autoApprove is always empty now (docs/adr/0028) — the staleness this probe demonstrates
-    // lives entirely in `tools`, which KNOWN_BUILTINS still drives.
+    expect(granted.tools).toEqual(['Read', 'Agent']);
+    // autoApprove is always empty now (docs/adr/0028) — availability lives entirely in
+    // `tools`, which KNOWN_BUILTINS drives.
     expect(granted.autoApprove).toEqual([]);
   });
 

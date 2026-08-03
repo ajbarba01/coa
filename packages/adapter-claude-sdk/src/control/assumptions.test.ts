@@ -743,35 +743,36 @@ describe('assumption 9 — UNSETTLED: "there is no programmatic mid-session role
 // The remaining sibling positives, challenged head-on
 // ===========================================================================
 
-describe('sibling challenge — stage 7: "coa’s own builtin tool set is stale"', () => {
-  it('CONFIRMS the bug, loudly: KNOWN_BUILTINS knows `Task`, which this SDK no longer generates', () => {
+describe('stage 7: the Task/Agent rename — coa guards both spellings', () => {
+  it("guards the fix: KNOWN_BUILTINS carries both `Task` and `Agent`, the SDK's dual interface", () => {
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
-    expect(KNOWN_BUILTINS.has('Agent')).toBe(false);
+    expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
     expect(sdkTypes('sdk-tools.d.ts')).toContain('export interface AgentInput {');
   });
 
-  it('CONFIRMS the consequence in both directions — a grant is dropped, and a stale name would ship', () => {
-    // Direction 1: granting the real name silently loses it.
+  it('guards both spellings in a frame: Agent and Task are both granted when named', () => {
+    // Direction 1: granting the real name Agent now survives the frame.
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
-    expect(granted.tools).toEqual(['Read']);
-    // autoApprove is always empty now (docs/adr/0028) — the staleness this probe demonstrates
-    // lives entirely in `tools`, which KNOWN_BUILTINS still drives.
+    expect(granted.tools).toEqual(['Read', 'Agent']);
+    // autoApprove is always empty now (docs/adr/0028) — availability lives entirely in
+    // `tools`, which KNOWN_BUILTINS drives.
     expect(granted.autoApprove).toEqual([]);
 
-    // Direction 2 — NOT probed by the sibling and worse: granting the stale name is accepted,
-    // so coa would send `--tools Read,Task`, a set naming a tool this CLI does not have.
+    // Direction 2: both spellings are deliberately carried in the grant vocabulary because
+    // the pinned CLI advertises Task in system:init.tools while the model emits Agent in
+    // the same run. Granting either name is accepted.
     const stale = resolveToolTransport({ allow: ['Read', 'Task'], deny: [], coaToolNames: [] });
     expect(stale.tools).toEqual(['Read', 'Task']);
   });
 
-  it('ESCALATES it: the set is stale in more places than the rename', () => {
-    // Every one of these is a tool the pinned package generates a schema for, and none is in
-    // coa's grant/deny vocabulary — so a frame naming any of them is silently dropped.
+  it('guards the full catalogue: KNOWN_BUILTINS now covers all the tools the SDK advertises', () => {
+    // Every one of these is a tool the pinned package generates a schema for, and all are now in
+    // coa's grant/deny vocabulary — so a frame naming any of them is recognized and routed.
     const tools = sdkTypes('sdk-tools.d.ts');
-    const missing = ['Agent', 'TaskStop', 'ExitPlanMode', 'AskUserQuestion', 'EnterWorktree'];
-    for (const name of missing) {
+    const names = ['Agent', 'TaskStop', 'ExitPlanMode', 'AskUserQuestion', 'EnterWorktree'];
+    for (const name of names) {
       expect(tools).toContain(`export interface ${name}Input`);
-      expect(KNOWN_BUILTINS.has(name)).toBe(false);
+      expect(KNOWN_BUILTINS.has(name)).toBe(true);
     }
   });
 });
