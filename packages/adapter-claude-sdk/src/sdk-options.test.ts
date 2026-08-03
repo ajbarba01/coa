@@ -109,3 +109,18 @@ describe('buildBaseOptions — the static query() options from the rendered conf
     expect(opts.strictMcpConfig).toBe(true);
   });
 });
+
+describe('buildBaseOptions — session isolation', () => {
+  it('turns skills off explicitly, because omitting the option does not', () => {
+    // The SDK is explicit that omitting `skills` is not "skills off" — the CLI's own
+    // discovery defaults still apply, on a channel settingSources does not cover. So a
+    // governed session could load instructions from the target repo that coa never wrote.
+    expect(buildBaseOptions({ backend: backend(), sandbox: sandbox() }).skills).toEqual([]);
+  });
+
+  it('still blocks the settings files and the target repo mcp servers', () => {
+    const opts = buildBaseOptions({ backend: backend(), sandbox: sandbox() });
+    expect(opts.settingSources).toEqual([]);
+    expect(opts.strictMcpConfig).toBe(true);
+  });
+});

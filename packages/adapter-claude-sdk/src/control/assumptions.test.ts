@@ -282,20 +282,21 @@ describe('assumption 2 — FALSE: "settingSources: [] fully isolates the session
     expect(opts.strictMcpConfig).toBe(true);
   });
 
-  it('BREAKS the claim: skills are NOT off, and coa never sets the option that would turn them off', async () => {
+  it('the leak is CLOSED: `skills` unset was never "skills off," so coa now sets it explicitly', async () => {
     // The SDK states the default explicitly: omitting `skills` is *not* "skills off" — the
-    // CLI's own discovery defaults still apply, independent of settingSources. coa omits it.
+    // CLI's own discovery defaults still apply, independent of settingSources. That gap is
+    // exactly why coa sets the option directly rather than leaving it unset.
     // Asserted against the raw (CRLF-normalised) text on a single doc line rather than through
     // unwrapDoc: this sentence wraps with a hanging indent, which unwrapDoc leaves as extra
     // interior whitespace, so an unwrapped match would fail for a reason unrelated to the claim.
     expect(sdkTypes('sdk.d.ts')).toContain(`still apply, so this is **not** "skills off."`);
 
     const opts = buildBaseOptions({ backend: emptyBackend(), sandbox: sandboxSet() });
-    expect(opts.skills).toBeUndefined();
+    expect(opts.skills).toEqual([]);
 
-    // And the argv the SDK builds carries no Skill grant either — so nothing coa sends
-    // narrows the CLI's default discovery.
-    const capture = await captureSpawn({ settingSources: [] });
+    // And the argv the SDK builds carries no Skill grant — coa's explicit empty list closes
+    // the same gap an omitted option would otherwise leave open.
+    const capture = await captureSpawn({ settingSources: [], skills: [] });
     expect(capture.flag('--allowedTools')).toBeUndefined();
   }, 30_000);
 
