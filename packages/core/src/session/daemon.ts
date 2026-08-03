@@ -9,6 +9,7 @@ import { createGovernanceAnchorProducer } from '../context/governance-anchor.js'
 import { FlagPipeline } from '../flags/pipeline.js';
 import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
+import { Reconciler } from '../reconcile/reconciler.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
@@ -85,10 +86,39 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   });
   wireProducers(kernel, flags, [...(options.producers ?? []), governanceAnchor]);
 
+  // Producer ② (D123). The class shipped with tests but was never constructed anywhere,
+  // so a change made by a tool coa does not execute itself — a native Edit, or anything a
+  // Bash command touches — reached M1 on no backend. `reconcile()` scopes dirty paths with
+  // git, dedups coa's own precise writes into a `confirm`, and respects .gitignore, so a
+  // backend only has to trigger it.
+  //
+  // Built LAZILY and guarded: the constructor baselines itself with `git ls-files`, which
+  // throws outside a git worktree. coa must work on any project (no-lock-in), and producer
+  // ② is an enhancement — so a non-git root degrades to a no-op instead of breaking every
+  // session. The failure latches so a broken git does not respawn a process per tool call.
+  let reconciler: Reconciler | undefined;
+  let reconcilerUnavailable = false;
+  const observeChanges = (): void => {
+    if (reconcilerUnavailable) return;
+    try {
+      reconciler ??= new Reconciler({
+        worktree: 'main',
+        root: options.root ?? '.',
+        emit: (draft) => {
+          kernel.emit(draft);
+        },
+      });
+      reconciler.reconcile();
+    } catch {
+      reconcilerUnavailable = true;
+    }
+  };
+
   const core: DaemonCore = {
     checkpoint: () => {
       kernel.checkpoint();
     },
+    observeChanges,
     perToolDeny: (tool, input) => flags.perToolDeny(tool, input),
     gate: () => flags.gate(),
     capState: () => governance.capState(),

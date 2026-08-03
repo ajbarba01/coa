@@ -108,6 +108,20 @@ describe('createDaemonCore', () => {
     expect(handle.core.capState().capHit).toBe(true);
   });
 
+  it('exposes an observeChanges port that drives producer 2', () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
+    expect(typeof handle.core.observeChanges).toBe('function');
+  });
+
+  it('degrades observeChanges to a no-op outside a git worktree', () => {
+    // The reconciler baselines itself with `git ls-files`, which throws in a directory
+    // that is not a git repo — as this temp dir is, and as any non-git project would be.
+    // Producer ② is an enhancement, so its absence must never break a session (D85).
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
+    expect(() => handle?.core.observeChanges()).not.toThrow();
+    expect(() => handle?.core.observeChanges()).not.toThrow();
+  });
+
   it('is unbounded under the subscription model (no ceiling)', () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
     expect(handle.core.capState()).toEqual({ remaining: null, capHit: false });

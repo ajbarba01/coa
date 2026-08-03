@@ -24,6 +24,12 @@ import type {
 export interface DaemonCore {
   /** M1 — checkpoint at the session boundary. */
   checkpoint: () => void;
+  /**
+   * M1 — drive producer ②: record any on-disk change coa did not perform itself. Both
+   * backends call it at their own tool boundary, so the same facts reach the spine
+   * whichever loop is running. A no-op where the reconciler cannot run (see daemon.ts).
+   */
+  observeChanges: () => void;
   /** M3 — the per-tool deny-rule check. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
   /** M3 — the close-gate verdict. */
