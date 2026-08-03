@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -111,6 +112,34 @@ describe('createDaemonCore', () => {
   it('exposes an observeChanges port that drives producer 2', () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(typeof handle.core.observeChanges).toBe('function');
+  });
+
+  it('records an edit to a tracked file that no governed tool made', () => {
+    // The regression this pins: the reconciler seeds each tracked file's prior hash at
+    // CONSTRUCTION. Build it lazily on the first tool call instead and the baseline comes
+    // from already-modified disk, so the first edit to a tracked file reads as no change
+    // at all — the exact case producer ② exists for. Creates still worked, which is why
+    // a "does not throw" test could not catch it.
+    const repo = mkdtempSync(join(tmpdir(), 'coa-recon-'));
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '-q');
+    git('config', 'user.email', 'probe@example.com');
+    git('config', 'user.name', 'probe');
+    writeFileSync(join(repo, 'app.ts'), 'export const answer = 41;\n');
+    git('add', 'app.ts');
+    git('commit', '-qm', 'baseline');
+
+    const seen: { kind: string; path?: string }[] = [];
+    handle = createDaemonCore({ walPath: join(repo, 'log.ndjson'), root: repo });
+    handle.kernel.subscribe(0, (event) => seen.push(event as { kind: string; path?: string }));
+
+    writeFileSync(join(repo, 'app.ts'), 'export const answer = 42;\n');
+    handle.core.observeChanges();
+
+    const modified = seen.filter((d) => d.kind === 'modify' && d.path === 'app.ts');
+    expect(modified).toHaveLength(1);
+    rmSync(repo, { recursive: true, force: true });
   });
 
   it('degrades observeChanges to a no-op outside a git worktree', () => {

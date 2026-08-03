@@ -92,25 +92,32 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   // git, dedups coa's own precise writes into a `confirm`, and respects .gitignore, so a
   // backend only has to trigger it.
   //
-  // Built LAZILY and guarded: the constructor baselines itself with `git ls-files`, which
-  // throws outside a git worktree. coa must work on any project (no-lock-in), and producer
-  // ② is an enhancement — so a non-git root degrades to a no-op instead of breaking every
-  // session. The failure latches so a broken git does not respawn a process per tool call.
+  // Constructed EAGERLY and guarded. Eagerly because the constructor seeds each tracked
+  // file's prior hash from `git ls-files`, and that baseline is what makes a later edit
+  // read as a transition: deferring construction to the first tool call would seed the
+  // baseline from already-modified disk, so the first edit to a tracked file would show
+  // no change at all. Guarded because `git ls-files` throws outside a git worktree — coa
+  // must work on any project (no-lock-in) and producer ② is an enhancement, so a non-git
+  // root degrades to a no-op rather than breaking every session (D85). A later failure
+  // latches the same way, so a broken git does not respawn a process per tool call.
   let reconciler: Reconciler | undefined;
-  let reconcilerUnavailable = false;
+  try {
+    reconciler = new Reconciler({
+      worktree: 'main',
+      root: options.root ?? '.',
+      emit: (draft) => {
+        kernel.emit(draft);
+      },
+    });
+  } catch {
+    reconciler = undefined;
+  }
   const observeChanges = (): void => {
-    if (reconcilerUnavailable) return;
+    if (reconciler === undefined) return;
     try {
-      reconciler ??= new Reconciler({
-        worktree: 'main',
-        root: options.root ?? '.',
-        emit: (draft) => {
-          kernel.emit(draft);
-        },
-      });
       reconciler.reconcile();
     } catch {
-      reconcilerUnavailable = true;
+      reconciler = undefined;
     }
   };
 
