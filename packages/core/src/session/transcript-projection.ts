@@ -18,6 +18,12 @@ const INTERRUPTED = '[Tool execution was interrupted]';
  *  previous response was cut off rather than completed. Mirrors the coding-agent convention. */
 export const INTERRUPTED_BY_USER = '[Request interrupted by user]';
 
+/** The notice a governed stop folds into, so a resumed conversation reads why the previous
+ *  run ended rather than appearing to have stopped for no reason. coa has exactly two blocks
+ *  (docs/adr/0028); both surface here. */
+export const deniedNotice = (denyKind: string, reason: string): string =>
+  `[Stopped by coa: ${denyKind} — ${reason}]`;
+
 /**
  * Fold the append-only event log into the provider-neutral transcript (system omitted)
  * — the read-time projection that replaces the whole-rewrite `messages.json`
@@ -25,8 +31,11 @@ export const INTERRUPTED_BY_USER = '[Request interrupted by user]';
  * until a `tool_result` (or a user turn / boundary) closes it; `tool_result` frames
  * become `tool` messages (full body from `full`, else the frame pointer). Thinking/
  * error/reconcile/permission/subagent frames carry no transcript memory and are
- * dropped. Every unmatched tool call is REPAIRED (a synthesized paired result), never
- * dropped — so the assistant turn survives and cross-provider replay stays valid.
+ * dropped. A `deny` frame (like `interrupted`) folds into an explicit notice, since
+ * this projection also rebuilds context on resume — a governed stop needs its own
+ * record, not just the live turn's. Every unmatched tool call is REPAIRED (a
+ * synthesized paired result), never dropped — so the assistant turn survives and
+ * cross-provider replay stays valid.
  */
 export function foldEventsToTranscript(events: readonly PersistedEvent[]): BackendMessage[] {
   const out: BackendMessage[] = [];
@@ -79,14 +88,20 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
         closeAssistant();
         out.push({ role: 'user', content: INTERRUPTED_BY_USER });
         break;
+      case 'deny':
+        // A governed stop (SC-1's only two blocks): close whatever partial the model got
+        // out, then record why — same shape as `interrupted`, since this projection also
+        // rebuilds context on resume. A close-gate reason is instructional ("resolve or
+        // baseline before finishing") and would otherwise be lost entirely.
+        closeAssistant();
+        out.push({ role: 'user', content: deniedNotice(frame.denyKind, frame.reason) });
+        break;
       case 'thinking':
       case 'error':
       case 'reconcile':
       case 'permission':
       case 'subagent':
-      case 'deny':
-        // No transcript memory — these frames are dropped. A governed stop ends the
-        // session; nothing here needs to fold into the model-facing transcript.
+        // No transcript memory — these frames are dropped.
         break;
       case 'text-delta':
       case 'thinking-delta':

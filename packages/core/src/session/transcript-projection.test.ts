@@ -46,6 +46,26 @@ describe('foldEventsToTranscript', () => {
     ]);
   });
 
+  it('folds a deny frame into a user-visible notice carrying its reason, closing an open assistant turn first', () => {
+    const events: PersistedEvent[] = [
+      ev(0, { t: 'text', text: 'finish the migration', role: 'user' }),
+      ev(1, { t: 'text', text: 'Working on it' }), // the partial the model got out
+      ev(2, { t: 'deny', denyKind: 'close-gate', reason: 'resolve or baseline before finishing' }),
+    ];
+    // A resumed conversation must read WHY the previous run ended, not just that it did —
+    // the close-gate reason is instructional and would otherwise be lost on resume.
+    const out = foldEventsToTranscript(events);
+    expect(out).toEqual([
+      { role: 'user', content: 'finish the migration' },
+      { role: 'assistant', content: 'Working on it' },
+      {
+        role: 'user',
+        content: expect.stringContaining('resolve or baseline before finishing'),
+      },
+    ]);
+    expect(out[2]?.content).toContain('close-gate');
+  });
+
   it('drops thinking/error/reconcile/permission/subagent frames (not in the transcript)', () => {
     const events: PersistedEvent[] = [
       ev(0, { t: 'text', text: 'hi', role: 'user' }),
