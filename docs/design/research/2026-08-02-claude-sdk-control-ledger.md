@@ -91,12 +91,12 @@ agent that had not made them.
 
 Not spike artifacts. These are current behaviour in `packages/adapter-claude-sdk`.
 
-1. **`KNOWN_BUILTINS` is stale, and wrong in both directions** (`tool-frame.ts:24`). It knows `Task`,
+1. **FIXED 2026-08-02.** **`KNOWN_BUILTINS` is stale, and wrong in both directions** (`tool-frame.ts:24`). It knows `Task`,
    not `Agent`. Granting `Agent` silently drops it; granting `Task` is accepted, so coa can ship
    `--tools Read,Task` naming a tool this CLI no longer has. It is also missing `TaskStop`,
    `ExitPlanMode`, `AskUserQuestion` and `EnterWorktree`, all of which have generated schemas in the
    pinned package.
-2. **The re-anchor file can never load.** `render-native.ts` writes standing authority to
+2. **FIXED 2026-08-02.** **The re-anchor file can never load.** `render-native.ts` writes standing authority to
    `.claude/CLAUDE.md` and describes it as re-read each request. Loading a CLAUDE.md requires
    `settingSources` to include `'project'`; `buildBaseOptions` sets `[]`. Separately,
    `BackendConfig.files` is produced by `renderNative` and consumed by nobody. The D133
@@ -108,13 +108,13 @@ Not spike artifacts. These are current behaviour in `packages/adapter-claude-sdk
    the options object by the wrapper and transmitted (probe-verified). It appends coa's authority to
    every native child's system prompt. Undeclared means unsupported — recorded as a finding, not
    something to build on without a live check.
-5. **`allowedTools` disables coa's own per-tool gate.** The adapter maps coa's allow-intent onto
+5. **FIXED 2026-08-02.** **`allowedTools` disables coa's own per-tool gate.** The adapter maps coa's allow-intent onto
    `allowedTools`, which auto-approves — so `canUseTool` never fires for a granted tool and M3/M7
    decisions do not run. Live-verified in both directions. This is the highest-severity item here.
-6. **A shared live-test helper's allow result is rejected by the real CLI.** `allowAllTools` in
+6. **FIXED 2026-08-02.** **A shared live-test helper's allow result is rejected by the real CLI.** `allowAllTools` in
    `live-smoke-helpers.ts` returns a bare `{behavior:'allow'}`; the CLI treats it as a permission error
    for every tool. The allow result must echo `updatedInput` back. Shipped smokes share this helper.
-7. **coa never reads `terminal_reason`.** `turn-frames.ts` derives its error frame from
+7. **FIXED 2026-08-02.** **coa never reads `terminal_reason`.** `turn-frames.ts` derives its error frame from
    `SDKResultMessage.subtype` alone, so a close-gate block, a `maxTurns` cutoff and a clean completion
    are indistinguishable to coa today.
 
@@ -238,8 +238,11 @@ callback fires for the same call. `allowedTools` means **auto-approve**, and an 
 never reaches the permission callback.
 
 `claude-sdk-adapter.ts` maps coa's allow-intent onto `allowedTools`, and M3/M7 per-tool decisions ride
-`canUseTool`. **So coa's per-tool governance does not run for exactly the tools coa granted.** This
-also explains the delegation result above without needing delegation to be a special case.
+`canUseTool`. **So coa's per-tool governance does not run for exactly the tools coa granted.** This does
+**not** explain the delegation result above. That probe's `liveOptions` sets no `allowedTools` at all,
+so `canUseTool`'s blindness to a native spawn is independent and intrinsic — delegation *is* a special
+case, and `PreToolUse` is the only seam that sees it
+([ADR-0028](../../adr/0028-per-tool-governance-rides-two-seams.md)).
 
 ### More confirmed live
 

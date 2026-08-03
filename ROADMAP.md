@@ -188,6 +188,18 @@ the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**;
 
 ## Completed arcs
 
+### The backend-independent agent arc — P1a foundation fixes — ✅ closed 2026-08-02
+
+Eight defects the control spike found in shipped `adapter-claude-sdk` code. Per-tool
+governance now actually runs (`allowedTools` no longer auto-approves coa's own tools, and
+the allow result echoes the input the real CLI requires); the native spawn is gated at
+`PreToolUse`, the only seam that sees it ([ADR-0028](docs/adr/0028-per-tool-governance-rides-two-seams.md));
+the built-in tool list carries both delegation spellings and has a drift test; a governed
+stop renders as a `deny` frame instead of a crash; the inert `.claude/CLAUDE.md` re-anchor
+is gone; and `skills: []` closes the one isolation leak that was closable.
+
+Next: **P1b — the orchestration slice.**
+
 ### The console workbench rebuild (Gate 4 plan of the 2026-07 UX overhaul) — ✅ closed 2026-08-02
 
 All six phases (W0–W5) shipped. **Authority:** [`docs/adr/0014`](docs/adr/0014-workbench-design-system.md)
@@ -440,4 +452,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-08-02_
+_Last reviewed: 2026-08-03_
