@@ -100,6 +100,19 @@ For **what each module is** (public interface, owned decisions), see the handoff
   builtin set, an inert re-anchor path, an ungoverned child permission mode, an undeclared
   subagent-prompt lever, `terminal_reason` never being read, `CLAUDE_CONFIG_DIR` overloaded as both
   credential and store location, and a shared live-test helper whose allow-result the real CLI rejects.
+- **P1a foundation fixes** — Code-complete, gating live smoke outstanding. Eight defects the
+  control spike above found in shipped `adapter-claude-sdk` code are fixed and offline-verified:
+  per-tool governance now actually runs (`allowedTools` no longer auto-approves coa's own tools,
+  and the allow result echoes the input the real CLI requires); the native spawn is gated at
+  `PreToolUse`, the only seam that sees it
+  ([ADR-0028](docs/adr/0028-per-tool-governance-rides-two-seams.md)); the built-in tool list
+  carries both delegation spellings and has a drift test; a governed stop renders as a `deny`
+  frame instead of a crash; the inert `.claude/CLAUDE.md` re-anchor is gone; and `skills: []`
+  closes the one isolation leak that was closable. **Not yet closed:**
+  `packages/adapter-claude-sdk/src/governed-gate.live.test.ts` — the live smoke proving the gate
+  repair holds against the real CLI — does not exist yet, and the design spec is explicit that
+  P1a is not done until it is green. Next: run that smoke, then **P1b — the orchestration
+  slice.**
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.
@@ -187,18 +200,6 @@ The remaining hardening items — role/capability enforcement, the P1 AGENTS.md-
 the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**; see "Someday / ideas".
 
 ## Completed arcs
-
-### The backend-independent agent arc — P1a foundation fixes — ✅ closed 2026-08-02
-
-Eight defects the control spike found in shipped `adapter-claude-sdk` code. Per-tool
-governance now actually runs (`allowedTools` no longer auto-approves coa's own tools, and
-the allow result echoes the input the real CLI requires); the native spawn is gated at
-`PreToolUse`, the only seam that sees it ([ADR-0028](docs/adr/0028-per-tool-governance-rides-two-seams.md));
-the built-in tool list carries both delegation spellings and has a drift test; a governed
-stop renders as a `deny` frame instead of a crash; the inert `.claude/CLAUDE.md` re-anchor
-is gone; and `skills: []` closes the one isolation leak that was closable.
-
-Next: **P1b — the orchestration slice.**
 
 ### The console workbench rebuild (Gate 4 plan of the 2026-07 UX overhaul) — ✅ closed 2026-08-02
 

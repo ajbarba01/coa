@@ -114,6 +114,10 @@ Not spike artifacts. These are current behaviour in `packages/adapter-claude-sdk
 6. **FIXED 2026-08-02.** **A shared live-test helper's allow result is rejected by the real CLI.** `allowAllTools` in
    `live-smoke-helpers.ts` returns a bare `{behavior:'allow'}`; the CLI treats it as a permission error
    for every tool. The allow result must echo `updatedInput` back. Shipped smokes share this helper.
+   The fix did not land in `allowAllTools` itself — it deliberately still returns the bare form, since
+   coa's neutral `ToolPermissionDecision` has no field to echo through. The echo is now applied once,
+   centrally, in `toSdkPermission` (`sdk-options.ts`), which every adapter-mediated call routes through;
+   a raw callback handed straight to `query()`, bypassing the adapter, still has to echo for itself.
 7. **FIXED 2026-08-02.** **coa never reads `terminal_reason`.** `turn-frames.ts` derives its error frame from
    `SDKResultMessage.subtype` alone, so a close-gate block, a `maxTurns` cutoff and a clean completion
    are indistinguishable to coa today.

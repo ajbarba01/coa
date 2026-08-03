@@ -23,7 +23,8 @@ consequence of auto-approval.
   not run is worse than no block, because the record claims it did.
 - Delegation is the single call most worth governing: it spawns work coa did not authorise.
 - `PreToolUse` sees every call including the spawn, but a `PreToolUse` deny produces no
-  `permission_denied` record — so it is not a free replacement for `canUseTool`.
+  `permission_denied` record — documented, not independently measured — so it is not a free
+  replacement for `canUseTool`.
 
 ## Considered options
 
@@ -45,18 +46,22 @@ chosen not to govern, and nothing populates it today.
 
 **A consequence, stated so it is not re-litigated:** coa's two SC-1 blocks — the close-gate
 and the cost cap — surface as `deny` frames. A vendor bound like `maxTurns` is not a coa
-block and surfaces as a reported terminal reason. `maxTurns` in fact **outranks** the
-close-gate: with `maxTurns: 1` against a Stop hook that blocks every time, the run ends on
-the turn cap and never reaches `stop_hook_prevented`. Dressing that up as a coa denial would
-misattribute which system stopped the work.
+block: it produces its own ordinary `error` frame (`error_max_turns`) alongside the turn
+boundary's reported reason, never a `deny`. `maxTurns` in fact **outranks** the close-gate:
+with `maxTurns: 1` against a Stop hook that blocks every time, the run ends on the turn cap
+and never reaches `stop_hook_prevented`. Dressing that up as a coa denial would misattribute
+which system stopped the work.
 
 A governed stop does not simply end the turn — it leaves a record the next turn can read.
 The transcript projection (docs/adr/0010) rebuilds context on **resume**, so a `deny` frame
 that vanished once the turn boundary passed would resume a conversation with no memory of
 why the previous run stopped. coa folds a notice carrying the block's reason into the
 model-facing transcript, mirroring how a user interrupt is already recorded — and a
-close-gate's reason is instructional (it says what to resolve before finishing), so of
-everything a dropped frame could have cost, that was the most useful part to lose.
+close-gate's reason is instructional (it says what to resolve before finishing), though the
+frame that reaches the model today carries the SDK's raw terminal reason rather than that
+message (a known limitation, not fixed here — see Consequences). Even so, of everything a
+dropped frame could have cost, the fact and cause of the stop was the most useful part to
+keep.
 
 ## Consequences
 
