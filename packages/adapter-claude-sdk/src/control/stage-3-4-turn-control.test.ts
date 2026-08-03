@@ -347,19 +347,18 @@ describe('stage 4 — turn boundary', () => {
       expect(KNOWN_TERMINAL_REASONS).toContain('max_turns');
     });
 
-    it('coa does not read terminal_reason today — turn-frames.ts derives its error frame from subtype alone', () => {
-      // SDKResultMessage (both the success and error variants) carries an OPTIONAL
-      // terminal_reason field. turn-frames.ts, coa's own SDK-message → TurnFrame
-      // mapper, never reads it — confirmed by scanning coa's own source (not the
-      // SDK's) for the literal field name. So even on a version/runtime where the
-      // harness DOES populate terminal_reason correctly, coa has no code path that
-      // consumes it: stop_hook_prevented vs. max_turns vs. completed are
-      // indistinguishable to coa today regardless of what the wire sends.
+    it('coa now reads terminal_reason — turn-frames.ts reports it on the boundary (docs/adr/0028)', () => {
+      // This survey originally found the opposite: turn-frames.ts derived its error frame
+      // from `subtype` alone, so stop_hook_prevented vs. max_turns vs. completed were
+      // indistinguishable to coa regardless of what the wire sent. That gap is closed —
+      // confirmed here the same way the original finding was, by scanning coa's own source
+      // (not the SDK's) for the literal field name, so this flips the moment the field is
+      // read again.
       const turnFramesSrc = readFileSync(
         fileURLToPath(new URL('../turn-frames.ts', import.meta.url)),
         'utf8',
       );
-      expect(turnFramesSrc).not.toContain('terminal_reason');
+      expect(turnFramesSrc).toContain('terminal_reason');
     });
   });
 });

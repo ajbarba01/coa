@@ -119,12 +119,21 @@ function pointerOf(content: unknown): string {
 }
 
 function resultFrames(message: Extract<SDKMessage, { type: 'result' }>): TurnFrame[] {
-  if (message.subtype === 'success') {
-    const stop = message.stop_reason ?? undefined;
-    return [{ t: 'turn-boundary', role: 'assistant', ...(stop !== undefined ? { stop } : {}) }];
-  }
-  return [
-    { t: 'error', message: message.subtype, origin: 'loop' },
-    { t: 'turn-boundary', role: 'assistant' },
-  ];
+  // `terminal_reason` is optional on BOTH result shapes and distinguishes 13 endings.
+  // Reading only `subtype` made a close-gate block, a turn-cap cutoff and a clean finish
+  // indistinguishable. Reported verbatim on the boundary; only coa's own blocks are
+  // reinterpreted as denials (SC-1). See docs/adr/0028.
+  const terminal = message.terminal_reason;
+  const boundary: TurnFrame = {
+    t: 'turn-boundary',
+    role: 'assistant',
+    ...(message.subtype === 'success' && message.stop_reason !== null
+      ? { stop: message.stop_reason }
+      : {}),
+    ...(terminal !== undefined ? { terminal } : {}),
+  };
+  if (message.subtype === 'success') return [boundary];
+  if (terminal === 'stop_hook_prevented')
+    return [{ t: 'deny', denyKind: 'close-gate', reason: terminal }, boundary];
+  return [{ t: 'error', message: message.subtype, origin: 'loop' }, boundary];
 }

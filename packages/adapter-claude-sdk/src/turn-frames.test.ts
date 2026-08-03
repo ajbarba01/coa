@@ -157,3 +157,64 @@ describe('messageToFrames — SDK message → neutral M0 TurnFrame', () => {
     ).toEqual([]);
   });
 });
+
+describe('messageToFrames — terminal reasons', () => {
+  it('carries terminal_reason onto a successful boundary', () => {
+    expect(
+      messageToFrames(
+        sdk({
+          type: 'result',
+          subtype: 'success',
+          stop_reason: 'end_turn',
+          terminal_reason: 'completed',
+          is_error: false,
+        }),
+      ),
+    ).toEqual([{ t: 'turn-boundary', role: 'assistant', stop: 'end_turn', terminal: 'completed' }]);
+  });
+
+  it('renders a close-gate block as a deny, not an error', () => {
+    // SC-1: M3's close-gate is one of the system's only two blocks. Reporting it as an
+    // error frame shows a crash where a deliberate stop belongs.
+    expect(
+      messageToFrames(
+        sdk({
+          type: 'result',
+          subtype: 'error_during_execution',
+          terminal_reason: 'stop_hook_prevented',
+          is_error: true,
+        }),
+      ),
+    ).toEqual([
+      { t: 'deny', denyKind: 'close-gate', reason: 'stop_hook_prevented' },
+      { t: 'turn-boundary', role: 'assistant', terminal: 'stop_hook_prevented' },
+    ]);
+  });
+
+  it('reports a turn-cap cutoff as a terminal reason, never as a coa denial', () => {
+    // `maxTurns` is a harness bound coa does not even set, and it OUTRANKS the close-gate
+    // — so calling it a coa block would misattribute which system stopped the work.
+    expect(
+      messageToFrames(
+        sdk({
+          type: 'result',
+          subtype: 'error_max_turns',
+          terminal_reason: 'max_turns',
+          is_error: true,
+        }),
+      ),
+    ).toEqual([
+      { t: 'error', message: 'error_max_turns', origin: 'loop' },
+      { t: 'turn-boundary', role: 'assistant', terminal: 'max_turns' },
+    ]);
+  });
+
+  it('still handles a result with no terminal_reason at all', () => {
+    expect(
+      messageToFrames(sdk({ type: 'result', subtype: 'error_during_execution', is_error: true })),
+    ).toEqual([
+      { t: 'error', message: 'error_during_execution', origin: 'loop' },
+      { t: 'turn-boundary', role: 'assistant' },
+    ]);
+  });
+});
