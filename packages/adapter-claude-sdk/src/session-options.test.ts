@@ -111,6 +111,18 @@ describe('buildHooks — the multi-event hook assembly', () => {
     expect(hooks.Stop).toHaveLength(1);
   });
 
+  it('blocks the close and feeds the gate message back when the gate denies', async () => {
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: false, message: 'open invariant' }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+    });
+    const out = await hooks.Stop?.[0]?.hooks[0]?.({ hook_event_name: 'Stop' } as never, undefined, {
+      signal: new AbortController().signal,
+    });
+    expect(out).toEqual({ decision: 'block', reason: 'open invariant' });
+  });
+
   it('denies a spawn at PreToolUse under BOTH delegation spellings', async () => {
     // `system:init.tools` advertises `Task` while the model emits `Agent` in the SAME
     // live run, so a set matching one spelling misses the other.
