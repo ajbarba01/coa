@@ -1,103 +1,86 @@
 import { z } from 'zod';
 import {
+  agentColorSchema,
+  agentDiagnosticSchema,
+  agentFileSchema,
+  agentIconSchema,
+  agentScopeSchema,
+  agentSummarySchema,
   claudeReasoningSchema,
   packageSummarySchema,
   roleSummarySchema,
+  AGENT_COLOR_NAMES,
+  AGENT_ICON_NAMES,
+  type AgentColor,
+  type AgentDiagnostic,
+  type AgentFile,
+  type AgentIcon,
+  type AgentScope,
+  type AgentSummary,
   type PackageSummary,
   type RoleSummary,
 } from '@coa/shared';
 
-/** The curated agent-identity vocabularies. The console-ui kit owns the visual
- *  mapping (glyph/classes); these are the wire names. An unknown name degrades to
- *  the default rather than failing the read (drop-unknown posture at the edge). */
-export const AGENT_ICON_NAMES = [
-  'bot',
-  'hammer',
-  'wrench',
-  'flask',
-  'shield',
-  'book',
-  'bug',
-  'search',
-  'pen',
-  'branch',
-  'terminal',
-  'database',
-  'layers',
-  'eye',
-  'compass',
-  'sparkles',
-] as const;
-export const AgentIconSchema = z.enum(AGENT_ICON_NAMES).catch('bot');
-export type AgentIcon = z.infer<typeof AgentIconSchema>;
+/** The agent-identity vocabulary, the agent wire shapes, and the scope/diagnostic
+ *  types are M0's now — the daemon owns the registry (`listAgents`/`saveAgent`/
+ *  `deleteAgent`), so this re-exports the shared schemas rather than defining a
+ *  console-local copy that could drift from them. */
+export {
+  AGENT_ICON_NAMES,
+  AGENT_COLOR_NAMES,
+  agentIconSchema,
+  agentColorSchema,
+  agentFileSchema,
+  agentSummarySchema,
+  agentScopeSchema,
+  agentDiagnosticSchema,
+  type AgentIcon,
+  type AgentColor,
+  type AgentFile,
+  type AgentSummary,
+  type AgentScope,
+  type AgentDiagnostic,
+};
 
-/** Categorical identity colors — Okabe-Ito-anchored, theme-tuned in the kit's
- *  tokens. Brass is deliberately absent: an agent never dresses as the system. */
-export const AGENT_COLOR_NAMES = [
-  'slate',
-  'sky',
-  'blue',
-  'teal',
-  'green',
-  'mauve',
-  'violet',
-  'coral',
-] as const;
-export const AgentColorSchema = z.enum(AGENT_COLOR_NAMES).catch('slate');
-export type AgentColor = z.infer<typeof AgentColorSchema>;
+export const AgentListSchema = z.array(agentSummarySchema);
 
-/** An agent (= a Role, SPEC CON-1) as the console lists it. Mock today, shaped
- *  like the future `listRoles` read so the swap is a data-source change. `scope`
- *  is the personal-vs-project split: project agents live committed in `.coa/`
- *  (shared via git); personal agents are user-level, outside the repo. */
-export const AgentSummarySchema = z.object({
-  ref: z.string(),
-  name: z.string(),
-  icon: AgentIconSchema.default('bot'),
-  color: AgentColorSchema.default('slate'),
-  scope: z.enum(['project', 'personal']),
-  model: z.string().optional(),
-  /** The backend of the chosen model (set when a model is picked from the merged list); absent ⇒ default. */
-  provider: z.string().optional(),
-  /** The agent's faithful reasoning config; absent ⇒ the backend/SDK default depth. */
-  reasoning: claudeReasoningSchema.optional(),
-  /** The registry roles this agent runs as (`listRoles` ids); absent/empty ⇒ the
-   *  permissive baseline floor (no role restriction). Drives the `roles` sent to
-   *  `createSession`. */
-  roles: z.array(z.string()).optional(),
-  /** Opt-in packages the user added on top of the role's (`listPackages` ids). */
-  packageIds: z.array(z.string()).optional(),
-  /** Default packages the user turned off (authoritative over inclusion, like the resolver's). */
-  exclude: z.array(z.string()).optional(),
-});
-export type AgentSummary = z.infer<typeof AgentSummarySchema>;
-
-export const AgentListSchema = z.array(AgentSummarySchema);
-
-/** The floor: what an agents file parses to when missing/corrupt/invalid.
+/** The floor: what an agents list parses to when missing/corrupt/invalid.
  *  (matches `parseSettings`'s full-defaults-on-any-issue posture). */
 export const DEFAULT_AGENT_LIST: AgentSummary[] = [];
 
-/** Collapse agents sharing a `ref` (the identity/React key) to the first occurrence.
- *  The ref must be unique; a past creation bug could persist two agents under one ref,
- *  which renders as duplicate keys and cannot be individually deleted — reading dedupes
- *  so a corrupted store self-heals on the next load. */
-function dedupeByRef(agents: AgentSummary[]): AgentSummary[] {
-  const seen = new Set<string>();
-  return agents.filter((a) => {
-    if (seen.has(a.ref)) return false;
-    seen.add(a.ref);
-    return true;
-  });
-}
-
-/** Parse a persisted agents blob; any invalid blob (or `undefined`) yields an
- *  empty list so the console boots to the clean "No agents yet" empty state —
- *  never to `MOCK_AGENTS`, never throwing. Degrades icon/color/scope via their
- *  own `.catch` defaults. */
+/** Parse the daemon's `listAgents` payload at the edge; any invalid payload
+ *  degrades to the empty floor so the console boots to "No agents yet" — never to
+ *  a mock, never throwing. The daemon guarantees unique refs across the merged
+ *  built-in/personal/project scopes, so no client-side dedupe is needed here. */
 export function parseAgents(raw: unknown): AgentSummary[] {
   const parsed = AgentListSchema.safeParse(raw ?? []);
-  return parsed.success ? dedupeByRef(parsed.data) : DEFAULT_AGENT_LIST;
+  return parsed.success ? parsed.data : DEFAULT_AGENT_LIST;
+}
+
+/** The daemon's full `listAgents` envelope: the merged agent list PLUS any load
+ *  diagnostics (a duplicate ref, an invalid file, a file that tries to name its own
+ *  ref) — reported, never swallowed. `saveAgent`/`deleteAgent` widen it further; the
+ *  IPC boundary and the renderer both validate against this same shape so neither
+ *  can drift into trusting a bare array again. */
+export const ListAgentsResultSchema = z.object({
+  agents: AgentListSchema,
+  diagnostics: z.array(agentDiagnosticSchema),
+});
+export type ListAgentsResult = z.infer<typeof ListAgentsResultSchema>;
+
+/** The floor for the full envelope: both halves empty. */
+export const DEFAULT_LIST_AGENTS_RESULT: ListAgentsResult = {
+  agents: DEFAULT_AGENT_LIST,
+  diagnostics: [],
+};
+
+/** Parse the daemon's `listAgents` envelope at the edge — the list AND its
+ *  diagnostics, so a malformed or duplicated agent file surfaces as a reason
+ *  instead of the agent just silently not being there. An invalid payload degrades
+ *  both halves to their empty floor, matching `parseAgents`'s posture. */
+export function parseAgentsResult(raw: unknown): ListAgentsResult {
+  const parsed = ListAgentsResultSchema.safeParse(raw);
+  return parsed.success ? parsed.data : DEFAULT_LIST_AGENTS_RESULT;
 }
 
 /** A conversation session pointer. Every session is bound to exactly one agent
@@ -132,29 +115,6 @@ export const SessionSummarySchema = z.object({
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
 export const SessionListSchema = z.array(SessionSummarySchema);
-
-/** The persisted-user-agents file shape: a self-describing version + the list.
- *  The list is the authoritative agent catalogue; a missing/corrupt/unknown-version
- *  blob is rejected (the caller degrades to the empty floor, like `parseSettings`). */
-export const PersistedAgentsSchema = z.object({
-  schema_version: z.number().int().min(1).max(1).default(1),
-  agents: AgentListSchema.default([]),
-});
-export type PersistedAgents = z.infer<typeof PersistedAgentsSchema>;
-
-/** Parse a persisted-agents file blob; `undefined`/corrupt data **or** a version
- *  other than 1 yields `undefined` (caller degrades to `DEFAULT_AGENT_LIST`) —
- *  this is the quarantine posture, matching the WAL reader's "refuse to start
- *  on an unknown version, never silently downgrade" rule. */
-export function parsePersistedAgents(raw: unknown): AgentSummary[] | undefined {
-  // Quarantine requires an explicit, recognized envelope: a missing file (`undefined`),
-  // a non-object, or an object with no `schema_version` at all is rejected rather than
-  // silently defaulted to an empty list. Only a present-but-unknown version (or otherwise
-  // invalid blob) is what the schema's `min(1).max(1)` then rejects.
-  if (raw === null || typeof raw !== 'object' || !('schema_version' in raw)) return undefined;
-  const parsed = PersistedAgentsSchema.safeParse(raw);
-  return parsed.success ? dedupeByRef(parsed.data.agents) : undefined;
-}
 
 /** The agent-assembly catalogue the console picker reads — the real `listRoles`/
  *  `listPackages` wire shapes, re-exported from M0 so the edge validates the

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
   AgentColor,
+  AgentDiagnostic,
   AgentIcon,
   AgentSummary,
   ClaudeReasoning,
@@ -237,14 +238,18 @@ function IdentityPicker({
   label,
   onIconChange,
   onColorChange,
+  readOnly = false,
 }: {
   icon: AgentIcon;
   color: AgentColor;
   label: string;
   onIconChange: (icon: AgentIcon) => void;
   onColorChange: (color: AgentColor) => void;
+  /** A built-in agent ships in code — its glyph is a fact, not a field. */
+  readOnly?: boolean;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  if (readOnly) return <AgentGlyph icon={icon} color={color} size="lg" />;
   return (
     <PopoverCard
       open={open}
@@ -329,10 +334,13 @@ function InlineEditName({
   value,
   label,
   onCommit,
+  readOnly = false,
 }: {
   value: string;
   label: string;
   onCommit: (next: string) => void;
+  /** A built-in agent ships in code — its name is a fact, not a field. */
+  readOnly?: boolean;
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -354,6 +362,10 @@ function InlineEditName({
     settledRef.current = true;
     setEditing(false);
   };
+
+  if (readOnly) {
+    return <span className={cx(NAME_FACE, 'border-transparent')}>{value}</span>;
+  }
 
   if (editing) {
     return (
@@ -390,6 +402,85 @@ function InlineEditName({
     >
       <span className="truncate">{value}</span>
       <span className="flex-none text-s7 opacity-0 group-hover:opacity-100">
+        <Icon name="edit" size="sm" />
+      </span>
+    </button>
+  );
+}
+
+/** The description's display/edit face — secondary prose, not the bold name face
+ *  (`NAME_FACE`); same click-to-edit contract as `InlineEditName` otherwise. */
+const DESCRIPTION_FACE = 'w-full min-w-0 rounded-r2 border px-1.5 py-0.5 text-sec leading-5 text-s9';
+
+/** What a parent agent reads to choose between agents (SPEC CON-1) — the one field
+ *  this whole change exists to add a UI for. Click-to-edit like `InlineEditName`,
+ *  styled as secondary prose. The schema requires it non-empty (`min(1)`); an
+ *  emptied draft reverts to the last good value on commit rather than sending a
+ *  write the daemon would refuse — the same "degrade, don't throw an opaque RPC
+ *  error" posture `InlineEditName` already takes for an emptied name. */
+function DescriptionField({
+  value,
+  onCommit,
+  readOnly = false,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  /** A built-in agent ships in code — its description is a fact, not a field. */
+  readOnly?: boolean;
+}): React.JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const settledRef = useRef(false);
+
+  const commit = (): void => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    const next = draft.trim();
+    if (next !== '' && next !== value) onCommit(next);
+    setEditing(false);
+  };
+  const cancel = (): void => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    setEditing(false);
+  };
+
+  if (readOnly) {
+    return <p className={cx(DESCRIPTION_FACE, 'border-transparent px-0')}>{value}</p>;
+  }
+
+  if (editing) {
+    return (
+      <TextInput
+        autoFocus
+        value={draft}
+        onChange={setDraft}
+        aria-label="Agent description"
+        placeholder="What this agent is for."
+        onCommit={commit}
+        onBlur={commit}
+        onCancel={cancel}
+        skin={cx(DESCRIPTION_FACE, 'slip border-s5 bg-s1 outline-none focus:border-s7')}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Edit agent description: ${value}`}
+      onClick={() => {
+        settledRef.current = false;
+        setDraft(value);
+        setEditing(true);
+      }}
+      className={cx(
+        DESCRIPTION_FACE,
+        'slip group -mx-1.5 flex w-[calc(100%+0.75rem)] cursor-pointer items-start gap-2 border-transparent text-left hover:bg-s2',
+      )}
+    >
+      <span className="min-w-0 flex-1 truncate">{value}</span>
+      <span className="flex-none pt-0.5 text-s7 opacity-0 group-hover:opacity-100">
         <Icon name="edit" size="sm" />
       </span>
     </button>
@@ -438,6 +529,10 @@ function AgentList({
   const filtered = vm.agents.filter((a) => matchesAgent(a, query, vm.roles));
   const isPinned = (a: AgentSummary): boolean => vm.pinned.includes(a.ref);
   const pinned = filtered.filter(isPinned);
+  // Built-in agents ship in code — every project has them, so they read as the fixed
+  // baseline, listed right after whatever the user pinned. Without their own group
+  // they matched neither `project` nor `personal` and rendered nowhere at all.
+  const builtin = filtered.filter((a) => a.scope === 'builtin' && !isPinned(a));
   const project = filtered.filter((a) => a.scope === 'project' && !isPinned(a));
   const personal = filtered.filter((a) => a.scope === 'personal' && !isPinned(a));
 
@@ -507,9 +602,27 @@ function AgentList({
                 ))}
               </div>
             )}
+            {builtin.length > 0 && (
+              <div role="group" aria-label="Built-in agents">
+                <CapsLabel className={cx('px-0 pb-1.5', pinned.length > 0 && 'pt-5')}>
+                  Built-in agents
+                </CapsLabel>
+                {builtin.map((a) => (
+                  <AgentRow
+                    key={a.ref}
+                    agent={a}
+                    selected={a.ref === vm.selected.ref}
+                    narrow={narrow}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </div>
+            )}
             {project.length > 0 && (
               <div role="group" aria-label="Project agents">
-                <CapsLabel className={cx('px-0 pb-1.5', pinned.length > 0 && 'pt-5')}>
+                <CapsLabel
+                  className={cx('px-0 pb-1.5', (pinned.length > 0 || builtin.length > 0) && 'pt-5')}
+                >
                   Project agents
                 </CapsLabel>
                 {project.map((a) => (
@@ -526,7 +639,10 @@ function AgentList({
             {personal.length > 0 && (
               <div role="group" aria-label="Personal agents">
                 <CapsLabel
-                  className={cx('px-0 pb-1.5', (pinned.length > 0 || project.length > 0) && 'pt-5')}
+                  className={cx(
+                    'px-0 pb-1.5',
+                    (pinned.length > 0 || builtin.length > 0 || project.length > 0) && 'pt-5',
+                  )}
                 >
                   Personal agents
                 </CapsLabel>
@@ -601,16 +717,34 @@ function RunsOnField({
   agent,
   models,
   onChange,
+  readOnly = false,
 }: {
   agent: AgentSummary;
   models: ModelDescriptor[];
   onChange: (patch: Partial<Omit<AgentSummary, 'ref'>>) => void;
+  /** A built-in agent ships in code — its model is a fact, not a field. */
+  readOnly?: boolean;
 }): React.JSX.Element {
   const selectedModel = models.find((m) => m.id === agent.model);
   const harness = harnessOf(selectedModel?.provider ?? agent.provider);
   const mark = harness === 'claude-code' ? CLAUDE_MARK : COA_MARK;
   const reasoningOptions = effortOptions(selectedModel);
   const reasoningVal = reasoningValue(clampReasoning(agent.reasoning, selectedModel));
+
+  if (readOnly) {
+    return (
+      <div className="flex items-center gap-2">
+        <Tooltip label={harnessBlurb(harness)} side="top">
+          <span tabIndex={0} className="slip flex flex-none rounded-r1">
+            <BrandMark spec={mark} size={16} />
+          </span>
+        </Tooltip>
+        <span className="text-code text-s9">
+          {selectedModel?.displayName ?? agent.model ?? 'Default model'}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-start gap-2">
@@ -671,15 +805,19 @@ function RolesSection({
   agent,
   roles,
   onChange,
+  readOnly = false,
 }: {
   agent: AgentSummary;
   roles: RoleSummary[];
   onChange: (patch: Partial<Omit<AgentSummary, 'ref'>>) => void;
+  /** A built-in agent ships in code — its roles are a fact, not a set to edit. */
+  readOnly?: boolean;
 }): React.JSX.Element {
   const selectedIds = agent.roles ?? [];
   const selected = roles.filter((r) => selectedIds.includes(r.id));
 
   const toggle = (id: string): void => {
+    if (readOnly) return;
     onChange({
       roles: selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id],
     });
@@ -690,17 +828,19 @@ function RolesSection({
       label="Roles"
       count={selected.length}
       footer={
-        <AddPicker
-          label="Add Role"
-          placeholder="Filter roles…"
-          items={roles.map((r) => ({
-            id: r.id,
-            name: r.name,
-            membership: selectedIds.includes(r.id) ? 'added' : 'available',
-            ...(r.description !== '' ? { description: r.description } : {}),
-          }))}
-          onToggle={toggle}
-        />
+        readOnly ? undefined : (
+          <AddPicker
+            label="Add Role"
+            placeholder="Filter roles…"
+            items={roles.map((r) => ({
+              id: r.id,
+              name: r.name,
+              membership: selectedIds.includes(r.id) ? 'added' : 'available',
+              ...(r.description !== '' ? { description: r.description } : {}),
+            }))}
+            onToggle={toggle}
+          />
+        )
       }
     >
       <div data-row-grid className={ROW_GRID}>
@@ -741,11 +881,14 @@ function ContextSection({
   packages,
   roles,
   onChange,
+  readOnly = false,
 }: {
   agent: AgentSummary;
   packages: PackageSummary[];
   roles: RoleSummary[];
   onChange: (patch: Partial<Omit<AgentSummary, 'ref'>>) => void;
+  /** A built-in agent ships in code — its context is a fact, not a set to edit. */
+  readOnly?: boolean;
 }): React.JSX.Element {
   const included = includedPackageIds(packages, roles, agent);
   const excludedIds = (agent.exclude ?? []).filter((id) => !included.has(id));
@@ -759,22 +902,29 @@ function ContextSection({
     }))
     .sort((x, y) => MEMBERSHIP_RANK[x.membership] - MEMBERSHIP_RANK[y.membership]);
 
+  const toggle = (id: string): void => {
+    if (readOnly) return;
+    onChange(togglePackage(packages, roles, agent, id));
+  };
+
   return (
     <Panel
       label="Context"
       count={included.size}
       footer={
-        <AddPicker
-          label="Add Context"
-          placeholder="Filter packages…"
-          items={packages.map((p) => ({
-            id: p.id,
-            name: p.name,
-            membership: packageMembership(packages, roles, agent, p.id),
-            ...(p.description !== '' ? { description: p.description } : {}),
-          }))}
-          onToggle={(id) => onChange(togglePackage(packages, roles, agent, id))}
-        />
+        readOnly ? undefined : (
+          <AddPicker
+            label="Add Context"
+            placeholder="Filter packages…"
+            items={packages.map((p) => ({
+              id: p.id,
+              name: p.name,
+              membership: packageMembership(packages, roles, agent, p.id),
+              ...(p.description !== '' ? { description: p.description } : {}),
+            }))}
+            onToggle={toggle}
+          />
+        )
       }
     >
       <div data-row-grid className={ROW_GRID}>
@@ -789,7 +939,7 @@ function ContextSection({
                 : {})}
               membership={membership}
               {...(source !== undefined ? { meta: capitalize(source) } : {})}
-              onToggle={() => onChange(togglePackage(packages, roles, agent, id))}
+              onToggle={() => toggle(id)}
             />
           );
         })}
@@ -897,6 +1047,10 @@ function ReachSection({
  *  name. */
 function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): React.JSX.Element {
   const a = vm.selected;
+  // A built-in agent ships in code (no file backs it) — the daemon refuses a
+  // save/delete against it, so the editor renders it read-only rather than
+  // offering controls that would silently do nothing.
+  const readOnly = a.scope === 'builtin';
   const selectedRoles = vm.roles.filter((r) => (a.roles ?? []).includes(r.id));
   const pinned = vm.pinned.includes(a.ref);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -925,17 +1079,26 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
             label={a.name}
             onIconChange={(icon) => vm.updateAgent(a.ref, { icon })}
             onColorChange={(color) => vm.updateAgent(a.ref, { color })}
+            readOnly={readOnly}
           />
           <div className="flex min-w-0 flex-1 flex-col gap-1 pt-0.5">
             <InlineEditName
               value={a.name}
               label="Agent name"
               onCommit={(name) => vm.updateAgent(a.ref, { name })}
+              readOnly={readOnly}
             />
             <div className="flex items-center gap-2">
-              <Pill>{a.scope === 'project' ? 'Project' : 'Personal'}</Pill>
+              <Pill>
+                {a.scope === 'builtin' ? 'Built-in' : a.scope === 'project' ? 'Project' : 'Personal'}
+              </Pill>
               <span className="font-mono text-meta text-s7">{a.ref}</span>
             </div>
+            <DescriptionField
+              value={a.description}
+              onCommit={(description) => vm.updateAgent(a.ref, { description })}
+              readOnly={readOnly}
+            />
           </div>
           {/* The pin is the indicator AND the control that changes it. That's legal where
               a bare indicator wouldn't be: a control may render while it is off, so the
@@ -960,22 +1123,33 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
               <MenuItem onClick={() => vm.togglePinAgent(a.ref)}>
                 {pinned ? 'Unpin' : 'Pin'}
               </MenuItem>
-              <MenuItem onClick={() => vm.createAgent(a.scope)}>Duplicate</MenuItem>
-              <MenuItem
-                onClick={() =>
-                  vm.updateAgent(a.ref, { scope: a.scope === 'project' ? 'personal' : 'project' })
-                }
-              >
-                {a.scope === 'project' ? 'Move to Personal' : 'Move to Project'}
+              {/* Duplicating a built-in has nowhere to write TO except a real scope —
+                  it seeds a project agent rather than trying to "duplicate" a definition
+                  that has no file of its own. */}
+              <MenuItem onClick={() => vm.createAgent(a.scope === 'builtin' ? 'project' : a.scope)}>
+                Duplicate
               </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  setDeleteDraft('');
-                  setConfirmingDelete(true);
-                }}
-              >
-                <span className="text-crit">Delete…</span>
-              </MenuItem>
+              {/* A built-in has no file to move — the menu offers only what the daemon
+                  can actually do. */}
+              {!readOnly && (
+                <MenuItem
+                  onClick={() =>
+                    vm.updateAgent(a.ref, { scope: a.scope === 'project' ? 'personal' : 'project' })
+                  }
+                >
+                  {a.scope === 'project' ? 'Move to Personal' : 'Move to Project'}
+                </MenuItem>
+              )}
+              {!readOnly && (
+                <MenuItem
+                  onClick={() => {
+                    setDeleteDraft('');
+                    setConfirmingDelete(true);
+                  }}
+                >
+                  <span className="text-crit">Delete…</span>
+                </MenuItem>
+              )}
             </RowMenu>
           </div>
         </div>
@@ -998,6 +1172,7 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
                 agent={a}
                 models={vm.models}
                 onChange={(patch) => vm.updateAgent(a.ref, patch)}
+                readOnly={readOnly}
               />
             </Panel>
           </div>
@@ -1008,6 +1183,7 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
                 agent={a}
                 roles={vm.roles}
                 onChange={(patch) => vm.updateAgent(a.ref, patch)}
+                readOnly={readOnly}
               />
             )}
 
@@ -1017,6 +1193,7 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
                 packages={vm.packages}
                 roles={selectedRoles}
                 onChange={(patch) => vm.updateAgent(a.ref, patch)}
+                readOnly={readOnly}
               />
             )}
           </div>
@@ -1194,6 +1371,40 @@ function ReadyAgents({
   );
 }
 
+/** One load problem the daemon's registry reported (a duplicate ref, an invalid
+ *  file, a file that tries to name its own ref) — reported, never swallowed, so a
+ *  user with a broken agent file can find out why it's missing instead of it just
+ *  not showing up. Kept to one line per problem (the affected ref/scope + a short
+ *  reason) rather than becoming its own diagnostics view. */
+function diagnosticReason(problem: AgentDiagnostic['problem']): string {
+  switch (problem) {
+    case 'duplicate-ref':
+      return 'duplicate ref';
+    case 'invalid':
+      return 'invalid file';
+    case 'ref-in-file':
+      return 'ref field ignored';
+  }
+}
+
+function AgentDiagnosticsBanner({
+  diagnostics,
+}: {
+  diagnostics: AgentDiagnostic[];
+}): React.JSX.Element | null {
+  if (diagnostics.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1 border-b border-s3 px-5 py-2.5">
+      {diagnostics.map((d) => (
+        <InlineMessage key={`${d.scope}/${d.ref}/${d.problem}`} tone="warning" className="text-code">
+          <span className="font-mono">{d.ref}</span> ({d.scope}) — {diagnosticReason(d.problem)}:{' '}
+          {d.detail}
+        </InlineMessage>
+      ))}
+    </div>
+  );
+}
+
 /** State-fed surface: computes the vm from console state and renders the master–detail
  *  agents editor. Master–detail at width; the SAME two components stack into a
  *  drill-down when the pane is narrow (the auth-surface pattern). */
@@ -1220,6 +1431,7 @@ export function AgentsSurface({ state }: { state: ConsoleState }): React.JSX.Ele
 
   return (
     <div ref={hostRef} className="flex min-h-0 flex-1 flex-col">
+      <AgentDiagnosticsBanner diagnostics={state.data.agentDiagnostics} />
       {vm.status === 'loading' && <SkeletonLines widths={['w-40', 'w-64', 'w-52']} />}
       {vm.status === 'error' && <SurfaceError message={vm.message} />}
       {vm.status === 'empty' && (

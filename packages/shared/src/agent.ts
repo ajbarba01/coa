@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { claudeReasoningSchema } from './config.js';
 import { pieceSchema } from './piece.js';
 
 /**
@@ -70,3 +71,60 @@ export const packageSummarySchema = z.object({
   mcpServers: z.array(z.string()).optional(),
 });
 export type PackageSummary = z.infer<typeof packageSummarySchema>;
+
+/**
+ * An agent definition — the reusable object a parent names when it dispatches.
+ * Distinct from {@link Role}: a role is a composition of packages, an agent is a
+ * named, described, model-bound selection over roles and packages.
+ *
+ * `ref` and `scope` are deliberately NOT file fields. The filename stem is the ref
+ * and the directory is the scope, so a definition cannot disagree with where it
+ * lives, and two files in one scope cannot claim the same ref.
+ */
+
+export const AGENT_ICON_NAMES = [
+  'bot', 'hammer', 'wrench', 'flask', 'shield', 'book', 'bug', 'search',
+  'pen', 'branch', 'terminal', 'database', 'layers', 'eye', 'compass', 'sparkles',
+] as const;
+export const agentIconSchema = z.enum(AGENT_ICON_NAMES).catch('bot');
+export type AgentIcon = z.infer<typeof agentIconSchema>;
+
+export const AGENT_COLOR_NAMES = [
+  'slate', 'sky', 'blue', 'teal', 'green', 'mauve', 'violet', 'coral',
+] as const;
+export const agentColorSchema = z.enum(AGENT_COLOR_NAMES).catch('slate');
+export type AgentColor = z.infer<typeof agentColorSchema>;
+
+export const agentFileSchema = z.object({
+  name: z.string().min(1),
+  /** What this agent is for. Required: it is what a parent reads to decide. */
+  description: z.string().min(1),
+  icon: agentIconSchema.default('bot'),
+  color: agentColorSchema.default('slate'),
+  model: z.string().optional(),
+  provider: z.string().optional(),
+  reasoning: claudeReasoningSchema.optional(),
+  roles: z.array(z.string()).optional(),
+  packageIds: z.array(z.string()).optional(),
+  exclude: z.array(z.string()).optional(),
+});
+export type AgentFile = z.infer<typeof agentFileSchema>;
+
+export const agentScopeSchema = z.enum(['builtin', 'personal', 'project']);
+export type AgentScope = z.infer<typeof agentScopeSchema>;
+
+export const agentSummarySchema = agentFileSchema.extend({
+  ref: z.string().min(1),
+  scope: agentScopeSchema,
+});
+export type AgentSummary = z.infer<typeof agentSummarySchema>;
+
+/** A load problem, surfaced rather than swallowed — never a silent pick. */
+export const agentDiagnosticSchema = z.object({
+  scope: agentScopeSchema,
+  ref: z.string(),
+  path: z.string(),
+  problem: z.enum(['invalid', 'duplicate-ref', 'ref-in-file']),
+  detail: z.string(),
+});
+export type AgentDiagnostic = z.infer<typeof agentDiagnosticSchema>;

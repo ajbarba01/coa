@@ -19,6 +19,7 @@ import { MOCK_AGENTS } from './mockAgents.js';
 import { PKGS } from './resolvedSet.test.js';
 import { publishConsoleState, useConsoleState } from '../shell/consoleStore.js';
 import type {
+  AgentDiagnostic,
   AgentSummary,
   ModelDescriptor,
   PackageSummary,
@@ -110,23 +111,18 @@ describe('modelPickerLabel', () => {
 });
 
 describe('modelPickerOptions', () => {
-  it('sorts an interleaved model list into one contiguous run per harness (exactly two group headers, never fragmented)', () => {
+  it('sorts an interleaved model list into one contiguous run per backend (one group header each, never fragmented)', () => {
     const claudeA: ModelDescriptor = { id: 'opus', provider: 'claude' };
     const deepseek: ModelDescriptor = { id: 'ds-v4', provider: 'deepseek' };
     const claudeB: ModelDescriptor = { id: 'sonnet', provider: 'claude' };
     const longcat: ModelDescriptor = { id: 'LongCat-2.0', provider: 'longcat' };
     const options = modelPickerOptions([claudeA, deepseek, claudeB, longcat], undefined);
-    expect(options.map((o) => o.group)).toEqual([
-      'Claude Code',
-      'Claude Code',
-      'coa scaffold',
-      'coa scaffold',
-    ]);
+    expect(options.map((o) => o.group)).toEqual(['Claude', 'Claude', 'DeepSeek', 'LongCat']);
     const transitions = options.filter((o, i) => i === 0 || o.group !== options[i - 1]!.group);
-    expect(transitions).toHaveLength(2);
+    expect(transitions).toHaveLength(3);
   });
 
-  it('keeps each harness’s models in their original relative order (a stable sort, not a re-sort within the harness)', () => {
+  it('keeps each backend’s models in their original relative order (a stable sort, not a re-sort within the backend)', () => {
     const sonnet: ModelDescriptor = { id: 'sonnet', provider: 'claude' };
     const deepseek: ModelDescriptor = { id: 'ds-v4', provider: 'deepseek' };
     const opus: ModelDescriptor = { id: 'opus', provider: 'claude' };
@@ -440,6 +436,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/order-check',
       name: 'order-check',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -456,6 +453,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/x',
       name: 'x',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -486,6 +484,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/x',
       name: 'x',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -504,6 +503,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/x',
       name: 'x',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -547,6 +547,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/x',
       name: 'x',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -564,6 +565,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/permissive',
       name: 'permissive',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -597,6 +599,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/scoped',
       name: 'scoped',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -640,6 +643,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/scoped',
       name: 'scoped',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -682,6 +686,7 @@ describe('AgentsSurface', () => {
     const agent: AgentSummary = {
       ref: 'roles/x',
       name: 'x',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -697,13 +702,19 @@ describe('AgentsSurface', () => {
         })}
       />,
     );
-    expect(screen.getByRole('img', { name: 'Claude' })).toBeInTheDocument();
+    // Two different questions, both answered by Claude's logo here: the HARNESS mark
+    // beside the field (what runs it), and the BACKEND mark on the picker's trigger
+    // (where the model comes from).
+    const marks = screen.getAllByRole('img', { name: 'Claude' });
+    expect(marks.some((m) => m.closest('[tabindex]') !== null)).toBe(true);
+    expect(marks.some((m) => m.closest('[role="combobox"]') !== null)).toBe(true);
   });
 
   it('marks a pure-API model with coa’s own scaffold mark, not a vendor logo', () => {
     const agent: AgentSummary = {
       ref: 'roles/x',
       name: 'x',
+      description: 'd',
       icon: 'bot',
       color: 'slate',
       scope: 'project',
@@ -721,6 +732,152 @@ describe('AgentsSurface', () => {
       />,
     );
     expect(screen.getByRole('img', { name: 'coa' })).toBeInTheDocument();
+  });
+});
+
+describe('AgentsSurface — a built-in agent is read-only', () => {
+  // A built-in agent ships in code (no file backs it) — the daemon refuses a
+  // save/delete against it, so the editor renders it read-only.
+  const BUILTIN_AGENT: AgentSummary = {
+    ref: 'general-purpose',
+    name: 'General purpose',
+    description: 'A general worker.',
+    icon: 'bot',
+    color: 'slate',
+    scope: 'builtin',
+  };
+
+  it('shows the Built-in badge and renders the name with no rename affordance', () => {
+    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    expect(screen.getByText('Built-in')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Rename Agent name/ })).not.toBeInTheDocument();
+    // Shows in both its list row and the (only) editor's heading — never zero.
+    expect(screen.getAllByText('General purpose').length).toBeGreaterThan(0);
+  });
+
+  it('omits the icon/color popover trigger', () => {
+    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    expect(screen.queryByRole('button', { name: /change icon and color/ })).not.toBeInTheDocument();
+  });
+
+  it('omits the Delete and Move menu items', async () => {
+    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
+    expect(screen.queryByRole('button', { name: 'Delete…' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Move to/ })).not.toBeInTheDocument();
+  });
+
+  it('duplicating a built-in seeds a project agent, not a "builtin"-scoped one', async () => {
+    const createAgent = vi.fn();
+    render(
+      <AgentsSurface
+        state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] }, {}, { createAgent })}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Duplicate' }));
+    expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
+  });
+
+  it('renders the description as plain text, with no edit affordance', () => {
+    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    expect(screen.getByText('A general worker.')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Edit agent description/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  // Regression guard: FINDING 1 was that `AgentList` only ever built a `pinned`,
+  // `project`, and `personal` group — a `scope: 'builtin'` agent matched none of
+  // them and rendered nowhere in a list that had ANY other agent in it. A fixture
+  // seeded with ONLY the builtin agent can't catch this (it trivially becomes
+  // `agents[0]`, the editor's arbitrary fallback) — this one seeds a MIXED list.
+  it('shows up in its own group alongside project/personal agents, and stays selectable', async () => {
+    const selectAgent = vi.fn();
+    render(
+      <AgentsSurface
+        state={stateWith(
+          { status: 'ok', value: [MOCK_AGENTS[0]!, BUILTIN_AGENT] },
+          {},
+          { selectAgent },
+        )}
+      />,
+    );
+    expect(screen.getByRole('group', { name: 'Built-in agents' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Project agents' })).toBeInTheDocument();
+    const list = screen.getByRole('list', { name: 'Agents' });
+    const row = within(list).getByRole('button', { name: BUILTIN_AGENT.name });
+    expect(row).toBeInTheDocument();
+    await userEvent.click(row);
+    expect(selectAgent).toHaveBeenCalledExactlyOnceWith(BUILTIN_AGENT.ref);
+  });
+});
+
+describe('AgentsSurface — the description field', () => {
+  it('renders the current description', () => {
+    render(<AgentsSurface state={readyState()} />);
+    expect(screen.getByText(MOCK_AGENTS[0]!.description)).toBeInTheDocument();
+  });
+
+  it('edits in place, committing on Enter', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    await userEvent.click(
+      screen.getByRole('button', { name: /Edit agent description/ }),
+    );
+    const input = screen.getByRole('textbox', { name: 'Agent description' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Finds and fixes flaky tests.{Enter}');
+    expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
+      description: 'Finds and fixes flaky tests.',
+    });
+  });
+
+  it('degrades an emptied draft by reverting instead of saving — the schema requires a non-empty description', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    await userEvent.click(
+      screen.getByRole('button', { name: /Edit agent description/ }),
+    );
+    const input = screen.getByRole('textbox', { name: 'Agent description' });
+    await userEvent.clear(input);
+    await userEvent.click(document.body);
+    expect(updateAgent).not.toHaveBeenCalled();
+    // Reverted to the original text, not left blank.
+    expect(screen.getByText(MOCK_AGENTS[0]!.description)).toBeInTheDocument();
+  });
+});
+
+describe('AgentsSurface — load diagnostics', () => {
+  it('surfaces a diagnostic reaching the renderer, naming the affected ref and the problem', () => {
+    const diagnostic: AgentDiagnostic = {
+      scope: 'personal',
+      ref: 'broken-agent',
+      path: '/home/.coa/agents/broken-agent.yaml',
+      problem: 'invalid',
+      detail: 'missing required field: description',
+    };
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: { agents: { status: 'ok', value: MOCK_AGENTS }, agentDiagnostics: [diagnostic] },
+        })}
+      />,
+    );
+    expect(screen.getByText(/broken-agent/)).toBeInTheDocument();
+    expect(screen.getByText(/invalid file/)).toBeInTheDocument();
+    expect(screen.getByText(/missing required field: description/)).toBeInTheDocument();
+  });
+
+  it('renders nothing when there are no diagnostics', () => {
+    render(
+      <AgentsSurface
+        state={makeState({
+          data: { agents: { status: 'ok', value: MOCK_AGENTS }, agentDiagnostics: [] },
+        })}
+      />,
+    );
+    expect(screen.queryByText(/invalid file/)).not.toBeInTheDocument();
   });
 });
 

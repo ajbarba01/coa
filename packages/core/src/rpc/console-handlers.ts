@@ -1,4 +1,12 @@
-import type { FeedView, PackageSummary, RoleSummary } from '@coa/shared';
+import {
+  agentFileSchema,
+  type AgentDiagnostic,
+  type AgentFile,
+  type AgentSummary,
+  type FeedView,
+  type PackageSummary,
+  type RoleSummary,
+} from '@coa/shared';
 import { z } from 'zod';
 import type { Checkpoint } from '../checkpoint.js';
 import type { CapState } from '../governance/cost-cap.js';
@@ -67,5 +75,38 @@ export function buildRegistryHandlers(ports: RegistryReadPorts): RpcHandlers {
   return {
     listRoles: rpcMethod(noParams, () => ports.listRoles()),
     listPackages: rpcMethod(noParams, () => ports.listPackages()),
+  };
+}
+
+/**
+ * The agent-definition registry verbs. Reads are always fresh (an agent authored
+ * elsewhere is visible without a restart); writes are validated at this edge, so a
+ * definition can never reach disk without the `description` delegation depends on.
+ * `builtin` is not a writable scope — those definitions ship in code.
+ */
+export interface AgentRegistryPorts {
+  listAgents: () => { agents: AgentSummary[]; diagnostics: AgentDiagnostic[] };
+  saveAgent: (ref: string, file: AgentFile, scope: 'personal' | 'project') => void;
+  deleteAgent: (ref: string, scope: 'personal' | 'project') => boolean;
+}
+
+const writableScope = z.enum(['personal', 'project']);
+const saveAgentParams = z.object({
+  ref: z.string().min(1),
+  scope: writableScope,
+  file: agentFileSchema,
+});
+const deleteAgentParams = z.object({ ref: z.string().min(1), scope: writableScope });
+
+export function buildAgentRegistryHandlers(ports: AgentRegistryPorts): RpcHandlers {
+  return {
+    listAgents: rpcMethod(noParams, () => ports.listAgents()),
+    saveAgent: rpcMethod(saveAgentParams, (p) => {
+      ports.saveAgent(p.ref, p.file, p.scope);
+      return { ok: true };
+    }),
+    deleteAgent: rpcMethod(deleteAgentParams, (p) => ({
+      removed: ports.deleteAgent(p.ref, p.scope),
+    })),
   };
 }

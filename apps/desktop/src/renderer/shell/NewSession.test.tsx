@@ -13,6 +13,11 @@ const AGENTS = [
   { ref: 'roles/doc', name: 'docs', icon: 'bot', color: 'slate', scope: 'user' as const },
 ];
 
+const AGENTS_WITH_BUILTIN = [
+  ...AGENTS,
+  { ref: 'general-purpose', name: 'General purpose', icon: 'bot', color: 'slate', scope: 'builtin' as const },
+];
+
 beforeEach(() => {
   useShell.setState(initialShell, true);
   useConsoleState.setState(undefined, true);
@@ -48,5 +53,15 @@ describe('NewSessionDialog', () => {
     });
     expect(screen.getByText('docs')).toBeInTheDocument();
     expect(screen.queryByText('dev')).toBeNull();
+  });
+
+  it('labels a built-in agent "Built-in", not "Personal" — the three-scope picker', () => {
+    publishConsoleState(makeState({ data: { agents: { status: 'ok', value: AGENTS_WITH_BUILTIN } } }));
+    useShell.getState().setNewSessionOpen(true);
+    render(<NewSessionDialog />);
+
+    expect(screen.getByText('Built-in')).toBeInTheDocument();
+    expect(screen.getByText('Project')).toBeInTheDocument();
+    expect(screen.getByText('Personal')).toBeInTheDocument();
   });
 });

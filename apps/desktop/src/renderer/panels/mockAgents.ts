@@ -8,6 +8,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
   {
     ref: 'roles/reviewer',
     name: 'reviewer',
+    description: 'Reviews pull requests for correctness and style.',
     icon: 'search',
     color: 'teal',
     scope: 'project',
@@ -17,6 +18,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
   {
     ref: 'roles/tdd-implementer',
     name: 'tdd-implementer',
+    description: 'Implements features test-first.',
     icon: 'flask',
     color: 'blue',
     scope: 'project',
@@ -26,6 +28,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
   {
     ref: 'roles/refactor-bot',
     name: 'refactor-bot',
+    description: 'Refactors code without changing behavior.',
     icon: 'wrench',
     color: 'coral',
     scope: 'project',
@@ -35,6 +38,7 @@ export const MOCK_AGENTS: AgentSummary[] = [
   {
     ref: 'personal/scratch-helper',
     name: 'scratch-helper',
+    description: 'A personal scratch agent for quick one-offs.',
     icon: 'sparkles',
     color: 'violet',
     scope: 'personal',

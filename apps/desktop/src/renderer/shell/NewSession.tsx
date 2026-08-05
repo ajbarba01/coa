@@ -1,4 +1,4 @@
-import { useDismissLayer } from '@coa/console-kit';
+import { useModalLayer } from '@coa/console-kit';
 import { Command } from 'cmdk';
 import { useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
@@ -9,7 +9,9 @@ import { useShell } from './store.js';
 export function NewSessionDialog(): React.JSX.Element | null {
   const open = useShell((s) => s.newSessionOpen);
   const setOpen = useShell((s) => s.setNewSessionOpen);
-  useDismissLayer(open, () => setOpen(false));
+  // Same modal ground as the palette: ctrl+t summons it with no pointer press, so
+  // superseding whatever menu was open has to be this surface's own doing.
+  useModalLayer(open, () => setOpen(false));
   const state = useConsoleState((s) => s);
 
   if (!open || state === undefined) return null;
@@ -44,7 +46,7 @@ export function NewSessionDialog(): React.JSX.Element | null {
               <span className="glyph">›</span>
               {a.name}
               <span className="ml-auto font-mono text-meta text-s6">
-                {a.scope === 'project' ? 'Project' : 'Personal'}
+                {a.scope === 'builtin' ? 'Built-in' : a.scope === 'project' ? 'Project' : 'Personal'}
               </span>
             </Command.Item>
           ))}

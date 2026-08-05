@@ -1,10 +1,11 @@
-import type { FeedView, PackageSummary, RoleSummary } from '@coa/shared';
+import type { AgentFile, AgentScope, AgentSummary, FeedView, PackageSummary, RoleSummary } from '@coa/shared';
 import { RPC_ERROR } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
 import type { CapState } from '../governance/cost-cap.js';
 import type { DecisionEntry } from '../governance/governance-log.js';
 import { dispatch } from './router.js';
 import {
+  buildAgentRegistryHandlers,
   buildConsoleHandlers,
   buildRegistryHandlers,
   type ConsoleReadPorts,
@@ -173,5 +174,84 @@ describe('registry handlers — the agent-assembly catalogue verbs', () => {
   it('registers exactly the catalogue verb set', () => {
     const handlers = buildRegistryHandlers({ listRoles: () => [], listPackages: () => [] });
     expect(Object.keys(handlers).sort()).toEqual(['listPackages', 'listRoles']);
+  });
+});
+
+describe('buildAgentRegistryHandlers', () => {
+  function ports() {
+    const saved: { ref: string; file: AgentFile; scope: string }[] = [];
+    const agents: AgentSummary[] = [
+      { ref: 'explorer', scope: 'builtin' as AgentScope, name: 'Explorer', description: 'reads', icon: 'search', color: 'sky' },
+    ];
+    return {
+      saved,
+      agents,
+      handlers: buildAgentRegistryHandlers({
+        listAgents: () => ({ agents, diagnostics: [] }),
+        saveAgent: (ref, file, scope) => saved.push({ ref, file, scope }),
+        deleteAgent: () => true,
+      }),
+    };
+  }
+
+  it('listAgents returns the merged set and its diagnostics', async () => {
+    const { handlers, agents } = ports();
+
+    const res = await dispatch({ jsonrpc: '2.0', id: 1, method: 'listAgents' }, handlers);
+
+    expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: { agents, diagnostics: [] } });
+  });
+
+  it('saveAgent validates the file before writing', async () => {
+    const { handlers, saved } = ports();
+
+    await dispatch(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'saveAgent',
+        params: {
+          ref: 'reviewer',
+          scope: 'personal',
+          file: { name: 'Reviewer', description: 'reviews' },
+        },
+      },
+      handlers,
+    );
+
+    expect(saved[0]?.ref).toBe('reviewer');
+    expect(saved[0]?.file.description).toBe('reviews');
+  });
+
+  it('saveAgent rejects a definition with no description as invalidParams', async () => {
+    const { handlers } = ports();
+
+    const res = await dispatch(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'saveAgent',
+        params: { ref: 'bad', scope: 'personal', file: { name: 'Bad' } },
+      },
+      handlers,
+    );
+
+    expect(res).toMatchObject({ error: { code: RPC_ERROR.invalidParams } });
+  });
+
+  it('saveAgent refuses the builtin scope as invalidParams', async () => {
+    const { handlers } = ports();
+
+    const res = await dispatch(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'saveAgent',
+        params: { ref: 'x', scope: 'builtin', file: { name: 'X', description: 'x' } },
+      },
+      handlers,
+    );
+
+    expect(res).toMatchObject({ error: { code: RPC_ERROR.invalidParams } });
   });
 });

@@ -7,10 +7,9 @@ import {
   startConsole,
   type ConsoleBridge,
 } from './console.js';
-import type { AgentSummary, TurnFrame } from '@coa/console-viewmodel';
+import type { AgentFile, AgentSummary, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleState } from './panels/state.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
-import { deserializeAgents, serializeAgents } from '../main/agentsStore.js';
 
 /** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
 const FAKE_SESSIONS = [
@@ -38,8 +37,9 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     listModels: vi.fn().mockResolvedValue([]),
     listRoles: vi.fn().mockResolvedValue([]),
     listPackages: vi.fn().mockResolvedValue([]),
-    listAgents: vi.fn().mockResolvedValue(MOCK_AGENTS),
-    writeAgents: vi.fn().mockResolvedValue(undefined),
+    listAgents: vi.fn().mockResolvedValue({ agents: MOCK_AGENTS, diagnostics: [] }),
+    saveAgent: vi.fn().mockResolvedValue({ ok: true }),
+    deleteAgent: vi.fn().mockResolvedValue({ removed: true }),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
     reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
@@ -768,48 +768,165 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().ui.rawMode).toBe(true);
   });
 
-  it('creates an agent, persists it through the bridge, and rehydrates it on a simulated reload', async () => {
-    // Shared on-disk `agents.json` blob standing in for ~/coa/agents.json across two
-    // mounts (the second simulates a reload). Modeled through the REAL main-process store
-    // serialization + a JSON hop, so the write and read shapes must actually agree — the
-    // wipe-on-reload bug was a write-envelope / read-bare-array mismatch that a plain
-    // in-memory array fake could never catch.
-    const disk: { raw: unknown } = { raw: undefined };
-    const readDisk = async (): Promise<AgentSummary[]> =>
-      deserializeAgents(disk.raw === undefined ? undefined : JSON.parse(JSON.stringify(disk.raw)));
-    const writeDisk = async (agents: AgentSummary[]): Promise<void> => {
-      disk.raw = JSON.parse(JSON.stringify(serializeAgents(agents)));
+  it('surfaces the listAgents envelope’s load diagnostics into state — a broken agent file is reported, not silently absent', async () => {
+    const diagnostic = {
+      scope: 'personal' as const,
+      ref: 'scratch',
+      path: '/home/.coa/agents/scratch.yaml',
+      problem: 'invalid' as const,
+      detail: 'missing required field: description',
     };
-
-    // --- Bridge 1 (first launch): empty file, every mutation writes the new list ---
-    const bridge1 = fakeBridge({
-      listAgents: vi.fn().mockImplementation(readDisk),
-      writeAgents: vi.fn().mockImplementation(writeDisk),
+    const bridge = fakeBridge({
+      listAgents: vi.fn().mockResolvedValue({ agents: MOCK_AGENTS, diagnostics: [diagnostic] }),
     });
+    const { last } = await mount(bridge);
+
+    expect(last().data.agentDiagnostics).toEqual([diagnostic]);
+  });
+
+  it('creates an agent, persists it through saveAgent, and rehydrates it on a simulated reload', async () => {
+    // A minimal stand-in for the daemon's per-agent-file registry: `saveAgent` writes one
+    // entry, `listAgents` reads the whole map back. Shared across two bridges so the
+    // second mount simulates what a reload actually sees (there is no whole-list write
+    // anymore — each agent is its own file, written and read independently).
+    const disk = new Map<string, { scope: 'personal' | 'project'; file: AgentFile }>();
+    const readDisk = (): Promise<{ agents: AgentSummary[]; diagnostics: never[] }> =>
+      Promise.resolve({
+        agents: [...disk].map(([ref, { scope, file }]) => ({ ...file, ref, scope })),
+        diagnostics: [],
+      });
+    const saveAgent = vi
+      .fn()
+      .mockImplementation(
+        (p: { ref: string; scope: 'personal' | 'project'; file: AgentFile }) => {
+          disk.set(p.ref, { scope: p.scope, file: p.file });
+          return Promise.resolve({ ok: true });
+        },
+      );
+
+    // --- Bridge 1 (first launch): empty registry, create writes through to the daemon ---
+    const bridge1 = fakeBridge({ listAgents: vi.fn().mockImplementation(readDisk), saveAgent });
     const { last: last1 } = await mount(bridge1);
-    // Empty file => the "No agents yet" empty state's data (an empty ok list).
+    // Empty registry => the "No agents yet" empty state's data (an empty ok list).
     expect(last1().data.agents).toEqual({ status: 'ok', value: [] });
 
     last1().actions.createAgent('personal');
-    // The create mutates state now AND writes the new list through the bridge.
-    expect(bridge1.writeAgents).toHaveBeenCalled();
+    // The ref is bare — no scope prefix — since it's the filename the daemon writes
+    // (`~/.coa/agents/<ref>.yaml`); the scope is which directory it lands in, not part
+    // of the ref itself.
+    expect(saveAgent).toHaveBeenCalledWith({
+      ref: 'untitled-agent',
+      scope: 'personal',
+      file: expect.objectContaining({ name: 'untitled-agent' }),
+    });
     expect(last1().data.agents.status).toBe('ok');
     if (last1().data.agents.status === 'ok') {
       expect(last1().data.agents.value).toHaveLength(1);
-      expect(last1().data.agents.value[0]?.ref).toBe('personal/untitled-agent');
+      expect(last1().data.agents.value[0]?.ref).toBe('untitled-agent');
     }
 
-    // --- Bridge 2 (reload): seed from what bridge1 wrote; the agent must rehydrate ---
-    const bridge2 = fakeBridge({
-      listAgents: vi.fn().mockImplementation(readDisk),
-    });
+    // --- Bridge 2 (reload): the shared registry carries what bridge1 wrote; rehydrates ---
+    const bridge2 = fakeBridge({ listAgents: vi.fn().mockImplementation(readDisk) });
     const { last: last2 } = await mount(bridge2);
     expect(last2().data.agents.status).toBe('ok');
     if (last2().data.agents.status === 'ok') {
-      // No longer the empty state: the persisted agent rehydrated.
+      // No longer the empty state: the saved agent rehydrated.
       expect(last2().data.agents.value).toHaveLength(1);
-      expect(last2().data.agents.value[0]?.ref).toBe('personal/untitled-agent');
+      expect(last2().data.agents.value[0]?.ref).toBe('untitled-agent');
     }
+  });
+
+  it('updateAgent writes the merged agent through saveAgent at its current scope', async () => {
+    const saveAgent = vi.fn().mockResolvedValue({ ok: true });
+    const bridge = fakeBridge({ saveAgent });
+    const { last } = await mount(bridge);
+
+    // c1's agent is MOCK_AGENTS' 'roles/reviewer' (scope: 'project').
+    last().actions.updateAgent('roles/reviewer', { name: 'sec-reviewer' });
+
+    expect(saveAgent).toHaveBeenCalledWith({
+      ref: 'roles/reviewer',
+      scope: 'project',
+      file: expect.objectContaining({ name: 'sec-reviewer' }),
+    });
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.find((a) => a.ref === 'roles/reviewer')?.name).toBe('sec-reviewer');
+    }
+  });
+
+  it('updateAgent moving scope deletes the old file before writing the new one — otherwise the agent exists twice', async () => {
+    const saveAgent = vi.fn().mockResolvedValue({ ok: true });
+    const deleteAgent = vi.fn().mockResolvedValue({ removed: true });
+    const bridge = fakeBridge({ saveAgent, deleteAgent });
+    const { last } = await mount(bridge);
+
+    last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(deleteAgent).toHaveBeenCalledWith({ ref: 'roles/reviewer', scope: 'project' });
+    expect(saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ ref: 'roles/reviewer', scope: 'personal' }),
+    );
+  });
+
+  it('updateAgent refuses a builtin agent — it never reaches the bridge', async () => {
+    const saveAgent = vi.fn();
+    const bridge = fakeBridge({
+      listAgents: vi.fn().mockResolvedValue({
+        agents: [
+          { ref: 'general-purpose', name: 'General purpose', description: 'd', scope: 'builtin' },
+        ],
+        diagnostics: [],
+      }),
+      saveAgent,
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.updateAgent('general-purpose', { name: 'renamed' });
+
+    expect(saveAgent).not.toHaveBeenCalled();
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') expect(agents.value[0]?.name).toBe('General purpose');
+  });
+
+  it('deleteAgent proxies the agent’s own scope to the daemon delete', async () => {
+    const deleteAgent = vi.fn().mockResolvedValue({ removed: true });
+    const bridge = fakeBridge({ deleteAgent });
+    const { last } = await mount(bridge);
+
+    // MOCK_AGENTS' 'personal/scratch-helper' (scope: 'personal').
+    last().actions.deleteAgent('personal/scratch-helper');
+
+    expect(deleteAgent).toHaveBeenCalledWith({ ref: 'personal/scratch-helper', scope: 'personal' });
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.some((a) => a.ref === 'personal/scratch-helper')).toBe(false);
+    }
+  });
+
+  it('deleteAgent refuses a builtin agent — it never reaches the bridge', async () => {
+    const deleteAgent = vi.fn();
+    const bridge = fakeBridge({
+      listAgents: vi.fn().mockResolvedValue({
+        agents: [
+          { ref: 'general-purpose', name: 'General purpose', description: 'd', scope: 'builtin' },
+        ],
+        diagnostics: [],
+      }),
+      deleteAgent,
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.deleteAgent('general-purpose');
+
+    expect(deleteAgent).not.toHaveBeenCalled();
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') expect(agents.value).toHaveLength(1);
   });
 
   it('hydrate() recovers reads that failed at cold boot (daemon not up yet when startConsole fired them)', async () => {
@@ -825,11 +942,20 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
         .fn()
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
         .mockResolvedValue(FAKE_SESSIONS),
+      // listAgents is a daemon proxy too — it must recover through hydrate() the same way
+      // accounts/sessions do, not stay stuck at the empty floor for the whole session.
+      listAgents: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockResolvedValue({ agents: MOCK_AGENTS, diagnostics: [] }),
     });
     const { last, controller } = await mount(bridge);
 
     expect(last().data.accounts.status).toBe('error');
     expect(last().data.sessions.status).toBe('error');
+    // listAgents' rejection degrades to the empty floor (never a mock, never an error status —
+    // see initAgents' doc comment), so the only observable symptom pre-hydrate is an empty list.
+    expect(last().data.agents).toEqual({ status: 'ok', value: [] });
     expect(last().ui.activeSessionId).toBeUndefined();
 
     await controller.hydrate();
@@ -839,6 +965,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       value: { accounts: [{ label: 'acct', provider: 'claude' }], active: {} },
     });
     expect(last().data.sessions).toEqual({ status: 'ok', value: FAKE_SESSIONS });
+    expect(last().data.agents).toEqual({ status: 'ok', value: MOCK_AGENTS });
     // Sessions recovered from error ⇒ initSessions re-ran and opened the newest session.
     expect(last().ui.activeSessionId).toBe('c1');
   });

@@ -1,10 +1,11 @@
 import {
-  parseAgents,
+  parseAgentsResult,
   pushSchema,
   pushToViewFrames,
   reasoningValue,
   reconcileStreaming,
   reloadToViewFrames,
+  type AgentFile,
   type AgentSummary,
   type AuthView,
   type CapState,
@@ -69,10 +70,15 @@ export interface ConsoleBridge {
   // The agent-assembly catalogue for the role/package picker.
   listRoles(): Promise<RoleSummary[]>;
   listPackages(): Promise<PackageSummary[]>;
-  // Agents — console-local identity + launch selection, persisted to the
-  // per-user `agents.json`. Degrades to empty list when missing/corrupt.
+  // Agents — the daemon-owned registry (built-in ∪ personal ∪ project). Degrades to
+  // an empty list when the read fails/is malformed.
   listAgents(): Promise<unknown>;
-  writeAgents(agents: unknown): Promise<void>;
+  saveAgent(params: { ref: string; scope: 'personal' | 'project'; file: AgentFile }): Promise<{
+    ok: boolean;
+  }>;
+  deleteAgent(params: { ref: string; scope: 'personal' | 'project' }): Promise<{
+    removed: boolean;
+  }>;
   // Persistent sessions (R-7): the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
@@ -291,12 +297,12 @@ export async function startConsole(
     steerSession: () => {},
   });
   state = { ...state, ui: { ...state.ui, settings } };
-  // Agents are persisted. On bootstrap the in-memory copy is hydrated
-  // from the per-user `agents.json` via listAgents; an empty/missing file degrades
+  // Agents are daemon-owned (built-in ∪ personal ∪ project). On bootstrap the
+  // in-memory copy is hydrated from `listAgents`; a failed/malformed read degrades
   // to the "No agents yet" empty state — never to a mock. Sessions + their turns are
   // REAL: loaded from the daemon's R-7 store below (`initSessions`). The mutable
-  // copy backs the now-durable agent edits (rename, recolor, pin) that persist
-  // via writeAgents.
+  // copy backs the now-durable agent edits (rename, recolor, pin, description) that
+  // persist per-agent via `saveAgent`/`deleteAgent`.
   let agents: AgentSummary[] = [];
   let sessions: SessionSummary[] = [];
 
@@ -385,16 +391,45 @@ export async function startConsole(
     push();
   };
 
-  // ---- Agents — console-local identity + launch selection, persisted
-  // to the per-user `agents.json` via listAgents on startup / writeAgents after every
-  // mutation. Empty/missing file degrades to the "No agents yet" empty state. ----
+  // ---- Agents — the daemon-owned registry (built-in ∪ personal ∪ project, project
+  // winning). Hydrated from `listAgents` on startup; every edit writes THROUGH to
+  // the daemon via `saveAgent`/`deleteAgent` (one file per agent — there is no
+  // whole-list write anymore). A `builtin` agent ships in code: it is never a
+  // save/delete target, so `updateAgent`/`deleteAgent` refuse it (defense in depth —
+  // the panel also renders it read-only). ----
 
-  /** Publish the in-memory agent list + persist it (optimistic UI + durable write). */
-  const pushAgents = (persist = true): void => {
+  const NEW_AGENT_DESCRIPTION = 'What this agent is for.';
+
+  /** The on-disk shape (`AgentFile`) a summary carries once `ref`/`scope` are
+   *  stripped back off — the inverse of what `listAgents` hands back. */
+  function toAgentFile(a: AgentSummary): AgentFile {
+    const { ref: _ref, scope: _scope, ...file } = a;
+    return file;
+  }
+
+  /** Publish the in-memory agent list (optimistic UI over the durable per-agent write). */
+  const pushAgents = (): void => {
     state = { ...state, data: { ...state.data, agents: { status: 'ok', value: [...agents] } } };
     push();
-    if (persist) void bridge.writeAgents(agents);
   };
+
+  /** Re-read the daemon's registry after a mutation settles — the authoritative
+   *  reconcile over the optimistic local edit `pushAgents` already rendered. This is
+   *  also the ONLY path load diagnostics travel: a save/delete can itself introduce
+   *  a duplicate ref (another window/process wrote the same file concurrently), so
+   *  re-fetching rather than trusting the optimistic copy is what keeps
+   *  `agentDiagnostics` honest. Failures are swallowed here — the optimistic state
+   *  already rendered, and the next successful read/mount reconciles it. */
+  async function refreshAgents(): Promise<void> {
+    const loaded = await settle(async () => parseAgentsResult(await bridge.listAgents()));
+    if (loaded.status !== 'ok') return;
+    agents = loaded.value.agents;
+    state = {
+      ...state,
+      data: { ...state.data, agentDiagnostics: loaded.value.diagnostics },
+    };
+    pushAgents();
+  }
 
   const selectAgent = (ref: string): void => {
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
@@ -402,23 +437,52 @@ export async function startConsole(
   };
 
   const createAgent = (scope: 'project' | 'personal'): void => {
-    const { ref, name } = nextAgentIdentity(agents, scope);
-    agents = [...agents, { ref, name, icon: 'bot', color: 'slate', scope }];
+    const { ref, name } = nextAgentIdentity(agents);
+    const file: AgentFile = {
+      name,
+      description: NEW_AGENT_DESCRIPTION,
+      icon: 'bot',
+      color: 'slate',
+    };
+    agents = [...agents, { ...file, ref, scope }];
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     pushAgents();
+    void bridge.saveAgent({ ref, scope, file }).then(() => refreshAgents());
   };
 
   const updateAgent = (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>): void => {
-    agents = agents.map((a) => (a.ref === ref ? { ...a, ...patch } : a));
+    const current = agents.find((a) => a.ref === ref);
+    if (current === undefined || current.scope === 'builtin') return;
+    const prevScope = current.scope;
+    const next = { ...current, ...patch };
+    // A patched `scope` only ever arrives as 'personal'/'project' (the editor's move
+    // action) — anything else (or none) keeps the agent where it already lives.
+    const nextScope: 'personal' | 'project' =
+      next.scope === 'personal' || next.scope === 'project' ? next.scope : prevScope;
+    agents = agents.map((a) => (a.ref === ref ? { ...next, scope: nextScope } : a));
     pushAgents();
+    const file = toAgentFile({ ...next, scope: nextScope });
+    // A scope move leaves a file behind at the old location unless the old one is
+    // removed first — otherwise the agent exists twice (a stale duplicate the next
+    // `listAgents` would show).
+    const written =
+      nextScope === prevScope
+        ? bridge.saveAgent({ ref, scope: nextScope, file })
+        : bridge
+            .deleteAgent({ ref, scope: prevScope })
+            .then(() => bridge.saveAgent({ ref, scope: nextScope, file }));
+    void written.then(() => refreshAgents());
   };
 
   const deleteAgent = (ref: string): void => {
+    const current = agents.find((a) => a.ref === ref);
+    if (current === undefined || current.scope === 'builtin') return;
     agents = agents.filter((a) => a.ref !== ref);
     const ui = { ...state.ui };
     if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
     state = { ...state, ui };
     pushAgents();
+    void bridge.deleteAgent({ ref, scope: current.scope }).then(() => refreshAgents());
   };
 
   const togglePinAgent = (ref: string): void => {
@@ -834,13 +898,17 @@ export async function startConsole(
       });
   };
 
-  /** On launch, hydrate the in-memory agent list from the persisted `agents.json`
-   *  via the `listAgents` IPC verb; an empty/missing/corrupt file degrades to the
-   *  "No agents yet" empty state (never to a mock). */
+  /** On launch, hydrate the in-memory agent list (and its load diagnostics) from
+   *  the daemon's registry via the `listAgents` IPC verb; a failed/malformed read
+   *  degrades both to their empty floor — the "No agents yet" empty state, never a
+   *  mock, and no phantom diagnostics. */
   async function initAgents(): Promise<void> {
-    const loaded = await settle(async () => parseAgents(await bridge.listAgents()));
-    if (loaded.status === 'ok') agents = loaded.value;
-    pushAgents(false);
+    const loaded = await settle(async () => parseAgentsResult(await bridge.listAgents()));
+    if (loaded.status === 'ok') {
+      agents = loaded.value.agents;
+      state = { ...state, data: { ...state.data, agentDiagnostics: loaded.value.diagnostics } };
+    }
+    pushAgents();
   }
 
   /** On launch, load the project's sessions and open the most recent one. */
@@ -913,7 +981,7 @@ export async function startConsole(
    */
   async function hydrate(): Promise<void> {
     await bootLoads;
-    await Promise.all([loadAccounts(), loadModels(), loadCatalogue()]);
+    await Promise.all([loadAccounts(), loadModels(), loadCatalogue(), initAgents()]);
     if (state.data.sessions.status !== 'ok' || state.ui.activeSessionId === undefined) {
       await initSessions();
     }

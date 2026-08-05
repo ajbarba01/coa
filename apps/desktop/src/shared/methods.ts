@@ -1,10 +1,11 @@
 import {
   AccountsSchema,
   ActiveAccountSchema,
-  AgentListSchema,
+  agentFileSchema,
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
+  ListAgentsResultSchema,
   LoginSnapshotSchema,
   ModelCatalogViewSchema,
   PackageSummaryListSchema,
@@ -40,6 +41,20 @@ export const NewSessionParamsSchema = z.object({
 });
 export const NewSessionResultSchema = z.object({ id: z.string() });
 const OkResultSchema = z.object({ ok: z.boolean() });
+
+/** Only `personal`/`project` are writable scopes — `builtin` definitions ship in
+ *  code and are never a save/delete target. */
+const WritableAgentScopeSchema = z.enum(['personal', 'project']);
+export const SaveAgentParamsSchema = z.object({
+  ref: z.string(),
+  scope: WritableAgentScopeSchema,
+  file: agentFileSchema,
+});
+export const DeleteAgentParamsSchema = z.object({
+  ref: z.string(),
+  scope: WritableAgentScopeSchema,
+});
+export const DeleteAgentResultSchema = z.object({ removed: z.boolean() });
 
 /** Reveal-in-editor (a tool card's path/match click). `sessionId` names whose worktree
  *  root the (worktree-relative) path resolves against; `line` jumps VS Code to the line.
@@ -183,7 +198,8 @@ export type MethodName =
   | 'getSettings'
   | 'saveSettings'
   | 'listAgents'
-  | 'writeAgents'
+  | 'saveAgent'
+  | 'deleteAgent'
   | 'startLogin'
   | 'loginState'
   | 'submitLoginCode'
@@ -302,8 +318,17 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   saveLayout: { params: z.unknown(), result: z.void() },
   getSettings: { result: ConsoleSettingsSchema },
   saveSettings: { params: ConsoleSettingsSchema, result: z.void() },
-  listAgents: { result: AgentListSchema },
-  writeAgents: { params: AgentListSchema, result: z.void() },
+  /** The daemon's registered agents (built-in ∪ personal ∪ project) PLUS any load
+   *  diagnostics (duplicate ref, invalid file) — carried through to the renderer,
+   *  which surfaces them in the Agents panel rather than letting a broken agent
+   *  file just silently not show up. */
+  listAgents: { result: ListAgentsResultSchema },
+  /** Write one agent definition to `personal`/`project` — proxies the daemon
+   *  `saveAgent`. A `builtin` scope is refused by the daemon's own params schema. */
+  saveAgent: { params: SaveAgentParamsSchema, result: OkResultSchema },
+  /** Remove one agent definition — proxies the daemon `deleteAgent`. `removed` is
+   *  `false` when there was nothing to remove (a double delete is not an error). */
+  deleteAgent: { params: DeleteAgentParamsSchema, result: DeleteAgentResultSchema },
   startLogin: {
     params: z.object({ email: z.string(), credentialId: z.string().optional() }),
     result: LoginSnapshotSchema,

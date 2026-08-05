@@ -80,7 +80,10 @@ core/src/
   compiler/      M5 — compile(pieces) -> NeutralConfig (its own service boundary)
   workbench/     M6 — the Mutate producer + mcp/ tool surface
   governance/    M7 — cost ledger, provenance, decision log, policy
-  session/ rpc/  M8 — daemon host, session/worktree managers, JSON-RPC server
+  session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
+    agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store
+    builtin-agents.ts the two code-shipped definitions (general-purpose, explorer)
+  rpc/           M8 — JSON-RPC server plumbing
   auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
 ```
 
@@ -179,8 +182,11 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 - **In-flight specs & plans** → `docs/superpowers/{specs,plans}/` — **transient**: they exist to get a change
   built, graduate their durable decisions to ADRs + ROADMAP, then are deleted (git history is the archive). The
   directory reappears when the next plan is written.
+- **Agent definitions** → `.coa/agents/` scopes. Personal agents live in `~/.coa/agents/` (one YAML file per
+  agent, filename stem as the ref); project agents live in `<repo>/.coa/agents/` (committed to git). The daemon
+  loads both scopes plus two built-in definitions, with project definitions winning on ref collision.
 - **Throwaway scripts / scratch output** → the session scratchpad, **never committed**.
 
 ---
 
-_Last reviewed: 2026-07-10_
+_Last reviewed: 2026-08-04_

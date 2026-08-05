@@ -4,7 +4,9 @@ import { dirname, join } from 'node:path';
 import type { ModelDescriptor, RpcParams } from '@coa/shared';
 import { pushSchema } from '@coa/shared';
 import {
+  AgentRegistry,
   bindDaemon,
+  buildAgentRegistryHandlers,
   buildConversationHandlers,
   buildDaemonConsoleHandlers,
   buildModelHandlers,
@@ -232,6 +234,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     listRoles: () => roleSummaries(),
     listPackages: () => packageSummaries(),
   });
+  // The agent-definition registry: built-in ∪ ~/.coa/agents ∪ <repo>/.coa/agents.
+  const agentRegistry = new AgentRegistry(homedir(), process.cwd());
+  const agentHandlers = buildAgentRegistryHandlers({
+    listAgents: () => agentRegistry.list(),
+    saveAgent: (ref, file, scope) => agentRegistry.save(ref, file, scope),
+    deleteAgent: (ref, scope) => agentRegistry.remove(ref, scope),
+  });
   // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
   const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
   const conversationHandlers = buildConversationHandlers(store);
@@ -275,6 +284,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   bound.server = await bindDaemon(path, (connection) => ({
     ...consoleHandlers,
     ...registryHandlers,
+    ...agentHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
     ...buildSessionHandlers(deps, connection, store, registry),

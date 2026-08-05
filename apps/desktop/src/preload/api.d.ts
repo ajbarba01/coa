@@ -1,6 +1,7 @@
 import type {
   Accounts,
   ActiveAccount,
+  AgentFile,
   AuthView,
   CapState,
   Checkpoint,
@@ -124,12 +125,24 @@ declare global {
       /** The edit menu's actions — main drives Chromium's native editing commands on the
        *  focused element (the renderer never touches the clipboard itself). */
       editCommand(params: { command: 'cut' | 'copy' | 'paste' | 'selectAll' }): Promise<void>;
-      /** The user's persisted agents (console-local identity + launch selection — the
-       *  `roles/<id>` / `personal/<id>` ref is authoritative, icon/color/model/reasoning
-       *  round-trip). Missing/corrupt file degrades to an empty list ("No agents yet"). */
+      /** The daemon's registered agents (built-in ∪ personal ∪ project, project
+       *  winning) — proxies the daemon `listAgents`. A `builtin` agent ships in code
+       *  and is never a `saveAgent`/`deleteAgent` target. Typed `unknown`: re-validated
+       *  at the renderer edge with Zod rather than trusted structurally. */
       listAgents(): Promise<unknown>;
-      /** Persist the full, mutated agent list (console-validated `Agent[]`). */
-      writeAgents(params: unknown): Promise<void>;
+      /** Write one agent definition — proxies the daemon `saveAgent`. Only
+       *  `personal`/`project` are writable scopes. */
+      saveAgent(params: {
+        ref: string;
+        scope: 'personal' | 'project';
+        file: AgentFile;
+      }): Promise<{ ok: boolean }>;
+      /** Remove one agent definition — proxies the daemon `deleteAgent`. `removed` is
+       *  `false` when there was nothing to remove (a double delete is not an error). */
+      deleteAgent(params: {
+        ref: string;
+        scope: 'personal' | 'project';
+      }): Promise<{ removed: boolean }>;
       /** Kick off the driven-login flow (a fresh add, or a relogin against an
        *  existing credential) — proxies the daemon `startLogin`. */
       startLogin(params: { email: string; credentialId?: string }): Promise<LoginSnapshot>;

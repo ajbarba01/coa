@@ -1,4 +1,5 @@
 import type {
+  AgentDiagnostic,
   AgentSummary,
   CapState,
   Checkpoint,
@@ -34,8 +35,15 @@ export interface ConsoleData {
   timeline: Remote<Checkpoint[]>;
   accounts: Remote<AccountsInfo>;
   turns: Remote<TurnFrame[]>;
-  /** Mock today (no listRoles / session-list verbs yet); swapped via the registry. */
+  /** The daemon's registered agents (built-in ∪ personal ∪ project). */
   agents: Remote<AgentSummary[]>;
+  /** Load problems the daemon's registry reported alongside the list (a duplicate
+   *  ref, an invalid file) — surfaced so a broken agent file has a visible reason
+   *  instead of the agent just not being there. Not `Remote`: it rides the SAME
+   *  `listAgents` read as `agents` (there is no separate loading/error state for
+   *  it), and it degrades to `[]` on any read failure, same as `agents` degrading
+   *  to the empty list. */
+  agentDiagnostics: AgentDiagnostic[];
   sessions: Remote<SessionSummary[]>;
   /** The active account's available models + per-model reasoning capabilities (live, cached). */
   models: Remote<ModelDescriptor[]>;
@@ -153,6 +161,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       accounts: { status: 'loading' },
       turns: { status: 'loading' },
       agents: { status: 'loading' },
+      agentDiagnostics: [],
       sessions: { status: 'loading' },
       models: { status: 'loading' },
       roles: { status: 'loading' },
