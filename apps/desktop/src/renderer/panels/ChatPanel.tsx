@@ -678,7 +678,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               disabled={vm.activeSessionId === undefined}
               queued={queuedMessages}
               approval={vm.approval}
-              models={vm.models.map((m) => ({ id: m.id, label: modelPickerLabel(m) }))}
+              models={vm.models}
               currentModelId={vm.currentModelId}
               onPickModel={vm.onPickModel}
               effortOptions={vm.effortOptions}

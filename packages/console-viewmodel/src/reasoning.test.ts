@@ -10,6 +10,20 @@ describe('reasoning projection', () => {
     });
     expect(opts.map((o) => o.value)).toEqual(['off', 'low', 'high']);
   });
+  it('capitalizes the level labels, which arrive as bare wire values', () => {
+    const opts = effortOptions({
+      id: 'm',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'xhigh'],
+    });
+    // The VALUE is the wire token and must not move; only what a person reads changes.
+    expect(opts).toEqual([
+      { value: 'off', label: 'No thinking' },
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'xhigh', label: 'Xhigh' },
+    ]);
+  });
   it('returns no options when the model has no reasoning control at all', () => {
     expect(effortOptions({ id: 'm', supportsEffort: false })).toEqual([]);
     expect(effortOptions(undefined)).toEqual([]);

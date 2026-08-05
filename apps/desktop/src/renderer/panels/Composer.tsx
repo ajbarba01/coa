@@ -1,9 +1,11 @@
-import { Button, Icon, MenuItem, PopoverCard, StatusDot, cx } from '@coa/console-kit';
+import { Button, Icon, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
+import type { ModelDescriptor } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
 import type { ChatNotice } from './banners.js';
 import { ModelPicker } from './ModelPicker.js';
 import { NoticeLine } from './NoticeLine.js';
+import { ReasoningChip } from './ReasoningPicker.js';
 
 export interface QueuedMessage {
   id: string;
@@ -29,9 +31,10 @@ export interface ComposerProps {
   /** The gate waiting on you. While set, the composer wears the amber shimmer,
    *  ⏎ on an empty field approves, and typing redirects instead. */
   approval?: PendingApproval | undefined;
-  /** The real model seam (from the ChatVm): pre-labelled by the parent via
-   *  `modelPickerLabel`. */
-  models: { id: string; label: string }[];
+  /** The real model seam (from the ChatVm), passed WHOLE. Flattening it to id+label here
+   *  dropped each model's `provider`, which is what the picker groups and marks by — so
+   *  every backend resolved to the Claude default and the shelf's list said so. */
+  models: ModelDescriptor[];
   currentModelId?: string | undefined;
   onPickModel: (id: string) => void;
   /** The real reasoning-effort seam (console-viewmodel `effortOptions` /
@@ -336,17 +339,20 @@ export function Composer({
           <MicButton disabled={disabled} />
           <div className="flex-1" />
           <PermissionChip value={perm} onPick={setPerm} disabled={disabled} />
-          {/* The one model control, shared with the agent editor. The shelf has no room
-              for a ladder, so this variant names the stop on the trigger and keeps the
-              ladder in the popup's footer. */}
+          {/* The two axes of a turn, side by side and each its own control: WHICH model,
+              then how hard it thinks. Burying the second inside the first's popup made the
+              more frequent of the two the harder to reach. */}
           <ModelPicker
             variant="chip"
-            models={models.map((m) => ({ id: m.id, displayName: m.label }))}
+            models={models}
             value={currentModelId}
             onChange={onPickModel}
-            effortOptions={effortOptions}
-            effortValue={effortValue}
-            onEffortChange={onPickEffort}
+            disabled={disabled}
+          />
+          <ReasoningChip
+            options={effortOptions}
+            value={effortValue}
+            onChange={onPickEffort}
             disabled={disabled}
           />
           {!running ? (
@@ -363,28 +369,27 @@ export function Composer({
             <>
               {hasText && (
                 <>
-                  <Button onClick={queueMessage} title="Sends when the turn ends (⏎)">
-                    Queue
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={barge}
-                    title="Redirects the running turn now (⌥⏎)"
-                  >
-                    Barge In
-                  </Button>
+                  <Tooltip label="Sends when the turn ends" keys={['⏎']} side="top">
+                    <Button onClick={queueMessage}>Queue</Button>
+                  </Tooltip>
+                  <Tooltip label="Redirects the running turn now" keys={['⌥⏎']} side="top">
+                    <Button variant="outline" onClick={barge}>
+                      Barge In
+                    </Button>
+                  </Tooltip>
                 </>
               )}
-              <Button
-                variant="outline"
-                icon
-                aria-label="Stop the running turn"
-                title="Stop (esc)"
-                onClick={() => onStop?.()}
-                className="hover:border-crit/60 hover:text-crit"
-              >
-                ■
-              </Button>
+              <Tooltip label="Stop the running turn" keys={['esc']} side="top">
+                <Button
+                  variant="outline"
+                  icon
+                  aria-label="Stop the running turn"
+                  onClick={() => onStop?.()}
+                  className="hover:border-crit/60 hover:text-crit"
+                >
+                  ■
+                </Button>
+              </Tooltip>
             </>
           )}
         </div>
@@ -469,33 +474,45 @@ function AttachButton({
  *  shelf's final shape is already in place for whenever it lands. */
 function MicButton({ disabled = false }: { disabled?: boolean }): React.JSX.Element {
   return (
-    <button
-      type="button"
-      aria-label="Voice input"
-      title="Voice input is not available."
-      disabled
-      aria-disabled="true"
-      className={cx(
-        'flex h-7 w-7 cursor-default items-center justify-center rounded-r2 border border-s4 bg-s3 text-s6',
-        disabled && 'opacity-70',
-      )}
-    >
-      <Icon name="mic" />
-    </button>
+    // The tooltip rides a WRAPPER, not the button: a disabled control dispatches no
+    // pointer events, so a trigger on it would never open — and this control's entire
+    // job is to explain why it is disabled. (A native `title` did work here, which is
+    // exactly how easy it is to not notice the difference.)
+    <Tooltip label="Voice input (unavailable)" side="top">
+      <span className="flex">
+        <button
+          type="button"
+          aria-label="Voice input"
+          disabled
+          aria-disabled="true"
+          className={cx(
+            'flex h-7 w-7 cursor-default items-center justify-center rounded-r2 border border-s4 bg-s3 text-s6',
+            disabled && 'opacity-70',
+          )}
+        >
+          <Icon name="mic" />
+        </button>
+      </span>
+    </Tooltip>
   );
 }
 
 /** A composer chip that grows a floating card above itself. */
 function ChipMenu({
   chip,
-  title,
+  label,
+  hint,
   open,
   setOpen,
   disabled = false,
   children,
 }: {
   chip: string;
-  title: string;
+  /** The control's accessible name — the chip's own text is a VALUE, not a name. */
+  label: string;
+  /** What the control does, on hover. The kit's tooltip, never a native `title`: that one
+   *  is drawn by the OS outside the page, so no CSS can give it the console's skin. */
+  hint: string;
   open: boolean;
   setOpen: (o: boolean) => void;
   disabled?: boolean;
@@ -507,10 +524,11 @@ function ChipMenu({
       onOpenChange={(o) => {
         if (!disabled) setOpen(o);
       }}
+      tooltip={{ label: hint, side: 'top' }}
       trigger={
         <button
           type="button"
-          title={title}
+          aria-label={label}
           disabled={disabled}
           className={cx(
             'rounded-r2 px-2 py-1 font-mono text-meta',
@@ -545,7 +563,8 @@ function PermissionChip({
   return (
     <ChipMenu
       chip={`${current?.glyph ?? ''} ${current?.label ?? value}`}
-      title="Permission mode"
+      label="Permission mode"
+      hint="Permission mode"
       open={open}
       setOpen={setOpen}
       disabled={disabled}

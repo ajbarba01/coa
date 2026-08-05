@@ -124,6 +124,28 @@ export function useExclusivePopover(
   }, [active]);
 }
 
+/** Dismiss every transient overlay open right now — the one open menu/dropdown/popover,
+ *  and with it any sub-layer that menu is hosting. Exported because "what supersedes a
+ *  menu" is not a closed set: a modal does (see {@link useModalLayer}), and so would any
+ *  future surface that takes the screen without a pointer press to trigger the outside-
+ *  press that would otherwise have closed it. */
+export function dismissTransientLayers(): void {
+  openPopover?.close();
+}
+
+/** Register a MODAL while open: an Escape layer that also supersedes every transient
+ *  overlay beneath it. A dropdown deliberately portals ABOVE the modal z (a select inside
+ *  a dialog has to work), so a menu left open from whatever raised the dialog would float
+ *  over a card it has nothing to do with — the industry rule is that it is stale the
+ *  moment the dialog opens. Menus opened INSIDE the modal are unaffected: this fires as
+ *  the modal opens, not for as long as it stays open. */
+export function useModalLayer(active: boolean, onDismiss: () => void): void {
+  useDismissLayer(active, onDismiss);
+  useEffect(() => {
+    if (active) dismissTransientLayers();
+  }, [active]);
+}
+
 /** Register `onDismiss` as an Escape layer while `active` is true. Layers pop
  *  in reverse open order — a modal over search mode closes before the search. */
 export function useDismissLayer(active: boolean, onDismiss: () => void): void {

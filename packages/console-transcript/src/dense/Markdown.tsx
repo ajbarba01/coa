@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { cx } from '@coa/console-kit';
+import { Tooltip, cx } from '@coa/console-kit';
 import { CodeBlock } from './CodeBlock.js';
 
 export interface MarkdownProps {
@@ -43,16 +43,20 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          // The destination arrives on hover through the kit's tooltip, not a native
+          // `title` — that one is drawn by the OS outside the page, so it can never wear
+          // the console's skin, delay or placement.
           a: ({ href, children }) => (
-            <a
-              href={href ?? '#'}
-              target="_blank"
-              rel="noreferrer"
-              title={href}
-              className="slip cursor-pointer text-s11 underline decoration-s6 underline-offset-[3px] hover:text-s12 hover:decoration-s8"
-            >
-              {children}
-            </a>
+            <Tooltip label={href ?? ''} side="top">
+              <a
+                href={href ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="slip cursor-pointer text-s11 underline decoration-s6 underline-offset-[3px] hover:text-s12 hover:decoration-s8"
+              >
+                {children}
+              </a>
+            </Tooltip>
           ),
           // react-markdown wraps fenced code in its own <pre>; CodeBlock renders its
           // own <pre> too, so unwrap here to avoid nesting <pre> inside <pre>.

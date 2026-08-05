@@ -1,8 +1,14 @@
 import { cx } from '../cx.js';
 
+/** The floating option surface with NO padding of its own — for a popup whose regions run
+ *  edge to edge (a rail, a full-bleed header), which must reach the rounded ends. Split out
+ *  rather than overridden by the caller: both paddings would be emitted and the cascade
+ *  would settle it by value order, which is nobody's decision. */
+export const menuSurfaceFlush = 'overflow-hidden rounded-r3 border border-s5 bg-s3 shadow-float';
+
 /** The floating option surface — one skin for every popup (bespoke cards, Base UI
  *  popovers, the select). */
-export const menuSurface = 'overflow-hidden rounded-r3 border border-s5 bg-s3 py-1 shadow-float';
+export const menuSurface = `${menuSurfaceFlush} py-1`;
 
 export function MenuCard({
   className,

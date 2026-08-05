@@ -477,9 +477,9 @@ describe('raw + approval projection', () => {
     if (vm.status === 'ready') {
       expect(vm.effortOptions).toEqual([
         { value: 'off', label: 'No thinking' },
-        { value: 'low', label: 'low' },
-        { value: 'medium', label: 'medium' },
-        { value: 'high', label: 'high' },
+        { value: 'low', label: 'Low' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High' },
       ]);
       expect(vm.effortValue).toBe('off');
       vm.onPickEffort('high');
@@ -667,7 +667,7 @@ describe('ChatSurface states-first', () => {
     render(<ChatSurface state={state} />);
     // The reviewer session's agent default (sonnet) seeds the trigger.
     await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-    await userEvent.click(screen.getByRole('option', { name: /Claude · opus/ }));
+    await userEvent.click(screen.getByRole('option', { name: /opus/ }));
     expect(setSessionModel).toHaveBeenCalledWith('s-audit-auth', {
       model: 'opus',
       provider: 'claude',

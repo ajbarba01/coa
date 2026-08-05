@@ -2,7 +2,7 @@ import { Popover } from '@base-ui/react/popover';
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import { useRef } from 'react';
 import { cx } from '../cx.js';
-import { menuSurface } from './MenuCard.js';
+import { menuSurface, menuSurfaceFlush } from './MenuCard.js';
 import { TooltipSurface, type TooltipSpec } from './Tooltip.js';
 import { useDismissLayer, useExclusivePopover } from './layers.js';
 
@@ -19,6 +19,13 @@ export interface PopoverCardProps {
    *  still owns the open state; only the positioning moves. */
   anchorPoint?: { x: number; y: number } | undefined;
   className?: string;
+  /** Drop the surface's own vertical padding — for a popup whose children run edge to edge
+   *  and have to reach its rounded ends. Each region then carries its own padding. */
+  flush?: boolean;
+  /** What the popup should focus when it opens. Base UI's default is the first TABBABLE
+   *  element, which is a positional accident — a popup whose real entry point sits behind
+   *  some chrome (a filter input beside a rail of buttons) has to name it. */
+  initialFocus?: React.RefObject<HTMLElement | null>;
   /** Hover/focus detail on the trigger (icon-only chips) — the tooltip closes
    *  itself when the popover opens (Base UI's trigger-press reason). */
   tooltip?: TooltipSpec;
@@ -37,6 +44,8 @@ export function PopoverCard({
   sideOffset = 6,
   anchorPoint,
   className,
+  flush = false,
+  initialFocus,
   tooltip,
   children,
 }: PopoverCardProps): React.JSX.Element {
@@ -80,7 +89,11 @@ export function PopoverCard({
           {...(anchor === undefined ? {} : { anchor })}
           className="z-(--z-dropdown)"
         >
-          <Popover.Popup ref={popupRef} className={cx('slip-enter', menuSurface, className)}>
+          <Popover.Popup
+            ref={popupRef}
+            className={cx('slip-enter', flush ? menuSurfaceFlush : menuSurface, className)}
+            {...(initialFocus === undefined ? {} : { initialFocus })}
+          >
             {children}
           </Popover.Popup>
         </Popover.Positioner>

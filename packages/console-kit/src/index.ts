@@ -16,8 +16,10 @@ export { Spinner, type SpinnerProps } from './Spinner.js';
 export { StatusDot, type SessionStatus } from './StatusDot.js';
 export {
   useDismissLayer,
+  useModalLayer,
   useClickAway,
   useExclusivePopover,
+  dismissTransientLayers,
   hasOpenLayers,
 } from './overlay/layers.js';
 export { PanelResize } from './layout/PanelResize.js';
@@ -32,6 +34,8 @@ export {
   filterOptions,
   type ComboboxOption,
   type ComboboxProps,
+  type ComboboxRail,
+  type ComboboxRailItem,
 } from './inputs/Combobox.js';
 export { StepSlider, type StepSliderProps } from './inputs/StepSlider.js';
 export { Toggle, type ToggleProps } from './inputs/Toggle.js';

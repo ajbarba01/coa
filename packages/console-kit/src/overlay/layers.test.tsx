@@ -3,7 +3,13 @@ import { fireEvent, render, waitFor } from '@testing-library/react';
 import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { hasOpenLayers, useClickAway, useDismissLayer, useExclusivePopover } from './layers.js';
+import {
+  hasOpenLayers,
+  useClickAway,
+  useDismissLayer,
+  useExclusivePopover,
+  useModalLayer,
+} from './layers.js';
 
 function Layer({ name, onClose }: { name: string; onClose: () => void }): React.JSX.Element {
   useDismissLayer(true, onClose);
@@ -171,6 +177,62 @@ describe('useExclusivePopover', () => {
       </>,
     );
     expect(closeHost).toHaveBeenCalledTimes(1);
+  });
+});
+
+function Modal({ open, onClose }: { open: boolean; onClose: () => void }): React.JSX.Element {
+  useModalLayer(open, onClose);
+  return <div />;
+}
+
+describe('useModalLayer', () => {
+  it('opening a modal dismisses the transient overlay under it', () => {
+    const closeMenu = vi.fn();
+    const { rerender } = render(
+      <>
+        <Menu open onClose={closeMenu} />
+        <Modal open={false} onClose={vi.fn()} />
+      </>,
+    );
+    expect(closeMenu).not.toHaveBeenCalled();
+    rerender(
+      <>
+        <Menu open onClose={closeMenu} />
+        <Modal open onClose={vi.fn()} />
+      </>,
+    );
+    expect(closeMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a menu opened INSIDE it alone — superseding is what happens AS it opens', () => {
+    const closeMenu = vi.fn();
+    const { rerender } = render(
+      <>
+        <Modal open onClose={vi.fn()} />
+        <Menu open={false} onClose={closeMenu} />
+      </>,
+    );
+    rerender(
+      <>
+        <Modal open onClose={vi.fn()} />
+        <Menu open onClose={closeMenu} />
+      </>,
+    );
+    expect(closeMenu).not.toHaveBeenCalled();
+  });
+
+  it('is an Escape layer like any other, closing before whatever sits under it', () => {
+    const under = vi.fn();
+    const modal = vi.fn();
+    render(
+      <>
+        <Layer name="under" onClose={under} />
+        <Modal open onClose={modal} />
+      </>,
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(modal).toHaveBeenCalledTimes(1);
+    expect(under).not.toHaveBeenCalled();
   });
 });
 

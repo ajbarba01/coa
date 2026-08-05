@@ -2,11 +2,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ModelDescriptor } from '@coa/console-viewmodel';
 import { Composer, type ComposerProps, type PendingApproval } from './Composer.js';
 
-const MODELS = [
-  { id: 'sonnet', label: 'Sonnet 4.6' },
-  { id: 'opus', label: 'Opus 4.8' },
+const MODELS: ModelDescriptor[] = [
+  { id: 'sonnet', displayName: 'Sonnet', description: 'Sonnet 4.6 · balanced', provider: 'claude' },
+  { id: 'opus', displayName: 'Opus', description: 'Opus 4.8 · deep', provider: 'claude' },
+  { id: 'ds', displayName: 'V4 Flash', provider: 'deepseek' },
 ];
 const EFFORTS = [
   { value: 'low', label: 'Low' },
@@ -51,6 +53,48 @@ describe('Composer — resting', () => {
     const { container } = render(<Composer {...baseProps()} />);
     expect(container.querySelector('.rounded-r4')).toBeTruthy();
     expect(container.querySelector('.rounded-r3')).toBeNull();
+  });
+
+  it('hands the picker whole model descriptors, so a backend is not lost on the way to the shelf', async () => {
+    render(<Composer {...baseProps()} />);
+    await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+    // The shelf used to flatten each model to id+label, which stripped `provider` — so
+    // every model resolved to the Claude default and the whole list filed under one
+    // backend wearing one mark.
+    const row = screen.getByRole('option', { name: /V4 Flash/ });
+    expect(within(row).getByRole('img', { name: 'DeepSeek' })).toBeInTheDocument();
+    expect(within(screen.getByRole('listbox', { name: 'Model' })).getByText('DeepSeek')).toBeInTheDocument();
+  });
+
+  it('gives reasoning its own shelf control, off the model chip', async () => {
+    const onPickEffort = vi.fn();
+    render(<Composer {...baseProps({ onPickEffort })} />);
+    const model = screen.getByRole('combobox', { name: 'Model' });
+    expect(model).not.toHaveTextContent('High');
+    const reasoning = screen.getByRole('button', { name: 'Reasoning' });
+    expect(reasoning).toHaveTextContent('High');
+    await userEvent.click(reasoning);
+    const slider = screen.getByRole('slider', { name: 'Reasoning effort' });
+    slider.focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(onPickEffort).toHaveBeenCalledWith('low');
+  });
+
+  it('leaves the shelf free of native browser tooltips, which the kit cannot style or place', () => {
+    render(<Composer {...baseProps({ running: true, onStop: vi.fn(), approval: undefined })} />);
+    // `title` is the OS drawing a tooltip over the app: wrong skin, wrong delay, wrong
+    // position, and it cannot carry a keybind chip. Every hint goes through the kit's own.
+    const titled = [...document.querySelectorAll('[data-composer-shell] [title]')];
+    expect(titled.map((el) => el.getAttribute('title'))).toEqual([]);
+  });
+
+  it('names its three model-and-turn controls through the kit tooltip', async () => {
+    render(<Composer {...baseProps()} />);
+    for (const name of ['Permission mode', 'Model', 'Reasoning']) {
+      await userEvent.hover(screen.getByRole(name === 'Model' ? 'combobox' : 'button', { name }));
+      expect(await screen.findByRole('tooltip')).toBeInTheDocument();
+      await userEvent.unhover(screen.getByRole(name === 'Model' ? 'combobox' : 'button', { name }));
+    }
   });
 
   it('an emptied model list degrades to backend-default copy, never an empty menu', async () => {
@@ -134,14 +178,18 @@ describe('Composer — disabled', () => {
 });
 
 describe('Composer — mic', () => {
-  it('renders permanently disabled, and its title says it is unavailable', () => {
+  it('renders permanently disabled, and says on hover that it is unavailable', async () => {
     render(<Composer {...baseProps()} />);
     const mic = screen.getByRole('button', { name: /voice input/i });
     expect(mic).toBeDisabled();
     expect(mic).toHaveAttribute('aria-disabled', 'true');
     // The contract is that the control explains its own unavailability — not the
-    // exact wording, and never a promise that it is arriving (docs/UI.md).
-    expect(mic).toHaveAttribute('title', expect.stringMatching(/not available/i));
+    // exact wording, and never a promise that it is arriving (docs/UI.md). It says so
+    // through the kit's tooltip: a native `title` is drawn by the OS, in the OS's skin.
+    // Hovering the WRAPPER, because a disabled button dispatches no pointer events —
+    // which is the whole reason the tooltip cannot ride the button itself.
+    await userEvent.hover(mic.parentElement as HTMLElement);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/unavailable/i);
   });
 });
 
@@ -157,15 +205,14 @@ describe('Composer — model picker', () => {
   it('fires onPickEffort when the reasoning slider steps', () => {
     const onPickEffort = vi.fn();
     render(<Composer {...baseProps({ onPickEffort })} />);
-    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reasoning' }));
     fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
     expect(onPickEffort).toHaveBeenCalledWith('low');
   });
 
-  it('hides the reasoning control when effortOptions is empty', () => {
+  it('hides the reasoning control entirely when effortOptions is empty', () => {
     render(<Composer {...baseProps({ effortOptions: [] })} />);
-    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reasoning' })).not.toBeInTheDocument();
   });
 });
 

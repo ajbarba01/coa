@@ -1,7 +1,15 @@
+import { useState } from 'react';
 import type { ModelDescriptor } from '@coa/console-viewmodel';
-import { BrandMark, Combobox, StepSlider, cx, type ComboboxOption } from '@coa/console-kit';
-import { COA_MARK, harnessLabel, harnessOf, type Harness } from './harness.js';
-import { CLAUDE_MARK } from './providerMarks.js';
+import {
+  BrandMark,
+  Combobox,
+  cx,
+  type BrandMarkSpec,
+  type ComboboxOption,
+  type ComboboxRailItem,
+} from '@coa/console-kit';
+import { PROVIDERS, providerById } from './providers.js';
+import { EffortLadder } from './ReasoningPicker.js';
 
 /**
  * The console's ONE model-and-effort control. Both the composer's shelf and the agent
@@ -14,7 +22,44 @@ import { CLAUDE_MARK } from './providerMarks.js';
  * harness a provider runs on, and what that harness's mark is — that the kit does not own.
  */
 
-const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', deepseek: 'DeepSeek' };
+/** The backend a model actually comes from. An untagged model resolves to Claude, the same
+ *  `?? 'claude'` default the daemon applies at every other seam — see {@link harnessOf}. */
+export function providerOf(m: ModelDescriptor): string {
+  return m.provider ?? 'claude';
+}
+
+/** The backend's display name, from the one provider registry the auth surfaces render off —
+ *  a provider we ship no row for still gets named, by its own id. */
+function providerLabel(id: string): string {
+  return providerById(id)?.label ?? id;
+}
+
+/** The backend's mark, from that same registry. An unregistered provider degrades to
+ *  `BrandMark`'s monogram tile, which is what keeps "a new provider is one registry row" true. */
+function providerMark(id: string): BrandMarkSpec {
+  return providerById(id)?.mark ?? { name: providerLabel(id), color: 'var(--color-s10)' };
+}
+
+/** Every backend the offered models actually come from, in the provider registry's order
+ *  (anything unregistered trails, first-seen). DERIVED, never the registry itself: a rail
+ *  row for a backend with no models would be a dead end. */
+export function modelProviders(models: ModelDescriptor[]): string[] {
+  const present = new Set(models.map(providerOf));
+  const known = PROVIDERS.filter((p) => present.has(p.id)).map((p) => p.id);
+  return [...known, ...[...present].filter((id) => !known.includes(id))];
+}
+
+/** The rail's scope id meaning "don't narrow at all". Not a provider id, so it can never
+ *  collide with one. */
+const ALL_BACKENDS = '*';
+
+/** Title-case a name a backend handed over uncased ("fable 5" → "Fable 5"). Only the FIRST
+ *  letter of each word is touched, so a name that already carries its own casing survives
+ *  intact — "V4 Pro", "LongCat-2.0", "GPT" are all fixed points. Presentation only: the id
+ *  is what travels, and this never touches it. */
+function titleCase(label: string): string {
+  return label.replace(/(^|\s)(\S)/g, (_, lead: string, first: string) => lead + first.toUpperCase());
+}
 
 /**
  * The picker label: the model's version — the first "·"-delimited segment of the
@@ -22,15 +67,23 @@ const PROVIDER_LABELS: Record<string, string> = { claude: 'Claude', deepseek: 'D
  * version lives only in the description, so we surface it. When the display name
  * isn't already part of that version (the "Default (recommended)" alias), keep it
  * as a prefix; with no description, fall back to the display name, then the id.
+ *
+ * Anything that came from a NAME is title-cased. Backends are inconsistent about it —
+ * one hands over "fable 5", the next "V4 Pro" — and a list mixing the two reads like a
+ * bug in the app rather than a difference between vendors. A bare id is left exactly as
+ * it is: an id is an identifier, not a name, and casing "claude-sonnet-4-6" would invent
+ * a name the backend never gave.
  */
 export function modelLabel(m: ModelDescriptor): string {
   const version = m.description?.split('·')[0]?.trim();
-  if (version === undefined || version === '') return m.displayName ?? m.id;
+  if (version === undefined || version === '') {
+    return m.displayName === undefined ? m.id : titleCase(m.displayName);
+  }
   const name = m.displayName;
   if (name !== undefined && !version.toLowerCase().startsWith(name.toLowerCase())) {
-    return `${name} · ${version}`;
+    return titleCase(`${name} · ${version}`);
   }
-  return version;
+  return titleCase(version);
 }
 
 /**
@@ -41,7 +94,7 @@ export function modelLabel(m: ModelDescriptor): string {
 export function modelPickerLabel(m: ModelDescriptor): string {
   const base = modelLabel(m);
   if (m.provider === undefined) return base;
-  const name = PROVIDER_LABELS[m.provider] ?? m.provider;
+  const name = providerLabel(m.provider);
   // A DISPLAY name that already carries its backend ("DeepSeek V4 Pro") must not wear it
   // twice. A bare id falling through still earns the prefix — that is the only tag it has.
   if (base !== m.id && base.toLowerCase().startsWith(name.toLowerCase())) return base;
@@ -57,95 +110,84 @@ export function pickableModels(models: ModelDescriptor[]): ModelDescriptor[] {
   return models.filter((m) => m.id !== 'default');
 }
 
-const HARNESS_RANK: Record<Harness, number> = { 'claude-code': 0, coa: 1 };
-
-/** The model picker's options: every pickable model, grouped by the harness it
- *  actually runs on (Claude Code vs. coa's own scaffold) and marked with THAT
- *  harness's glyph — never the vendor's own logo, which would just repeat what
- *  `modelPickerLabel` already says in words. `Combobox` renders a group header
- *  wherever an option's group differs from its neighbour, so an interleaved input
- *  (a merged list doesn't promise providers arrive grouped) would fragment into
- *  repeated header blocks; sorting by harness first — Claude Code, then coa's
- *  scaffold, a STABLE sort so each harness keeps its own models in their original
- *  relative order — keeps every harness in one contiguous run. An emptied/
- *  still-loading list degrades honestly: the backend default runs, so the picker
- *  says so rather than opening on nothing (SC-1, D85).
+/** The model picker's options: the models handed in, grouped and marked by the BACKEND
+ *  they come from — the same slicing the rail offers, so the two chrome surfaces name one
+ *  vocabulary instead of two. (Which harness actually runs a model is a different
+ *  question; the agent editor's Runs-on field is the one place that asks it.)
+ *  `Combobox` renders a group header wherever an option's group differs from its
+ *  neighbour, so an interleaved input (a merged list doesn't promise backends arrive
+ *  grouped) would fragment into repeated header blocks; sorting by backend first, in the
+ *  rail's own order and STABLY so each backend keeps its models in their original relative
+ *  order, keeps every backend in one contiguous run.
+ *
+ *  Rows wear the bare model name: under its backend's header, beside its backend's mark,
+ *  a row that also spelled the backend out would say it three times. The TRIGGER has
+ *  neither, so it keeps the qualified name.
+ *
+ *  An emptied/still-loading list degrades honestly: the backend default runs, so the
+ *  picker says so rather than opening on nothing (SC-1, D85).
  */
 export function modelPickerOptions(
   models: ModelDescriptor[],
   currentModel: string | undefined,
 ): ComboboxOption[] {
   if (models.length > 0) {
+    const order = modelProviders(models);
     const sorted = [...models].sort(
-      (a, b) => HARNESS_RANK[harnessOf(a.provider)] - HARNESS_RANK[harnessOf(b.provider)],
+      (a, b) => order.indexOf(providerOf(a)) - order.indexOf(providerOf(b)),
     );
-    return sorted.map((m) => {
-      const harness = harnessOf(m.provider);
-      return {
-        value: m.id,
-        label: modelPickerLabel(m),
-        group: harnessLabel(harness),
-        leading: <BrandMark spec={harness === 'claude-code' ? CLAUDE_MARK : COA_MARK} size={15} />,
-      };
-    });
+    return sorted.map((m) => ({
+      value: m.id,
+      label: modelLabel(m),
+      group: providerLabel(providerOf(m)),
+      leading: <BrandMark spec={providerMark(providerOf(m))} size={15} />,
+    }));
   }
   if (currentModel !== undefined) return [{ value: currentModel, label: currentModel }];
   return [{ value: '', label: 'Backend default' }];
 }
 
-/** The reasoning ladder and its three end captions. One renderer for both placements,
- *  so the surfaces cannot drift: the popup footer needs the popup's own padding, the
- *  in-flow placement inherits its container's. */
-function EffortLadder({
-  options,
-  value,
-  onChange,
-  placement,
-}: {
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (v: string) => void;
-  placement: 'footer' | 'inline';
-}): React.JSX.Element {
-  const current = options.find((o) => o.value === value);
-  return (
-    <div className={cx('flex flex-col gap-1', placement === 'footer' && 'px-3 pt-2 pb-3')}>
-      <StepSlider
-        stops={options.map((o) => o.value)}
-        value={value}
-        onChange={onChange}
-        aria-label="Reasoning effort"
-      />
-      {/* A THREE-COLUMN GRID, not absolute positioning. Real stop names run long ("No
-          thinking", "max"), and absolutely-positioned ends sit outside flow, so the
-          centred current value had nothing to push against and collided with them. Each
-          cell owns its own track and truncates inside it.
-          The ends are sized to their CONTENT rather than to a third of the row: on the
-          16.5rem rail the editor's two-column layout uses, an even third is narrower than
-          "No thinking" and clipped a caption that had room to spare. `minmax(0,…)` keeps
-          every track shrinkable, so a genuinely cramped row still degrades by truncating
-          instead of overflowing. */}
-      <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-baseline gap-1.5 font-mono text-meta text-s7">
-        <span className="truncate">{options[0]?.label}</span>
-        <span className="truncate text-center text-s9">{current?.label ?? value}</span>
-        <span className="truncate text-right">{options[options.length - 1]?.label}</span>
-      </div>
-    </div>
-  );
+/** The rail's scopes: every backend the models come from, behind an all-backends row.
+ *  Fewer than two backends ⇒ no rail at all, since there would be nothing to pick. */
+export function backendRailItems(models: ModelDescriptor[]): ComboboxRailItem[] {
+  const providers = modelProviders(models);
+  if (providers.length < 2) return [];
+  return [
+    {
+      id: ALL_BACKENDS,
+      label: 'All backends',
+      // The asterisk is the wildcard every shell and glob already taught: "match them
+      // all". No vendor owns it, which is exactly why it can stand above all of them.
+      // Set larger than the 15px marks it sits above: a glyph is mostly whitespace where
+      // a logo fills its box, so matching their point size reads a size smaller.
+      leading: (
+        <span aria-hidden className="font-mono text-[21px] leading-none">
+          ✳
+        </span>
+      ),
+    },
+    ...providers.map((id) => ({
+      id,
+      label: providerLabel(id),
+      leading: <BrandMark spec={providerMark(id)} size={15} />,
+    })),
+  ];
 }
 
 export interface ModelPickerProps {
   models: ModelDescriptor[];
   value: string | undefined;
   onChange: (modelId: string) => void;
-  /** The model's own ladder (`effortOptions`). Empty ⇒ no reasoning surface at all. */
-  effortOptions: { value: string; label: string }[];
-  effortValue: string;
-  onEffortChange: (v: string) => void;
-  /** `chip`: the composer shelf's dense trigger — no room for a ladder, so the stop is
-   *  named on the trigger and the ladder rides the popup's footer. `bordered`: a field
-   *  with room, so the ladder stays on the surface and the trigger names the model only
-   *  (the ladder beneath already reports the stop; saying it twice is noise). */
+  /** The model's own ladder — the `bordered` field's second axis, rendered beneath it.
+   *  Absent or empty ⇒ no reasoning surface (a thinking-only model has no ladder to
+   *  offer). The `chip` variant never renders one: on the composer's shelf reasoning is
+   *  its own control, so hiding it inside the model popup would bury a second axis
+   *  behind a choice that has nothing to do with it. */
+  effortOptions?: { value: string; label: string }[];
+  effortValue?: string;
+  onEffortChange?: (v: string) => void;
+  /** `chip`: the composer shelf's dense trigger, model only. `bordered`: a field with
+   *  room, so the ladder rides beneath it on the same surface. */
   variant: 'chip' | 'bordered';
   disabled?: boolean;
 }
@@ -154,27 +196,37 @@ export function ModelPicker({
   models,
   value,
   onChange,
-  effortOptions,
-  effortValue,
+  effortOptions = [],
+  effortValue = '',
   onEffortChange,
   variant,
   disabled = false,
 }: ModelPickerProps): React.JSX.Element {
+  // The rail's scope is sticky across opens — it is visible chrome with an always-present
+  // way back out, so leaving it where it was put beats resetting the surface under someone
+  // who is working inside one backend. A scope whose backend stops being offered (its
+  // account was removed) resolves back to all, so the list can never open onto "No match".
+  const [scope, setScope] = useState(ALL_BACKENDS);
+  const railItems = backendRailItems(models);
+  const activeScope = railItems.some((i) => i.id === scope) ? scope : ALL_BACKENDS;
+
+  // Two lists, deliberately: the trigger names the CURRENT model, which the rail may well
+  // have narrowed the visible list past.
   const options = modelPickerOptions(models, value);
+  const shown =
+    activeScope === ALL_BACKENDS ? models : models.filter((m) => providerOf(m) === activeScope);
+  const visible = modelPickerOptions(shown, value);
+
   const current = options.find((o) => o.value === value);
-  const effort = effortOptions.find((o) => o.value === effortValue);
-  const name = current?.label ?? value ?? options[0]?.label ?? '';
-  const triggerLabel =
-    variant === 'chip' && effort !== undefined ? `${name} · ${effort.label}` : name;
-  const hasEffort = effortOptions.length > 0;
-  const ladder = (placement: 'footer' | 'inline'): React.JSX.Element => (
-    <EffortLadder
-      options={effortOptions}
-      value={effortValue}
-      onChange={onEffortChange}
-      placement={placement}
-    />
-  );
+  const triggerLabel = current?.label ?? value ?? options[0]?.label ?? '';
+  // The trigger stands alone — no header over it, no column of marks beside it — so it
+  // carries the backend itself, as the mark rather than as another word.
+  const currentModel = models.find((m) => m.id === value);
+  const hasEffort = variant === 'bordered' && effortOptions.length > 0;
+  const rail =
+    railItems.length > 0
+      ? { items: railItems, value: activeScope, onChange: setScope, label: 'Backend' }
+      : undefined;
 
   return (
     // As a field the picker claims the row it sits in (its caller is a flex container);
@@ -184,21 +236,40 @@ export function ModelPicker({
         aria-label="Model"
         placeholder="Filter models…"
         value={value ?? options[0]?.value ?? ''}
-        options={options}
+        options={visible}
         disabled={disabled}
         variant={variant}
+        {...(rail !== undefined ? { rail } : {})}
         // As a field inside a panel the picker spans it; as a chip on the composer's
         // shelf it hugs its label.
         fullWidth={variant === 'bordered'}
         triggerLabel={triggerLabel}
+        {...(currentModel !== undefined
+          ? {
+              triggerLeading: (
+                <BrandMark spec={providerMark(providerOf(currentModel))} size={14} />
+              ),
+            }
+          : {})}
+        // The chip sits in a right-packed control row, so its LEFT edge moves whenever its
+        // own label changes width — the popup hangs from the edge that holds still.
+        align={variant === 'chip' ? 'end' : 'start'}
+        {...(variant === 'chip'
+          ? { tooltip: { label: 'Model', side: 'top' as const } }
+          : {})}
         onChange={(id) => {
           // The empty-list "Backend default" row is a statement, not a value — picking it
           // must not write an empty model id onto the caller.
           if (id !== '') onChange(id);
         }}
-        {...(variant === 'chip' && hasEffort ? { footer: ladder('footer') } : {})}
       />
-      {variant === 'bordered' && hasEffort && ladder('inline')}
+      {hasEffort && (
+        <EffortLadder
+          options={effortOptions}
+          value={effortValue}
+          onChange={(v) => onEffortChange?.(v)}
+        />
+      )}
     </div>
   );
 }

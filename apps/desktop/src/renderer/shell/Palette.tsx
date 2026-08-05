@@ -1,4 +1,4 @@
-import { StatusDot, useDismissLayer } from '@coa/console-kit';
+import { StatusDot, useModalLayer } from '@coa/console-kit';
 import { Command } from 'cmdk';
 import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
@@ -18,7 +18,9 @@ function Chord({ id }: { id: string }): React.JSX.Element | null {
 export function Palette(): React.JSX.Element | null {
   const open = useShell((s) => s.paletteOpen);
   const setOpen = useShell((s) => s.setPaletteOpen);
-  useDismissLayer(open, () => setOpen(false));
+  // A modal layer, not a plain one: the palette takes the screen on a keystroke, so
+  // nothing closes an open menu on the way in unless this does.
+  useModalLayer(open, () => setOpen(false));
   const state = useConsoleState((s) => s);
 
   if (!open || state === undefined) return null;

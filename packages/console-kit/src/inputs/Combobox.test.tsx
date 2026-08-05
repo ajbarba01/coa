@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Combobox, filterOptions, type ComboboxOption } from './Combobox.js';
@@ -146,6 +146,43 @@ describe('Combobox', () => {
     expect(container.querySelector('[data-combobox-footer]')).toBeNull();
   });
 
+  it('wears a leading glyph on the trigger when given one', () => {
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="ds-v4"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+        triggerLeading={<span role="img" aria-label="DeepSeek" />}
+      />,
+    );
+    const trigger = screen.getByRole('combobox', { name: 'Model' });
+    expect(within(trigger).getByRole('img', { name: 'DeepSeek' })).toBeInTheDocument();
+  });
+
+  it('anchors the popup to the trigger edge the caller names', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="ds-v4"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+        align="end"
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    // A trigger in a right-packed row moves its LEFT edge whenever its own label
+    // changes width, so anchoring there makes the popup jump; the caller has to be
+    // able to name the edge that holds still.
+    const positioner = screen
+      .getByRole('listbox', { name: 'Model' })
+      .closest('[data-align]') as HTMLElement | null;
+    expect(positioner?.dataset['align']).toBe('end');
+  });
+
   it('lets the caller override the trigger text', () => {
     render(
       <Combobox
@@ -174,6 +211,147 @@ describe('Combobox', () => {
       />,
     );
     expect(screen.getByRole('combobox', { name: 'Model' }).className).not.toContain('border-s4');
+  });
+
+  it('renders a rail of scopes and reports the one clicked', async () => {
+    const onScope = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="opus-5"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+        rail={{
+          label: 'Backend',
+          value: 'all',
+          onChange: onScope,
+          items: [
+            { id: 'all', label: 'All backends', leading: <span>✳</span> },
+            { id: 'deepseek', label: 'DeepSeek', leading: <span>D</span> },
+          ],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    const rail = screen.getByRole('group', { name: 'Backend' });
+    expect(within(rail).getByRole('button', { name: 'All backends' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(rail).getByRole('button', { name: 'DeepSeek' }));
+    expect(onScope).toHaveBeenCalledWith('deepseek');
+  });
+
+  it('opens with the caret in the filter input, not on the rail it now sits beside', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="opus-5"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+        rail={{
+          label: 'Backend',
+          value: 'all',
+          onChange: () => {},
+          items: [
+            { id: 'all', label: 'All backends', leading: <span>✳</span> },
+            { id: 'deepseek', label: 'DeepSeek', leading: <span>D</span> },
+          ],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    // The rail's first button is the popup's first tabbable element, so the default
+    // "focus what comes first" would open onto a scope button and typing would go nowhere.
+    expect(screen.getByPlaceholderText('Filter models…')).toHaveFocus();
+  });
+
+  it('holds the list at a fixed height under a rail, so changing scope cannot resize the popup', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="opus-5"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+        rail={{
+          label: 'Backend',
+          value: 'all',
+          onChange: () => {},
+          items: [
+            { id: 'all', label: 'All backends', leading: <span>✳</span> },
+            { id: 'deepseek', label: 'DeepSeek', leading: <span>D</span> },
+          ],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    const list = screen.getByRole('listbox', { name: 'Model' });
+    expect(list.className).toContain('h-64');
+    expect(list.className).not.toContain('max-h-64');
+  });
+
+  it('drops the surface’s own padding under a rail, so the rail reaches both rounded ends', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="opus-5"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+        rail={{
+          label: 'Backend',
+          value: 'all',
+          onChange: () => {},
+          items: [
+            { id: 'all', label: 'All backends', leading: <span>✳</span> },
+            { id: 'deepseek', label: 'DeepSeek', leading: <span>D</span> },
+          ],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    const surface = screen.getByRole('group', { name: 'Backend' }).parentElement?.parentElement;
+    // Not "overridden" — ABSENT. Both paddings would be emitted and the cascade would
+    // settle it by value order, which is not a decision anyone made.
+    expect(surface?.className).toContain('rounded-r3');
+    expect(surface?.className).not.toContain('py-1');
+  });
+
+  it('lets the list size to its contents without a rail, where nothing reflows it', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="opus-5"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    expect(screen.getByRole('listbox', { name: 'Model' }).className).toContain('max-h-64');
+  });
+
+  it('renders no rail region without one', async () => {
+    const user = userEvent.setup();
+    render(
+      <Combobox
+        options={OPTIONS}
+        value="opus-5"
+        onChange={() => {}}
+        placeholder="Filter models…"
+        aria-label="Model"
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    expect(screen.queryByRole('group')).toBeNull();
   });
 
   it('says so when nothing matches instead of showing an empty popup', async () => {

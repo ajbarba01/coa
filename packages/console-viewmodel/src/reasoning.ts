@@ -11,10 +11,20 @@ const EFFORTS = claudeEffortSchema.options;
  */
 const THINKING_ON: (typeof EFFORTS)[number] = 'high';
 
+/** An effort level arrives as a bare wire token ('low', 'xhigh'); its LABEL is read by a
+ *  person, beside 'No thinking' and 'Off'. Capitalized here rather than at each surface so
+ *  every consumer reads one vocabulary — the value is the token and never moves. */
+function effortLabel(level: string): string {
+  return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
 export function effortOptions(model?: ModelDescriptor): { value: string; label: string }[] {
   if (model?.supportsEffort === true) {
     const levels = model.supportedEffortLevels ?? [];
-    return [{ value: 'off', label: 'No thinking' }, ...levels.map((e) => ({ value: e, label: e }))];
+    return [
+      { value: 'off', label: 'No thinking' },
+      ...levels.map((e) => ({ value: e, label: effortLabel(e) })),
+    ];
   }
   // A model with a binary thinking toggle (no graded ladder) surfaces as On/Off.
   if (model?.supportsThinking === true) {

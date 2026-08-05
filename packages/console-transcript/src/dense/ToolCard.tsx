@@ -1,6 +1,6 @@
 // packages/console-ui/src/dense/ToolCard.tsx
 import { useState } from 'react';
-import { cx } from '@coa/console-kit';
+import { Tooltip, cx } from '@coa/console-kit';
 import { usePaneOverlay } from '@coa/console-kit';
 import { describeTool, toolTarget } from './toolRegistry.js';
 import { diffLines, type DiffLine } from './toolDiff.js';
@@ -294,18 +294,19 @@ export function ToolCard({
         <span className="flex-none text-s8">{verb}</span>
         {path !== undefined ? (
           onOpenPath !== undefined ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenPath(path, line);
-              }}
-              title="Reveal in Editor"
-              className="slip min-w-0 cursor-pointer truncate text-left text-s11 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
-            >
-              {path}
-              {line !== undefined && <span className="text-s8">:{line}</span>}
-            </button>
+            <Tooltip label="Reveal in Editor" side="top">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenPath(path, line);
+                }}
+                className="slip min-w-0 cursor-pointer truncate text-left text-s11 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
+              >
+                {path}
+                {line !== undefined && <span className="text-s8">:{line}</span>}
+              </button>
+            </Tooltip>
           ) : (
             <span className="min-w-0 truncate text-s11">
               {path}
@@ -314,17 +315,18 @@ export function ToolCard({
           )
         ) : webUrl !== undefined ? (
           onOpenUrl !== undefined ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenUrl(webUrl);
-              }}
-              title="Open in Browser"
-              className="slip min-w-0 cursor-pointer truncate text-left text-s11 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
-            >
-              {webUrl}
-            </button>
+            <Tooltip label="Open in Browser" side="top">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenUrl(webUrl);
+                }}
+                className="slip min-w-0 cursor-pointer truncate text-left text-s11 underline decoration-s5 decoration-dotted underline-offset-[3px] hover:text-s12 hover:decoration-s7"
+              >
+                {webUrl}
+              </button>
+            </Tooltip>
           ) : (
             <span className="min-w-0 truncate text-s11">{webUrl}</span>
           )
@@ -552,14 +554,15 @@ function WebRow({
   const host = parsed.url.replace(/^https?:\/\//, '').split('/')[0];
   return (
     <div className="flex min-w-0 items-baseline gap-2 text-[12px]">
-      <button
-        type="button"
-        onClick={() => onOpenUrl(parsed.url)}
-        title={parsed.url}
-        className="slip cursor-pointer truncate text-left text-s11 underline decoration-s6 underline-offset-[3px] hover:text-s12 hover:decoration-s8"
-      >
-        {parsed.title}
-      </button>
+      <Tooltip label={parsed.url} side="top">
+        <button
+          type="button"
+          onClick={() => onOpenUrl(parsed.url)}
+          className="slip cursor-pointer truncate text-left text-s11 underline decoration-s6 underline-offset-[3px] hover:text-s12 hover:decoration-s8"
+        >
+          {parsed.title}
+        </button>
+      </Tooltip>
       <span className="min-w-0 flex-none truncate font-mono text-meta text-s6">{host}</span>
     </div>
   );

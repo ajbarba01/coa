@@ -1,6 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog';
 import { cx } from '../cx.js';
-import { useDismissLayer } from './layers.js';
+import { useModalLayer } from './layers.js';
 
 export interface ModalShellProps {
   open: boolean;
@@ -12,10 +12,11 @@ export interface ModalShellProps {
 }
 
 /** The modal ground: scrim + heavy-shadow card. Base UI owns the focus trap,
- *  scroll lock, and scrim-press dismissal; Escape ordering runs through the
- *  kit's layer stack. The popup is a pointer-transparent centering frame and
- *  the card animates inside it — an entrance keyframe on the popup itself
- *  would clobber a centering transform mid-animation. */
+ *  scroll lock, and scrim-press dismissal; Escape ordering and superseding the
+ *  transient overlays beneath it both run through the kit's layer stack. The
+ *  popup is a pointer-transparent centering frame and the card animates inside
+ *  it — an entrance keyframe on the popup itself would clobber a centering
+ *  transform mid-animation. */
 export function ModalShell({
   open,
   onClose,
@@ -23,7 +24,7 @@ export function ModalShell({
   children,
   ...aria
 }: ModalShellProps): React.JSX.Element {
-  useDismissLayer(open, onClose);
+  useModalLayer(open, onClose);
   return (
     <Dialog.Root
       open={open}
