@@ -128,6 +128,23 @@ For **what each module is** (public interface, owned decisions), see the handoff
 - **Core-context / roles / pieces** — Partial, merged to `main`. Structure-over-prose context
   assembly and role composition (skill-Pieces + tool-groups + MCP, additive) are implemented;
   `registerMcp` wiring and the DC-12 `.coa` merge remain open.
+- **P1b — Agent registry foundation** — Done. The daemon owns a live agent registry loaded from
+  three scopes (built-in ∪ personal ∪ project, project winning on ref collision). Reads are always
+  fresh from disk so agents authored by another window or edited directly are visible without restart.
+  The daemon exports `listAgents`, `saveAgent`, and `deleteAgent` RPC verbs, and the console
+  reads/writes exclusively through them. Two built-in definitions ship in code (`general-purpose` and
+  `explorer`) and are always in scope. Within-scope duplicate refs are surfaced as diagnostics (never
+  silent). Physical locations and the YAML file format are documented in [REPO_LAYOUT.md](docs/REPO_LAYOUT.md).
+  **Ahead:** discovery (`find_agent`) and dispatch (`spawn_agent`, agent-list Piece, depth handling)
+  are gated on a separate orchestration slice. **Accepted loss:** the console's previous local
+  `agents.json` store is not migrated into the registry; agent definitions (and the conversations
+  bound to them) from before this change are orphaned and must be recreated by hand.
+- **Mid-loop delivery** — Done ([ADR-0030](docs/adr/0030-delivery-one-intent-realized-per-backend.md)).
+  A neutral `DeliveryQueue`/`Delivery` port gets text into a running loop at its next round trip
+  instead of the turn boundary — Claude via `PostToolUse` `additionalContext` with `Stop` as the
+  floor, pure-API via `runGovernedLoop`'s per-round-trip drain — giving the orchestration slice's
+  next piece of work, the **child-completion producer**, a delivery substrate and cancel-guard
+  (`seal()`) to build on.
 
 ## Remaining work (keystones first)
 
@@ -505,4 +522,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-08-03_
+_Last reviewed: 2026-08-04_

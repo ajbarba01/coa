@@ -1,5 +1,11 @@
 import type { TurnFrame } from '@coa/shared';
-import type { CanUseTool, RuntimeUsage, StopPredicate, ToolCatalogue } from '@coa/spi';
+import type {
+  CanUseTool,
+  DrainDeliveries,
+  RuntimeUsage,
+  StopPredicate,
+  ToolCatalogue,
+} from '@coa/spi';
 import type {
   CompleteFn,
   CompletionDelta,
@@ -103,6 +109,12 @@ export interface GovernedLoopDeps {
    * (`barge-in`, drained at the loop top). Absent ⇒ byte-identical to today (D85).
    */
   drainQueuedSteer?: () => readonly string[];
+  /**
+   * Pending mid-loop deliveries (user steers and system notices), drained at the top
+   * of each round trip — the driver's soonest safe boundary, discarding nothing.
+   * Absent ⇒ no deliveries, byte-identical to today (D85).
+   */
+  drainDeliveries?: DrainDeliveries;
 }
 
 /** Map the governed catalogue to the model-facing tool list. */
@@ -148,6 +160,15 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       for (const steer of deps.drainSteer?.() ?? []) {
         messages.push({ role: 'user', content: steer });
         emit({ t: 'text', text: steer, role: 'user' });
+      }
+      // Mid-loop delivery. A `system` entry rides the user role because the Messages
+      // API offers no other slot for mid-conversation input, but its FRAME carries the
+      // system origin so the append-only log never attributes it to the person.
+      for (const delivery of deps.drainDeliveries?.() ?? []) {
+        const text = delivery.origin === 'user' ? delivery.text : `[coa notice] ${delivery.text}`;
+        messages.push({ role: 'user', content: text });
+        if (delivery.origin === 'user') emit({ t: 'text', text, role: 'user' });
+        else emit({ t: 'text', text, role: 'system' });
       }
       // Drive the streaming round-trip: emit each delta live, then settle from the
       // generator's return value. Delta frames are delivery-only (docs/adr/0013) —

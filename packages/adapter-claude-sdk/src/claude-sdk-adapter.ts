@@ -15,6 +15,7 @@ import type {
   BackendConfig,
   CacheBreakpoints,
   CanUseTool,
+  DrainDeliveries,
   EvalCorpus,
   EvalResult,
   ReminderAt,
@@ -69,6 +70,13 @@ export interface ClaudeSdkAdapterInit {
    * that does not supply it behaves exactly as today (D85).
    */
   observeChanges?: () => void;
+  /**
+   * Pull the session's pending deliveries (M8-owned queue). This backend realizes the
+   * neutral intent by returning the text as `PostToolUse` additional context, so it
+   * lands beside the next tool result — the loop's next round trip — instead of waiting
+   * for the turn boundary. Absent ⇒ nothing is appended, byte-identical to today (D85).
+   */
+  drainDeliveries?: DrainDeliveries;
   /** The active account's neutral login pointer (M8 from the registry); absent ⇒ ambient (today's auth). */
   locator?: Locator;
   /** A prior backend session id to resume (R-7 continuity), so the model has the conversation's memory. */
@@ -274,6 +282,9 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
       stopPredicate: this.#stopPredicate,
       ...(this.#init.observeChanges !== undefined
         ? { observeChanges: this.#init.observeChanges }
+        : {}),
+      ...(this.#init.drainDeliveries !== undefined
+        ? { drainDeliveries: this.#init.drainDeliveries }
         : {}),
       ...(transport.tools ? { tools: transport.tools } : {}),
       ...(mcpServers ? { mcpServers } : {}),

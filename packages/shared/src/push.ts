@@ -22,10 +22,14 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('thinking-delta'), text: z.string() }),
   // `role` marks a persisted user prompt in the R-7 store (assistant text omits it,
   // staying the live-stream default); the console renders a `user` text as a `you` turn.
+  // `system` is a mid-loop delivery (a coa-originated notice, not a person) — it rides
+  // the API's `user` role live (the Messages API has no other slot for mid-conversation
+  // input) but this field keeps it distinguishable in the append-only log, so replay and
+  // the console never attribute it to the person.
   z.object({
     t: z.literal('text'),
     text: z.string(),
-    role: z.enum(['user', 'assistant']).optional(),
+    role: z.enum(['user', 'assistant', 'system']).optional(),
   }),
   z.object({
     t: z.literal('tool_use'),

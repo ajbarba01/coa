@@ -18,6 +18,14 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     ]);
   });
 
+  it("maps a `system` delivery notice into the agent lane — never the person's ('you')", () => {
+    expect(
+      pushToViewFrames(
+        turn({ t: 'text', text: '[coa notice] explorer finished', role: 'system' }, 5),
+      ),
+    ).toEqual([{ id: 's:5', role: 'agent', kind: 'text', text: '[coa notice] explorer finished' }]);
+  });
+
   it('renders a tool_use with its args stringified', () => {
     expect(
       pushToViewFrames(turn({ t: 'tool_use', tool: 'Read', input: { path: 'a.ts' }, handle: 'h' })),

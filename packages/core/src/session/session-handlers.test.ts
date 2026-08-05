@@ -7,6 +7,7 @@ import {
   barebonesProfile,
   type BackendConfig,
   type CanUseTool,
+  type Delivery,
   type RuntimeAdapter,
   type RuntimeUsage,
   type StopPredicate,
@@ -37,6 +38,8 @@ class FrameAdapter implements RuntimeAdapter {
   drained: readonly string[] = [];
   /** Set by the `steerable` mode once `init.drainQueuedSteer` is consulted (test observation point). */
   queueDrained: readonly string[] = [];
+  /** Set by the `steerable` mode once `init.drainDeliveries` is consulted (test observation point). */
+  deliveryDrained: readonly Delivery[] = [];
 
   constructor(
     readonly init: SessionAdapterInit,
@@ -105,6 +108,7 @@ class FrameAdapter implements RuntimeAdapter {
       await new Promise((r) => setTimeout(r, 0));
       this.drained = this.init.drainSteer?.() ?? [];
       this.queueDrained = this.init.drainQueuedSteer?.() ?? [];
+      this.deliveryDrained = this.init.drainDeliveries?.() ?? [];
       for (const frame of this.frames) this.init.onTurn?.(frame);
       this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
       return;
@@ -1096,6 +1100,26 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     expect(adapters[0]?.drained).toEqual([]);
   });
 
+  it("hands the per-turn adapter the session's delivery drain, so a mid-loop delivery reaches a pure-API loop", async () => {
+    const conn = connection();
+    const adapters: FrameAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    // Core fills ONE queue per session; the driver drains it at the top of its next
+    // round trip. Two entries, mixed origins, so the drain can't pass by luck.
+    const session = registry.get(sessionId)!;
+    session.deliveries.push({ origin: 'user', text: 'check the schema first' });
+    session.deliveries.push({ origin: 'system', text: 'child agent finished' });
+    await conn.settled;
+
+    expect(adapters[0]?.deliveryDrained).toEqual([
+      { origin: 'user', text: 'check the schema first' },
+      { origin: 'system', text: 'child agent finished' },
+    ]);
+  });
+
   it('interruptSession on an unknown id returns the negative result without throwing', async () => {
     const handlers = buildSessionHandlers(
       deps([]),
@@ -1676,6 +1700,25 @@ class QueueSteerAdapter implements RuntimeAdapter {
   }
 }
 
+/**
+ * Deps whose held-open adapter PARKS mid-turn ({@link QueueSteerAdapter}), so a test can
+ * act while a turn is genuinely in flight. `HeldOpenAdapter` runs each turn to its
+ * boundary within the same microtask burst, so by the time a test's `await` resumes its
+ * query is already IDLE — a fixture that silently turns any "while running" assertion
+ * into an idle-path one.
+ */
+function depsParkedHeldOpen(adapters: QueueSteerAdapter[]): SessionDeps {
+  return {
+    ...deps([]),
+    sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+    createAdapter: (init) => {
+      const adapter = new QueueSteerAdapter(init);
+      adapters.push(adapter);
+      return adapter;
+    },
+  };
+}
+
 describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/adr/0012)', () => {
   it('feeds two turns of one live session into ONE held-open query, not two createSession calls', async () => {
     const adapters: HeldOpenAdapter[] = [];
@@ -1694,11 +1737,11 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(adapters[0]?.consumed).toEqual(['first', 'second']);
   });
 
-  it('yields a steer enqueued while running into the SAME open query (reaches the running turn)', async () => {
-    const adapters: HeldOpenAdapter[] = [];
+  it('delivers a steer enqueued while running INTO the running turn, not into the input feed', async () => {
+    const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
     const handlers = buildSessionHandlers(
-      depsHeldOpen(adapters),
+      depsParkedHeldOpen(adapters),
       conn,
       undefined,
       new LiveSessionRegistry(),
@@ -1707,15 +1750,24 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       input: 'go',
       conversationId: 'h1',
     });
+    await flush(); // the turn is consumed and PARKED — genuinely mid-flight
 
     expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' })).toEqual({
       steered: true,
     });
+
+    // It reaches the WORKING turn through the adapter's delivery port — the one the SDK's
+    // PostToolUse hook pulls, which lands the text beside the next tool result (the same
+    // round trip) instead of after the whole turn (docs/adr/0012's measured ceiling).
+    expect(adapters[0]?.init.drainDeliveries?.()).toEqual([{ origin: 'user', text: 'also do X' }]);
+
+    adapters[0]!.boundaryCurrent();
     await flush();
     await flush();
 
+    // …and NOT into the input feed, where it would have queued as its own later turn.
     expect(adapters.length).toBe(1);
-    expect(adapters[0]?.consumed).toEqual(['go', 'also do X']);
+    expect(adapters[0]?.consumed).toEqual(['go']);
   });
 
   it("appends each turn's user prompt and continues the seq under the one held-open query", async () => {
@@ -2175,10 +2227,40 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(adapters[0]?.consumed).toEqual(['first', 'more']);
   });
 
-  it("counts a queue-mode steer pushed while running, so a LATER turn's latch does not resolve early (I3)", async () => {
-    // A queue-mode steer delivered mid-turn runs as its OWN SDK turn (its own boundary).
-    // If that boundary is unaccounted, a later send's latch resolves on it instead of on
-    // the later turn's own boundary (docs/adr/0012 I3) — the desync this test pins down.
+  it('a queue-mode steer with no turn in flight is a plain next turn, not a pending delivery', async () => {
+    // The delivery queue only reaches a WORKING agent — a backend drains it from inside a
+    // running turn. Routing an idle steer there would strand it until some later turn
+    // happened to run, so an idle steer stays exactly today's plain next turn (D85).
+    const adapters: HeldOpenAdapter[] = [];
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      depsHeldOpen(adapters),
+      conn,
+      undefined,
+      new LiveSessionRegistry(),
+    );
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'first',
+      conversationId: 'h1',
+    });
+    await flush(); // turn 1 completes; the query is open but idle (pendingTurns === 0)
+
+    await handlers['steerSession']!.handle({ id: sessionId, text: 'more' });
+    await flush();
+    await flush();
+
+    expect(adapters.length).toBe(1);
+    expect(adapters[0]?.consumed).toEqual(['first', 'more']);
+    expect(adapters[0]?.init.drainDeliveries?.()).toEqual([]);
+  });
+
+  it('a queue-mode steer delivered mid-turn adds no SDK turn, so a later send rides its OWN boundary (I3)', async () => {
+    // A queue-mode steer used to be fed into the input feed as its own SDK turn, whose
+    // boundary had to be counted or a later send's latch resolved on it (docs/adr/0012 I3).
+    // Delivered mid-loop it is not a turn at all — so it must add NO pending turn either:
+    // over-counting strands the first send in 'running' forever, under-counting resolves a
+    // later send early. This pins exactly one completion per client send across the change.
     let adapter: QueueSteerAdapter | undefined;
     const conn = connection();
     const customDeps: SessionDeps = {
@@ -2198,32 +2280,25 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     });
     await flush();
 
-    // A queue-mode steer (the DEFAULT mode) arrives while A runs — it becomes its own turn.
+    // A queue-mode steer (the DEFAULT mode) arrives while A runs — it joins A's own loop.
     expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'steer' })).toEqual({
       steered: true,
     });
+    expect(adapter!.init.drainDeliveries?.()).toEqual([{ origin: 'user', text: 'steer' }]);
 
-    // A boundaries; the steer turn is then consumed and parks (still no completion for A's
-    // driver, which must now also await the steer turn's boundary).
+    // A boundaries — and that alone must release A's driver: the steer added no turn.
     adapter!.boundaryCurrent();
     await flush();
 
-    // A SECOND send C arrives. It must NOT start until A's driver returns (after the steer
-    // turn boundaries) — and once it runs, its latch must ride C's OWN boundary.
+    // A SECOND send C arrives, runs, and parks.
     await handlers['createSession']!.handle({ input: 'C', conversationId: 'h1' });
-    await flush();
-
-    // The steer turn boundaries: this releases A's driver (pendingTurns → 0), after which C
-    // runs and parks. If the steer turn were UNCOUNTED, this boundary would instead resolve
-    // C's latch early (the bug).
-    adapter!.boundaryCurrent();
     await flush();
 
     // Finally C boundaries — the only thing that should complete C.
     adapter!.boundaryCurrent();
     await flush();
 
-    expect(adapter!.consumed).toEqual(['A', 'steer', 'C']);
+    expect(adapter!.consumed).toEqual(['A', 'C']);
     const pushes = pushesOf(conn.pushes);
     const idxReplyC = pushes.findIndex(
       (p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text === 'reply:C',
@@ -2246,10 +2321,10 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     const dir = mkdtempSync(join(tmpdir(), 'coa-ho-queue-'));
     try {
       const store = createConversationStore(dir);
-      const adapters: HeldOpenAdapter[] = [];
+      const adapters: QueueSteerAdapter[] = [];
       const conn = connection();
       const handlers = buildSessionHandlers(
-        depsHeldOpen(adapters),
+        depsParkedHeldOpen(adapters),
         conn,
         store,
         new LiveSessionRegistry(),
@@ -2259,21 +2334,177 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
         input: 'go',
         conversationId: 'h1',
       });
+      await flush(); // the turn is consumed and PARKED — genuinely mid-flight
       expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' })).toEqual({
         steered: true,
       });
+      // The running turn's own drain point consumes it — the backend's job, which this
+      // fixture does not do on its own. Without this the delivery would never be picked up
+      // by anything and would degrade to a plain next turn at the boundary (docs/adr/0030),
+      // so the "rides the queue, not the feed" claim below would be tested against a turn
+      // that had already given up on the queue.
+      expect(adapters[0]!.init.drainDeliveries?.()).toEqual([
+        { origin: 'user', text: 'also do X' },
+      ]);
+      adapters[0]!.boundaryCurrent();
       await flush();
       await flush();
 
       expect(adapters.length).toBe(1);
-      expect(adapters[0]?.consumed).toEqual(['go', 'also do X']);
-      // The steer reaches canonical memory as its own user turn — not just the live feed —
-      // so it survives a console reload (the retired streaming tap used to record this).
+      expect(adapters[0]?.consumed).toEqual(['go']);
+      // The steer reaches canonical memory as its own user turn even though it now rides
+      // the delivery queue rather than the input feed — the hook route bypasses every
+      // stream tap, and the append-only log is the only durable record of what the user
+      // sent (docs/adr/0010). Recorded at the moment it was sent, so it lands after what
+      // the turn had already streamed.
       expect(store.loadBackendMessages('h1')).toEqual([
         { role: 'user', content: 'go' },
-        { role: 'assistant', content: 'ok' },
+        { role: 'assistant', content: 'reply:go' },
         { role: 'user', content: 'also do X' },
-        { role: 'assistant', content: 'ok' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("flushes a delivery stranded past the turn's last drain point as a plain next turn (docs/adr/0030)", async () => {
+    const adapters: QueueSteerAdapter[] = [];
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      depsParkedHeldOpen(adapters),
+      conn,
+      undefined,
+      new LiveSessionRegistry(),
+    );
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush(); // the turn is consumed and PARKED — genuinely mid-flight
+
+    // The turn's LAST mid-loop drain point fires and finds nothing pending. On Claude this
+    // is the `Stop` hook, which has already fired AND RETURNED by the time the turn-boundary
+    // frame lands — that gap is the window this test constructs.
+    expect(adapters[0]!.init.drainDeliveries?.()).toEqual([]);
+
+    // The steer arrives inside that window. `pendingTurns` is still 1, so it reads as
+    // running, takes the delivery branch, and is acknowledged `{ steered: true }` — yet no
+    // drain point remains in this turn to pick it up.
+    expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' })).toEqual({
+      steered: true,
+    });
+
+    adapters[0]!.boundaryCurrent();
+    await flush();
+    await flush();
+
+    // SC-1/docs/adr/0030: it degrades to the ordinary turn boundary rather than sitting in
+    // the queue forever while the user watches their own message get no reply and no error.
+    expect(adapters[0]?.consumed).toEqual(['go', 'also do X']);
+    // Drained, not duplicated — a later hook must not deliver it a second time.
+    expect(adapters[0]!.init.drainDeliveries?.()).toEqual([]);
+
+    // The flushed text is a real turn, so it owns the pending slot: the session reports
+    // done ONCE, on the flushed turn's own boundary, never twice and never early.
+    const donesBefore = pushesOf(conn.pushes).filter(
+      (p) => p.kind === 'status' && p.state === 'done',
+    ).length;
+    expect(donesBefore).toBe(0);
+    adapters[0]!.boundaryCurrent();
+    await flush();
+    await flush();
+    expect(
+      pushesOf(conn.pushes).filter((p) => p.kind === 'status' && p.state === 'done'),
+    ).toHaveLength(1);
+  });
+
+  it('flushes mixed origins in FIFO order, framing only the system notice (docs/adr/0030)', async () => {
+    const adapters: QueueSteerAdapter[] = [];
+    const conn = connection();
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsParkedHeldOpen(adapters), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush();
+    expect(adapters[0]!.init.drainDeliveries?.()).toEqual([]); // the turn's last drain point
+
+    // Both origins can be pending at once. A `user` entry is fed bare — it is already in the
+    // log verbatim — while a `system` notice is framed, so nothing automated can be read as
+    // the person speaking. Order is the queue's, never the origin's.
+    const session = registry.get(sessionId)!;
+    session.deliveries.push({ origin: 'user', text: 'also do X' });
+    session.deliveries.push({ origin: 'system', text: 'child agent finished' });
+
+    adapters[0]!.boundaryCurrent();
+    await flush();
+    await flush();
+
+    expect(adapters[0]?.consumed).toEqual(['go', 'also do X\n[coa notice] child agent finished']);
+  });
+
+  it('leaves a sealed queue alone — a closed session is never revived by a late delivery', async () => {
+    const adapters: QueueSteerAdapter[] = [];
+    const conn = connection();
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsParkedHeldOpen(adapters), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush();
+    const session = registry.get(sessionId)!;
+    session.deliveries.push({ origin: 'system', text: 'child agent finished' });
+    session.deliveries.seal(); // the cancel-guard: the person stopped this subtree
+
+    adapters[0]!.boundaryCurrent();
+    await flush();
+    await flush();
+
+    expect(adapters[0]?.consumed).toEqual(['go']);
+    expect(
+      pushesOf(conn.pushes).filter((p) => p.kind === 'status' && p.state === 'done'),
+    ).toHaveLength(1);
+  });
+
+  it('records a stranded delivery exactly once — the flush re-sends, it does not re-log (docs/adr/0010)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-ho-strand-'));
+    try {
+      const store = createConversationStore(dir);
+      const adapters: QueueSteerAdapter[] = [];
+      const conn = connection();
+      const handlers = buildSessionHandlers(
+        depsParkedHeldOpen(adapters),
+        conn,
+        store,
+        new LiveSessionRegistry(),
+      );
+
+      const { sessionId } = await handlers['createSession']!.handle({
+        input: 'go',
+        conversationId: 'h1',
+      });
+      await flush();
+      expect(adapters[0]!.init.drainDeliveries?.()).toEqual([]); // the turn's last drain point
+      await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' });
+      adapters[0]!.boundaryCurrent();
+      await flush();
+      await flush();
+      adapters[0]!.boundaryCurrent(); // the flushed turn's own boundary
+      await flush();
+      await flush();
+
+      // ONE writer per record: the steer was written to the append-only log the moment it
+      // was queued, so the flush feeds the model WITHOUT appending a second user frame.
+      expect(store.loadBackendMessages('h1')).toEqual([
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: 'reply:go' },
+        { role: 'user', content: 'also do X' },
+        { role: 'assistant', content: 'reply:also do X' },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });

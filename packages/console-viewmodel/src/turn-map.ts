@@ -64,14 +64,16 @@ const TODO_STATUS: Record<string, 'pending' | 'in-progress' | 'done'> = {
 function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame | undefined {
   const d = depth === undefined ? {} : { depth };
   switch (frame.t) {
-    case 'text':
-      return {
-        id,
-        role: frame.role === 'user' ? 'you' : 'agent',
-        kind: 'text',
-        text: frame.text,
-        ...d,
-      };
+    case 'text': {
+      // `assistant` and `system` both land in the `agent` lane. `system` is a
+      // coa-originated mid-loop notice (never a person) with no dedicated view role
+      // yet — `TurnRoleSchema` is deliberately NOT widened here (a proper
+      // system-notice treatment is deferred to the follow-on orchestration plan); this
+      // is a stand-in: the wrong lane, but never mislabelled as the person, which is
+      // the invariant that matters today.
+      const role = frame.role === 'user' ? 'you' : 'agent';
+      return { id, role, kind: 'text', text: frame.text, ...d };
+    }
     case 'text-delta':
       // A streaming chunk (Piece B): the shell accumulates it into the live agent block,
       // then the settled `text` frame replaces it (docs/adr/0013).

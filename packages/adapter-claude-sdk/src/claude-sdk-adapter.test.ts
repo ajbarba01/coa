@@ -191,6 +191,41 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
     await reported!();
     expect(interrupt).toHaveBeenCalledTimes(1);
   });
+
+  it("wires M8's delivery drain onto the PostToolUse hook, so pending text rides the next tool result", async () => {
+    // The whole mid-loop route in one assertion: an injected drain must survive the
+    // option assembly and end up as the hook's `additionalContext`. Without it the
+    // session queue fills and nothing ever pulls it — the delivery silently never lands.
+    let seen: Parameters<typeof SdkQuery>[0]['options'] | undefined;
+    // eslint-disable-next-line require-yield
+    const gen = async function* (options: Parameters<typeof SdkQuery>[0]['options']) {
+      seen = options;
+    };
+    const a = adapter({
+      drainDeliveries: () => [
+        { origin: 'user', text: 'check the schema first' },
+        { origin: 'system', text: 'explorer finished' },
+      ],
+      query: ((arg: Parameters<typeof SdkQuery>[0]) =>
+        gen(arg.options)) as unknown as typeof SdkQuery,
+    });
+    a.renderNative(neutral());
+    a.interceptTool(() => ({ behavior: 'allow' }));
+    a.interceptStop(() => ({ allow: true }));
+    await a.runLoop(session);
+
+    const out = await seen?.hooks?.PostToolUse?.[0]?.hooks[0]?.(
+      { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: {} } as never,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+    // Both entries land, each framed for its origin — the person's words are never
+    // presented as a platform notice, nor a notice as the person speaking.
+    expect(out?.hookSpecificOutput?.additionalContext).toContain(
+      '[The user sent this while you were working] check the schema first',
+    );
+    expect(out?.hookSpecificOutput?.additionalContext).toContain('[coa notice] explorer finished');
+  });
 });
 
 describe('runLoop — the cost cap is a block, not a fault', () => {

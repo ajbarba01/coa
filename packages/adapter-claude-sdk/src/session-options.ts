@@ -1,5 +1,5 @@
 import type { CapabilitySet, ClaudeReasoning, ToolCall } from '@coa/shared';
-import type { BackendConfig, CanUseTool, StopPredicate } from '@coa/spi';
+import type { BackendConfig, CanUseTool, DrainDeliveries, StopPredicate } from '@coa/spi';
 import type {
   CanUseTool as SdkCanUseTool,
   HookCallback,
@@ -7,6 +7,17 @@ import type {
   Options,
 } from '@anthropic-ai/claude-agent-sdk';
 import { buildBaseOptions, toSdkPermission, toStopHookOutput } from './sdk-options.js';
+
+/**
+ * One delivery as the model reads it. A `user` entry is framed as the person
+ * speaking mid-work; a `system` entry is framed as a platform notice, so the model
+ * never attributes an automated report to the human.
+ */
+function renderDelivery(delivery: { origin: 'user' | 'system'; text: string }): string {
+  return delivery.origin === 'user'
+    ? `[The user sent this while you were working] ${delivery.text}`
+    : `[coa notice] ${delivery.text}`;
+}
 
 /**
  * Assemble the SDK hook registrations for one session. Kept separate from the
@@ -23,8 +34,14 @@ export function buildHooks(args: {
    * closes was exactly that: nothing observed a native tool's writes.
    */
   observeChanges: () => void;
+  /**
+   * Pull this session's pending deliveries. Returning text appends it next to the
+   * tool result, so it reaches the model on the loop's next round trip rather than
+   * after the whole turn. Absent ⇒ nothing is appended (D85).
+   */
+  drainDeliveries?: DrainDeliveries;
 }): NonNullable<Options['hooks']> {
-  const { stopPredicate, canUseTool, sessionId, observeChanges } = args;
+  const { stopPredicate, canUseTool, sessionId, observeChanges, drainDeliveries } = args;
 
   // `PreToolUse` is the per-tool gate for the WHOLE session, not just delegation.
   // `canUseTool` is never consulted for a native spawn, and the 2026-08-03 gate run
@@ -53,17 +70,50 @@ export function buildHooks(args: {
     };
   };
 
-  // The producer trigger. coa does not parse `tool_input` per tool: the reconciler scans
-  // the worktree itself, so one trigger covers a native Edit, a Write, and any file a Bash
-  // command touched — which per-tool parsing would miss entirely. Abstains always;
-  // observation is not governance (docs/adr/0029).
+  // The producer trigger AND the mid-loop delivery point. coa does not parse
+  // `tool_input` per tool: the reconciler scans the worktree itself, so one trigger
+  // covers a native Edit, a Write, and any file a Bash command touched. Observation
+  // is unconditional and never governance (docs/adr/0029); the delivery is appended
+  // next to the tool result, which is the only legal position mid-loop — a bare user
+  // message cannot sit between a tool_use and its tool_result.
   const observeAfterTool: HookCallback = async () => {
     observeChanges();
-    return {};
+    const pending = drainDeliveries?.() ?? [];
+    if (pending.length === 0) return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUse',
+        additionalContext: pending.map(renderDelivery).join('\n'),
+      },
+    };
+  };
+
+  // The close-gate, plus the delivery FLOOR: when the model answers in plain text and
+  // calls no tool, PostToolUse never fires, so this is the only remaining point before
+  // the turn ends. A blocked gate is never overridden — its decision is one of coa's two
+  // blocks (SC-1) and it already carries its own reason, so `drainDeliveries` is not even
+  // called on that path: draining is destructive, and calling it on a path that discards
+  // the result would silently swallow the pending text.
+  const stopWithDelivery: HookCallback = async () => {
+    const decision = await stopPredicate();
+    const base = toStopHookOutput(decision);
+    if (!decision.allow) return base;
+    const pending = drainDeliveries?.() ?? [];
+    if (pending.length === 0) return base;
+    // Merge onto `base` rather than replace it: the allowed branch of toStopHookOutput
+    // returns `{ continue: true }`, not an empty object, so a bare hookSpecificOutput
+    // literal here would silently drop it.
+    return {
+      ...base,
+      hookSpecificOutput: {
+        hookEventName: 'Stop',
+        additionalContext: pending.map(renderDelivery).join('\n'),
+      },
+    };
   };
 
   return {
-    Stop: [{ hooks: [async () => toStopHookOutput(await stopPredicate())] }],
+    Stop: [{ hooks: [stopWithDelivery] }],
     PreToolUse: [{ hooks: [gateToolCall] }],
     PostToolUse: [{ hooks: [observeAfterTool] }],
   };
@@ -90,6 +140,13 @@ export function assembleSessionOptions(args: {
    * no-op, so a caller that does not supply it behaves exactly as before (D85).
    */
   observeChanges?: () => void;
+  /**
+   * Pull this session's pending deliveries (M8 fills the queue; every backend drains
+   * it at its own soonest boundary). Forwarded to {@link buildHooks}, which appends
+   * the text beside the next tool result — the only legal mid-loop position. Absent ⇒
+   * nothing is ever appended, byte-identical to today (D85).
+   */
+  drainDeliveries?: DrainDeliveries;
   mcpServers?: Record<string, McpServerConfig>;
   maxBudgetUsd?: number;
   /** The restricted built-in tool set (from the resolved frame); absent ⇒ the SDK default (no restriction). */
@@ -116,6 +173,7 @@ export function assembleSessionOptions(args: {
     canUseTool,
     stopPredicate,
     observeChanges,
+    drainDeliveries,
     mcpServers,
     maxBudgetUsd,
     tools,
@@ -148,6 +206,7 @@ export function assembleSessionOptions(args: {
       canUseTool,
       sessionId,
       observeChanges: observeChanges ?? ((): void => {}),
+      ...(drainDeliveries !== undefined ? { drainDeliveries } : {}),
     }),
     ...(mcpServers ? { mcpServers } : {}),
     ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),

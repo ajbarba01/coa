@@ -101,6 +101,7 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
     ...(init.drainQueuedSteer !== undefined ? { drainQueuedSteer: init.drainQueuedSteer } : {}),
+    ...(init.drainDeliveries !== undefined ? { drainDeliveries: init.drainDeliveries } : {}),
   });
 }
 
@@ -118,6 +119,7 @@ export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainSteer !== undefined ? { drainSteer: init.drainSteer } : {}),
     ...(init.drainQueuedSteer !== undefined ? { drainQueuedSteer: init.drainQueuedSteer } : {}),
+    ...(init.drainDeliveries !== undefined ? { drainDeliveries: init.drainDeliveries } : {}),
   });
 }
 
@@ -139,5 +141,6 @@ export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
       ? { deliverHistoryAsPreamble: init.deliverHistoryAsPreamble }
       : {}),
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
+    ...(init.drainDeliveries !== undefined ? { drainDeliveries: init.drainDeliveries } : {}),
   });
 }

@@ -55,9 +55,11 @@ import {
  *
  * `interruptSession`/`steerSession` (CHAT-10) act on the CURRENTLY in-flight
  * turn's control state: interrupt aborts a neutral `AbortSignal` the adapter
- * honors on BOTH backends; steer queues a turn the pure-API driver drains at
- * its next safe boundary. SC-1: a user-initiated interrupt is never rendered as
- * an error — see the `interrupted` guard in `makeRunTurn`'s settlement below.
+ * honors on BOTH backends; steer either lands in the running turn's own loop (the
+ * session's delivery queue, drained by whichever backend is driving it) or queues a
+ * turn the pure-API driver drains at its next safe boundary. SC-1: a user-initiated
+ * interrupt is never rendered as an error — see the `interrupted` guard in
+ * `makeRunTurn`'s settlement below.
  */
 
 const createParams = z.object({
@@ -88,6 +90,12 @@ const subscribeParams = z.object({ id: z.string() });
  *  not a bare interruption (docs/adr/0012). Claude-specific: pure-API injects at a
  *  clean boundary with no bare-interrupt signal to counteract. */
 const FRAME_BARGE_IN = '[The user interrupted to steer you] ';
+
+/** Prefix marking a `system`-origin delivery flushed as a plain turn, so the model reads a
+ *  platform notice rather than the person speaking. Mirrors what every backend renders for
+ *  a `system` delivery it drains mid-loop (docs/adr/0030); a `user` delivery is fed bare,
+ *  matching the text already written to the log when it was queued. */
+const FRAME_SYSTEM_NOTICE = '[coa notice] ';
 
 /** Gated barge-in tracing (off by default). Set `COA_DEBUG_STEER=1` to log the interrupt
  *  window's boundary/`pendingTurns` transitions on a live Claude run — the one piece of the
@@ -570,6 +578,7 @@ export function buildSessionHandlers(
           signal: controller.signal,
           drainSteer: () => steer.splice(0, steer.length),
           drainQueuedSteer: () => queueSteer.splice(0, queueSteer.length),
+          drainDeliveries: () => session.deliveries.drain(),
           onStart: (s) => {
             started = s;
             session.control = {
@@ -810,12 +819,46 @@ export function buildSessionHandlers(
           // interrupt leaves no error to swallow, so clear it rather than letting it swallow
           // a future turn's genuine error.
           query.barging = 0;
+          // The turn is over, so any delivery still queued missed every mid-loop drain
+          // point this turn had — the last of them (the Claude backend's `Stop` hook) has
+          // already fired and returned by the time this frame lands. Feed it as an ordinary
+          // next turn instead of leaving it queued: the user has already seen it rendered as
+          // their own turn, so silence is the one outcome that must not happen (SC-1, and
+          // the degradation docs/adr/0030 promises). It becomes a real turn, so it takes the
+          // pending slot and this driver stays parked until IT boundaries.
+          if (flushStrandedDeliveries()) return;
           emitStatus(session, started.worktree, 'done');
           query.boundary?.resolve();
           query.boundary = undefined;
         }
       }
     };
+
+    /**
+     * Feed whatever is still queued after a turn ends into the input feed as one plain next
+     * turn, preserving FIFO order. Returns whether anything was fed.
+     *
+     * NOT re-recorded: a `user` delivery was written to the append-only log by
+     * {@link recordSteerTurn} the moment it was queued, and re-appending here would put the
+     * same turn in canonical memory twice (one writer per record — docs/adr/0010). Its bare
+     * text is therefore what gets fed, so the log and the model agree. A `system` delivery
+     * is a platform notice that was never a user turn and is never logged as one on any
+     * drain path; it is framed here exactly as a backend frames it mid-loop, so the model
+     * cannot read an automated report as the person speaking (docs/adr/0030).
+     *
+     * A sealed queue yields nothing, so a torn-down session is never revived by this.
+     */
+    function flushStrandedDeliveries(): boolean {
+      if (session.deliveries.size() === 0) return false;
+      const pending = session.deliveries.drain();
+      if (pending.length === 0) return false;
+      const text = pending
+        .map((d) => (d.origin === 'system' ? FRAME_SYSTEM_NOTICE + d.text : d.text))
+        .join('\n');
+      query.pendingTurns += 1;
+      channel.push(text);
+      return true;
+    }
 
     // Record the steer as a user turn in the single log (the SoT — docs/adr/0010) AND push
     // it live. Pushing it (rather than leaving the console to render it optimistically) is
@@ -855,6 +898,7 @@ export function buildSessionHandlers(
         ...buildPersistenceHooks(prep),
         signal: controller.signal,
         drainSteer: () => steer.splice(0, steer.length),
+        drainDeliveries: () => session.deliveries.drain(),
         onTurnInterrupt: (fn) => {
           query.turnInterrupt = fn;
         },
@@ -867,10 +911,12 @@ export function buildSessionHandlers(
             interrupted: false,
             mode: 'held-open',
           };
-          // A steer routes into THIS query's input feed (SDK streaming-input), not the
-          // per-turn `drainSteer` queue. `barge-in` stops the running turn first (via the
-          // reported interrupt handle) and injects a framed redirect; `queue` runs after
-          // the current turn (the SDK ceiling).
+          // A steer routes at THIS query, not the per-turn `drainSteer` queue. `barge-in`
+          // stops the running turn (via the reported interrupt handle) and injects a framed
+          // redirect into the input feed. A `queue` steer aimed at a WORKING turn instead
+          // goes onto the session's delivery queue, which the backend drains from inside
+          // that turn — beside the next tool result, one round trip away, discarding
+          // nothing. Only an idle steer still enters the input feed, as a plain next turn.
           session.setSteerSink((text, mode) => {
             const running = query.pendingTurns > 0;
             if (mode === 'barge-in' && running) {
@@ -906,11 +952,19 @@ export function buildSessionHandlers(
                 dbgSteer('redirect fed', { pendingTurns: query.pendingTurns });
                 channel.push(framed);
               })();
+            } else if (running) {
+              // Mid-loop delivery: the running turn's own loop picks this up at its next
+              // round trip. It is NOT another SDK turn, so it must not be counted — the
+              // in-flight turn still owns the single pending slot (docs/adr/0012 I3).
+              // The input feed's stream tap never sees it, so record it here: the
+              // append-only log is the only durable record of what the user sent
+              // (docs/adr/0010). The bare text is what is recorded — each backend frames
+              // the delivery its own way, and core never learns which backend ran it.
+              recordSteerTurn(text);
+              session.deliveries.push({ origin: 'user', text });
             } else {
-              // A queue-mode steer (or a barge-in while idle) is its OWN SDK turn with its own
-              // boundary; count it while running so a later turn's latch rides its own
-              // boundary, not this one (docs/adr/0012 I3). Idle ⇒ a plain next turn, uncounted.
-              if (running) query.pendingTurns += 1;
+              // Nothing is running (a queue steer, or a barge-in, while the query idles):
+              // there is no loop to deliver into, so this is a plain next turn, uncounted.
               recordSteerTurn(text);
               channel.push(text);
             }
@@ -1137,10 +1191,11 @@ export function buildSessionHandlers(
       return { interrupted: true };
     }),
 
-    // Queue a mid-turn steer (CHAT-10). The held-open SDK query takes it into its live
-    // input feed (a steer is another streamed user turn — docs/adr/0012); the pure-API
-    // path queues it for `drainSteer` at the driver's next safe boundary. An empty steer
-    // is a no-op — it would otherwise be recorded as a blank user turn in canonical memory.
+    // Queue a mid-turn steer (CHAT-10). The held-open route (see the steer sink in
+    // `establishHeldQuery`) delivers it into the WORKING turn, or feeds it as a plain next
+    // turn when the query idles; the pure-API path queues it for `drainSteer` at the
+    // driver's next safe boundary. An empty steer is a no-op — it would otherwise be
+    // recorded as a blank user turn in canonical memory.
     steerSession: rpcMethod(steerParams, (params) => {
       const session = registry.get(params.id);
       if (session?.control === undefined) return { steered: false };

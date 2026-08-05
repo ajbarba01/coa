@@ -69,6 +69,22 @@ export type CanUseTool = (
 /** Where in the transcript a reminder lands (D108/D133). */
 export type ReminderAt = 'session-start' | 'prompt' | 'post-tool';
 
+/**
+ * Text waiting to reach a running loop, drained by an adapter at its own soonest
+ * boundary. Distinct from `Reminder`, which is M3's `{rule, reason, tier}` authority
+ * payload delivered at a position D108 dictates — this carries arbitrary text and a
+ * provenance tag, not a rule.
+ */
+export type DeliveryOrigin = 'user' | 'system';
+
+export interface Delivery {
+  origin: DeliveryOrigin;
+  text: string;
+}
+
+/** An adapter's pull on the session's pending deliveries; returns [] when there are none. */
+export type DrainDeliveries = () => readonly Delivery[];
+
 /** Prompt-cache breakpoint markers (byte offsets into the stable prefix). */
 export interface CacheBreakpoints {
   breakpoints: number[];

@@ -10,6 +10,7 @@ import type {
   TurnFrame,
 } from '@coa/shared';
 import type {
+  DrainDeliveries,
   RuntimeAdapter,
   RuntimeUsage,
   StopDecision,
@@ -85,6 +86,15 @@ export interface SessionAdapterInit {
    * current behavior byte-identical (D85).
    */
   drainQueuedSteer?: () => readonly string[];
+  /**
+   * A synchronous drain of the session's pending mid-loop deliveries — text that should
+   * reach the model INSIDE the turn already running (a user steer, a system notice).
+   * Unlike {@link drainSteer}, this is not a turn: every backend realizes it at the
+   * soonest point its own turn model allows (the pure-API loop's next round trip, the
+   * SDK's post-tool hook), so no plane above M9 branches on backend. Absent ⇒ nothing is
+   * ever delivered, byte-identical to today (D85).
+   */
+  drainDeliveries?: DrainDeliveries;
   /**
    * A backend that can stop its current turn while keeping the session alive reports
    * its turn-interrupt handle here (the Claude SDK's held-open `query.interrupt`). M8
@@ -230,6 +240,8 @@ export async function createSession(
     drainSteer?: () => readonly string[];
     /** M8's per-session queued-steer drain, forwarded to the adapter (see {@link SessionAdapterInit.drainQueuedSteer}). */
     drainQueuedSteer?: () => readonly string[];
+    /** M8's per-session delivery drain, forwarded to the adapter (see {@link SessionAdapterInit.drainDeliveries}). */
+    drainDeliveries?: DrainDeliveries;
     /** M8's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
     onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
     /** The session's frozen compilation (neutral config + frame). When present the
@@ -304,6 +316,7 @@ export async function createSession(
     ...(req.signal !== undefined ? { signal: req.signal } : {}),
     ...(req.drainSteer !== undefined ? { drainSteer: req.drainSteer } : {}),
     ...(req.drainQueuedSteer !== undefined ? { drainQueuedSteer: req.drainQueuedSteer } : {}),
+    ...(req.drainDeliveries !== undefined ? { drainDeliveries: req.drainDeliveries } : {}),
     ...(req.onTurnInterrupt !== undefined ? { onTurnInterrupt: req.onTurnInterrupt } : {}),
   });
 

@@ -376,6 +376,44 @@ describe('runGovernedLoop', () => {
     expect(frames).toContainEqual({ t: 'text', text: 'also do X', role: 'user' });
   });
 
+  it('drains deliveries into the next round trip, tagged by origin', async () => {
+    const seen: DriverMessage[][] = [];
+    const frames: TurnFrame[] = [];
+    const pending = [
+      { origin: 'user' as const, text: 'check the schema first' },
+      { origin: 'system' as const, text: 'explorer finished' },
+    ];
+    // eslint-disable-next-line require-yield
+    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* (messages) {
+      seen.push(structuredClone(messages) as DriverMessage[]);
+      return text('done');
+    });
+    await runGovernedLoop(
+      deps({
+        complete,
+        drainDeliveries: () => pending.splice(0, pending.length),
+        onTurn: (f) => frames.push(f),
+      }),
+    );
+    const first = seen[0] ?? [];
+    expect(
+      first.some((m) => m.role === 'user' && m.content.includes('check the schema first')),
+    ).toBe(true);
+    expect(first.some((m) => m.role === 'user' && m.content.includes('explorer finished'))).toBe(
+      true,
+    );
+    // The system entry reaches the append-only log as its own frame (the reason this
+    // task exists) — with the `[coa notice] ` prefix and the `system` origin intact.
+    expect(frames).toContainEqual({
+      t: 'text',
+      text: '[coa notice] explorer finished',
+      role: 'system',
+    });
+    // The system entry is recorded, but never as something the person said.
+    const userFrames = frames.filter((f) => f.t === 'text' && f.role === 'user');
+    expect(userFrames).toHaveLength(1);
+  });
+
   it('does not execute a denied tool call — the deny reason goes back to the model', async () => {
     const invoke = vi.fn();
     const frames: TurnFrame[] = [];

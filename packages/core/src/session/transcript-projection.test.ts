@@ -157,6 +157,25 @@ describe('foldEventsToTranscript', () => {
     ]);
   });
 
+  it('folds a `system` delivery notice to its own user-role message, never merged into the open assistant turn', () => {
+    // Mirrors what the loop driver actually sends live: a `system` origin rides the
+    // API's `user` role (the Messages API has no other slot for mid-conversation
+    // input) but must never be attributed to the person, and must never be silently
+    // folded into the assistant's own text — replay has to reproduce what was sent.
+    const events: PersistedEvent[] = [
+      ev(0, { t: 'text', text: 'go', role: 'user' }),
+      ev(1, { t: 'text', text: 'working on it' }), // assistant text, still open
+      ev(2, { t: 'text', text: '[coa notice] explorer finished', role: 'system' }),
+      ev(3, { t: 'text', text: 'more assistant text' }), // a fresh assistant turn after the notice
+    ];
+    expect(foldEventsToTranscript(events)).toEqual([
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: 'working on it' },
+      { role: 'user', content: '[coa notice] explorer finished' },
+      { role: 'assistant', content: 'more assistant text' },
+    ]);
+  });
+
   it('folds a TOOL-ONLY assistant turn (no preceding text) to an empty-content assistant message', () => {
     const events: PersistedEvent[] = [
       ev(0, { t: 'text', text: 'go', role: 'user' }),

@@ -1,4 +1,5 @@
 import type { ModelSelection, Push } from '@coa/shared';
+import { DeliveryQueue } from './delivery.js';
 
 /**
  * A `LiveSession`'s run state — whether the backend loop is actively driving a
@@ -68,6 +69,11 @@ export class LiveSession {
   state: RunState = 'idle';
   /** The currently in-flight turn's control state; `undefined` when idle. */
   control: TurnControl | undefined = undefined;
+  /**
+   * Text waiting to reach this session's model mid-loop. Sealed by `close()` so a
+   * delivery arriving after teardown can never wake a stopped session.
+   */
+  readonly deliveries = new DeliveryQueue();
 
   #sinks = new Set<Sink>();
   #queue: TurnRequest[] = [];
@@ -179,6 +185,7 @@ export class LiveSession {
    *  `undefined`. */
   close(): void {
     this.#closed = true;
+    this.deliveries.seal();
     // Finalizers first (and once): ending the held-open input feed lets the backend
     // query drain its last result before the parked loop wakes and exits.
     const finalizers = this.#onClose;

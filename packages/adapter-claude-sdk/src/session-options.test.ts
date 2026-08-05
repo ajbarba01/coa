@@ -100,6 +100,14 @@ describe('buildHooks — the multi-event hook assembly', () => {
       undefined,
       ctx,
     );
+  const postToolUse = (hooks: ReturnType<typeof buildHooks>, name: string) =>
+    hooks.PostToolUse?.[0]?.hooks[0]?.(
+      { hook_event_name: 'PostToolUse', tool_name: name, tool_input: {} } as never,
+      undefined,
+      ctx,
+    );
+  const stopHook = (hooks: ReturnType<typeof buildHooks>) =>
+    hooks.Stop?.[0]?.hooks[0]?.({ hook_event_name: 'Stop' } as never, undefined, ctx);
 
   it('registers the close-gate on Stop', () => {
     const hooks = buildHooks({
@@ -249,5 +257,99 @@ describe('buildHooks — the multi-event hook assembly', () => {
     expect(await postToolUse('Edit')).toEqual({});
     await postToolUse('Bash');
     expect(observed).toBe(2);
+  });
+
+  it('returns pending deliveries as additionalContext and still observes', async () => {
+    const observed: number[] = [];
+    const pending = [
+      { origin: 'user' as const, text: 'stop and check the schema first' },
+      { origin: 'system' as const, text: 'subagent explorer finished' },
+    ];
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => observed.push(1),
+      drainDeliveries: () => pending.splice(0, pending.length),
+    });
+    const out = await postToolUse(hooks, 'Read');
+    expect(observed).toEqual([1]);
+    expect(out?.hookSpecificOutput?.additionalContext).toContain('stop and check the schema first');
+    expect(out?.hookSpecificOutput?.additionalContext).toContain('subagent explorer finished');
+  });
+
+  it('omits additionalContext when nothing is pending', async () => {
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => {},
+      drainDeliveries: () => [],
+    });
+    const out = await postToolUse(hooks, 'Read');
+    expect(out).toEqual({});
+  });
+
+  it('delivers pending text at an allowed stop so the conversation continues', async () => {
+    // The floor: PostToolUse never fires when the model answers in plain text with no
+    // tool call, so Stop is the only remaining point before the turn ends. `continue`
+    // must survive alongside the delivery — toStopHookOutput's allowed branch returns
+    // `{ continue: true }`, not an empty object, so replacing it outright would drop it.
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => {},
+      drainDeliveries: () => [{ origin: 'system' as const, text: 'explorer finished' }],
+    });
+    const out = await stopHook(hooks);
+    expect(out?.hookSpecificOutput?.additionalContext).toContain('explorer finished');
+    expect(out?.continue).toBe(true);
+  });
+
+  it('lets an allowed close-gate continue when nothing is pending — the mainline stop', async () => {
+    // The ordinary close of EVERY governed turn: allowed, nothing queued. `continue: true`
+    // is the gate's own allow signal, so returning a bare `{}` here would drop it on every
+    // turn in the product while the delivery-specific tests above still passed.
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => {},
+      drainDeliveries: () => [],
+    });
+    expect(await stopHook(hooks)).toEqual({ continue: true });
+  });
+
+  it('lets an allowed close-gate continue with no delivery port wired at all (D85)', async () => {
+    // The absent-option path: a caller that never supplies `drainDeliveries` must behave
+    // byte-identically to the pre-delivery product.
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: true }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => {},
+    });
+    expect(await stopHook(hooks)).toEqual({ continue: true });
+  });
+
+  it('leaves a blocked close-gate decision untouched, never draining', async () => {
+    // Draining is destructive: a blocked stop's decision is final (SC-1), so calling
+    // drainDeliveries at all here would silently swallow the pending text on a path
+    // that discards the result.
+    const drained: number[] = [];
+    const hooks = buildHooks({
+      stopPredicate: () => ({ allow: false, message: 'Cannot close: 1 unresolved check' }),
+      canUseTool: () => ({ behavior: 'allow' }),
+      sessionId: 's1',
+      observeChanges: () => {},
+      drainDeliveries: () => {
+        drained.push(1);
+        return [];
+      },
+    });
+    const out = await stopHook(hooks);
+    expect(out).toEqual({ decision: 'block', reason: 'Cannot close: 1 unresolved check' });
+    expect(drained).toEqual([]);
   });
 });

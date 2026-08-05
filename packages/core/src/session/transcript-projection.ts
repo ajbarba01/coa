@@ -53,7 +53,10 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
   for (const { frame, full } of events) {
     switch (frame.t) {
       case 'text':
-        if (frame.role === 'user') {
+        if (frame.role === 'user' || frame.role === 'system') {
+          // A `system` delivery rides the `user` role live (the Messages API has no
+          // other slot for mid-conversation input) — replay must reproduce exactly
+          // that, not fold it into the assistant's own text (docs/adr/0010).
           closeAssistant();
           out.push({ role: 'user', content: frame.text });
         } else {

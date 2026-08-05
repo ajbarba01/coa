@@ -1,6 +1,68 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type * as ClaudeSdkModule from '@coa/adapter-claude-sdk';
+import type * as DeepSeekModule from '@coa/adapter-deepseek';
+import type * as LongCatModule from '@coa/adapter-longcat';
 import type { SessionAdapterInit } from '@coa/core';
-import { createClaudeAdapter, createLongCatAdapter, fetchModels } from './adapter-factory.js';
+import {
+  createClaudeAdapter,
+  createDeepSeekAdapter,
+  createLongCatAdapter,
+  fetchModels,
+} from './adapter-factory.js';
+
+/**
+ * The init object each backend constructor actually received. Hoisted because vitest
+ * lifts the `vi.mock` factories below above the imports, so they cannot close over an
+ * ordinary module-level binding. Held as `unknown` and narrowed at the assertion — the
+ * point is to inspect the object as data, not to re-state the adapter's own init type.
+ */
+const captured = vi.hoisted(() => ({
+  claude: [] as unknown[],
+  deepseek: [] as unknown[],
+  longcat: [] as unknown[],
+}));
+
+// Each mock SUBCLASSES the real adapter rather than replacing it: every other test in
+// this file exercises genuine adapter behaviour (capability profile, the runLoop
+// precondition), and only the constructor argument is observed.
+vi.mock('@coa/adapter-claude-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof ClaudeSdkModule>();
+  return {
+    ...actual,
+    ClaudeSdkAdapter: class extends actual.ClaudeSdkAdapter {
+      constructor(init: ConstructorParameters<typeof actual.ClaudeSdkAdapter>[0]) {
+        super(init);
+        captured.claude.push(init);
+      }
+    },
+  };
+});
+
+vi.mock('@coa/adapter-deepseek', async (importOriginal) => {
+  const actual = await importOriginal<typeof DeepSeekModule>();
+  return {
+    ...actual,
+    DeepSeekAdapter: class extends actual.DeepSeekAdapter {
+      constructor(init: ConstructorParameters<typeof actual.DeepSeekAdapter>[0]) {
+        super(init);
+        captured.deepseek.push(init);
+      }
+    },
+  };
+});
+
+vi.mock('@coa/adapter-longcat', async (importOriginal) => {
+  const actual = await importOriginal<typeof LongCatModule>();
+  return {
+    ...actual,
+    LongCatAdapter: class extends actual.LongCatAdapter {
+      constructor(init: ConstructorParameters<typeof actual.LongCatAdapter>[0]) {
+        super(init);
+        captured.longcat.push(init);
+      }
+    },
+  };
+});
 
 const init = (over: Partial<SessionAdapterInit> = {}): SessionAdapterInit => ({
   sessionId: 's1',
@@ -62,4 +124,156 @@ describe('fetchModels — longcat', () => {
       }),
     ).rejects.toThrow(/no api key resolved/i);
   });
+});
+
+/**
+ * Every field of {@link SessionAdapterInit}, each an identity-distinguishable sentinel
+ * (every function is its own literal, so a field mapped onto the WRONG key is caught
+ * too). Typed `Required<…>` on purpose: adding a field to the interface breaks the
+ * typecheck here until it is given a sentinel and classified below, so no future field
+ * can reach this seam unclassified.
+ */
+const FULL_INIT: Required<SessionAdapterInit> = {
+  sessionId: 's-full',
+  sandbox: { allowedTools: ['Read'], denyRules: [], permissionMode: 'default', denyRead: [] },
+  input: 'go',
+  model: { provider: 'claude', model: 'sentinel-model' },
+  maxBudgetUsd: 12.5,
+  onSettle: () => {},
+  observeChanges: () => {},
+  onTurn: () => {},
+  locator: { type: 'env-var', name: 'COA_TEST_SENTINEL_LOCATOR' },
+  resume: 'backend-session-sentinel',
+  onBackendSession: () => {},
+  history: [{ role: 'user', content: 'earlier turn' }],
+  deliverHistoryAsPreamble: true,
+  signal: new AbortController().signal,
+  drainSteer: () => [],
+  drainQueuedSteer: () => [],
+  drainDeliveries: () => [{ origin: 'user', text: 'mid-loop' }],
+  onTurnInterrupt: () => {},
+};
+
+type InitKey = keyof SessionAdapterInit;
+
+/**
+ * The forwarding contract per factory. This file hand-maps every field with no spread,
+ * so a field silently dropped here is a feature that ships DEAD while both the
+ * typecheck (the field is optional) and the whole suite stay green — which is exactly
+ * how `drainDeliveries` reached this seam untested.
+ */
+const FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[]> = {
+  claude: [
+    'sessionId',
+    'sandbox',
+    'input',
+    'onSettle',
+    'model',
+    'onTurn',
+    'maxBudgetUsd',
+    'locator',
+    'resume',
+    'onBackendSession',
+    'history',
+    'deliverHistoryAsPreamble',
+    'signal',
+    'drainDeliveries',
+  ],
+  deepseek: [
+    'sessionId',
+    'input',
+    'onSettle',
+    'model',
+    'onTurn',
+    'maxBudgetUsd',
+    'locator',
+    'history',
+    'signal',
+    'drainSteer',
+    'drainQueuedSteer',
+    'drainDeliveries',
+  ],
+  longcat: [
+    'sessionId',
+    'input',
+    'onSettle',
+    'model',
+    'onTurn',
+    'maxBudgetUsd',
+    'locator',
+    'history',
+    'signal',
+    'drainSteer',
+    'drainQueuedSteer',
+    'drainDeliveries',
+  ],
+};
+
+/**
+ * The complement of {@link FORWARDED} — asserted only to be exhaustive, never to be
+ * absent, so fixing one of the gaps below does not break a test.
+ *
+ * Most entries are fields the target backend's own init simply has no slot for (a
+ * pure-API adapter takes no `sandbox`/`resume`/`onBackendSession`, the Claude adapter
+ * steers through its held-open input feed rather than `drainSteer`). Two are genuine
+ * gaps, deliberately left for their own commit rather than folded into this coverage
+ * pass: `observeChanges` is accepted by all three adapter inits and passed by none, and
+ * `onTurnInterrupt` is accepted by the Claude init and not passed.
+ */
+const NOT_FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[]> = {
+  claude: ['observeChanges', 'onTurnInterrupt', 'drainSteer', 'drainQueuedSteer'],
+  deepseek: [
+    'sandbox',
+    'observeChanges',
+    'resume',
+    'onBackendSession',
+    'deliverHistoryAsPreamble',
+    'onTurnInterrupt',
+  ],
+  longcat: [
+    'sandbox',
+    'observeChanges',
+    'resume',
+    'onBackendSession',
+    'deliverHistoryAsPreamble',
+    'onTurnInterrupt',
+  ],
+};
+
+const factories = {
+  claude: createClaudeAdapter,
+  deepseek: createDeepSeekAdapter,
+  longcat: createLongCatAdapter,
+} as const;
+
+describe('the M8 → adapter forwarding contract', () => {
+  for (const backend of ['claude', 'deepseek', 'longcat'] as const) {
+    it(`classifies every SessionAdapterInit field for ${backend}`, () => {
+      expect([...FORWARDED[backend], ...NOT_FORWARDED[backend]].sort()).toEqual(
+        Object.keys(FULL_INIT).sort(),
+      );
+    });
+
+    it(`forwards every contracted field into the ${backend} adapter's init`, () => {
+      const before = captured[backend].length;
+      factories[backend](FULL_INIT);
+      const seen = captured[backend][before] as Record<string, unknown> | undefined;
+      expect(seen).toBeDefined();
+      for (const key of FORWARDED[backend]) {
+        // Identity, not deep equality: two distinct no-op functions compare EQUAL under
+        // `toEqual`, which would let a dropped callback pass.
+        expect(seen?.[key], `'${key}' never reached the ${backend} adapter`).toBe(FULL_INIT[key]);
+      }
+    });
+
+    it(`forwards drainDeliveries into the ${backend} adapter, so a queued steer can reach the model`, () => {
+      // Called out on its own because deleting exactly this line ships the mid-loop
+      // delivery path DEAD: the queue fills, the steer is logged and acknowledged
+      // `{ steered: true }`, and nothing ever drains it (docs/adr/0030).
+      const before = captured[backend].length;
+      factories[backend](init({ drainDeliveries: FULL_INIT.drainDeliveries }));
+      const seen = captured[backend][before] as Record<string, unknown> | undefined;
+      expect(seen?.['drainDeliveries']).toBe(FULL_INIT.drainDeliveries);
+    });
+  }
 });

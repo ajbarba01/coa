@@ -100,3 +100,28 @@ describe('LiveSession — mode-aware steer routing', () => {
     expect(s.pushSteer('a', 'barge-in')).toBe(false);
   });
 });
+
+it('carries a delivery queue that close() seals', () => {
+  const session = new LiveSession('conv-1');
+  session.deliveries.push({ origin: 'user', text: 'steer' });
+  session.deliveries.push({ origin: 'system', text: 'notice' });
+  expect(session.deliveries.size()).toBe(2);
+  session.close();
+  expect(session.deliveries.isSealed()).toBe(true);
+  expect(session.deliveries.drain()).toEqual([]);
+});
+
+it('seals the delivery queue before running finalizers, so a finalizer-enqueued delivery cannot survive', () => {
+  const session = new LiveSession('conv-1');
+  let sealedWhenFinalizerRan = false;
+  session.onClose(() => {
+    // Observed from inside the finalizer: proves seal() has already run by the time
+    // this runs, not just that it eventually runs at some point during close().
+    sealedWhenFinalizerRan = session.deliveries.isSealed();
+    session.deliveries.push({ origin: 'system', text: 'late notice' });
+  });
+  session.close();
+  expect(sealedWhenFinalizerRan).toBe(true);
+  expect(session.deliveries.isSealed()).toBe(true);
+  expect(session.deliveries.drain()).toEqual([]);
+});
