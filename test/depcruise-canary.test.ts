@@ -29,6 +29,7 @@ const depcruiseBin = join(
 // Named so a stray copy (a crashed run) is self-explanatory; cleaned in afterEach.
 const rendererCanary = join(root, 'apps/desktop/src/renderer/__depcruise-canary__.ts');
 const kitCanary = join(root, 'packages/console-kit/src/__depcruise-canary__.ts');
+const viewmodelCanary = join(root, 'packages/console-viewmodel/src/__depcruise-canary__.ts');
 
 interface Violation {
   rule: { name: string };
@@ -50,6 +51,7 @@ function cruise(files: string[]): Violation[] {
 afterEach(() => {
   rmSync(rendererCanary, { force: true });
   rmSync(kitCanary, { force: true });
+  rmSync(viewmodelCanary, { force: true });
 });
 
 describe('dependency-cruiser canary', () => {
@@ -80,5 +82,24 @@ describe('dependency-cruiser canary', () => {
       `expected kit-never-depends-on-the-transcript among: ${JSON.stringify(violations)}`,
     ).toBeDefined();
     expect(hit?.to).toBe('packages/console-transcript/src/index.ts');
+  }, 120_000);
+
+  it('reports a backend-neutral package reaching an adapter or the loop driver (the backend lockdown)', () => {
+    // console-viewmodel stands in for "anything outside apps/cli and the adapters":
+    // it was NOT covered by the original fan-in rule's from-list, so this edge only
+    // fires if the extended lockdown actually took. Relative paths resolve without a
+    // package.json dependency, the same trick as the kit canary above.
+    writeFileSync(
+      viewmodelCanary,
+      "import '../../adapter-openai-compat/src/index.js';\nimport '../../loop-driver/src/index.js';\n",
+    );
+
+    const violations = cruise(['packages/console-viewmodel/src/__depcruise-canary__.ts']);
+    const hits = violations.filter((v) => v.rule.name === 'backend-fan-in-is-injected');
+
+    expect(
+      hits.map((h) => h.to).sort(),
+      `expected both lockdown edges among: ${JSON.stringify(violations)}`,
+    ).toEqual(['packages/adapter-openai-compat/src/index.ts', 'packages/loop-driver/src/index.ts']);
   }, 120_000);
 });

@@ -42,8 +42,19 @@ module.exports = {
       name: 'backend-fan-in-is-injected',
       severity: 'error',
       comment:
-        'The core (and every backend-neutral package) never imports an adapter package. Concrete backends are constructed in the app composition roots and injected through the port types in spi. The bare-specifier alternative catches an import that no longer resolves (the offending package.json dependency is gone) but would still break the build.',
-      from: { path: '^packages/(core|spi|shared|loop-driver|code-intel)/src' },
+        'Concrete backends stay behind the one backend seam: only the app composition root (apps/cli) and the adapter packages may import an adapter package or the shared loop driver (adapters compose the driver; the driver itself is exempted from `from` only so its own internal imports pass — the rule below keeps it out of the adapters). Everything else receives a constructed backend through the port types in spi. The bare-specifier alternative catches an import that no longer resolves (the offending package.json dependency is gone) but would still break the build.',
+      from: {
+        path: '^(?:packages|apps)/',
+        pathNot: '^apps/cli/|^packages/adapter-[^/]+/|^packages/loop-driver/',
+      },
+      to: { path: '^packages/(?:adapter-[^/]+|loop-driver)/|^@coa/(?:adapter-[^/]+|loop-driver)' },
+    },
+    {
+      name: 'loop-driver-composes-no-backend',
+      severity: 'error',
+      comment:
+        'The shared loop driver is the neutral engine the adapters build ON; if it ever imports an adapter back, the one-way composition inverts into a cycle of backend knowledge.',
+      from: { path: '^packages/loop-driver/src' },
       to: { path: '^packages/adapter-|^@coa/adapter-' },
     },
     {
