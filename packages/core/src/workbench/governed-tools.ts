@@ -3,11 +3,11 @@ import {
   diffSpecSchema,
   symbolRefSchema,
   type CoaError,
-  type SymbolRef,
   type ToolCall,
   type ToolResponse,
 } from '@coa/shared';
 import type { RegisteredTool } from '@coa/spi';
+import { spec, type ToolSpec } from './tool-spec.js';
 import { BASE_TOOL_CATALOGUE, baseToolSpecs, type BaseToolDeps } from './base-tools.js';
 import { renderToolResult, toolResultOk } from './render-result.js';
 import { WEB_TOOL_CATALOGUE, webToolSpecs, type WebToolDeps } from './web-tools.js';
@@ -24,6 +24,10 @@ import {
   type InspectDeps,
 } from './inspect.js';
 import { sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
+
+// The dispatch primitives moved to their own leaf module; re-exported so
+// existing importers of this module keep working unchanged.
+export { spec, type ToolSpec } from './tool-spec.js';
 
 /**
  * M6 — the governed tool-dispatch boundary. This is the seam M9 registers into
@@ -57,38 +61,8 @@ export interface GovernedToolDeps {
   spawn?: SpawnDeps;
 }
 
-/**
- * One tool's input schema + its dispatch into the M6 handler, typed against the shape.
- * Dispatch may be sync (the retrieve/mutate/inspect handlers) or async (the egress web
- * tools) — `invokeSpec` awaits either uniformly before `enrich` sees the response.
- */
-export interface ToolSpec {
-  shape: z.ZodRawShape;
-  dispatch: (
-    args: unknown,
-    deps: GovernedToolDeps,
-  ) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
-  refOf?: (args: unknown) => SymbolRef | undefined;
-}
-
-/** Bind a tool spec, preserving the parsed-args type from the Zod shape. */
-export function spec<S extends z.ZodRawShape>(
-  shape: S,
-  dispatch: (
-    args: z.infer<z.ZodObject<S>>,
-    deps: GovernedToolDeps,
-  ) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>,
-  refOf?: (args: z.infer<z.ZodObject<S>>) => SymbolRef | undefined,
-): ToolSpec {
-  return {
-    shape,
-    dispatch: (args, deps) => dispatch(args as z.infer<z.ZodObject<S>>, deps),
-    ...(refOf ? { refOf: (args: unknown) => refOf(args as z.infer<z.ZodObject<S>>) } : {}),
-  };
-}
-
 /** The buildable v1 catalogue's dispatch table, keyed by the manifest tool name. */
-const SPECS: Record<string, ToolSpec> = {
+const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
   get_symbol: spec(
     { ref: symbolRefSchema },
     (a, d) => getSymbol(a.ref, d.retrieve),
@@ -132,7 +106,7 @@ const SPECS: Record<string, ToolSpec> = {
 /** Validate, dispatch, and enrich one tool call (SC-1: never throws, never denies). */
 async function invokeSpec(
   name: string,
-  toolSpec: ToolSpec,
+  toolSpec: ToolSpec<GovernedToolDeps>,
   raw: unknown,
   deps: GovernedToolDeps,
 ): Promise<ToolResponse<unknown>> {
