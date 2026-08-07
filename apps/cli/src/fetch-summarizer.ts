@@ -1,7 +1,7 @@
 import type { Locator } from '@coa/shared';
 import type { RuntimeUsage } from '@coa/spi';
 import { makeSummarizer, type Summarizer, type WebConfig } from '@coa/core';
-import { makeDeepSeekComplete } from '@coa/adapter-deepseek';
+import { deepseekSpec, makeOpenAiCompatComplete } from '@coa/adapter-openai-compat';
 
 /**
  * Compose the WebFetch summarizer from `web.fetch.summarizer`: a minimal
@@ -21,7 +21,7 @@ export function buildFetchSummarizer(
   const apiKey = resolveEnvVar(cfg.credential);
   if (apiKey === undefined) return undefined;
   return makeSummarizer({
-    complete: makeDeepSeekComplete({ apiKey, model: cfg.model }),
+    complete: makeOpenAiCompatComplete(deepseekSpec, { apiKey, model: cfg.model }),
     recordCost,
   });
 }

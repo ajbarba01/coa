@@ -1,14 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type * as ClaudeSdkModule from '@coa/adapter-claude-sdk';
-import type * as DeepSeekModule from '@coa/adapter-deepseek';
-import type * as LongCatModule from '@coa/adapter-longcat';
+import type * as OpenAiCompatModule from '@coa/adapter-openai-compat';
+import { deepseekSpec, longcatSpec } from '@coa/adapter-openai-compat';
 import type { SessionAdapterInit } from '@coa/core';
-import {
-  createClaudeAdapter,
-  createDeepSeekAdapter,
-  createLongCatAdapter,
-  fetchModels,
-} from './adapter-factory.js';
+import { createClaudeAdapter, createOpenAiCompatAdapter, fetchModels } from './adapter-factory.js';
 
 /**
  * The init object each backend constructor actually received. Hoisted because vitest
@@ -38,27 +33,20 @@ vi.mock('@coa/adapter-claude-sdk', async (importOriginal) => {
   };
 });
 
-vi.mock('@coa/adapter-deepseek', async (importOriginal) => {
-  const actual = await importOriginal<typeof DeepSeekModule>();
+// The unified adapter serves BOTH pure-API providers; the captured init is routed by
+// the spec the factory constructed it with, so the per-provider forwarding assertions
+// below stay per-provider.
+vi.mock('@coa/adapter-openai-compat', async (importOriginal) => {
+  const actual = await importOriginal<typeof OpenAiCompatModule>();
   return {
     ...actual,
-    DeepSeekAdapter: class extends actual.DeepSeekAdapter {
-      constructor(init: ConstructorParameters<typeof actual.DeepSeekAdapter>[0]) {
-        super(init);
-        captured.deepseek.push(init);
-      }
-    },
-  };
-});
-
-vi.mock('@coa/adapter-longcat', async (importOriginal) => {
-  const actual = await importOriginal<typeof LongCatModule>();
-  return {
-    ...actual,
-    LongCatAdapter: class extends actual.LongCatAdapter {
-      constructor(init: ConstructorParameters<typeof actual.LongCatAdapter>[0]) {
-        super(init);
-        captured.longcat.push(init);
+    OpenAiCompatAdapter: class extends actual.OpenAiCompatAdapter {
+      constructor(
+        spec: ConstructorParameters<typeof actual.OpenAiCompatAdapter>[0],
+        init: ConstructorParameters<typeof actual.OpenAiCompatAdapter>[1],
+      ) {
+        super(spec, init);
+        if (spec.id === 'deepseek' || spec.id === 'longcat') captured[spec.id].push(init);
       }
     },
   };
@@ -104,9 +92,10 @@ describe('fetchModels — deepseek', () => {
   });
 });
 
-describe('createLongCatAdapter', () => {
+describe('createOpenAiCompatAdapter — longcat', () => {
   it('constructs a runtime adapter exposing the driven port surface', () => {
-    const adapter = createLongCatAdapter(
+    const adapter = createOpenAiCompatAdapter(
+      longcatSpec,
       init({ model: { provider: 'longcat', model: 'LongCat-2.0' } }),
     );
     expect(typeof adapter.renderNative).toBe('function');
@@ -237,8 +226,8 @@ const NOT_FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[
 
 const factories = {
   claude: createClaudeAdapter,
-  deepseek: createDeepSeekAdapter,
-  longcat: createLongCatAdapter,
+  deepseek: (i: SessionAdapterInit) => createOpenAiCompatAdapter(deepseekSpec, i),
+  longcat: (i: SessionAdapterInit) => createOpenAiCompatAdapter(longcatSpec, i),
 } as const;
 
 describe('the session-core → adapter forwarding contract', () => {

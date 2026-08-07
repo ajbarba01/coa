@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { makeLongCatComplete } from './complete.js';
+import { makeOpenAiCompatComplete } from './complete.js';
 import { resolveApiKey } from './credentials.js';
+import { longcatSpec } from './longcat.js';
 
 /**
  * The live tool-call gate. Every other LongCat test mocks `fetch`, so every one of them
@@ -16,14 +17,14 @@ import { resolveApiKey } from './credentials.js';
  * real tool schema and asserts the arguments SURVIVE the round-trip. Skipped (never failed)
  * when no LongCat key is configured, so CI without creds stays green.
  */
-const apiKey = resolveApiKey({
+const apiKey = resolveApiKey(longcatSpec, {
   type: 'key-file',
   path: `${process.env['USERPROFILE'] ?? process.env['HOME'] ?? ''}/.coa/keys/lc`,
 });
 
 describe.skipIf(apiKey === undefined)('LongCat live tool call', () => {
   it('returns a streamed tool call with its arguments intact', async (ctx) => {
-    const complete = makeLongCatComplete({
+    const complete = makeOpenAiCompatComplete(longcatSpec, {
       apiKey: apiKey as string,
       model: 'LongCat-2.0',
       prices: {},

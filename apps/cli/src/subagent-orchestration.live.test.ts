@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { ToolCall, TurnFrame } from '@coa/shared';
 import type { RuntimeUsage } from '@coa/spi';
 import { ClaudeSdkAdapter } from '@coa/adapter-claude-sdk';
-import { DeepSeekAdapter } from '@coa/adapter-deepseek';
+import { OpenAiCompatAdapter, deepseekSpec } from '@coa/adapter-openai-compat';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 // The shared live-smoke scaffolding lives with the adapter's own smokes. A test-only
@@ -35,9 +35,9 @@ import {
  * forever.
  *
  * It lives in `apps/cli` because the CLI is the one place that legitimately owns BOTH
- * adapters (`@coa/adapter-claude-sdk` and `@coa/adapter-deepseek` are real dependencies
- * here); in its original home, `packages/adapter-claude-sdk`, this file was the sole
- * reason for a cross-adapter devDependency.
+ * adapters (`@coa/adapter-claude-sdk` and `@coa/adapter-openai-compat` are real
+ * dependencies here); in its original home, `packages/adapter-claude-sdk`, this file was
+ * the sole reason for a cross-adapter devDependency.
  *
  * SCOPE, READ BEFORE TRUSTING THIS FILE'S ASSERTIONS AS PROOF OF THE SHIPPED FEATURE:
  * An adapter-level test must not depend upward on the daemon core (`@coa/core` depends
@@ -68,7 +68,7 @@ import {
  * sum today. See ROADMAP.md.
  *
  * WHERE A REAL SMOKE BELONGS: `packages/core` already depends on both `@coa/adapter-claude-sdk`
- * and `@coa/adapter-deepseek` (real dependencies, not dev — `packages/core/package.json`), and
+ * and `@coa/adapter-openai-compat` (real dependencies, not dev — `packages/core/package.json`), and
  * `dependency-cruiser` excludes every `*.test.ts` from its graph regardless of which package it
  * sits in. A `*.live.test.ts` file placed anywhere under `packages/core/src` (the
  * `browser-launcher.live.test.ts` convention already in that directory) could inject real
@@ -113,7 +113,7 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
 
         // Fire-and-forget: the non-blocking contract `spawn.ts`'s own header documents
         // ("Start the child and return once it has STARTED, never once it has finished").
-        const child = new DeepSeekAdapter({
+        const child = new OpenAiCompatAdapter(deepseekSpec, {
           sessionId: id,
           input: task,
           maxBudgetUsd: 0.05,
@@ -252,7 +252,7 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
         // orphan-avoidance direction `live-registry.ts`'s cascade guarantees.
         if (rootController.signal.aborted) childController.abort();
 
-        const child = new DeepSeekAdapter({
+        const child = new OpenAiCompatAdapter(deepseekSpec, {
           sessionId: id,
           input: task,
           maxBudgetUsd: 0.1,
