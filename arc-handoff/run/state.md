@@ -86,11 +86,13 @@ on the old machine.
    escape hatch for the live suites' maxBudgetUsd real-money guard. Full inventory in
    run/verification/R1.json. Do this BEFORE part 3 so part 3 adds no new
    maxBudgetUsd construction sites.
-4. C2 part 3: OpenAI + OpenRouter provider specs + the adapter fan-out cruiser rule
-   (prompt intact in workflow-scripts/c2-backend-seam-*.js).
-5. Q7 cleanups: fix the THREE load-flakes (Combobox focus, daemon watcher, AuthPanel
-   replace-secret — all pass solo) with deterministic waits; archive the orphaned
-   context modules + capabilityProfileSchema.
+4. ~~C2 part 3~~ DONE 2026-08-07 (c5281b7 · 14044ce pushed, verifier passed — C2
+   fully delivered; arc/architecture tip 14044ce). Follow-up queued for Stage 3: the
+   desktop add-provider GUI flow lacks openai/openrouter rows (CLI/daemon complete).
+5. Q7 cleanups (NEXT, on Opus per the model-allocation decision below): fix the THREE
+   load-flakes (Combobox focus, daemon watcher, AuthPanel replace-secret — all pass
+   solo) with deterministic waits; archive the orphaned context modules +
+   capabilityProfileSchema.
 6. Stage 4 docs (mandatory before any closeout) — absorbs the codename-consistency
    pass and the ADR-0032/D150/ROADMAP prose reconciliation R1 makes stale.
 7. Stage 5 closeout: write questions for every parked charter/feature, push all
@@ -107,6 +109,15 @@ on the old machine.
 - Commits: subject-only Conventional Commits, no body, no trailers, no internal
   codenames, stage files BY NAME, human-sized batches.
 - Never push `main`; never force-push anything on origin except the arc's own branches.
+
+## Model allocation (maintainer decision, 2026-08-07 afternoon)
+
+The first Fable account's promo credit is EXHAUSTED (hit its monthly limit mid-part-3;
+the maintainer re-logged into the second account). Decision: the session runs on
+**Opus** for all remaining backend/mechanical work (Q7 cleanups, C3, C5, Stage 4
+docs, closeout); the second account's remaining Fable credit is **reserved for the
+UX stages** — Stage 3's mockup-driven features, C4's console rewrite, and the
+mockup-conformance gates — per the plan's Fable-on-UX hard rule.
 
 ## Spend / cost discipline (READ THIS — the run died here)
 

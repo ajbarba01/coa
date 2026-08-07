@@ -278,3 +278,33 @@ items, screenshots (UI stages). This file is the maintainer's morning audit.
     dist fresh. Needs a ruling: rebuild-on-commit gate, or stop committing dist.
 - C2 part 3 (OpenAI + OpenRouter ProviderSpecs + backend-import lockdown rule)
   launched as a workflow: builder + refute-framed verifier.
+- Mid-part-3 the FIRST Fable account's promo credit hit its monthly limit and killed
+  the builder 76s in (tree verified clean — it was still reading). Maintainer
+  re-logged into the second Fable account; the workflow relaunched from its script
+  and completed.
+- **C2 part 3 COMPLETE AND VERIFIED (c5281b7 · 14044ce, pushed) — C2 IS NOW FULLY
+  DELIVERED and Stage 2 is C1+C2+de-slop done, C3/C4/C5 remaining.**
+  - openai.ts spec: gpt-5 family + o3/o4-mini published prices with cache rates,
+    effort ladder clamps xhigh/max→high, reasoning_effort via caps table, Responses
+    API explicitly deferred (roadmap note).
+  - openrouter.ts spec: openrouter/auto default, normalized reasoning object mapping
+    (off→enabled:false, budget→max_tokens), empty shipped price/effort tables
+    (env-overridable), 3-entry real-shape /models fixture + parse test.
+  - Wired through auth/models end-to-end like the existing pair: providerSchema,
+    PROVIDER_CAPABILITIES, MODEL_PROVIDERS, BACKENDS, default catalog, and coa auth
+    --openai-key/--openrouter-key etc. via a data-driven KEYED_PROVIDERS loop.
+  - Lockdown: backend-fan-in-is-injected extended to the full rule (nothing outside
+    apps/cli + packages/adapter-* imports @coa/adapter-* or @coa/loop-driver) plus a
+    sibling loop-driver-composes-no-backend rule; proven by a third planted canary.
+  - Gates at HEAD: 2872 passed / 30 skipped, zero failures, depcruise clean over 409
+    modules (re-run independently by the orchestrator), docs-check 60.
+  - Verifier PASSED all six lenses (spec faithfulness incl. no-budget-fields per ADR
+    0035, four-spec matrix 23/23 solo, canary fires, CLI parity, fixture realism,
+    gate honesty).
+  - Known follow-up (Stage 3 UI territory): the desktop add-provider flow
+    (renderer panels/providers.ts) has no openai/openrouter rows yet — CLI and
+    daemon views fully work; the GUI row needs brand marks/copy.
+- **Model allocation decision (maintainer): session switches to Opus after part 3;
+  the remaining Fable promo credit (second account) is RESERVED for the UX stages**
+  (Stage 3 mockup-driven features, C4's console rewrite, mockup-conformance gates).
+  All backend/mechanical work (flakes, orphans, C3, C5, Stage 4 docs) runs on Opus.
