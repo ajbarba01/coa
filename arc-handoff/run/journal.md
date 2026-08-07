@@ -238,3 +238,22 @@ items, screenshots (UI stages). This file is the maintainer's morning audit.
 - C2 part 2 completion (consumer swap, test convergence, old-package deletion,
   REPO_LAYOUT row collapse) dispatched to a background subagent on arc/architecture
   at 1b70e47. No Workflow-script runner needed — single-charter agent.
+- **C2 part 2 COMPLETE (0c8c444, pushed): the tree is in the unified state.** One
+  commit, 50 files, +204/−3102: apps/cli routes 'deepseek'/'longcat' through one
+  createOpenAiCompatAdapter(spec, init); fetch-summarizer on
+  makeOpenAiCompatComplete(deepseekSpec); both old packages deleted; REPO_LAYOUT rows
+  collapsed. Coverage audit found the WIP suites already carried both old
+  complete/adapter/credentials/models suites' behavior; ported the gaps (render,
+  pricing incl. per-provider flat-vs-nested cache extraction) + moved the LongCat
+  live smoke with its quota skip. Gates verbatim: `Test Files 278 passed | 11
+  skipped (289)` / `Tests 2864 passed | 30 skipped (2894)`, depcruise 407 modules
+  clean, docs-check 59 OK. Independently re-verified by the orchestrator (typecheck,
+  66 tests on the swapped surfaces, leftover-reference grep clean).
+  - **Honesty find:** root tsconfig.json never referenced the new package — `pnpm
+    typecheck` was silently NOT covering it when the "gate" first ran green. Fixed in
+    the same commit (root + apps/cli references added). The interruption-era
+    typecheck pass was partially hollow; the current one is real.
+  - Left for the docs stage: ROADMAP.md:326, docs/design/handoff/SPEC.md:139,
+    spec/M9.md title+87 still name the deleted packages.
+- R1 execution launched as a workflow (executor + 2 refute-framed verifiers:
+  KEEP-seam spend accounting, removal completeness). Superseding ADR slot: 0035.

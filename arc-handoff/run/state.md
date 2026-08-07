@@ -77,10 +77,10 @@ on the old machine.
 ## Next action (in order)
 
 1. ~~Gate the WIP adapter package~~ DONE 2026-08-07 (gated + landed, see journal).
-2. C2 part 2 COMPLETION (in flight as a subagent): swap apps/cli consumers onto
-   adapter-openai-compat, converge old-suite coverage (byte-equivalence bar), DELETE
-   adapter-deepseek + adapter-longcat, collapse the REPO_LAYOUT rows, lockfile.
-3. Execute knife ruling R1 per the Q1 archive-anyway ruling: needs a SUPERSEDING ADR
+2. ~~C2 part 2 completion~~ DONE 2026-08-07 (0c8c444 pushed — tree is in the unified
+   state; old packages deleted; arc/architecture tip 0c8c444).
+3. Execute knife ruling R1 per the Q1 archive-anyway ruling (IN FLIGHT as a
+   workflow: executor + KEEP-seam and completeness verifiers): needs a SUPERSEDING ADR
    (0032 fan-out-bound + 0009 exactly-two-blocks are immutable) and a raw-SDK-option
    escape hatch for the live suites' maxBudgetUsd real-money guard. Full inventory in
    run/verification/R1.json. Do this BEFORE part 3 so part 3 adds no new
