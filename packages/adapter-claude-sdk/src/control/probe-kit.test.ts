@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { captureSpawn } from './probe-kit.js';
+
+// These probes spawn real child processes; under a fully loaded suite run the
+// default 5s can lapse before a child even boots. One file-wide ceiling, same
+// contract as the live suites' setConfig convention.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 describe('probe-kit — the stub-CLI capture harness', () => {
   it('captures the argv the SDK constructs from Options', async () => {

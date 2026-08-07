@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   query,
   type Options,
@@ -10,6 +10,11 @@ import {
   type SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk';
 import { captureSpawn } from './probe-kit.js';
+
+// These probes spawn real child processes; under a fully loaded suite run the
+// default 5s can lapse before a child even boots. One file-wide ceiling, same
+// contract as the live suites' setConfig convention.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
  * Control-spike stages 5-6 — context over time (mid-session injection) and

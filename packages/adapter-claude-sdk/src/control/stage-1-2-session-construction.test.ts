@@ -2,8 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { captureSpawn } from './probe-kit.js';
+// These probes spawn real child processes; under a fully loaded suite run the
+// default 5s can lapse before a child even boots. One file-wide ceiling, same
+// contract as the live suites' setConfig convention.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
  * Control-spike stages 1-2 — what the model is, what tools exist.
@@ -64,6 +68,7 @@ function writeStdinCaptureStub(dir: string): string {
   const source = `#!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
+
 
 const out = process.env['COA_PROBE_CAPTURE'];
 const stdinOut = process.env['COA_PROBE_STDIN_CAPTURE'];

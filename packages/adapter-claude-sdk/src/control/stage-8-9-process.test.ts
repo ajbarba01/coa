@@ -2,9 +2,13 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { resolveAuthEnv, sessionAuthEnv } from '../auth-env.js';
 import { captureSpawn } from './probe-kit.js';
+// These probes spawn real child processes; under a fully loaded suite run the
+// default 5s can lapse before a child even boots. One file-wide ceiling, same
+// contract as the live suites' setConfig convention.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
  * Control-spike stages 8-9 — inference routing, and the process coa wraps.
@@ -30,6 +34,7 @@ import { captureSpawn } from './probe-kit.js';
 
 const ENV_STUB = `
 import { writeFileSync } from 'node:fs';
+
 const out = process.env['COA_PROBE_CAPTURE'];
 if (out === undefined || out === '') {
   process.stderr.write('stub: COA_PROBE_CAPTURE is unset\\n');
