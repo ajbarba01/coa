@@ -208,6 +208,22 @@ describe('TranscriptRow', () => {
     expect(container.querySelector('[data-role="you"]')).not.toBeNull();
   });
 
+  it('marks a pending row so an unsent steer never reads as part of the record', () => {
+    const { container } = render(
+      <TranscriptRow
+        frame={{
+          id: 'pending:0',
+          role: 'you',
+          kind: 'text',
+          text: 'use the JSON one',
+          pending: true,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain('use the JSON one');
+    expect(container.querySelector('[data-pending="true"]')).not.toBeNull();
+  });
+
   it('renders an agent turn flush with no role label', () => {
     const { container } = render(
       <TranscriptRow frame={{ id: '2', role: 'agent', kind: 'text', text: 'sure' }} />,

@@ -20,6 +20,10 @@ export type TranscriptFrame =
       /** True while this block is still streaming (fed by `text-delta`) — drives the
        *  per-word reveal. Absent/false once settled or on reload (D85: plain, no reveal). */
       streaming?: boolean | undefined;
+      /** True while this is the viewer's own text that the agent has not picked up yet.
+       *  It is not in the record and may never be (docs/adr/0031), so it renders as
+       *  provisional rather than as something that happened. */
+      pending?: boolean | undefined;
     }
   | {
       id: string;

@@ -36,6 +36,23 @@ describe('IPC method registry', () => {
     expect(() => METHODS.useAccount.params?.parse({})).toThrow();
   });
 
+  it('carries a session’s lineage and spend through the real IPC validation gate — not just a mapper', () => {
+    // `main/index.ts` runs every daemon result through `spec.result.parse` before it
+    // ever reaches the renderer (`ipcMain.handle` above `runMethod`); a field missing
+    // from THIS schema is silently stripped right here, regardless of what the
+    // daemon actually sent. This is the boundary a mapper-only test can't see.
+    const withLineage = {
+      id: 's1',
+      agentRef: 'roles/reviewer',
+      title: 'spawned child',
+      updatedAt: '2026-08-01T00:00:00Z',
+      parent: 'root-1',
+      root: 'root-1',
+      costUsd: 0.5,
+    };
+    expect(METHODS.listSessions.result.parse([withLineage])).toEqual([withLineage]);
+  });
+
   it('registers the auth verbs with AuthViewSchema result', () => {
     const authVerbs = [
       'authView',
@@ -70,7 +87,9 @@ describe('IPC method registry', () => {
     expect(METHODS.renameCredential.params?.parse({ id: 'test', label: 'label' })).toBeTruthy();
     expect(METHODS.removeCredential.params?.parse({ id: 'test' })).toBeTruthy();
     expect(METHODS.setProviderEnabled.params?.parse({ providerId: 'test', on: true })).toBeTruthy();
-    expect(METHODS.setCredentialDisabled.params?.parse({ id: 'test', disabled: true })).toBeTruthy();
+    expect(
+      METHODS.setCredentialDisabled.params?.parse({ id: 'test', disabled: true }),
+    ).toBeTruthy();
     expect(METHODS.makeActive.params?.parse({ id: 'test' })).toBeTruthy();
     expect(METHODS.clearCooldown.params?.parse({ id: 'test' })).toBeTruthy();
     expect(METHODS.refresh.params).toBeUndefined();

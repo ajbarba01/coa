@@ -109,26 +109,26 @@ describe('Composer — resting', () => {
 });
 
 describe('Composer — running', () => {
-  it('always shows Stop; Queue and Barge appear only once there is text', async () => {
+  it('always shows Stop; Queue and Steer appear only once there is text', async () => {
     render(<Composer {...baseProps({ running: true, onStop: vi.fn() })} />);
     expect(screen.getByRole('button', { name: /stop the running turn/i })).toBeInTheDocument();
     expect(screen.queryByText(/^queue$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^barge in$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^steer$/i)).not.toBeInTheDocument();
     await userEvent.type(screen.getByRole('textbox'), 'go');
     expect(screen.getByText(/^queue$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^barge in$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^steer$/i)).toBeInTheDocument();
   });
 
-  it('Enter queues; Alt+Enter barges in', async () => {
+  it('Enter queues; Alt+Enter steers', async () => {
     const onQueue = vi.fn();
-    const onBarge = vi.fn();
-    render(<Composer {...baseProps({ running: true, onQueue, onBarge, onStop: vi.fn() })} />);
+    const onSteer = vi.fn();
+    render(<Composer {...baseProps({ running: true, onQueue, onSteer, onStop: vi.fn() })} />);
     const box = screen.getByRole('textbox');
     await userEvent.type(box, 'queue this{Enter}');
     expect(onQueue).toHaveBeenCalledWith('queue this');
     expect(box).toHaveValue('');
-    await userEvent.type(box, 'barge this{Alt>}{Enter}{/Alt}');
-    expect(onBarge).toHaveBeenCalledWith('barge this');
+    await userEvent.type(box, 'steer this{Alt>}{Enter}{/Alt}');
+    expect(onSteer).toHaveBeenCalledWith('steer this');
     expect(box).toHaveValue('');
   });
 });

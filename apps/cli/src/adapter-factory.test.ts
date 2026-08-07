@@ -148,8 +148,6 @@ const FULL_INIT: Required<SessionAdapterInit> = {
   history: [{ role: 'user', content: 'earlier turn' }],
   deliverHistoryAsPreamble: true,
   signal: new AbortController().signal,
-  drainSteer: () => [],
-  drainQueuedSteer: () => [],
   drainDeliveries: () => [{ origin: 'user', text: 'mid-loop' }],
   onTurnInterrupt: () => {},
 };
@@ -189,8 +187,6 @@ const FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[]> =
     'locator',
     'history',
     'signal',
-    'drainSteer',
-    'drainQueuedSteer',
     'drainDeliveries',
   ],
   longcat: [
@@ -203,8 +199,6 @@ const FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[]> =
     'locator',
     'history',
     'signal',
-    'drainSteer',
-    'drainQueuedSteer',
     'drainDeliveries',
   ],
 };
@@ -215,13 +209,14 @@ const FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[]> =
  *
  * Most entries are fields the target backend's own init simply has no slot for (a
  * pure-API adapter takes no `sandbox`/`resume`/`onBackendSession`, the Claude adapter
- * steers through its held-open input feed rather than `drainSteer`). Two are genuine
- * gaps, deliberately left for their own commit rather than folded into this coverage
- * pass: `observeChanges` is accepted by all three adapter inits and passed by none, and
- * `onTurnInterrupt` is accepted by the Claude init and not passed.
+ * steers through its held-open input feed and `drainDeliveries` rather than a per-turn
+ * drain). Two are genuine gaps, deliberately left for their own commit rather than
+ * folded into this coverage pass: `observeChanges` is accepted by all three adapter
+ * inits and passed by none, and `onTurnInterrupt` is accepted by the Claude init and
+ * not passed.
  */
 const NOT_FORWARDED: Record<'claude' | 'deepseek' | 'longcat', readonly InitKey[]> = {
-  claude: ['observeChanges', 'onTurnInterrupt', 'drainSteer', 'drainQueuedSteer'],
+  claude: ['observeChanges', 'onTurnInterrupt'],
   deepseek: [
     'sandbox',
     'observeChanges',

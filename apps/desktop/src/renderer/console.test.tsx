@@ -702,7 +702,20 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(bridge.interruptSession).toHaveBeenCalledExactlyOnceWith({ id: 'c1' });
   });
 
-  it('steerSession proxies a barge-in to the bridge and does NOT render optimistically — the daemon pushes the framed steer live', async () => {
+  it('sends a steer with no mode, since a steer never abandons the running turn', async () => {
+    const calls: unknown[] = [];
+    const bridge = fakeBridge({
+      steerSession: vi.fn((params: unknown) => {
+        calls.push(params);
+        return Promise.resolve({ steered: true });
+      }),
+    });
+    const { last } = await mount(bridge);
+    last().actions.steerSession('c1', 'use the JSON one');
+    expect(calls).toEqual([{ id: 'c1', text: 'use the JSON one' }]);
+  });
+
+  it('steerSession proxies a steer to the bridge and does NOT render optimistically — the daemon writes the framed line on pickup', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -714,15 +727,15 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     const before = last().data.turns;
 
     last().actions.steerSession('c1', 'go check the tests instead');
-    // Barge-in reaches the daemon as the raw text…
+    // The steer reaches the daemon as the raw text…
     expect(bridge.steerSession).toHaveBeenCalledExactlyOnceWith({
       id: 'c1',
       text: 'go check the tests instead',
-      mode: 'barge-in',
     });
     // …but is NOT rendered optimistically: the daemon is the single source of truth and pushes
-    // the FRAMED steer live, so no local turn is appended (which would double it — raw typed
-    // text live, framed text on reload — the reported duplication).
+    // the FRAMED steer once the model actually receives it, so no local turn is appended here
+    // (which would double it — raw typed text live, framed text on reload — the reported
+    // duplication).
     expect(last().data.turns).toEqual(before);
 
     // The daemon pushes the framed steer as a live user turn → THAT is what lands, once.

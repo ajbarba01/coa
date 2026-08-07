@@ -23,7 +23,7 @@ export interface PendingApproval {
 
 export interface ComposerProps {
   /** True while a governed turn is in flight — flips the action cluster to
-   *  Stop + the Queue / Barge-in steer split, and lights the running edge. */
+   *  Stop + the Queue / Steer split, and lights the running edge. */
   running: boolean;
   /** No session at all — the whole composer rests disabled. */
   disabled?: boolean;
@@ -45,7 +45,7 @@ export interface ComposerProps {
   onPickEffort: (v: string) => void;
   onSend: (text: string) => void;
   onQueue?: (text: string) => void;
-  onBarge?: (text: string) => void;
+  onSteer?: (text: string) => void;
   onStop?: () => void;
   onRemoveQueued?: (id: string) => void;
   onApprove?: (id: string) => void;
@@ -77,7 +77,7 @@ export interface ComposerProps {
  *
  *  States: resting (send ↑, disabled until text) · running (Stop always; with
  *  text the send slot becomes the steer split — Queue waits for the turn's
- *  end, Barge-in redirects it now) · approval docked above the field (approve
+ *  end, Steer reaches it at its next step) · approval docked above the field (approve
  *  / deny / or type to redirect) · no-session (everything rests). Queued
  *  messages pin above the shell, removable, released FIFO.
  *
@@ -97,7 +97,7 @@ export function Composer({
   onPickEffort,
   onSend,
   onQueue,
-  onBarge,
+  onSteer,
   onStop,
   onRemoveQueued,
   onApprove,
@@ -148,9 +148,9 @@ export function Composer({
     const t = take();
     if (t !== undefined) onQueue?.(t);
   };
-  const barge = (): void => {
+  const steer = (): void => {
     const t = take();
-    if (t !== undefined) onBarge?.(t);
+    if (t !== undefined) onSteer?.(t);
   };
 
   const hasText = text.trim() !== '';
@@ -311,7 +311,7 @@ export function Composer({
               return;
             }
             if (!running) send();
-            else if (e.altKey) barge();
+            else if (e.altKey) steer();
             else queueMessage();
           }}
           placeholder={
@@ -320,7 +320,7 @@ export function Composer({
               : approval !== undefined
                 ? 'Approve or deny above, or tell the agent what to do instead…'
                 : running
-                  ? 'Queue a message… (⌥⏎ barges in · esc stops)'
+                  ? 'Queue a message… (⌥⏎ steers now · esc stops)'
                   : 'Message builder…'
           }
           className={cx(
@@ -372,9 +372,13 @@ export function Composer({
                   <Tooltip label="Sends when the turn ends" keys={['⏎']} side="top">
                     <Button onClick={queueMessage}>Queue</Button>
                   </Tooltip>
-                  <Tooltip label="Redirects the running turn now" keys={['⌥⏎']} side="top">
-                    <Button variant="outline" onClick={barge}>
-                      Barge In
+                  <Tooltip
+                    label="Reaches the agent at its next step, without discarding its work"
+                    keys={['⌥⏎']}
+                    side="top"
+                  >
+                    <Button variant="outline" onClick={steer}>
+                      Steer
                     </Button>
                   </Tooltip>
                 </>

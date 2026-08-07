@@ -261,11 +261,11 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     params: z.object({ id: z.string() }),
     result: z.object({ interrupted: z.boolean() }),
   },
-  /** Send a message to a running turn — proxies the daemon's `steerSession` (CHAT-10). `barge-in`
-   *  interrupts + redirects the in-flight turn; `queue` runs it as a follow-up. SC-1: steering is a
-   *  user redirect, never a governance block. */
+  /** Send a message to a running turn — proxies the daemon's `steerSession`. Delivered at the
+   *  turn's next round trip, discarding nothing. SC-1: steering is a user redirect, never a
+   *  governance block. */
   steerSession: {
-    params: z.object({ id: z.string(), text: z.string(), mode: z.enum(['queue', 'barge-in']) }),
+    params: z.object({ id: z.string(), text: z.string() }),
     result: z.object({ steered: z.boolean() }),
   },
   /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a

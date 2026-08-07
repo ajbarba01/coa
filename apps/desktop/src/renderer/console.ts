@@ -90,13 +90,10 @@ export interface ConsoleBridge {
    *  Advisory (SC-1 — a user stop, never a governance block): the pill clears via the
    *  daemon's own `'interrupted'` status Push, not this call's result. */
   interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
-  /** Send a message to a running turn — proxies the daemon's `steerSession`. `barge-in` redirects
-   *  the in-flight turn; `queue` runs it as a follow-up (SC-1 — a user redirect, never a block). */
-  steerSession(params: {
-    id: string;
-    text: string;
-    mode: 'queue' | 'barge-in';
-  }): Promise<{ steered: boolean }>;
+  /** Steer a running turn — proxies the daemon's `steerSession`. Delivered at the turn's next
+   *  round trip, discarding nothing (SC-1 — a user redirect, never a block). Queue-mode
+   *  follow-ups never reach this call; they stay held console-side until the turn ends. */
+  steerSession(params: { id: string; text: string }): Promise<{ steered: boolean }>;
   /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes active; the daemon immediately hydrates this connection with
    *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
@@ -716,16 +713,15 @@ export async function startConsole(
     void bridge.interruptSession({ id: sessionId }).catch(() => {});
   };
 
-  /** Barge-in: redirect the running turn with a message (SC-1: a user redirect, never a block).
-   *  Does NOT render optimistically — the daemon is the single source of truth and pushes the
-   *  FRAMED steer (the exact text the model saw) as a live user turn, which a later reload folds
-   *  from the same append-only frame (docs/adr/0010, docs/adr/0012). Rendering it here too would
-   *  double it (raw typed text live, framed text on reload). Queue-mode follow-ups are held
-   *  console-side by `ChatPanel` until the turn ends, so only `barge-in` reaches the daemon here. */
+  /** Steer: reach the running turn at its next step, discarding nothing (SC-1: a user
+   *  redirect, never a block). The daemon writes the transcript line when the model actually
+   *  RECEIVES the text (docs/adr/0031), which is seconds later — so `ChatPanel` shows the
+   *  message pinned at the bottom of the transcript meanwhile and drops the pin when the real
+   *  frame arrives. Queue-mode follow-ups stay held console-side until the turn ends. */
   const steerSession = (sessionId: string, text: string): void => {
     const body = text.trim();
     if (body === '') return;
-    void bridge.steerSession({ id: sessionId, text: body, mode: 'barge-in' }).catch(() => {});
+    void bridge.steerSession({ id: sessionId, text: body }).catch(() => {});
   };
 
   /** Set a session's in-chat model override; the next send routes there (and the

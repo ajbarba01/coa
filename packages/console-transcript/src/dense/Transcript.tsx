@@ -522,14 +522,19 @@ export function TranscriptRow({
 
   const role = 'role' in frame ? frame.role : 'agent';
   const isUser = role === 'you';
+  const isPending = frame.kind === 'text' && frame.pending === true;
   return (
     <RowShell indent={indent}>
       <div
         data-role={role}
+        data-pending={isPending || undefined}
         className={cx(
           'min-w-0',
           isUser &&
             'ml-auto w-fit max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
+          // Not yet in the record (docs/adr/0031) — reads as provisional, not as history,
+          // the same way a streaming block never wears the settled row's full weight.
+          isPending && 'opacity-60',
         )}
       >
         {frame.kind === 'text' && isUser && (
