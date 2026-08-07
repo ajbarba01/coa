@@ -1,7 +1,7 @@
 import { cx } from '@coa/console-kit';
 
-/** The only two real blocks in the system: the close-gate and the cost-cap. */
-export type DenyKind = 'close-gate' | 'cost-cap';
+/** The one real block in the system: the close-gate. */
+export type DenyKind = 'close-gate';
 
 export interface DenyNoticeProps {
   kind: DenyKind;
@@ -14,15 +14,8 @@ export interface DenyNoticeProps {
 
 /** Caps label + the two presentational ways-forward per deny kind. Wired to no
  *  navigation here (this package has no router seam) — the surfaces they name
- *  (settings/budget, cost, flags, timeline) are a later task's concern. */
+ *  (flags, timeline) are a later task's concern. */
 const DENY_COPY: Record<DenyKind, { label: string; ways: { act: string; hint: string }[] }> = {
-  'cost-cap': {
-    label: 'Cost cap',
-    ways: [
-      { act: 'Raise the Cap', hint: 'Settings · budget' },
-      { act: 'Review Spend', hint: 'Cost surface' },
-    ],
-  },
   'close-gate': {
     label: 'Close gate',
     ways: [
@@ -34,7 +27,7 @@ const DENY_COPY: Record<DenyKind, { label: string; ways: { act: string; hint: st
 
 /** Surfaces a deny the daemon already issued. It gates nothing itself.
  *
- *  One of the only two blocks in the whole system (the rest is advisory — help, never cage): it must
+ *  The one block in the whole system (the rest is advisory — help, never cage): it must
  *  read as a firm, legible stop with a reason and a way forward, not an alarm — no
  *  fill, no modal, no scold. The critical dot is the only red; the reason is the
  *  daemon's, verbatim. `role="status"` (not "alert") — it is informational, not an

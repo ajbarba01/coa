@@ -164,7 +164,7 @@ export interface DaemonConsoleDeps {
  * Bind the daemon's live singletons to the read-only inspector handler map the
  * JSON-RPC router serves — the seam between the daemon core and the console's
  * CON-CAT reads. Pure projection wiring: each port reads an existing surface
- * (cost cap, flag user feed), no new behavior. The transport layer
+ * (cost state, flag user feed), no new behavior. The transport layer
  * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
  */
 export function buildDaemonConsoleHandlers(
@@ -402,7 +402,7 @@ export function listFilesFor(
  * summarizer comes from the injected factory (`options.summarizer`), handed the
  * ledger's cost recorder; an absent factory or an `undefined` return degrades to
  * raw markdown. Summarizer spend is audited (recorded to the ledger) but not
- * charged against the cost cap — a deliberate deferral.
+ * charged to the session spend counter — a deliberate deferral.
  */
 function buildBaseCatalogue(
   kernel: ChangeKernel,

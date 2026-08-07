@@ -51,13 +51,13 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     message: z.string(),
     origin: z.enum(['tool', 'loop', 'daemon']),
   }),
-  // A DELIBERATE stop, not a fault — one of the system's only two blocks: the
-  // close-gate and the cost cap. Distinct from `error` so a governed stop never renders
+  // A DELIBERATE stop, not a fault — the system's one block: the close-gate.
+  // Distinct from `error` so a governed stop never renders
   // as a crash. `denyKind` matches the console's renderer enum exactly. A vendor bound
   // like `maxTurns` is NOT a coa block and rides `turn-boundary.terminal` instead.
   z.object({
     t: z.literal('deny'),
-    denyKind: z.enum(['close-gate', 'cost-cap']),
+    denyKind: z.enum(['close-gate']),
     reason: z.string(),
   }),
   z.object({ t: z.literal('permission'), requestId: z.string() }),

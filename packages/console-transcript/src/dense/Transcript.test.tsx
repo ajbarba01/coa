@@ -463,11 +463,11 @@ describe('TranscriptRow', () => {
   it('renders a deny frame through the DenyNotice (it gates nothing itself)', () => {
     const { container } = render(
       <TranscriptRow
-        frame={{ id: 't7', kind: 'deny', denyKind: 'cost-cap', reason: 'cap reached' }}
+        frame={{ id: 't7', kind: 'deny', denyKind: 'close-gate', reason: 'blocked at close' }}
       />,
     );
-    expect(container.querySelector('[data-deny-kind="cost-cap"]')).not.toBeNull();
-    expect(screen.getByText('cap reached')).toBeTruthy();
+    expect(container.querySelector('[data-deny-kind="close-gate"]')).not.toBeNull();
+    expect(screen.getByText('blocked at close')).toBeTruthy();
   });
 
   it('renders a raw frame verbatim, plain mono with no chrome — the mask comes off', () => {

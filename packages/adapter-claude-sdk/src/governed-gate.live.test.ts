@@ -247,7 +247,7 @@ describe.skipIf(!live)('the gate that one-seam per-tool governance rests on, liv
 
     // THE DECIDING ASSERTION. The marker reaching the model's output means the read
     // executed despite coa denying it — the deny was NOT honoured, and every per-tool
-    // block in the system (including the cost cap) is decorative on this path.
+    // deny in the system is decorative on this path.
     expect(text, diagnostic).not.toContain(marker);
   });
 

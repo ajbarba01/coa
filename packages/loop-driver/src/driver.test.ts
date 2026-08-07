@@ -414,7 +414,7 @@ describe('runGovernedLoop', () => {
       deps({
         catalogue: [tool('apply_patch', invoke)],
         complete: complete.fn,
-        canUseTool: async () => ({ behavior: 'deny', message: 'cost cap reached' }),
+        canUseTool: async () => ({ behavior: 'deny', message: 'blocked by a deny rule' }),
         onTurn: (f) => frames.push(f),
       }),
     );
@@ -424,10 +424,10 @@ describe('runGovernedLoop', () => {
       t: 'tool_result',
       handle: 's1:c1',
       ok: false,
-      pointer: 'cost cap reached',
+      pointer: 'blocked by a deny rule',
     });
     expect(JSON.stringify(complete.seen[1])).toContain(
-      'denied by coa governance: cost cap reached',
+      'denied by coa governance: blocked by a deny rule',
     );
   });
 

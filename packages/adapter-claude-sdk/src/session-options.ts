@@ -49,8 +49,8 @@ export function buildHooks(args: {
   // The tool surface is bounded and governed at this one seam (the earlier two-seam
   // split is superseded).
   //
-  // It DENIES or ABSTAINS and never asserts `allow`: coa has two blocks and no
-  // grants, and an explicit allow here is an auto-approve that would suppress a prompt
+  // It DENIES or ABSTAINS and never asserts `allow`: coa blocks deliberately and
+  // grants nothing, and an explicit allow here is an auto-approve that would suppress a prompt
   // the harness would otherwise raise.
   const gateToolCall: HookCallback = async (input) => {
     if (!('tool_name' in input)) return {};

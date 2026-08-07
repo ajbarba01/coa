@@ -132,7 +132,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
     // live run, so a set matching one spelling misses the other.
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
-      canUseTool: () => ({ behavior: 'deny', message: 'cost cap reached' }),
+      canUseTool: () => ({ behavior: 'deny', message: 'blocked by a deny rule' }),
       sessionId: 's1',
       observeChanges: () => {},
     });
@@ -141,7 +141,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          permissionDecisionReason: 'cost cap reached',
+          permissionDecisionReason: 'blocked by a deny rule',
         },
       });
     }
@@ -213,7 +213,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
   });
 
   it('abstains rather than asserting allow, so coa only ever blocks', async () => {
-    // coa has two blocks and zero grants (help, never cage). An explicit `allow` here is an
+    // coa blocks deliberately and grants nothing (help, never cage). An explicit `allow` here is an
     // auto-approve that would suppress any prompt the harness would otherwise raise.
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
@@ -329,8 +329,8 @@ describe('buildHooks — the multi-event hook assembly', () => {
   });
 
   it('leaves a blocked close-gate decision untouched, never draining', async () => {
-    // Draining is destructive: a blocked stop's decision is final (it is one of the
-    // system's two sanctioned blocks), so calling
+    // Draining is destructive: a blocked stop's decision is final (it is the
+    // system's one sanctioned block), so calling
     // drainDeliveries at all here would silently swallow the pending text on a path
     // that discards the result.
     const drained: number[] = [];

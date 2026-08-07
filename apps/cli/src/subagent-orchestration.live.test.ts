@@ -59,7 +59,7 @@ import {
  * driving the real daemon (which the maintainer did once, by hand; see
  * `.superpowers/sdd/2026-08-05-subagent-orchestration/progress.md`, "LIVE END-TO-END PASS").
  *
- * The cost assertion is deliberately narrow for a recorded reason — the cost cap bounds fan-out, not a depth counter — and nothing
+ * The cost assertion is deliberately narrow for a recorded reason — fan-out is deliberately unbounded, and spend is accounted rather than capped — and nothing
  * in this arc wires a producer that surfaces the tree cost roll-up over RPC — the ledger's
  * `root` field is real and unit-tested (`packages/core/src/governance/ledger.ts`) but
  * in-process only. This test can only show that `RuntimeUsage.costUsd` is a real, summable

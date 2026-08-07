@@ -15,7 +15,7 @@ describe('loadPriceTable', () => {
 
   /**
    * Both providers publish their rates, so the zero floor is not the honest default —
-   * shipping them means the cost cap sees real spend without the operator configuring
+   * shipping them means the spend ledger sees real cost without the operator configuring
    * anything. An unset or malformed var falls back to the shipped table, never to zero.
    */
   it('falls back to the published rates when unset or malformed', () => {

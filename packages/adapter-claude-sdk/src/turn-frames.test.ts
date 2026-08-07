@@ -174,7 +174,7 @@ describe('messageToFrames — terminal reasons', () => {
   });
 
   it('renders a close-gate block as a deny, not an error', () => {
-    // The close-gate is one of the system's only two blocks. Reporting it as an
+    // The close-gate is the system's one block. Reporting it as an
     // error frame shows a crash where a deliberate stop belongs.
     expect(
       messageToFrames(

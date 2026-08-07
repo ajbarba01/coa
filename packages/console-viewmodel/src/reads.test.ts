@@ -30,7 +30,7 @@ describe('turn frame schema', () => {
       { id: '2', role: 'agent', kind: 'tool-use', tool: 'read_file', input: '{}' },
       { id: '3', role: 'agent', kind: 'tool-result', tool: 'read_file', output: 'ok', ok: true },
       { id: '4', kind: 'approval', requestId: 'r1', tool: 'write_file', summary: 's' },
-      { id: '5', kind: 'deny', denyKind: 'cost-cap', reason: 'cap' },
+      { id: '5', kind: 'deny', denyKind: 'close-gate', reason: 'open invariant' },
     ];
     expect(TurnStreamSchema.parse(frames)).toHaveLength(5);
   });

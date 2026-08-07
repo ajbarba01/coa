@@ -322,7 +322,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     // must pass it through unreshaped. If either is false, the session layer needs a fix.
     const conn = connection();
     const handlers = buildSessionHandlers(
-      deps([{ t: 'deny', denyKind: 'cost-cap', reason: 'capped' }]),
+      deps([{ t: 'deny', denyKind: 'close-gate', reason: 'blocked at close' }]),
       conn,
       undefined,
       new LiveSessionRegistry(),
@@ -331,7 +331,11 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     await conn.settled;
 
     const frames = pushesOf(conn.pushes).flatMap((p) => (p.kind === 'turn' ? [p.frame] : []));
-    expect(frames).toContainEqual({ t: 'deny', denyKind: 'cost-cap', reason: 'capped' });
+    expect(frames).toContainEqual({
+      t: 'deny',
+      denyKind: 'close-gate',
+      reason: 'blocked at close',
+    });
   });
 });
 

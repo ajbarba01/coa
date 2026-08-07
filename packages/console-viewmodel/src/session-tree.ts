@@ -65,7 +65,7 @@ export function groupSessionTree(sessions: readonly SessionSummary[]): SessionTr
     placed.add(header.id);
     const rows: SessionTreeRow[] = [];
     // An explicit stack, not recursion: spawn depth is unbounded by design
-    // (the cost cap is the only fan-out bound, not a depth counter), so a long enough
+    // (no depth counter bounds fan-out — nothing does), so a long enough
     // linear chain overflows the call stack and takes the whole panel down with
     // an uncaught RangeError. Children are pushed in reverse so popping still
     // yields depth-first pre-order, i.e. the same row order recursion produced.

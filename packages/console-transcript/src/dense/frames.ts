@@ -65,7 +65,7 @@ export type TranscriptFrame =
       diffStat?: string | undefined;
       resolved?: 'approved' | 'denied' | undefined;
     }
-  | { id: string; kind: 'deny'; denyKind: 'close-gate' | 'cost-cap'; reason: string }
+  | { id: string; kind: 'deny'; denyKind: 'close-gate'; reason: string }
   | { id: string; kind: 'raw'; text: string }
   | { id: string; kind: 'note'; text: string }
   | {

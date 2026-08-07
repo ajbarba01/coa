@@ -216,9 +216,9 @@ describe('stage 3 — per-call interception', () => {
     });
 
     it('maps a deny decision to the SDK deny shape, carrying the message', () => {
-      expect(toSdkPermission({ behavior: 'deny', message: 'cost cap exceeded' }, {})).toEqual({
+      expect(toSdkPermission({ behavior: 'deny', message: 'blocked by a deny rule' }, {})).toEqual({
         behavior: 'deny',
-        message: 'cost cap exceeded',
+        message: 'blocked by a deny rule',
       });
     });
   });

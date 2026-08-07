@@ -114,11 +114,6 @@ describe('turnFrameSchema delta kinds', () => {
 });
 
 describe('turnFrameSchema — the deliberate-stop vocabulary', () => {
-  it('accepts a cost-cap deny', () => {
-    const frame = { t: 'deny', denyKind: 'cost-cap', reason: 'cost cap reached' };
-    expect(turnFrameSchema.parse(frame)).toEqual(frame);
-  });
-
   it('accepts a close-gate deny', () => {
     const frame = { t: 'deny', denyKind: 'close-gate', reason: 'open invariant' };
     expect(turnFrameSchema.parse(frame)).toEqual(frame);

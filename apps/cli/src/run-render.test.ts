@@ -83,16 +83,10 @@ describe('renderPush — a CON-PUSH record → terminal lines', () => {
   });
 
   it('renders a deny frame distinctly from an error, carrying its kind and reason', () => {
-    const out = renderPush(turn({ t: 'deny', denyKind: 'cost-cap', reason: 'cost cap reached' }));
-    expect(out.lines[0]).toContain('cost-cap');
-    expect(out.lines[0]).toContain('cost cap reached');
-    expect(out.lines[0]).not.toContain('✗');
-  });
-
-  it('renders a close-gate deny the same way', () => {
     const out = renderPush(turn({ t: 'deny', denyKind: 'close-gate', reason: 'open invariant' }));
     expect(out.lines[0]).toContain('close-gate');
     expect(out.lines[0]).toContain('open invariant');
+    expect(out.lines[0]).not.toContain('✗');
   });
 
   it('marks a done status as the terminal, non-failed signal', () => {

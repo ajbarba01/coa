@@ -95,7 +95,7 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
   z.object({
     id: z.string(),
     kind: z.literal('deny'),
-    denyKind: z.enum(['close-gate', 'cost-cap']),
+    denyKind: z.enum(['close-gate']),
     reason: z.string(),
   }),
   // A user stop, recorded in the append-only log — rendered as a quiet system line (never a
