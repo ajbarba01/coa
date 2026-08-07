@@ -25,17 +25,11 @@ export interface TurnRequest {
 /** A subscriber callback that receives every push fanned out by a session. */
 export type Sink = (push: Push) => void;
 
-/** Which steer semantics the caller intends (docs/adr/0012 barge-in follow-up):
- *  `queue` runs strictly after the current turn; `barge-in` stops the current turn
- *  and runs now. Each strategy realizes both within its own turn model. */
-export type SteerMode = 'queue' | 'barge-in';
-
 /**
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
  * {@link AbortController} whose signal M8 forwards to the adapter as the
- * neutral user-stop, and a queue of steer turns the pure-API driver drains at
- * its next safe boundary. `interrupted` distinguishes a user-initiated stop
- * from a genuine loop failure in `session-handlers.ts`'s settlement — SC-1: an
+ * neutral user-stop. `interrupted` distinguishes a user-initiated stop from a
+ * genuine loop failure in `session-handlers.ts`'s settlement — SC-1: an
  * interrupt must never surface as an error. Lives on the {@link LiveSession}
  * (not a per-connection map) so ANY connection sharing the daemon's registry —
  * not just the one that started the turn — can resolve and act on it (see
@@ -43,15 +37,12 @@ export type SteerMode = 'queue' | 'barge-in';
  */
 export interface TurnControl {
   controller: AbortController;
-  steer: string[];
-  /** The `queue`-mode buffer; `steer` is the `barge-in`/next-safe-boundary buffer — pure-API only. */
-  queueSteer: string[];
   interrupted: boolean;
   /**
    * Which drive strategy owns this turn (see docs/adr/0012). `held-open` ⇒ a steer
-   * is routed into the live query's derived input feed via {@link LiveSession.pushSteer}
-   * (SDK streaming-input); absent/`per-turn` ⇒ a steer queues on {@link steer} for the
-   * pure-API driver to drain at its next safe boundary. Set when the turn starts.
+   * is routed into the live query's derived input feed via {@link LiveSession.pushSteer};
+   * absent/`per-turn` ⇒ the caller pushes onto `session.deliveries` directly, for the
+   * backend to drain at its next round trip. Set when the turn starts.
    */
   mode?: 'per-turn' | 'held-open';
 }
@@ -65,6 +56,10 @@ export interface TurnControl {
  */
 export class LiveSession {
   readonly id: string;
+  /** The session that spawned this one; absent ⇒ a root a person started. */
+  readonly parent: string | undefined;
+  /** This session's family-tree root — itself, for a root session. */
+  readonly root: string;
   worktree: string | undefined;
   state: RunState = 'idle';
   /** The currently in-flight turn's control state; `undefined` when idle. */
@@ -79,12 +74,14 @@ export class LiveSession {
   #queue: TurnRequest[] = [];
   #waiter: ((turn: TurnRequest | undefined) => void) | undefined;
   #closed = false;
-  #steerSink: ((text: string, mode: SteerMode) => void) | undefined = undefined;
+  #steerSink: ((text: string) => void) | undefined = undefined;
   #interruptClosure: (() => boolean) | undefined = undefined;
   #onClose: Array<() => void> = [];
 
-  constructor(id: string) {
+  constructor(id: string, lineage?: { parent?: string; root?: string }) {
     this.id = id;
+    this.parent = lineage?.parent;
+    this.root = lineage?.root ?? id;
   }
 
   /**
@@ -93,16 +90,16 @@ export class LiveSession {
    * a query is established, cleared (`undefined`) when it terminates; a `per-turn`
    * session leaves it unset, so {@link pushSteer} reports it has nowhere to route.
    */
-  setSteerSink(sink: ((text: string, mode: SteerMode) => void) | undefined): void {
+  setSteerSink(sink: ((text: string) => void) | undefined): void {
     this.#steerSink = sink;
   }
 
   /** Route a steer into the live held-open query's derived input feed. Returns
-   *  `false` when no held-open query is active (the caller falls back to the
-   *  per-turn `control.steer` queue). */
-  pushSteer(text: string, mode: SteerMode): boolean {
+   *  `false` when no held-open query is active (the caller falls back to pushing
+   *  onto `session.deliveries` directly). */
+  pushSteer(text: string): boolean {
     if (this.#steerSink === undefined) return false;
-    this.#steerSink(text, mode);
+    this.#steerSink(text);
     return true;
   }
 

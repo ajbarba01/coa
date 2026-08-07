@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TurnFrame } from '@coa/shared';
-import type { RegisteredTool, ToolCatalogue } from '@coa/spi';
+import type { Delivery, RegisteredTool, ToolCatalogue } from '@coa/spi';
 import type { CompletionDelta, CompletionResult } from './complete.js';
 import type { DriverMessage } from './complete.js';
 import {
@@ -53,6 +53,25 @@ function scriptedComplete(rounds: CompletionResult[]): {
 }
 
 const text = (t: string): CompletionResult => ({ text: t, toolCalls: [], usage: USAGE });
+
+/**
+ * A scripted `complete()` (usage filled in), returned as the bare `vi.fn` (not wrapped in
+ * a snapshot list like {@link scriptedComplete}) so a test can inspect `mock.calls` directly.
+ */
+function completions(rounds: ReadonlyArray<Pick<CompletionResult, 'text' | 'toolCalls'>>) {
+  let i = 0;
+  // A non-streaming fake (D85 degrade): yields nothing, returns the settled round. Typed
+  // explicitly (not inferred) so the wrapping vi.fn keeps the real `messages` parameter on
+  // `mock.calls`, unlike `scriptedComplete`'s snapshot-only `seen`.
+  // eslint-disable-next-line require-yield
+  const impl: GovernedLoopDeps['complete'] = async function* (messages) {
+    void messages;
+    const round = rounds[Math.min(i, rounds.length - 1)]!;
+    i += 1;
+    return { ...round, usage: USAGE };
+  };
+  return vi.fn(impl);
+}
 
 function deps(over: Partial<GovernedLoopDeps>): GovernedLoopDeps {
   return {
@@ -338,47 +357,8 @@ describe('runGovernedLoop', () => {
     expect(resultEntry?.full).toBe((resultEntry?.frame as { pointer: string }).pointer);
   });
 
-  it('emits a user text frame for an injected steer (drainSteer), landing it in the log', async () => {
-    const frames: TurnFrame[] = [];
-    let n = 0;
-    // eslint-disable-next-line require-yield
-    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* () {
-      n += 1;
-      return n === 1
-        ? { text: 'ok', toolCalls: [], usage: USAGE }
-        : { text: 'done', toolCalls: [], usage: USAGE };
-    });
-    const gate = vi.fn(
-      async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const,
-    );
-    const steer = ['actually, also do X'];
-    const drainSteer = vi.fn(() => steer.splice(0, steer.length));
-    await runGovernedLoop(
-      deps({ complete, gate, drainSteer, input: 'do it', onTurn: (f) => frames.push(f) }),
-    );
-    expect(frames).toContainEqual({ t: 'text', text: 'actually, also do X', role: 'user' });
-  });
-
-  it('emits a user text frame for an injected queued steer (drainQueuedSteer)', async () => {
-    const frames: TurnFrame[] = [];
-    const answers = ['done for now', 'ok, did X too'];
-    let i = 0;
-    // eslint-disable-next-line require-yield
-    const complete = vi.fn(async function* () {
-      return { text: answers[i++]!, toolCalls: [], usage: USAGE };
-    });
-    const gate = vi.fn(() => ({ allow: true }));
-    const queued = ['also do X'];
-    const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
-    await runGovernedLoop(
-      deps({ complete, gate, drainQueuedSteer, input: 'do it', onTurn: (f) => frames.push(f) }),
-    );
-    expect(frames).toContainEqual({ t: 'text', text: 'also do X', role: 'user' });
-  });
-
   it('drains deliveries into the next round trip, tagged by origin', async () => {
     const seen: DriverMessage[][] = [];
-    const frames: TurnFrame[] = [];
     const pending = [
       { origin: 'user' as const, text: 'check the schema first' },
       { origin: 'system' as const, text: 'explorer finished' },
@@ -392,7 +372,6 @@ describe('runGovernedLoop', () => {
       deps({
         complete,
         drainDeliveries: () => pending.splice(0, pending.length),
-        onTurn: (f) => frames.push(f),
       }),
     );
     const first = seen[0] ?? [];
@@ -402,16 +381,22 @@ describe('runGovernedLoop', () => {
     expect(first.some((m) => m.role === 'user' && m.content.includes('explorer finished'))).toBe(
       true,
     );
-    // The system entry reaches the append-only log as its own frame (the reason this
-    // task exists) — with the `[coa notice] ` prefix and the `system` origin intact.
-    expect(frames).toContainEqual({
-      t: 'text',
-      text: '[coa notice] explorer finished',
-      role: 'system',
-    });
-    // The system entry is recorded, but never as something the person said.
-    const userFrames = frames.filter((f) => f.t === 'text' && f.role === 'user');
-    expect(userFrames).toHaveLength(1);
+  });
+
+  it('feeds a delivery to the model without writing its log line (core owns the record)', async () => {
+    const frames: TurnFrame[] = [];
+    const pending = [
+      { origin: 'user' as const, text: 'from the person' },
+      { origin: 'system' as const, text: 'child agent finished' },
+    ];
+    const drainDeliveries = vi.fn(() => pending.splice(0, pending.length));
+    await runGovernedLoop(deps({ drainDeliveries, onTurn: (f) => frames.push(f) }));
+    expect(drainDeliveries).toHaveBeenCalled();
+    // The driver hands the text to the model but writes nothing: core's drain closure is the
+    // single writer, so an emit here would put the same line in the log twice.
+    expect(frames.some((f) => f.t === 'text' && (f.role === 'user' || f.role === 'system'))).toBe(
+      false,
+    );
   });
 
   it('does not execute a denied tool call — the deny reason goes back to the model', async () => {
@@ -598,47 +583,27 @@ describe('runGovernedLoop', () => {
     expect(n).toBe(1); // never called complete() again after abort
   });
 
-  it('injects a queued steer turn at the next safe boundary before the next round-trip', async () => {
-    const seen: DriverMessage[][] = [];
-    let n = 0;
-    // eslint-disable-next-line require-yield
-    const complete: GovernedLoopDeps['complete'] = vi.fn(async function* (messages) {
-      seen.push(structuredClone(messages) as DriverMessage[]);
-      n += 1;
-      if (n === 1) return { text: 'ok', toolCalls: [], usage: USAGE };
-      return { text: 'done', toolCalls: [], usage: USAGE };
+  it('re-enters the loop for a delivery that arrived after the close-gate allowed a stop', async () => {
+    // The pure-API floor: the model stopped and the gate allowed it, but text is pending.
+    // Without this the delivery is stranded — fed to nobody, with no drain point left.
+    const complete = completions([
+      { text: 'first', toolCalls: [] },
+      { text: 'second', toolCalls: [] },
+    ]);
+    const gate = vi.fn(async () => ({ allow: true }) as const);
+    const pending: Delivery[] = [];
+    let asked = 0;
+    const drainDeliveries = vi.fn(() => {
+      asked += 1;
+      // Arrives only once the first round trip is over, so it cannot be picked up at the
+      // top-of-loop drain — the close-gate is the sole remaining boundary.
+      if (asked === 2) pending.push({ origin: 'system', text: 'child agent finished' });
+      return pending.splice(0, pending.length);
     });
-    // Allow the turn to end only on the SECOND round-trip, so the steer lands between them.
-    const gate = vi.fn(
-      async () => (n >= 2 ? { allow: true } : { allow: false, message: 'more?' }) as const,
-    );
-    const steer = ['actually, also do X'];
-    const drainSteer = vi.fn(() => steer.splice(0, steer.length));
-    await runGovernedLoop(deps({ complete, gate, drainSteer, input: 'do it' }));
-    // The second round-trip's messages include the injected user turn.
-    expect(seen[1]).toContainEqual({ role: 'user', content: 'actually, also do X' });
-  });
-
-  it('injects a drainQueuedSteer turn at the close-gate boundary (queue mode: after the turn would end)', async () => {
-    // A one-round-trip complete() that returns a plain answer (no tool calls) so the
-    // close-gate is consulted immediately. The queued steer must be injected there and
-    // the loop must continue for one more round-trip rather than ending.
-    const answers = ['done for now', 'ok, did X too'];
-    let i = 0;
-    const seen: DriverMessage[][] = [];
-    // eslint-disable-next-line require-yield
-    const complete = vi.fn(async function* (messages: DriverMessage[]) {
-      seen.push(structuredClone(messages));
-      return { text: answers[i++]!, reasoning: '', toolCalls: [], usage: USAGE };
-    });
-    const gate = vi.fn(() => ({ allow: true })); // model wants to stop each time
-    const queued = ['also do X'];
-    const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
-    await runGovernedLoop(deps({ complete, gate, drainQueuedSteer, input: 'do it' }));
-    // Two round-trips: the queued steer forced a continue after the first close-gate.
+    await runGovernedLoop(deps({ complete, gate, drainDeliveries, input: 'do it' }));
     expect(complete).toHaveBeenCalledTimes(2);
-    // The steer landed as a user message ahead of the second round-trip.
-    expect(seen[1]).toContainEqual({ role: 'user', content: 'also do X' });
+    const second = complete.mock.calls[1]?.[0] ?? [];
+    expect(second.some((m) => m.content === '[coa notice] child agent finished')).toBe(true);
   });
 
   it('settles usage even when a mid-tool-loop throw leaves a dangling tool_use unanswered', async () => {

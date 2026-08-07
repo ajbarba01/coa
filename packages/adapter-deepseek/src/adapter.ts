@@ -91,18 +91,6 @@ export interface DeepSeekAdapterInit {
    */
   signal?: AbortSignal;
   /**
-   * A synchronous drain of user turns queued while mid-round-trip (steering), from
-   * M8; the governed loop drains it at the next safe boundary (SC-1 — a user
-   * input, not a governance block).
-   */
-  drainSteer?: () => readonly string[];
-  /**
-   * A synchronous drain of `queue`-mode steers — user turns that should run AFTER the
-   * current turn's work, from M8; the governed loop drains it at the close-gate
-   * boundary (see {@link drainSteer} for the `barge-in` counterpart).
-   */
-  drainQueuedSteer?: () => readonly string[];
-  /**
    * A synchronous drain of the session's pending mid-loop deliveries (a user steer, a
    * system notice) from M8. Not a turn: the governed loop injects it as a message at
    * the top of its next round trip, inside the turn already running. Absent ⇒ nothing
@@ -205,10 +193,6 @@ export class DeepSeekAdapter implements RuntimeAdapter {
       gate: this.#stopPredicate,
       ...(this.#init.onTurn !== undefined ? { onTurn: this.#init.onTurn } : {}),
       ...(this.#init.signal !== undefined ? { signal: this.#init.signal } : {}),
-      ...(this.#init.drainSteer !== undefined ? { drainSteer: this.#init.drainSteer } : {}),
-      ...(this.#init.drainQueuedSteer !== undefined
-        ? { drainQueuedSteer: this.#init.drainQueuedSteer }
-        : {}),
       ...(this.#init.drainDeliveries !== undefined
         ? { drainDeliveries: this.#init.drainDeliveries }
         : {}),

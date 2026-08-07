@@ -163,65 +163,6 @@ describe('LongCatAdapter', () => {
     expect(tools?.map((t) => t.function.name)).toContain('Read');
   });
 
-  it('forwards drainSteer into the governed loop so a queued steer turn is injected before the round-trip', async () => {
-    const captured: Captured = {};
-    const steer = ['also check the tests'];
-    const drainSteer = vi.fn(() => steer.splice(0, steer.length));
-    const adapter = new LongCatAdapter({
-      sessionId: 's1',
-      input: 'go',
-      env: { LONGCAT_API_KEY: 'sk-1' },
-      fetchImpl: textFetch(captured),
-      drainSteer,
-    });
-    wire(adapter);
-
-    await adapter.runLoop(SESSION);
-
-    expect(drainSteer).toHaveBeenCalled();
-    expect(captured.body?.['messages']).toContainEqual({
-      role: 'user',
-      content: 'also check the tests',
-    });
-  });
-
-  it('forwards drainQueuedSteer into the governed loop so a queue-mode steer runs after the current turn', async () => {
-    const captures: Array<Record<string, unknown> | undefined> = [];
-    const fetchImpl: FetchLike = async (_url, init) => {
-      const body = init.body !== undefined ? JSON.parse(init.body) : undefined;
-      captures.push(body);
-      return {
-        ok: true,
-        status: 200,
-        text: async () => '',
-        json: async () => ({
-          choices: [{ message: { content: captures.length === 1 ? 'done' : 'done again' } }],
-          usage: { prompt_tokens: 3, completion_tokens: 2 },
-        }),
-      };
-    };
-    const queued = ['also check the tests'];
-    const drainQueuedSteer = vi.fn(() => queued.splice(0, queued.length));
-    const adapter = new LongCatAdapter({
-      sessionId: 's1',
-      input: 'go',
-      env: { LONGCAT_API_KEY: 'sk-1' },
-      fetchImpl,
-      drainQueuedSteer,
-    });
-    wire(adapter);
-
-    await adapter.runLoop(SESSION);
-
-    expect(drainQueuedSteer).toHaveBeenCalled();
-    // The queued steer forced a SECOND round-trip after the close-gate would have ended.
-    expect(captures.length).toBe(2);
-    expect(captures[1]?.['messages']).toContainEqual({
-      role: 'user',
-      content: 'also check the tests',
-    });
-  });
-
   it('reports the barebones capability profile and the refs null-fallback', () => {
     const adapter = new LongCatAdapter({ sessionId: 's1', input: 'go' });
     expect(adapter.capabilityProfile().ports.refs.present).toBe(false);

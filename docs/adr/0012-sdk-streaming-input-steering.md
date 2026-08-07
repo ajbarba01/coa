@@ -2,6 +2,12 @@
 
 - Status: accepted
 - Date: 2026-07-08
+- **Superseded in part by [ADR-0031](0031-a-steer-is-recorded-when-the-model-receives-it.md)
+  (2026-08-05):** the barge-in follow-up decision below (queue-vs-barge-in `mode`, mid-turn
+  `interrupt()`+push redirect) is removed — a steer now always delivers at the next possible
+  boundary, never discarding in-flight work. This ADR's **measured streaming-input ceiling is
+  untouched and still stands**: a message pushed into the open iterable while a turn is running is
+  still queued to the next turn boundary; the SDK still has no mid-turn inject primitive.
 
 ## Context and problem
 
@@ -164,4 +170,4 @@ new decision was needed; the live gate confirmed the design):
 
 ---
 
-_Last reviewed: 2026-07-09_
+_Last reviewed: 2026-08-05_

@@ -213,7 +213,7 @@ describe.skipIf(!live)('mid-loop delivery through the real adapter wiring', () =
     // into an 8-second sleep). Claude Code on Windows requires Git Bash, so `sleep` is a real
     // POSIX binary here, not a shell built-in that might resolve to something instant. If this
     // assertion ever flakes, the call finished too fast against test-runner overhead —
-    // lengthen the sleep (mirrors the barge-in smoke's essay-length comment).
+    // lengthen the sleep (mirrors the turn-interrupt smoke's essay-length comment).
     expect(frames.some((f) => f.t === 'tool_result')).toBe(false);
 
     deliveries.push({ origin: 'user', text: 'COA-DELIVERY-otter' });

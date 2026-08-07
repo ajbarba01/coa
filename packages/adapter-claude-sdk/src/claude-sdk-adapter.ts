@@ -112,10 +112,12 @@ export interface ClaudeSdkAdapterInit {
    */
   signal?: AbortSignal;
   /**
-   * Report this backend's turn-level interrupt UP to M8 (docs/adr/0012 barge-in
-   * follow-up): a held-open streaming-input `query` can stop its current turn while
-   * staying alive. Called once, streaming-input only (the SDK `interrupt` control
-   * request is streaming-input only). Absent input-string path ⇒ never called (D85).
+   * Report this backend's turn-level interrupt UP to M8: a held-open streaming-input
+   * `query` can stop its current turn while staying alive. Originally built for the
+   * docs/adr/0012 barge-in follow-up; with barge-in removed (docs/adr/0031) this exists
+   * solely for the user-Stop path (`setInterruptClosure`) — no other caller reaches it.
+   * Called once, streaming-input only (the SDK `interrupt` control request is
+   * streaming-input only). Absent input-string path ⇒ never called (D85).
    */
   onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
 }

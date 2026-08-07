@@ -82,22 +82,19 @@ describe('LiveSession', () => {
   });
 });
 
-describe('LiveSession — mode-aware steer routing', () => {
-  it('passes the steer mode through to the installed sink', () => {
+describe('LiveSession — steer routing', () => {
+  it('routes a pushed steer to the installed sink', () => {
     const s = new LiveSession('c1');
-    const seen: Array<{ text: string; mode: string }> = [];
-    s.setSteerSink((text, mode) => seen.push({ text, mode }));
-    expect(s.pushSteer('a', 'queue')).toBe(true);
-    expect(s.pushSteer('b', 'barge-in')).toBe(true);
-    expect(seen).toEqual([
-      { text: 'a', mode: 'queue' },
-      { text: 'b', mode: 'barge-in' },
-    ]);
+    const seen: string[] = [];
+    s.setSteerSink((text) => seen.push(text));
+    expect(s.pushSteer('a')).toBe(true);
+    expect(s.pushSteer('b')).toBe(true);
+    expect(seen).toEqual(['a', 'b']);
   });
 
   it('pushSteer returns false when no sink is installed (per-turn fallback)', () => {
     const s = new LiveSession('c1');
-    expect(s.pushSteer('a', 'barge-in')).toBe(false);
+    expect(s.pushSteer('a')).toBe(false);
   });
 });
 

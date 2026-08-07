@@ -77,15 +77,14 @@ branched on by core.**
   see their own message in the transcript, get no reply, and get no error. So when the held-open
   driver's last outstanding turn boundaries with the queue non-empty, `establishHeldQuery`'s
   `record()` feeds what is left into the input channel as one plain next turn, in queue order. It
-  is a real turn and is counted as one. A `user` entry is fed **bare** — the steer handler already
-  wrote it to the append-only log when it was queued, and re-appending would put the same turn in
-  canonical memory twice (one writer per record — ADR-0010) — while a `system` entry is framed as
-  a notice exactly as a backend frames it mid-loop, so nothing automated can be read as the person
-  speaking. A sealed queue yields nothing, so this path can never revive a subtree a person
-  stopped. This is the SC-1 degradation promised above. The per-turn path wires the same
-  `drainDeliveries` but has no equivalent flush; it needs none today, since nothing routes a
-  delivery onto a per-turn session's queue — a queue-mode steer there lands on `control.queueSteer`
-  instead (a future producer that fills that queue would need the same floor).
+  is a real turn and is counted as one. A `user` entry is fed **bare** and a `system` entry is
+  framed as a notice exactly as a backend frames it mid-loop, so nothing automated can be read as
+  the person speaking. A sealed queue yields nothing, so this path can never revive a subtree a
+  person stopped. This is the SC-1 degradation promised above. **This is the per-turn boundary
+  floor ADR-0031 built**, where it belonged: the per-turn path now wires the same
+  `drainDeliveries` at the close-gate (`absorbDeliveries()`), the slot a stranded steer's own
+  `drainQueuedSteer` used to occupy, so a per-turn session's queue no longer needs a separate flush
+  path — the same drain point serves both.
 - **Unforgeable `system` origin.** No producer is reachable from inside a tool handler — a
   `RegisteredTool`'s `invoke` receives only its validated args, never a session handle — so a
   `system`-origin delivery cannot be manufactured by anything the model runs. Today only coa's own
@@ -128,19 +127,21 @@ branched on by core.**
   console nesting are **not** built here. This ADR gives that plan a delivery substrate and a
   cancel-guard to build on, nothing more (see ROADMAP.md).
 
-**Measured live, 2026-08-05.** Against the real CLI (SDK 0.3.196 / CLI 2.1.196), a `COA_LIVE` gate
-(`post-tool-delivery.live.test.ts`) confirmed both facts this decision rests on: a `PostToolUse`
-hook's `additionalContext` **does** reach the model within the same turn — an injected token was
-echoed back with no second user turn — and `PostToolUse` **does** fire for `Bash`. Two probes,
-both passed.
+**Record timing.** This decision built the delivery *substrate* — getting text into a running loop
+at its next legal boundary. It did not settle *when that text is written to the append-only log*;
+that is [ADR-0031](0031-a-steer-is-recorded-when-the-model-receives-it.md), which moves the write
+from send-time to the same drain point this ADR defines, closing the third pre-existing bug this
+arc found (a send-time record landing inside a `tool_use`/`tool_result` pair).
 
-**Still unmeasured.** The same file carries two more probes, written but pending the controller's
-live run: whether a steer pushed while a `Bash` call is genuinely still executing reaches the
-model before that turn's terminal result, through the real adapter wiring
-(`assembleSessionOptions`/`buildHooks`) rather than a bare `query()`; and whether the `Stop`-hook
-floor's `additionalContext` is honoured when the model answers in plain text and calls no tool at
-all — the case `PostToolUse` never covers. Both rest on the same hook-output field the two proven
-probes above already showed is honoured, but neither is proven itself until that run happens.
+**Measured live, 2026-08-05.** Against the real CLI (SDK 0.3.196 / CLI 2.1.196), a `COA_LIVE` gate
+(`post-tool-delivery.live.test.ts`) confirmed all four facts this decision and ADR-0031 rest on: a
+`PostToolUse` hook's `additionalContext` **does** reach the model within the same turn — an
+injected token was echoed back with no second user turn; `PostToolUse` **does** fire for `Bash`; a
+steer pushed while a `Bash` call is genuinely still executing reaches the model before that turn's
+terminal result, through the real adapter wiring (`assembleSessionOptions`/`buildHooks`) rather
+than a bare `query()`; and the `Stop`-hook floor's `additionalContext` is honoured when the model
+answers in plain text and calls no tool at all — the case `PostToolUse` never covers. Four probes,
+all passed; nothing here is still unmeasured.
 
 ---
 

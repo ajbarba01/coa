@@ -89,26 +89,12 @@ export interface GovernedLoopDeps {
    */
   observeChanges?: () => void;
   /**
-   * A user-initiated stop (interrupt/steer), checked at the safe boundary — the top of
+   * A user-initiated stop (interrupt), checked at the safe boundary — the top of
    * the loop. SC-1: this is a user stop, not a governance block. Absent ⇒ current
-   * behavior byte-identical.
+   * behavior byte-identical. A steer no longer produces a whole-session stop signal —
+   * it only ever lands on `session.deliveries` (docs/adr/0031).
    */
   signal?: AbortSignal;
-  /**
-   * A synchronous drain of any user turns queued while the loop was mid-round-trip
-   * (steering). Called at the safe boundary — the loop top, right after the abort
-   * check — so an already-aborted loop injects nothing. Each drained string is pushed
-   * as a `{ role: 'user' }` message. Absent ⇒ current behavior byte-identical (D85).
-   */
-  drainSteer?: () => readonly string[];
-  /**
-   * A synchronous drain of `queue`-mode steers — user turns that should run AFTER the
-   * current turn's work, not at the next round-trip boundary. Consulted at the point the
-   * close-gate would let the turn end: a drained steer is injected and the loop continues
-   * instead of ending ("run after the current turn"). Distinct from `drainSteer`
-   * (`barge-in`, drained at the loop top). Absent ⇒ byte-identical to today (D85).
-   */
-  drainQueuedSteer?: () => readonly string[];
   /**
    * Pending mid-loop deliveries (user steers and system notices), drained at the top
    * of each round trip — the driver's soonest safe boundary, discarding nothing.
@@ -151,25 +137,33 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
   const usage: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
   const maxIterations = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
+  /**
+   * Take everything pending and hand it to the model. One helper, two call sites (the
+   * top of each round trip and the close-gate floor) — draining is destructive, so the
+   * gate cannot defer to the top-of-loop drain, and two copies could diverge.
+   *
+   * A `system` entry rides the user role because the Messages API offers no other slot
+   * for mid-conversation input; the notice framing keeps the model from reading an
+   * automated report as the person speaking. No frame is emitted — core's drain closure
+   * is the single writer of the log line (docs/adr/0010, docs/adr/0031).
+   */
+  const absorbDeliveries = (): boolean => {
+    const pending = deps.drainDeliveries?.() ?? [];
+    for (const delivery of pending) {
+      messages.push({
+        role: 'user',
+        content: delivery.origin === 'user' ? delivery.text : `[coa notice] ${delivery.text}`,
+      });
+    }
+    return pending.length > 0;
+  };
+
   try {
     for (let i = 0; i < maxIterations; i += 1) {
       if (deps.signal?.aborted) break;
-      // Steering (SC-1: user input injected at a safe boundary, not a governance block).
-      // Also emitted as a frame so the steer lands in the single append-only log
-      // (docs/adr/0010) — the log is the only durable record of what the user sent.
-      for (const steer of deps.drainSteer?.() ?? []) {
-        messages.push({ role: 'user', content: steer });
-        emit({ t: 'text', text: steer, role: 'user' });
-      }
-      // Mid-loop delivery. A `system` entry rides the user role because the Messages
-      // API offers no other slot for mid-conversation input, but its FRAME carries the
-      // system origin so the append-only log never attributes it to the person.
-      for (const delivery of deps.drainDeliveries?.() ?? []) {
-        const text = delivery.origin === 'user' ? delivery.text : `[coa notice] ${delivery.text}`;
-        messages.push({ role: 'user', content: text });
-        if (delivery.origin === 'user') emit({ t: 'text', text, role: 'user' });
-        else emit({ t: 'text', text, role: 'system' });
-      }
+      // Mid-loop delivery, drained at the loop's soonest safe boundary (SC-1: user/system
+      // input injected, not a governance block).
+      absorbDeliveries();
       // Drive the streaming round-trip: emit each delta live, then settle from the
       // generator's return value. Delta frames are delivery-only (docs/adr/0013) —
       // M8's record policy pushes but never persists them.
@@ -212,14 +206,9 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
         // blocked ⇒ inject the reason (as the SDK's Stop hook does) and let it continue.
         const decision = await deps.gate();
         if (decision.allow) {
-          const queued = deps.drainQueuedSteer?.() ?? [];
-          if (queued.length > 0) {
-            for (const q of queued) {
-              messages.push({ role: 'user', content: q });
-              emit({ t: 'text', text: q, role: 'user' });
-            }
-            continue; // run after the current turn's work
-          }
+          // The floor: text that arrived with no drain point left would otherwise be fed to
+          // nobody — the person or the parent agent would get silence (SC-1, docs/adr/0031).
+          if (absorbDeliveries()) continue;
           break;
         }
         messages.push({ role: 'user', content: decision.message });

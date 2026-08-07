@@ -358,7 +358,7 @@ describe.skipIf(!process.env['COA_LIVE'])('stage 3-4 — live turn control', () 
       }
     })();
 
-    // Turn A: long enough to interrupt mid-flight (mirrors barge-in-smoke.live.test.ts).
+    // Turn A: long enough to interrupt mid-flight (mirrors turn-interrupt-smoke.live.test.ts).
     queue.push(
       'Write a long, detailed essay of at least 500 words about the history of the ' +
         'number zero across civilizations. Take your time; do not stop early.',

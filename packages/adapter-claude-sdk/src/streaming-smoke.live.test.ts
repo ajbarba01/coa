@@ -95,8 +95,10 @@ describe.skipIf(!process.env['COA_LIVE'])(
       // as the NEXT turn on the same held-open query — it is NOT injected into the
       // running turn. The Claude Agent SDK has no mid-turn inject primitive (a
       // pushed SDKUserMessage waits for the current turn's boundary, then runs —
-      // verified live; see docs/adr/0012). True mid-turn redirect is barge-in
-      // (interrupt()+push), a separate capability, not this push-queue path. ------
+      // verified live; see docs/adr/0012). This measured ceiling still stands.
+      // Barge-in (interrupt()+push, a separate mid-turn-redirect capability) was
+      // removed (docs/adr/0031); mid-turn text now travels only as a delivery,
+      // drained at each backend's own next legal boundary, never injected here. ------
       const beforeTurn3 = frames.length;
       queue.push('Reply with exactly one word: ALPHA. Nothing else.');
       // Push a second message immediately, before turn 3 can finish — it must queue

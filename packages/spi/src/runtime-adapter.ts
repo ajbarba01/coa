@@ -47,11 +47,13 @@ export type StopDecision = { allow: true } | { allow: false; message: string };
 export type StopPredicate = () => StopDecision | Promise<StopDecision>;
 
 /**
- * A neutral turn-level interrupt handle a backend reports UP (see docs/adr/0012
- * barge-in follow-up). Calling it stops the CURRENTLY-running turn while keeping the
+ * A neutral turn-level interrupt handle a backend reports UP (see docs/adr/0012).
+ * Calling it stops the CURRENTLY-running turn for a user stop, while keeping the
  * backend session ALIVE — distinct from the whole-session user-stop `signal`
  * (`AbortController`) that terminates the loop. Only a streaming/held-open backend
- * (the Claude SDK's `Query.interrupt`) provides one; a per-turn backend never reports it.
+ * (the Claude SDK's `Query.interrupt`) provides one; a per-turn backend never reports
+ * it. Nothing routes a barge-in through it any more — that seam was removed; all
+ * mid-turn text now travels as a delivery (docs/adr/0031).
  */
 export type TurnInterrupt = () => Promise<void>;
 

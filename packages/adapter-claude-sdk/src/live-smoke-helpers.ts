@@ -8,7 +8,7 @@ import type { CanUseTool, StopPredicate } from '@coa/spi';
 
 /**
  * Shared scaffolding for the `COA_LIVE`-gated adapter smokes (streaming-input,
- * barge-in, single-source-of-truth, streaming-output). Each smoke drives a real
+ * turn-interrupt, single-source-of-truth, streaming-output). Each smoke drives a real
  * `@anthropic-ai/claude-agent-sdk` `query()` through {@link ClaudeSdkAdapter}; these
  * helpers are the generic, backend-agnostic plumbing every one of them needs — the
  * minimal neutral config + SC-1 predicates, the credential-blind account resolution,
