@@ -28,8 +28,8 @@ export const locatorSchema = z.discriminatedUnion('type', [
 ]);
 export type Locator = z.infer<typeof locatorSchema>;
 
-/** The backends an account can point at. `claude` = subscription login; `deepseek`/`longcat` = API-key providers. */
-export const providerSchema = z.enum(['claude', 'deepseek', 'longcat']);
+/** The backends an account can point at. `claude` = subscription login; the rest = API-key providers. */
+export const providerSchema = z.enum(['claude', 'deepseek', 'longcat', 'openai', 'openrouter']);
 export type Provider = z.infer<typeof providerSchema>;
 
 /** A registered account: a user-facing label + the neutral pointer to its login. */
@@ -73,6 +73,8 @@ export const PROVIDER_CAPABILITIES: Record<Provider, ProviderCapabilities> = {
   claude: { isolatedBrowserSession: true },
   deepseek: { isolatedBrowserSession: false },
   longcat: { isolatedBrowserSession: false },
+  openai: { isolatedBrowserSession: false },
+  openrouter: { isolatedBrowserSession: false },
 };
 
 /** Capability lookup for an unvalidated provider id — an id no backend claims is a `false`,

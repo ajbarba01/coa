@@ -3,7 +3,12 @@ import type * as ClaudeSdkModule from '@coa/adapter-claude-sdk';
 import type * as OpenAiCompatModule from '@coa/adapter-openai-compat';
 import { deepseekSpec, longcatSpec } from '@coa/adapter-openai-compat';
 import type { SessionAdapterInit } from '@coa/core';
-import { createClaudeAdapter, createOpenAiCompatAdapter, fetchModels } from './adapter-factory.js';
+import {
+  createAdapter,
+  createClaudeAdapter,
+  createOpenAiCompatAdapter,
+  fetchModels,
+} from './adapter-factory.js';
 
 /**
  * The init object each backend constructor actually received. Hoisted because vitest
@@ -112,6 +117,28 @@ describe('fetchModels — longcat', () => {
         locator: { type: 'env-var', name: 'COA_TEST_UNSET_LONGCAT_KEY_XYZ' },
       }),
     ).rejects.toThrow(/no api key resolved/i);
+  });
+});
+
+describe('the openai and openrouter routing keys', () => {
+  it('createAdapter routes both to the OpenAI-compatible backend (the driven port surface)', () => {
+    for (const provider of ['openai', 'openrouter']) {
+      const adapter = createAdapter(init({ model: { provider } }));
+      expect(typeof adapter.renderNative).toBe('function');
+      expect(typeof adapter.runLoop).toBe('function');
+    }
+  });
+
+  it('fetchModels throws (never a silent []) when no key resolves for either provider', async () => {
+    for (const provider of ['openai', 'openrouter']) {
+      await expect(
+        fetchModels({
+          label: `${provider}-ambient`,
+          provider,
+          locator: { type: 'env-var', name: 'COA_TEST_UNSET_PURE_API_KEY_XYZ' },
+        }),
+      ).rejects.toThrow(/no api key resolved/i);
+    }
   });
 });
 

@@ -1,8 +1,8 @@
 # coa
 
 coa runs a coding agent against your project and keeps the record of what it did. It has no model loop
-of its own — it drives a rented one (the Claude Agent SDK by default, DeepSeek and LongCat over plain
-HTTP) and owns everything around it: the session, the conversation log, the tool surface, the cost cap,
+of its own — it drives a rented one (the Claude Agent SDK by default; DeepSeek, LongCat, OpenAI, and
+OpenRouter over plain HTTP) and owns everything around it: the session, the conversation log, the tool surface, the cost cap,
 and the account the work is charged to.
 
 Local-first and single-user. A long-lived daemon holds the sessions; a CLI and an Electron console are
@@ -15,7 +15,7 @@ writes stays in the project's `.coa/` directory.
   You can also steer mid-turn: queue the new instruction as the next turn, or barge in on this one.
 - Conversations persist as an append-only event log, and the daemon owns the live session rather than
   the window. Reload the console mid-turn and it reattaches to the run in progress.
-- Three providers (Claude, DeepSeek, LongCat) and any number of accounts on each. `coa auth` manages
+- Five providers (Claude, DeepSeek, LongCat, OpenAI, OpenRouter) and any number of accounts on each. `coa auth` manages
   them from the terminal; the console can drive a Claude login itself, signing each account into its
   own browser profile so the account you picked is the one that gets used.
 - The model list is yours to edit per provider, and reasoning effort is set per session.

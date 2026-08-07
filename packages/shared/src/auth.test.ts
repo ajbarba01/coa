@@ -86,6 +86,8 @@ describe('account id + provider capabilities', () => {
     expect(supportsIsolatedBrowserSession('claude')).toBe(true);
     expect(supportsIsolatedBrowserSession('deepseek')).toBe(false);
     expect(supportsIsolatedBrowserSession('longcat')).toBe(false);
+    expect(supportsIsolatedBrowserSession('openai')).toBe(false);
+    expect(supportsIsolatedBrowserSession('openrouter')).toBe(false);
   });
 
   it('says no for a provider it has never heard of', () => {

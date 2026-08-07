@@ -5,6 +5,8 @@ import {
   fetchOpenAiCompatModels,
   loadEffortCaps,
   longcatSpec,
+  openaiSpec,
+  openrouterSpec,
   resolveApiKey,
   type ProviderSpec,
 } from '@coa/adapter-openai-compat';
@@ -20,24 +22,27 @@ import type { RuntimeAdapter } from '@coa/spi';
  * (backend-isolation: the core never does). The session core holds {@link createAdapter} as the
  * injected closure, keeping backends swappable leaves.
  *
- * `claude` (the Claude Agent SDK), `deepseek`, and `longcat` (both provider specs
- * over the one thin OpenAI-compatible pure-API backend + the shared loop driver)
- * are wired. An unknown/unwired provider throws — which `createSession` surfaces
- * as an advisory error frame, never a silent wrong-backend run.
+ * `claude` (the Claude Agent SDK) plus the pure-API providers in
+ * {@link OPENAI_COMPAT_SPECS} (each a provider spec over the one thin
+ * OpenAI-compatible backend + the shared loop driver) are wired. An
+ * unknown/unwired provider throws — which `createSession` surfaces as an
+ * advisory error frame, never a silent wrong-backend run.
  */
 export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
   const provider = init.model?.provider ?? 'claude';
-  switch (provider) {
-    case 'claude':
-      return createClaudeAdapter(init);
-    case 'deepseek':
-      return createOpenAiCompatAdapter(deepseekSpec, init);
-    case 'longcat':
-      return createOpenAiCompatAdapter(longcatSpec, init);
-    default:
-      throw new Error(`runtime provider '${provider}' is not wired yet`);
-  }
+  if (provider === 'claude') return createClaudeAdapter(init);
+  const spec = OPENAI_COMPAT_SPECS[provider];
+  if (spec === undefined) throw new Error(`runtime provider '${provider}' is not wired yet`);
+  return createOpenAiCompatAdapter(spec, init);
 }
+
+/** The pure-API providers, keyed by routing key — adding one is a new row, not a new branch. */
+const OPENAI_COMPAT_SPECS: Record<string, ProviderSpec> = {
+  deepseek: deepseekSpec,
+  longcat: longcatSpec,
+  openai: openaiSpec,
+  openrouter: openrouterSpec,
+};
 
 /**
  * The per-provider turn-drive strategy — co-located with {@link createAdapter} so the
@@ -60,12 +65,11 @@ export function sessionStrategy(provider: string): SessionStrategy {
  */
 export async function fetchModels(account: ModelCacheAccount): Promise<ModelDescriptor[]> {
   const provider = account.provider ?? 'claude';
+  const spec = OPENAI_COMPAT_SPECS[provider];
   const models =
-    provider === 'deepseek'
-      ? await fetchOpenAiCompatFor(deepseekSpec, account)
-      : provider === 'longcat'
-        ? await fetchOpenAiCompatFor(longcatSpec, account)
-        : await fetchClaudeModels(account.locator);
+    spec !== undefined
+      ? await fetchOpenAiCompatFor(spec, account)
+      : await fetchClaudeModels(account.locator);
   return models.map((model) => ({ ...model, provider }));
 }
 

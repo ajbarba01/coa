@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { resolveApiKey, type ReadKeyFile } from './credentials.js';
 import { deepseekSpec } from './deepseek.js';
 import { longcatSpec } from './longcat.js';
+import { openaiSpec } from './openai.js';
+import { openrouterSpec } from './openrouter.js';
 
 describe('resolveApiKey', () => {
   it('reads the key from the env var an env-var locator points at', () => {
@@ -34,6 +36,22 @@ describe('resolveApiKey', () => {
     expect(resolveApiKey(deepseekSpec, { type: 'ambient' }, { DEEPSEEK_API_KEY: 'sk-ds' })).toBe(
       'sk-ds',
     );
+  });
+
+  it('resolves the openai and openrouter keys from their conventional vars', () => {
+    expect(resolveApiKey(openaiSpec, undefined, { OPENAI_API_KEY: 'sk-oa' })).toBe('sk-oa');
+    expect(resolveApiKey(openrouterSpec, undefined, { OPENROUTER_API_KEY: 'sk-or' })).toBe('sk-or');
+    expect(resolveApiKey(openaiSpec, { type: 'ambient' }, { OPENAI_API_KEY: 'sk-oa' })).toBe(
+      'sk-oa',
+    );
+    expect(
+      resolveApiKey(openrouterSpec, { type: 'env-var', name: 'MY_OR' }, { MY_OR: 'sk-2' }),
+    ).toBe('sk-2');
+  });
+
+  it('is undefined for the new specs when their var is missing or empty', () => {
+    expect(resolveApiKey(openaiSpec, undefined, {})).toBeUndefined();
+    expect(resolveApiKey(openrouterSpec, undefined, { OPENROUTER_API_KEY: '' })).toBeUndefined();
   });
 
   it('is undefined when the pointed-at var is missing or empty', () => {

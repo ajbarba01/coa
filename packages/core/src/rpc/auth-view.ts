@@ -13,7 +13,7 @@ import { isProfileShared, type BrowserSessionView } from '../auth/browser-sessio
  * locator kinds are a readable pointer) live in a small local table below: the
  * renderer's providers.ts owns presentation (icons/copy), so core need not import it.
  */
-const BACKENDS: readonly Provider[] = ['claude', 'deepseek', 'longcat'];
+const BACKENDS: readonly Provider[] = ['claude', 'deepseek', 'longcat', 'openai', 'openrouter'];
 /** Locator kinds that are a readable pointer, never a secret. Only `claude` (config-dir) today. */
 const POINTER_PROVIDERS = new Set<string>(['claude']);
 const CHAINS: readonly WebChain[] = ['search', 'fetch'];

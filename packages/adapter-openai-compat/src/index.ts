@@ -3,9 +3,9 @@
  * the backend port: ONE code path (request build, SSE streaming, pricing,
  * credentials, model discovery) implementing the `complete()` primitive over HTTP
  * and driving the shared `@coa/loop-driver`, parameterized by a {@link ProviderSpec}.
- * DeepSeek and LongCat ship as spec objects; everything else (tools, roles, context,
- * the close-gate block and the per-tool deny rules) comes from coa. Imports no
- * provider SDK — just `fetch`.
+ * DeepSeek, LongCat, OpenAI, and OpenRouter ship as spec objects; everything else
+ * (tools, roles, context, the close-gate block and the per-tool deny rules) comes
+ * from coa. Imports no provider SDK — just `fetch`.
  */
 
 export { OpenAiCompatAdapter, type OpenAiCompatAdapterInit } from './adapter.js';
@@ -25,3 +25,5 @@ export {
 } from './provider-spec.js';
 export { deepseekSpec } from './deepseek.js';
 export { longcatSpec } from './longcat.js';
+export { openaiSpec } from './openai.js';
+export { openrouterSpec } from './openrouter.js';
