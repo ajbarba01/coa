@@ -18,7 +18,6 @@ export * from './producer.js';
 export * from './piece.js';
 export * from './slots.js';
 export * from './render-sections.js';
-export * from './bundle.js';
 export * from './agent.js';
 export * from './context.js';
 export * from './config.js';

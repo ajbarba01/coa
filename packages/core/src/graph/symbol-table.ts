@@ -43,8 +43,4 @@ export class SymbolTable {
   names(): string[] {
     return [...this.byName.keys()];
   }
-
-  all(): SymbolRecord[] {
-    return [...this.byPath.values()].flat();
-  }
 }

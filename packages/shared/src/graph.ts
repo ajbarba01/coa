@@ -77,14 +77,6 @@ export const symbolRecordSchema = z.object({
 });
 export type SymbolRecord = z.infer<typeof symbolRecordSchema>;
 
-/** A fuzzy-match candidate from the spine's fuzzy lookup, each carrying an explicit confidence. */
-export const rankedCandidateSchema = z.object({
-  symbol: symbolRecordSchema,
-  confidence: z.number(),
-  why: z.string(),
-});
-export type RankedCandidate = z.infer<typeof rankedCandidateSchema>;
-
 /**
  * The read-only graph query surface. The concrete query methods
  * live on the spine's runtime; this package fixes only that consumers receive a read-only handle.

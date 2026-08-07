@@ -55,7 +55,7 @@ shippable apps.
 | Module                       | Package                                | Notes                                                                              |
 | ---------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
 | M0 Shared Schema             | `packages/shared`                      | Types + Zod schemas only; imported by everything; imports nothing.                 |
-| M1 Change Kernel             | `packages/core` → the **spine** ring   | WAL, bus, in-mem graph, symbol table / fuzzy index / piece-resolver, projections. |
+| M1 Change Kernel             | `packages/core` → the **spine** ring   | WAL, bus, in-mem graph, symbol table / piece-resolver, projections.                |
 | M2 Code Lens                 | `packages/code-intel`                  | Byte→structure; the parser runs as a **separate child process** (isolation seam).  |
 | M3 Constraint & Flag         | `packages/core` → a **consumer** + gate | Flags projection + the one close-gate service.                                     |
 | M4 Context Engine            | `packages/core` → **consumer/services** | Staleness consumer + generation/assembly/detection services.                      |
@@ -77,7 +77,7 @@ not by package splits.
 core/src/
   *.ts           M1 — the spine, at the root: kernel (emit/subscribe + in-mem graph host), event,
                       projection, checkpoint timeline, idle scheduler; index.ts is the package barrel
-  graph/         M1 — in-mem graph, symbol table, fuzzy index, import/piece resolution
+  graph/         M1 — in-mem graph, symbol table, import/piece resolution
   wal/           M1 — the single-writer WAL
   reconcile/     M1 — the reconciler (producer ②)
   scope/         M1 — scope config/resolution/linting, glob machinery

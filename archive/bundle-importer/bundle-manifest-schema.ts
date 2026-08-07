@@ -1,5 +1,7 @@
+// Archived from packages/shared/src/bundle.ts (the bundle's wire manifest, removed
+// with the importer — its only remaining consumers were this directory's files).
 import { z } from 'zod';
-import { capabilityFrameSchema } from './capability.js';
+import { capabilityFrameSchema } from '@coa/shared';
 
 /** Role-as-bundle: a Role is a named set of Pieces + a capability frame + asset contracts. */
 export const bundleManifestSchema = z.object({

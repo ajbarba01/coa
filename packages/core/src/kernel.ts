@@ -1,18 +1,9 @@
 import { ulid } from 'ulid';
-import type {
-  ChangeEvent,
-  EdgeType,
-  GraphEdge,
-  Piece,
-  PieceRef,
-  RankedCandidate,
-  SymbolRecord,
-} from '@coa/shared';
+import type { ChangeEvent, EdgeType, GraphEdge, Piece, PieceRef, SymbolRecord } from '@coa/shared';
 import { type ChangeEventDraft, stampFrame } from './event.js';
 import { Wal } from './wal/wal.js';
 import { TypedGraph } from './graph/graph.js';
 import { SymbolTable } from './graph/symbol-table.js';
-import { FuzzyIndex } from './graph/fuzzy-index.js';
 import { PieceStore, resolvePiece } from './graph/resolve-piece.js';
 import { reparseFile } from './graph/reparse.js';
 import { extractImports } from './graph/extract-imports.js';
@@ -28,7 +19,6 @@ import {
   type TemporalOptions,
   type TemporalView,
 } from './graph/temporal.js';
-import { exportScip, type ScipOptions } from './graph/scip.js';
 import { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
 import { lintScopes, type ScopeLintFinding } from './scope/scope-linter.js';
 import { loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
@@ -53,15 +43,14 @@ export interface ChangeKernelOptions {
  * projection (the log is the source of truth; everything else is derived).
  *
  * The graph carries the graph hardening (cycle/coupling/temporal views,
- * convention extractors, the inferred import graph, SCIP export) and the SCO-*
- * scope tier (composable membership resolution, the scope linter).
+ * convention extractors, the inferred import graph) and the SCO-* scope tier
+ * (composable membership resolution, the scope linter).
  */
 export class ChangeKernel {
   readonly graph = new TypedGraph();
   private readonly wal: Wal;
   private readonly worktree: string;
   private readonly symbols = new SymbolTable();
-  private readonly fuzzy = new FuzzyIndex();
   private readonly pieces = new PieceStore();
   private readonly projection: ProjectionDb;
   private readonly idle = new IdleScheduler();
@@ -76,7 +65,6 @@ export class ChangeKernel {
   private readonly scopeCache = new Map<string, { version: number; resolution: ScopeResolution }>();
   private materialVersion = 0;
   private nextSeq = 0;
-  private fuzzyDirty = false;
 
   constructor(options: ChangeKernelOptions) {
     this.worktree = options.worktree ?? 'main';
@@ -174,8 +162,6 @@ export class ChangeKernel {
     this.indexedFiles.add(path);
     this.knownPaths.add(path);
     this.materialVersion++;
-    this.fuzzyDirty = true;
-    this.idle.scheduleIdle(() => this.rebuildFuzzy(), { priority: 1, preemptible: true });
 
     this.graph.removeDerivedEdgesFrom(path);
     clearPrefix(this.unresolvedSites, `${path}:`);
@@ -207,11 +193,6 @@ export class ChangeKernel {
   /** The anti-false-graph honesty read: per-provenance counts + unresolved sites. */
   coverage(): Record<EdgeProvenance, number> & { unresolved: number } {
     return { ...this.graph.provenanceCounts(), unresolved: this.unresolvedSites.size };
-  }
-
-  /** The one-way SCIP export of the indexed symbol layer. */
-  exportScip(options: ScipOptions): Uint8Array {
-    return exportScip(this.symbols.all(), options);
   }
 
   // --- scope tier (SCO-*) ------------------------------------------------------
@@ -265,11 +246,6 @@ export class ChangeKernel {
     return this.nextSeq;
   }
 
-  fuzzyMatch(name: string, limit?: number): RankedCandidate[] {
-    if (this.fuzzyDirty) this.rebuildFuzzy();
-    return this.fuzzy.match(name, limit);
-  }
-
   registerPiece(piece: Piece): void {
     this.pieces.register(piece);
     this.graph.setNode(piece.name, 'piece');
@@ -319,7 +295,6 @@ export class ChangeKernel {
         break;
       case 'declare-symbols':
         this.symbols.indexFile(frame.payload.from, frame.payload.symbols);
-        this.fuzzyDirty = true;
         break;
       default:
         this.graph.setNode(frame.path, 'file');
@@ -329,11 +304,6 @@ export class ChangeKernel {
         this.materialVersion++;
         break;
     }
-  }
-
-  private rebuildFuzzy(): void {
-    this.fuzzy.build(this.symbols.all());
-    this.fuzzyDirty = false;
   }
 
   /** Build the live evaluation context the pure scope resolver reads. */

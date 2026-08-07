@@ -15,8 +15,8 @@ import { pieceSchema } from './piece.js';
  * it), and `advise` marks a package coa recommends — the resolver reports advised
  * packages that are absent so the console/agent can nudge, never force. This is
  * the lean runtime model the session host's resolver consumes; the heavier versioned
- * form is {@link BundleManifest}. This package owns the types; the resolver is the
- * session host's.
+ * form (`BundleManifest`) is parked in `archive/bundle-importer/`. This package owns
+ * the types; the resolver is the session host's.
  */
 
 export const agentPackageSchema = z.object({

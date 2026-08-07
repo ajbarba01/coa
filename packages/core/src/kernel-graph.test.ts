@@ -71,16 +71,6 @@ describe('ChangeKernel graph views', () => {
     expect(kernel.graph.outEdges('w.ts').some((e) => e.to === 'observed')).toBe(true);
   });
 
-  it('exports a SCIP index of the indexed symbols', () => {
-    kernel.indexFile('a.ts', 'typescript', 'export function foo() {}');
-    const parsed = JSON.parse(
-      Buffer.from(kernel.exportScip({ projectRoot: dir, toolVersion: '0' })).toString('utf8'),
-    ) as {
-      documents: { symbols: { descriptor: string }[] }[];
-    };
-    expect(parsed.documents[0]?.symbols.some((s) => s.descriptor === 'foo')).toBe(true);
-  });
-
   it('connects NodeNext .js import specifiers to their .ts source (real-repo resolution)', () => {
     kernel.indexFile('src/a.ts', 'typescript', "import './b.js';");
     kernel.indexFile('src/b.ts', 'typescript', 'export const b = 1;');

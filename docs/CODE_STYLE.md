@@ -31,7 +31,7 @@ Sourced from the [Google TypeScript Style Guide](https://google.github.io/styleg
 
 ## Files & folders
 
-- Non-component source files: `kebab-case.ts` (`change-event.ts`, `fuzzy-index.ts`, `piece-resolver.ts`).
+- Non-component source files: `kebab-case.ts` (`change-event.ts`, `symbol-table.ts`, `resolve-piece.ts`).
 - **One primary export per file; the file is named for it.** A file exporting `canonicalize` is `canonicalize.ts`.
 - Tests sit next to the unit as `*.test.ts` (Vitest). Cross-package integration tests live in the package's
   `test/` directory. (See [REPO_LAYOUT.md](REPO_LAYOUT.md) for the per-package anatomy.)

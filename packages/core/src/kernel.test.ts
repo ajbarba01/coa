@@ -84,12 +84,11 @@ describe('ChangeKernel', () => {
     expect(seen.map((e) => ('path' in e ? e.path : null))).toEqual(['a.ts', 'b.ts']);
   });
 
-  it('indexes file symbols and serves lookup + fuzzy-on-miss', () => {
+  it('indexes file symbols and serves lookup', () => {
     const k = open();
     k.indexFile('src/charge.ts', 'typescript', 'export function capturePayment(id: string) {}');
     expect(k.lookup('capturePayment')?.definedIn).toContain('src/charge.ts');
     expect(k.lookup('capturePaymont')).toBeUndefined();
-    expect(k.fuzzyMatch('capturePaymont')[0]?.symbol.name).toBe('capturePayment');
   });
 
   it('resolves a registered piece with its graph authority edges', () => {
