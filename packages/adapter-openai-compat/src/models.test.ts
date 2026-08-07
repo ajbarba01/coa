@@ -24,9 +24,9 @@ describe('loadEffortCaps', () => {
       'deepseek-v4-pro': ['high', 'max'],
       'deepseek-v4-flash': ['high', 'max'],
     });
-    expect(loadEffortCaps(deepseekSpec, { COA_DEEPSEEK_EFFORT: 'nope' })['deepseek-v4-pro']).toEqual(
-      ['high', 'max'],
-    );
+    expect(
+      loadEffortCaps(deepseekSpec, { COA_DEEPSEEK_EFFORT: 'nope' })['deepseek-v4-pro'],
+    ).toEqual(['high', 'max']);
     // …and a config entry overrides that model while leaving the other defaults intact.
     const merged = loadEffortCaps(deepseekSpec, {
       COA_DEEPSEEK_EFFORT: '{"deepseek-v4-pro":["max"]}',
@@ -41,7 +41,9 @@ describe('loadEffortCaps', () => {
   });
 
   it('accepts a config override for a future LongCat model', () => {
-    expect(loadEffortCaps(longcatSpec, { COA_LONGCAT_EFFORT: '{"LongCat-3.0":["high","max"]}' })).toEqual({
+    expect(
+      loadEffortCaps(longcatSpec, { COA_LONGCAT_EFFORT: '{"LongCat-3.0":["high","max"]}' }),
+    ).toEqual({
       'LongCat-3.0': ['high', 'max'],
     });
   });
@@ -50,7 +52,9 @@ describe('loadEffortCaps', () => {
 describe('toModelDescriptor', () => {
   it('attaches the configured effort ladder, or none for an unlisted DeepSeek model', () => {
     expect(
-      toModelDescriptor(deepseekSpec, 'deepseek-reasoner', { 'deepseek-reasoner': ['low', 'high'] }),
+      toModelDescriptor(deepseekSpec, 'deepseek-reasoner', {
+        'deepseek-reasoner': ['low', 'high'],
+      }),
     ).toEqual({
       id: 'deepseek-reasoner',
       supportsEffort: true,

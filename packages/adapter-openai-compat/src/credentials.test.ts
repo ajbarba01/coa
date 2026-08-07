@@ -5,9 +5,9 @@ import { longcatSpec } from './longcat.js';
 
 describe('resolveApiKey', () => {
   it('reads the key from the env var an env-var locator points at', () => {
-    expect(resolveApiKey(deepseekSpec, { type: 'env-var', name: 'MY_KEY' }, { MY_KEY: 'sk-123' })).toBe(
-      'sk-123',
-    );
+    expect(
+      resolveApiKey(deepseekSpec, { type: 'env-var', name: 'MY_KEY' }, { MY_KEY: 'sk-123' }),
+    ).toBe('sk-123');
   });
 
   it('reads the key from the file a key-file locator points at (injected reader)', () => {

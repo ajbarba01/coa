@@ -161,7 +161,11 @@ describe('OpenAiCompatAdapter', () => {
   });
 
   it('fails loudly (the error surfaces upstream, never silently swallowed) when no API key resolves', async () => {
-    const deepseek = new OpenAiCompatAdapter(deepseekSpec, { sessionId: 's1', input: 'go', env: {} });
+    const deepseek = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'go',
+      env: {},
+    });
     wire(deepseek);
     await expect(deepseek.runLoop(SESSION)).rejects.toThrow(
       'deepseek: no API key — set DEEPSEEK_API_KEY or add an env-var account',
