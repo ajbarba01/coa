@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { cx } from '@coa/console-kit';
-import { HLJS_TOKEN_STYLE, grammarForTag } from './syntaxTheme.js';
+import { grammarForTag } from './grammar.js';
+import { HLJS_TOKEN_STYLE } from './syntaxTheme.js';
 
 export interface CodeBlockProps {
   code: string;

@@ -12,10 +12,13 @@ import typescript from 'react-syntax-highlighter/dist/esm/languages/hljs/typescr
 import xml from 'react-syntax-highlighter/dist/esm/languages/hljs/xml';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/hljs/yaml';
 import { cx } from '@coa/console-kit';
+import type { Grammar } from './grammar.js';
 
 // The `Light` build ships with NO languages registered, so without this every code
 // block renders unhighlighted. Register once at module load (side effect on import).
-const LANGUAGES: Record<string, (hljs: unknown) => unknown> = {
+// Keyed by Grammar so this map and the vocabulary in grammar.ts cannot drift apart:
+// a grammar in one and not the other fails to compile.
+const LANGUAGES: Record<Grammar, (hljs: unknown) => unknown> = {
   bash,
   css,
   go,
@@ -31,45 +34,6 @@ const LANGUAGES: Record<string, (hljs: unknown) => unknown> = {
 };
 for (const [name, mod] of Object.entries(LANGUAGES)) {
   SyntaxHighlighter.registerLanguage(name, mod);
-}
-
-/** The short tags a fence is actually written with, against the grammar id each names.
- *  Same vocabulary as a file extension (see pathLanguage.ts), which is why it reads the same. */
-const TAG_GRAMMAR: Record<string, string> = {
-  ts: 'typescript',
-  tsx: 'typescript',
-  mts: 'typescript',
-  cts: 'typescript',
-  js: 'javascript',
-  jsx: 'javascript',
-  mjs: 'javascript',
-  cjs: 'javascript',
-  py: 'python',
-  rs: 'rust',
-  sh: 'bash',
-  shell: 'bash',
-  zsh: 'bash',
-  console: 'bash',
-  yml: 'yaml',
-  md: 'markdown',
-  html: 'xml',
-  htm: 'xml',
-  svg: 'xml',
-};
-
-/**
- * The registered grammar a fence tag names, or `undefined` when we register none for it.
- *
- * Worth resolving rather than forwarding the tag as written: an id the highlighter does not
- * know is not treated as "no language", it is treated as "work out which" — it scores the
- * code against EVERY grammar registered above and renders whichever wins. So a ```ts block,
- * the commonest fence there is, was being guessed at instead of read as TypeScript, and the
- * first such block on a surface paid to compile all twelve grammars to reach that guess.
- */
-export function grammarForTag(tag: string): string | undefined {
-  const key = tag.toLowerCase();
-  if (Object.hasOwn(LANGUAGES, key)) return key;
-  return TAG_GRAMMAR[key];
 }
 
 /** Token-derived highlight style: colors come from CSS token variables so code stays

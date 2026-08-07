@@ -4,7 +4,7 @@ import { usePaneOverlay } from '@coa/console-kit';
 import { describeTool, toolTarget } from './toolRegistry.js';
 import { diffLines, type DiffLine } from './toolDiff.js';
 import { estimateTokens, formatTokens } from './tokenEstimate.js';
-import { languageForPath } from './pathLanguage.js';
+import { languageForPath } from './grammar.js';
 import { clampLines } from './clampLines.js';
 import { markErrors } from './errorMarks.js';
 import { parseMatchLine } from './matchLines.js';
