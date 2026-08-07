@@ -16,7 +16,15 @@ import { afterEach, describe, expect, it } from 'vitest';
  */
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const depcruiseBin = join(root, 'node_modules', '.bin', 'depcruise');
+// The package's real entry, not the .bin shim: the shim is an extensionless POSIX
+// script that spawnSync cannot execute on Windows.
+const depcruiseBin = join(
+  root,
+  'node_modules',
+  'dependency-cruiser',
+  'bin',
+  'dependency-cruise.mjs',
+);
 
 // Named so a stray copy (a crashed run) is self-explanatory; cleaned in afterEach.
 const rendererCanary = join(root, 'apps/desktop/src/renderer/__depcruise-canary__.ts');
@@ -30,8 +38,8 @@ interface Violation {
 
 function cruise(files: string[]): Violation[] {
   const result = spawnSync(
-    depcruiseBin,
-    ['--config', '.dependency-cruiser.cjs', '--output-type', 'json', ...files],
+    process.execPath,
+    [depcruiseBin, '--config', '.dependency-cruiser.cjs', '--output-type', 'json', ...files],
     { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
   );
   if (result.error !== undefined) throw result.error;
