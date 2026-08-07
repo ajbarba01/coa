@@ -14,6 +14,7 @@ const IGNORE = [
   'docs/superpowers',
   'docs/design/research',
   'docs/archive',
+  'archive',
   'node_modules',
   'DEV-NOTES.md',
   'CLAUDE.local.md',

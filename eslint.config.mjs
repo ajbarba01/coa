@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/*.cjs',
       '**/*.d.ts',
       '.claude/**',
+      // Parked feature code kept for reference — never compiled, linted, or imported.
+      'archive/**',
     ],
   },
   eslint.configs.recommended,
