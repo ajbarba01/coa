@@ -36,14 +36,13 @@ import { matchGlob } from './scope/glob.js';
 import type { EdgeProvenance, ScopeRef, ScopeResolution } from '@coa/shared';
 import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
-import { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
+import { Timeline, type Checkpoint } from './checkpoint.js';
 
 const PROJECTOR_VERSION = 1;
 
 export interface ChangeKernelOptions {
   walPath: string;
   worktree?: string;
-  root?: string;
   projectionPath?: string;
 }
 
@@ -64,7 +63,6 @@ export class ChangeKernel {
   readonly graph = new TypedGraph();
   private readonly wal: Wal;
   private readonly worktree: string;
-  private readonly root: string;
   private readonly symbols = new SymbolTable();
   private readonly fuzzy = new FuzzyIndex();
   private readonly pieces = new PieceStore();
@@ -85,7 +83,6 @@ export class ChangeKernel {
 
   constructor(options: ChangeKernelOptions) {
     this.worktree = options.worktree ?? 'main';
-    this.root = options.root ?? process.cwd();
     this.wal = new Wal(options.walPath);
     this.projection = new ProjectionDb(options.projectionPath ?? ':memory:', PROJECTOR_VERSION);
     for (const extractor of STARTER_EXTRACTORS) this.extractors.register(extractor);
@@ -301,24 +298,6 @@ export class ChangeKernel {
 
   listTimeline(): Checkpoint[] {
     return this.timeline.listTimeline();
-  }
-
-  pin(id: string): void {
-    this.timeline.pin(id);
-  }
-
-  unpin(id: string): void {
-    this.timeline.unpin(id);
-  }
-
-  /** Scoped rewind: a git pathspec re-materialization (working tree only — D97). */
-  rewind(scope: { source: string; pathspecs: string[] }): void {
-    rewindPathspec(this.root, scope.source, scope.pathspecs);
-  }
-
-  /** The retention floor (compaction safety, D94). */
-  retentionFloor(consumerCursors: number[]): number {
-    return this.timeline.retentionFloor(consumerCursors);
   }
 
   /** The replayed/live frame log (test + introspection read). */

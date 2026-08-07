@@ -77,7 +77,6 @@ export interface DaemonCoreHandle {
 export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   const kernel = new ChangeKernel({
     walPath: options.walPath,
-    ...(options.root !== undefined ? { root: options.root } : {}),
     ...(options.projectionPath !== undefined ? { projectionPath: options.projectionPath } : {}),
   });
   const governance = new Governance({

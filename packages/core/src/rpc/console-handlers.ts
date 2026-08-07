@@ -30,7 +30,7 @@ export interface ConsoleReadPorts {
   capState: (sessionId?: string) => CapState;
   /** M3 CF-1 user-audience feed (crit/high expanded, med/low collapsed-but-counted). */
   flagsForUser: (scope?: string) => FeedView;
-  /** M1 timeline — the checkpoints behind the rewind/undo view (D98). */
+  /** The checkpoint timeline — the ordered list the console's Timeline panel renders. */
   listTimeline: () => Checkpoint[];
 }
 
