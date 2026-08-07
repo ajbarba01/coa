@@ -113,7 +113,9 @@ describe('createDaemonCore', () => {
     expect(handle.core.capState()).toEqual({ remaining: null, capHit: false });
   });
 
-  it('exposes an observeChanges port that drives producer 2', () => {
+  it('exposes an observeChanges port on the core surface', () => {
+    // Surface check only. That the port actually drives producer 2 is pinned by the
+    // real-repo test below; that its absence degrades safely, by the one after that.
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(typeof handle.core.observeChanges).toBe('function');
   });

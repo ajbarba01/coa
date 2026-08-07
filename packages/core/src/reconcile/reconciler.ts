@@ -45,7 +45,14 @@ export class Reconciler {
    * standalone, this `git ls-files` pass is the equivalent disk baseline.
    */
   private seedTrackedBaseline(): void {
-    const listed = execFileSync('git', ['ls-files'], { cwd: this.deps.root, encoding: 'utf8' });
+    // stderr is captured rather than inherited: failing here is an EXPECTED, handled
+    // outcome on a non-git root (the caller degrades producer 2 to a no-op), so the
+    // failure must not print to the daemon's console as if something went wrong.
+    const listed = execFileSync('git', ['ls-files'], {
+      cwd: this.deps.root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     for (const path of listed.split('\n')) {
       if (path.length === 0 || this.priorHash.has(path)) continue;
       this.priorHash.set(path, hashFile(join(this.deps.root, path)));
@@ -79,6 +86,7 @@ export function scanWorktree(root: string, worktree: string): Observation[] {
   const output = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd: root,
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   const observations: Observation[] = [];
   for (const line of output.split('\n')) {
