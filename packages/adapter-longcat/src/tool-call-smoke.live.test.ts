@@ -22,7 +22,7 @@ const apiKey = resolveApiKey({
 });
 
 describe.skipIf(apiKey === undefined)('LongCat live tool call', () => {
-  it('returns a streamed tool call with its arguments intact', async () => {
+  it('returns a streamed tool call with its arguments intact', async (ctx) => {
     const complete = makeLongCatComplete({
       apiKey: apiKey as string,
       model: 'LongCat-2.0',
@@ -43,8 +43,20 @@ describe.skipIf(apiKey === undefined)('LongCat live tool call', () => {
       ],
       undefined,
     );
-    let step = await stream.next();
-    while (step.done !== true) step = await stream.next();
+    let step;
+    try {
+      step = await stream.next();
+      while (step.done !== true) step = await stream.next();
+    } catch (error) {
+      // Same availability philosophy as the key-file skipIf above: a quota-exhausted
+      // account means the round-trip could not be attempted, not that it failed. Any
+      // other error — schema, stream, transport — stays fatal.
+      const message = error instanceof Error ? error.message : String(error);
+      if (/quota|rate_limit|too_many_requests|(^|\D)429(\D|$)|(^|\D)402(\D|$)/i.test(message)) {
+        ctx.skip(`LongCat quota exhausted — live round-trip unavailable: ${message}`);
+      }
+      throw error;
+    }
 
     const call = step.value.toolCalls[0];
     expect(call?.name).toBe('Bash');
