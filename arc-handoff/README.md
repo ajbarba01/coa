@@ -35,6 +35,7 @@ stages.
 | `mockups/arc-ui-contract.html` | the approved UI contract (S1–S7); only its listed functionality is binding |
 | `run/ledger.md` | the knife's deletion/archive ledger, ticked with commit shas |
 | `run/verification/*.json` | per-ruling verification inventories (file/symbol/caller evidence) |
+| `run/agent-judgment-calls.md` | every place an agent deviated, skipped, or hit a contradiction — read this when reviewing the PRs |
 | `run/harvest/*.md` | Stage 4 source material: distilled live rationale + tiered roadmap candidates + verified SDK behavior |
 | `workflow-scripts/*.js` | the multi-agent workflow scripts this run used; `stage4-docs.js` is pre-written and ready to launch |
 | `repo-local-files/` | the gitignored per-machine files (see MACHINE-SETUP.md) |
