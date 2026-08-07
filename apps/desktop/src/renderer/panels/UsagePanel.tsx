@@ -203,6 +203,9 @@ const VIEW_OPTIONS = USAGE_VIEWS.map((v) => ({ value: v, label: USAGE_VIEW_LABEL
 
 /* ---------------------------------- the surface ---------------------------------- */
 
+/** The usage surface. Everything it renders is MOCK DATA BY DESIGN — the reads come
+ *  from mockUsage.ts, the renderer-owned stand-in — and wiring it to real backend
+ *  usage reads is roadmap work, not a bug here. */
 export function UsageSurface(): React.JSX.Element {
   const view = useUsageUi((s) => s.view);
   const range = useUsageUi((s) => s.range);
