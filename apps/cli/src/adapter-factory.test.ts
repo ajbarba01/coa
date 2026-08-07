@@ -23,8 +23,8 @@ const captured = vi.hoisted(() => ({
 }));
 
 // Each mock SUBCLASSES the real adapter rather than replacing it: every other test in
-// this file exercises genuine adapter behaviour (capability profile, the runLoop
-// precondition), and only the constructor argument is observed.
+// this file exercises genuine adapter behaviour (the runLoop precondition), and only
+// the constructor argument is observed.
 vi.mock('@coa/adapter-claude-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof ClaudeSdkModule>();
   return {
@@ -73,9 +73,9 @@ const init = (over: Partial<SessionAdapterInit> = {}): SessionAdapterInit => ({
 });
 
 describe('createClaudeAdapter', () => {
-  it('constructs a runtime adapter advertising the barebones capability floor', () => {
+  it('constructs a runtime adapter exposing the driven port surface', () => {
     const adapter = createClaudeAdapter(init());
-    expect(adapter.capabilityProfile().spiVersion).toBeDefined();
+    expect(typeof adapter.renderNative).toBe('function');
     expect(typeof adapter.runLoop).toBe('function');
   });
 
@@ -105,11 +105,11 @@ describe('fetchModels — deepseek', () => {
 });
 
 describe('createLongCatAdapter', () => {
-  it('constructs a runtime adapter advertising the barebones capability floor', () => {
+  it('constructs a runtime adapter exposing the driven port surface', () => {
     const adapter = createLongCatAdapter(
       init({ model: { provider: 'longcat', model: 'LongCat-2.0' } }),
     );
-    expect(adapter.capabilityProfile().spiVersion).toBeDefined();
+    expect(typeof adapter.renderNative).toBe('function');
     expect(typeof adapter.runLoop).toBe('function');
   });
 });

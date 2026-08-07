@@ -101,7 +101,6 @@ describe('LongCatAdapter', () => {
       tokensOut: 2,
       costUsd: 0,
     });
-    expect(adapter.usageTelemetry()).toMatchObject({ tokensIn: 3, tokensOut: 2 });
   });
 
   it('maps an effort selection onto thinking enabled, and off onto disabled', async () => {
@@ -175,11 +174,5 @@ describe('LongCatAdapter', () => {
 
     const tools = captured.body?.['tools'] as Array<{ function: { name: string } }> | undefined;
     expect(tools?.map((t) => t.function.name)).toContain('Read');
-  });
-
-  it('reports the barebones capability profile and the refs null-fallback', () => {
-    const adapter = new LongCatAdapter({ sessionId: 's1', input: 'go' });
-    expect(adapter.capabilityProfile().ports.refs.present).toBe(false);
-    expect(adapter.refs({ name: 'x' })).toBeNull();
   });
 });

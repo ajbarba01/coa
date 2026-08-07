@@ -19,7 +19,7 @@ coa/
     shared/                  M0 — @coa/shared        (types + Zod schemas only; no behavior)
     code-intel/              M2 — @coa/code-intel     (pure byte→structure; child-process parser seam)
     core/                    M1,M3–M8 — @coa/core     (the spine + consumers + services; see below)
-    spi/                     M9 ports — @coa/spi       (capability port types; null-fallback contracts)
+    spi/                     M9 ports — @coa/spi       (capability port types)
     loop-driver/             M9 — @coa/loop-driver     (coa-owned governed ReAct loop for pure-API backends; `complete()` primitive + driver; neutral, no backend SDK)
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
     adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
@@ -111,7 +111,7 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
 - **Producers → spine ← consumers** — no consumer ring imports another consumer ring sideways; everything goes
   through `spine/`.
 - **Backend isolation** — only `adapter-claude-sdk` may import the Claude Agent SDK (or any backend SDK). The core
-  calls `spi` port types and takes the defined null-fallback (D109) — no `which-backend?` branch anywhere else.
+  calls `spi` port types — no `which-backend?` branch anywhere else.
 - **Apps depend on libraries, never the reverse** — `apps/*` import `packages/*`; no package imports an app.
 - **M9 fan-in is injected, not imported** — `core` does not compile-time-depend on `adapter-claude-sdk`; M8 wires
   the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.

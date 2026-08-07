@@ -1,31 +1,20 @@
 import type {
   BackendMessage,
-  CapabilityProfile,
-  ContextPackage,
   Locator,
   ModelSelection,
   NeutralConfig,
-  Piece,
-  Reminder,
   SessionConfig,
-  SymbolRef,
   TurnFrame,
 } from '@coa/shared';
 import type {
   BackendConfig,
-  CacheBreakpoints,
   CanUseTool,
   DrainDeliveries,
-  EvalCorpus,
-  EvalResult,
-  ReminderAt,
   RuntimeAdapter,
   RuntimeUsage,
   StopPredicate,
-  SymbolReference,
   ToolCatalogue,
 } from '@coa/spi';
-import { barebonesProfile, REFS_NULL_FALLBACK } from '@coa/spi';
 import { runGovernedLoop } from '@coa/loop-driver';
 import { renderSystemPrompt } from './render.js';
 import { resolveApiKey } from './credentials.js';
@@ -42,11 +31,8 @@ import {
  * the shared {@link runGovernedLoop} driver; this adapter only renders the neutral config
  * to a system prompt, resolves the API key from the account's pointer, builds the
  * `complete()` primitive, and hands the loop the close-gate and cost-cap predicates
- * (the system's only two blocks). Every enhancement
- * port degrades to its null-fallback (barebones profile). It imports no provider SDK.
+ * (the system's only two blocks). It imports no provider SDK.
  */
-
-const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
 
 export interface LongCatAdapterInit {
   sessionId: string;
@@ -119,7 +105,6 @@ export class LongCatAdapter implements RuntimeAdapter {
   #canUseTool: CanUseTool | undefined;
   #stopPredicate: StopPredicate | undefined;
   #catalogue: ToolCatalogue = [];
-  #lastUsage: RuntimeUsage = NO_USAGE;
 
   constructor(init: LongCatAdapterInit) {
     this.#init = init;
@@ -187,33 +172,7 @@ export class LongCatAdapter implements RuntimeAdapter {
       ...(this.#init.observeChanges !== undefined
         ? { observeChanges: this.#init.observeChanges }
         : {}),
-      onSettle: (sessionId, usage) => {
-        this.#lastUsage = usage;
-        this.#init.onSettle?.(sessionId, usage);
-      },
+      ...(this.#init.onSettle !== undefined ? { onSettle: this.#init.onSettle } : {}),
     });
-  }
-
-  usageTelemetry(): RuntimeUsage {
-    return this.#lastUsage;
-  }
-
-  // --- Enhancement ports: LongCat runs the neutral floor; each degrades to its null-fallback. ---
-
-  deliverReminder(_reminder: Reminder, _at: ReminderAt): void {}
-  render_context(_pkg: ContextPackage): void {}
-  inject_runtime(_slice: readonly Piece[]): void {}
-  cache_control(_breakpoints: CacheBreakpoints): void {}
-
-  capabilityProfile(): CapabilityProfile {
-    return barebonesProfile;
-  }
-
-  refs(_symbol: SymbolRef): SymbolReference[] | null {
-    return REFS_NULL_FALLBACK;
-  }
-
-  async runEval(_corpus: EvalCorpus): Promise<EvalResult> {
-    return { passed: 0, failed: 0 };
   }
 }

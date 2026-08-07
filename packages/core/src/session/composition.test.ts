@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NeutralConfig } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-} from '@coa/spi';
+import type { BackendConfig, RuntimeAdapter } from '@coa/spi';
 import { Governance } from '../governance/governance.js';
 import { FlagPipeline } from '../flags/pipeline.js';
 import { compile } from '../compiler/compile.js';
@@ -44,22 +39,6 @@ class FakeAdapter implements RuntimeAdapter {
   interceptStop(): void {}
   async runLoop(): Promise<void> {
     this.init.onSettle(this.init.sessionId, { tokensIn: 0, tokensOut: 0, costUsd: 1 });
-  }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
   }
 }
 

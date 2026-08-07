@@ -101,7 +101,6 @@ describe('DeepSeekAdapter', () => {
       tokensOut: 2,
       costUsd: 0,
     });
-    expect(adapter.usageTelemetry()).toMatchObject({ tokensIn: 3, tokensOut: 2 });
   });
 
   it('maps a reasoning effort selection onto the request', async () => {
@@ -167,11 +166,5 @@ describe('DeepSeekAdapter', () => {
 
     const tools = captured.body?.['tools'] as Array<{ function: { name: string } }> | undefined;
     expect(tools?.map((t) => t.function.name)).toContain('Read');
-  });
-
-  it('reports the barebones capability profile and the refs null-fallback', () => {
-    const adapter = new DeepSeekAdapter({ sessionId: 's1', input: 'go' });
-    expect(adapter.capabilityProfile().ports.refs.present).toBe(false);
-    expect(adapter.refs({ name: 'x' })).toBeNull();
   });
 });

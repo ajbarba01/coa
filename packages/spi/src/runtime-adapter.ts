@@ -1,23 +1,11 @@
-import type {
-  CapabilityProfile,
-  ContextPackage,
-  NeutralConfig,
-  Piece,
-  Reminder,
-  SessionConfig,
-  SymbolRef,
-  ToolCall,
-  ToolResponse,
-} from '@coa/shared';
+import type { NeutralConfig, SessionConfig, ToolCall, ToolResponse } from '@coa/shared';
 import type { ZodRawShape } from 'zod';
 
 /**
  * The backend capability-port contract: the narrow interface the core calls,
  * implemented once per backend. The core NEVER branches on which backend is
- * active — a backend that lacks a capability returns a **null-fallback** (a
- * defined "degrade gracefully" result; see `./null-fallback.ts`), never a thrown
- * error or a `which-backend` branch. These are **type signatures only**; the
- * concrete Claude-SDK implementation is handed in at runtime by the session host.
+ * active. These are **type signatures only**; the concrete backend
+ * implementation is handed in at runtime by the session host.
  *
  * Payloads owned by a consumer module are typed at the narrowest shape the
  * adapter needs and annotated with their owner; the adapter does not re-decide
@@ -70,13 +58,10 @@ export type CanUseTool = (
   call: ToolCall,
 ) => ToolPermissionDecision | Promise<ToolPermissionDecision>;
 
-/** Where in the transcript a reminder lands. */
-export type ReminderAt = 'session-start' | 'prompt' | 'post-tool';
-
 /**
  * Text waiting to reach a running loop, drained by an adapter at its own soonest
  * boundary. Distinct from `Reminder`, which is the governor's `{rule, reason, tier}`
- * authority payload delivered at a dictated transcript position — this carries arbitrary text and a
+ * authority payload compiled into the config — this carries arbitrary text and a
  * provenance tag, not a rule.
  */
 export interface Delivery {
@@ -87,24 +72,15 @@ export interface Delivery {
 /** An adapter's pull on the session's pending deliveries; returns [] when there are none. */
 export type DrainDeliveries = () => readonly Delivery[];
 
-/** Prompt-cache breakpoint markers (byte offsets into the stable prefix). */
-export interface CacheBreakpoints {
-  breakpoints: number[];
-}
-
-/** Settled token/cost usage read from the backend at session end. */
+/**
+ * Settled token/cost usage a backend reports through its settlement callback
+ * (`onSettle`, once per settled result) — the one usage channel into the cost meter.
+ */
 export interface RuntimeUsage {
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
   cacheReadTokens?: number;
-}
-
-/** A precise reference location from the LSP port. */
-export interface SymbolReference {
-  path: string;
-  line: number;
-  column: number;
 }
 
 /** The governed tool catalogue registered into the loop — the rich, callable shape. */
@@ -149,18 +125,11 @@ export interface RegisteredTool {
   ok?: (result: unknown) => boolean;
 }
 
-/** The golden-corpus eval input/result (mechanism only; the session host and cost meter own the policy). */
-export interface EvalCorpus {
-  readonly cases: readonly unknown[];
-}
-export interface EvalResult {
-  readonly passed: number;
-  readonly failed: number;
-}
-
 /**
- * The one backend seam. Every method is a port; a missing capability degrades to
- * a null-fallback (`./null-fallback.ts`), never a throw.
+ * The one backend seam — exactly the calls the session host makes to drive a
+ * governed session (render the config, wire the two hooks, register the tools,
+ * run the loop). Settled usage flows back through the construction-time
+ * `onSettle` callback, not a method here.
  */
 export interface RuntimeAdapter {
   /** Drive one rented agent turn-loop for a session. */
@@ -173,22 +142,6 @@ export interface RuntimeAdapter {
   interceptTool(canUseTool: CanUseTool): void;
   /** Wire the SDK `Stop` hook — the close-gate rides here (there is no "finish" tool). */
   interceptStop(stopPredicate: StopPredicate): void;
-  /** Deliver the reminder the governor decided, at the dictated transcript position. */
-  deliverReminder(reminder: Reminder, at: ReminderAt): void;
   /** Render the backend-neutral compiled config into backend-native form. Pure — no model call. */
   renderNative(neutralConfig: NeutralConfig): BackendConfig;
-  /** Deliver an assembled context package at session start (the session host calls it, not the context assembler). */
-  render_context(pkg: ContextPackage): void;
-  /** Inject scope-selected pieces in-flight (the loop calls; delivery of a scope's attached pieces). */
-  inject_runtime(slice: readonly Piece[]): void;
-  /** Set prompt-cache breakpoints over the stable prefix. */
-  cache_control(breakpoints: CacheBreakpoints): void;
-  /** Report settled token/cost usage (the settlement step charges it to the cost meter). */
-  usageTelemetry(): RuntimeUsage;
-  /** Report what this backend supports; null-fallback = the barebones baseline. */
-  capabilityProfile(): CapabilityProfile;
-  /** Precise references when `tsserver` is available; null → degrade to the tree-sitter floor. */
-  refs(symbol: SymbolRef): SymbolReference[] | null;
-  /** Run the golden-corpus eval (mechanism only); the session host orchestrates, the cost cap guards. */
-  runEval(corpus: EvalCorpus): Promise<EvalResult>;
 }

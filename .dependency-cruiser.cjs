@@ -25,7 +25,7 @@ module.exports = {
       name: 'backend-isolation',
       severity: 'error',
       comment:
-        'Only adapter-claude-sdk may import a backend SDK. The core calls capability ports and takes the null-fallback (D109) — no which-backend branch anywhere else.',
+        'Only adapter-claude-sdk may import a backend SDK. The core calls capability ports — no which-backend branch anywhere else.',
       from: { pathNot: '^packages/adapter-claude-sdk/' },
       // (^|/) rather than ^: pnpm resolves externals through node_modules/.pnpm/<pkg>@<v>/node_modules/<pkg>,
       // so an anchored ^node_modules/ never matches a real resolved path.

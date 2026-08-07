@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { CapabilitySet, NeutralConfig } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type CanUseTool,
-  type RegisteredTool,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-  type StopPredicate,
+import type {
+  BackendConfig,
+  CanUseTool,
+  RegisteredTool,
+  RuntimeAdapter,
+  RuntimeUsage,
+  StopPredicate,
 } from '@coa/spi';
 import {
   createSession,
@@ -61,22 +60,6 @@ class FakeAdapter implements RuntimeAdapter {
     this.ranWith = { worktree: config.worktree };
     // Simulate the SDK settling a result so the onSettle → charge wire is exercised.
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.5 });
-  }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
   }
 }
 

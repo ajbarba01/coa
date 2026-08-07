@@ -1,5 +1,4 @@
 import type { BackendMessage, CapabilitySet, NeutralConfig, TurnFrame } from '@coa/shared';
-import { capabilityProfileSchema } from '@coa/shared';
 import type { CanUseTool, StopPredicate } from '@coa/spi';
 import type { query as SdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it, vi } from 'vitest';
@@ -45,23 +44,9 @@ const session = {
 const allow: CanUseTool = () => ({ behavior: 'allow' });
 const stop: StopPredicate = () => ({ allow: true });
 
-describe('ClaudeSdkAdapter — pure ports + floor state', () => {
+describe('ClaudeSdkAdapter — pure ports', () => {
   it('renderNative delegates to the pure renderer and returns the rendered config', () => {
     expect(adapter().renderNative(neutral()).systemPrompt).toBe('# coa governance layer\n\nBODY');
-  });
-
-  it('capabilityProfile reports the barebones baseline (valid shared-schema profile, refs absent)', () => {
-    const profile = adapter().capabilityProfile();
-    expect(() => capabilityProfileSchema.parse(profile)).not.toThrow();
-    expect(profile.ports['refs']?.present).toBe(false);
-  });
-
-  it('refs returns the null-fallback (caller degrades to the tree-sitter floor)', () => {
-    expect(adapter().refs({ name: 'foo' })).toBeNull();
-  });
-
-  it('runEval rejects rather than returning a vacuous pass (secondary path unwired)', async () => {
-    await expect(adapter().runEval({ cases: [] })).rejects.toThrow(/not wired/);
   });
 });
 

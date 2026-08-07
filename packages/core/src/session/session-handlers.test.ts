@@ -10,15 +10,7 @@ import type {
   RpcNotification,
   TurnFrame,
 } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type CanUseTool,
-  type Delivery,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-  type StopPredicate,
-} from '@coa/spi';
+import type { BackendConfig, CanUseTool, Delivery, RuntimeAdapter, StopPredicate } from '@coa/spi';
 import type { AssemblePiecesContext, SessionAdapterInit, SessionDeps } from './session.js';
 import { buildSessionHandlers, type StartChildFn } from './session-handlers.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
@@ -131,22 +123,6 @@ class FrameAdapter implements RuntimeAdapter {
     if (!isPureApi) this.init.onBackendSession?.(`backend-${this.init.sessionId}`);
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
   }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
-  }
 }
 
 /** A fake backend that streams enriched (frame, full) pairs through `onTurn`, then settles —
@@ -167,22 +143,6 @@ class EnrichedFrameAdapter implements RuntimeAdapter {
   async runLoop(): Promise<void> {
     for (const { frame, full } of this.enriched) this.init.onTurn?.(frame, full);
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
-  }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
   }
 }
 
@@ -1557,22 +1517,6 @@ class HeldOpenAdapter implements RuntimeAdapter {
     }
     this.ended = true;
   }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
-  }
 }
 
 /**
@@ -1615,22 +1559,6 @@ class OpenToolHeldAdapter implements RuntimeAdapter {
       this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
       this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
     }
-  }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
   }
 }
 
@@ -1683,22 +1611,6 @@ class OpenToolThrowAdapter implements RuntimeAdapter {
       throw new Error('stream dropped with tool open');
     }
   }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
-  }
 }
 
 function depsOpenToolThrow(adapters: OpenToolThrowAdapter[]): SessionDeps {
@@ -1734,22 +1646,6 @@ class OpenToolThenThrowAdapter implements RuntimeAdapter {
     await new Promise((r) => setTimeout(r, 0));
     this.deliveryDrained = this.init.drainDeliveries?.() ?? [];
     throw new Error('stream dropped with tool open');
-  }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
   }
 }
 
@@ -1994,22 +1890,6 @@ class TurnInterruptAdapter implements RuntimeAdapter {
       });
     }
   }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
-  }
 }
 
 /**
@@ -2050,22 +1930,6 @@ class QueueSteerAdapter implements RuntimeAdapter {
       });
       this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
     }
-  }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
   }
 }
 

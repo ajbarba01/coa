@@ -1,33 +1,22 @@
 import type {
   BackendMessage,
   CapabilitySet,
-  ContextPackage,
   Locator,
   ModelSelection,
   NeutralConfig,
-  Piece,
-  Reminder,
   SessionConfig,
-  SymbolRef,
   TurnFrame,
 } from '@coa/shared';
 import type {
   BackendConfig,
-  CacheBreakpoints,
   CanUseTool,
   DrainDeliveries,
-  EvalCorpus,
-  EvalResult,
-  ReminderAt,
   RuntimeAdapter,
   RuntimeUsage,
   StopPredicate,
-  SymbolReference,
   ToolCatalogue,
   TurnInterrupt,
 } from '@coa/spi';
-import { barebonesProfile, REFS_NULL_FALLBACK } from '@coa/spi';
-import type { CapabilityProfile } from '@coa/shared';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
@@ -123,8 +112,6 @@ export interface ClaudeSdkAdapterInit {
   onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
 }
 
-const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-
 /**
  * Whether a throw out of `query()` is the enforced cost cap.
  *
@@ -146,10 +133,7 @@ function isCostCapStop(err: unknown, maxBudgetUsd: number | undefined): err is E
  * The one Claude Agent SDK backend implementation of the `RuntimeAdapter`
  * port. The pure halves (`renderNative`, the option/hook assembly) are the tested
  * core; `runLoop` drives the rented `query()` loop with the system's only two blocks
- * (close-gate + cost-cap) on
- * the two SDK hooks. High-fidelity ports (`refs` via tsserver, `runEval` via the
- * secondary path, the context-delivery + cache ports) sit at their honest floor
- * state, advertised through {@link capabilityProfile} (the barebones baseline).
+ * (close-gate + cost-cap) on the two SDK hooks.
  */
 export class ClaudeSdkAdapter implements RuntimeAdapter {
   readonly #init: ClaudeSdkAdapterInit;
@@ -158,7 +142,6 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
   #stopPredicate: StopPredicate | undefined;
   #catalogue: ToolCatalogue = [];
   #disallowedBuiltins: string[] = [];
-  #lastUsage: RuntimeUsage = NO_USAGE;
 
   constructor(init: ClaudeSdkAdapterInit) {
     this.#init = init;
@@ -195,46 +178,6 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
 
   interceptStop(stopPredicate: StopPredicate): void {
     this.#stopPredicate = stopPredicate;
-  }
-
-  deliverReminder(_reminder: Reminder, _at: ReminderAt): void {
-    // Floor: standing authority is delivered at session start via the rendered
-    // systemPrompt (renderNative). Mid-session delivery (PostToolUse /
-    // UserPromptSubmit `additionalContext`) is the enhancement layer.
-  }
-
-  render_context(_pkg: ContextPackage): void {
-    // The assembled-context delivery is the context engine's enhancement layer; the
-    // floor delivers context through the rendered systemPrompt.
-  }
-
-  inject_runtime(_slice: readonly Piece[]): void {
-    // In-flight scope-push (SCO-4) is the enhancement layer; barebones marks it absent.
-  }
-
-  cache_control(_breakpoints: CacheBreakpoints): void {
-    // No prompt-cache breakpoints in the floor; barebones marks this absent.
-  }
-
-  usageTelemetry(): RuntimeUsage {
-    return this.#lastUsage;
-  }
-
-  capabilityProfile(): CapabilityProfile {
-    return barebonesProfile;
-  }
-
-  refs(_symbol: SymbolRef): SymbolReference[] | null {
-    // tsserver backend not yet wired → null-fallback; the caller degrades to the
-    // tree-sitter code-lens floor.
-    return REFS_NULL_FALLBACK;
-  }
-
-  runEval(_corpus: EvalCorpus): Promise<EvalResult> {
-    // The golden-corpus eval rides the off-by-default secondary direct-call path, which is
-    // not wired yet (advertised absent in the barebones profile). Fail loudly
-    // rather than return a vacuous pass that a self-mod guard would trust.
-    return Promise.reject(new Error('runEval: secondary-path eval backend is not wired'));
   }
 
   async runLoop(sessionConfig: SessionConfig): Promise<void> {
@@ -338,13 +281,13 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
         for (const { frame, full } of messageToEnrichedFrames(message))
           this.#init.onTurn?.(frame, full);
         if (message.type === 'result') {
-          this.#lastUsage = {
+          const usage: RuntimeUsage = {
             tokensIn: message.usage.input_tokens,
             tokensOut: message.usage.output_tokens,
             costUsd: message.total_cost_usd,
             cacheReadTokens: message.usage.cache_read_input_tokens,
           };
-          this.#init.onSettle?.(this.#init.sessionId, this.#lastUsage);
+          this.#init.onSettle?.(this.#init.sessionId, usage);
         }
       }
     } catch (err) {

@@ -3,14 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pushSchema, type Push, type RpcNotification, type TurnFrame } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type CanUseTool,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-  type StopPredicate,
-} from '@coa/spi';
+import type { BackendConfig, CanUseTool, RuntimeAdapter, StopPredicate } from '@coa/spi';
 import {
   buildSessionHandlers,
   composeSessionDeps,
@@ -50,14 +43,6 @@ function echoAdapter(init: SessionAdapterInit): RuntimeAdapter {
       for (const frame of frames) init.onTurn?.(frame);
       init.onSettle(init.sessionId, { tokensIn: 3, tokensOut: 4, costUsd: 0.02 });
     },
-    deliverReminder: () => {},
-    render_context: () => {},
-    inject_runtime: () => {},
-    cache_control: () => {},
-    usageTelemetry: (): RuntimeUsage => ({ tokensIn: 0, tokensOut: 0, costUsd: 0 }),
-    capabilityProfile: () => barebonesProfile,
-    refs: () => null,
-    runEval: () => Promise.reject(new Error('no eval')),
   };
 }
 

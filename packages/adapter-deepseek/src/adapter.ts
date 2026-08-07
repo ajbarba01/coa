@@ -1,31 +1,20 @@
 import type {
   BackendMessage,
-  CapabilityProfile,
-  ContextPackage,
   Locator,
   ModelSelection,
   NeutralConfig,
-  Piece,
-  Reminder,
   SessionConfig,
-  SymbolRef,
   TurnFrame,
 } from '@coa/shared';
 import type {
   BackendConfig,
-  CacheBreakpoints,
   CanUseTool,
   DrainDeliveries,
-  EvalCorpus,
-  EvalResult,
-  ReminderAt,
   RuntimeAdapter,
   RuntimeUsage,
   StopPredicate,
-  SymbolReference,
   ToolCatalogue,
 } from '@coa/spi';
-import { barebonesProfile, REFS_NULL_FALLBACK } from '@coa/spi';
 import { runGovernedLoop } from '@coa/loop-driver';
 import { renderSystemPrompt } from './render.js';
 import { resolveApiKey } from './credentials.js';
@@ -43,13 +32,9 @@ import {
  * adapter only renders the neutral config to a system prompt, resolves the API key
  * from the account's env-var pointer, builds the `complete()` primitive, and hands
  * the loop the close-gate and cost-cap predicates (the system's only two blocks).
- * Every enhancement port degrades to its
- * null-fallback (barebones profile) — DeepSeek is a cheap **test** backend, not a
- * fidelity reference. It imports no provider SDK (just `fetch`), so adding another
- * pure API is the same shape.
+ * DeepSeek is a cheap **test** backend, not a fidelity reference. It imports no
+ * provider SDK (just `fetch`), so adding another pure API is the same shape.
  */
-
-const NO_USAGE: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
 
 export interface DeepSeekAdapterInit {
   sessionId: string;
@@ -134,7 +119,6 @@ export class DeepSeekAdapter implements RuntimeAdapter {
   #canUseTool: CanUseTool | undefined;
   #stopPredicate: StopPredicate | undefined;
   #catalogue: ToolCatalogue = [];
-  #lastUsage: RuntimeUsage = NO_USAGE;
 
   constructor(init: DeepSeekAdapterInit) {
     this.#init = init;
@@ -202,33 +186,7 @@ export class DeepSeekAdapter implements RuntimeAdapter {
       ...(this.#init.observeChanges !== undefined
         ? { observeChanges: this.#init.observeChanges }
         : {}),
-      onSettle: (sessionId, usage) => {
-        this.#lastUsage = usage;
-        this.#init.onSettle?.(sessionId, usage);
-      },
+      ...(this.#init.onSettle !== undefined ? { onSettle: this.#init.onSettle } : {}),
     });
-  }
-
-  usageTelemetry(): RuntimeUsage {
-    return this.#lastUsage;
-  }
-
-  // --- Enhancement ports: DeepSeek runs the neutral floor; each degrades to its null-fallback. ---
-
-  deliverReminder(_reminder: Reminder, _at: ReminderAt): void {}
-  render_context(_pkg: ContextPackage): void {}
-  inject_runtime(_slice: readonly Piece[]): void {}
-  cache_control(_breakpoints: CacheBreakpoints): void {}
-
-  capabilityProfile(): CapabilityProfile {
-    return barebonesProfile;
-  }
-
-  refs(_symbol: SymbolRef): SymbolReference[] | null {
-    return REFS_NULL_FALLBACK;
-  }
-
-  async runEval(_corpus: EvalCorpus): Promise<EvalResult> {
-    return { passed: 0, failed: 0 };
   }
 }
