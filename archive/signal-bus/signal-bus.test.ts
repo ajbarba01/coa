@@ -1,3 +1,4 @@
+// Archived from packages/core/src/signal-bus.test.ts
 import { describe, expect, it } from 'vitest';
 import { SignalBus } from './signal-bus.js';
 

@@ -74,7 +74,7 @@ not by package splits.
 ```
 core/src/
   spine/         M1 — emit/subscribe, WAL writer, in-mem graph, symbol table, fuzzy index, piece-resolver,
-                      reconciler (producer ②), checkpoint/rewind, signal bus, idle scheduler
+                      reconciler (producer ②), checkpoint/rewind, idle scheduler
   flags/         M3 — the one pipeline (registerProducer/ingest), dedup, the two audiences, the close-gate
   context/       M4 — generation, assembly, grounding, detection/staleness services
   compiler/      M5 — compile(pieces) -> NeutralConfig (its own service boundary)

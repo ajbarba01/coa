@@ -1,3 +1,4 @@
+// Archived from packages/core/src/signal-bus.ts
 /**
  * The minimal signal bus (D75/D83): a WAL-fed projection exposing a queryable
  * stream of events — the sensor layer for the adaptability/self-improvement

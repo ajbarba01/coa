@@ -36,7 +36,6 @@ import { matchGlob } from './scope/glob.js';
 import type { EdgeProvenance, ScopeRef, ScopeResolution } from '@coa/shared';
 import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
-import { SignalBus, type SignalEvent } from './signal-bus.js';
 import { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
 
 const PROJECTOR_VERSION = 1;
@@ -71,7 +70,6 @@ export class ChangeKernel {
   private readonly pieces = new PieceStore();
   private readonly projection: ProjectionDb;
   private readonly idle = new IdleScheduler();
-  private readonly signals = new SignalBus();
   private readonly timeline = new Timeline();
   private readonly frames: ChangeEvent[] = [];
   private readonly consumers: ((event: ChangeEvent) => void)[] = [];
@@ -287,7 +285,7 @@ export class ChangeKernel {
     return resolvePiece(ref, { store: this.pieces, graph: this.graph });
   }
 
-  // --- idle / signals / timeline ----------------------------------------------
+  // --- idle / timeline ------------------------------------------------------------
 
   scheduleIdle(job: () => void, options: IdleOptions): IdleHandle {
     return this.idle.scheduleIdle(job, options);
@@ -295,10 +293,6 @@ export class ChangeKernel {
 
   runIdle(): void {
     this.idle.flush();
-  }
-
-  signalsView(predicate?: (event: SignalEvent) => boolean): SignalEvent[] {
-    return this.signals.query(predicate);
   }
 
   checkpoint(): Checkpoint {
@@ -359,7 +353,6 @@ export class ChangeKernel {
         this.materialVersion++;
         break;
     }
-    this.signals.record(signalOf(frame));
   }
 
   private rebuildFuzzy(): void {
@@ -411,16 +404,4 @@ function edgeOf(frame: {
 }): GraphEdge {
   const { from, to, type, why } = frame.payload;
   return { from, to, type, provenance: frame.provenance, ...(why !== undefined ? { why } : {}) };
-}
-
-function signalOf(frame: ChangeEvent): SignalEvent {
-  return {
-    name: 'coa.change',
-    ts: frame.ts,
-    attributes: {
-      'coa.kind': frame.kind,
-      'coa.seq': frame.seq,
-      ...('path' in frame ? { 'coa.path': frame.path } : {}),
-    },
-  };
 }
