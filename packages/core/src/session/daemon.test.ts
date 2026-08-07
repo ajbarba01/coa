@@ -87,6 +87,12 @@ const MODIFY_SRC: ChangeEventDraft = {
   generated: false,
 };
 
+// Every core below is rooted at this dir, and the root is not incidental: the reconciler
+// baselines itself at construction by reading and hashing every git-tracked file under its
+// root. Left on the default root that is the checkout this suite is running inside — several
+// hundred unrelated files read and hashed per test, which is both slow enough to matter and a
+// result that depends on whatever state someone's worktree happens to be in. The two tests
+// that need a real repo build their own and pass it.
 let dir: string;
 let handle: DaemonCoreHandle | undefined;
 
@@ -101,7 +107,7 @@ afterEach(() => {
 
 describe('createDaemonCore', () => {
   it('constructs a working core: an open gate and a chargeable spend counter', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(handle.core.gate()).toEqual({ allow: true });
     handle.core.charge('s', 1);
     expect(handle.core.capState()).toEqual({ remaining: null, capHit: false });
@@ -119,10 +125,19 @@ describe('createDaemonCore', () => {
     // at all — the exact case producer ② exists for. Creates still worked, which is why
     // a "does not throw" test could not catch it.
     const repo = mkdtempSync(join(tmpdir(), 'coa-recon-'));
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    // The committer identity rides each command instead of being written into the repo's
+    // config first. Everything this test does is spawn git, so two fewer spawns is most of
+    // the way to two fewer of them being slow on a busy machine.
+    const git = (...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-c', 'user.email=probe@example.com', '-c', 'user.name=probe', ...args],
+        {
+          cwd: repo,
+          encoding: 'utf8',
+        },
+      );
     git('init', '-q');
-    git('config', 'user.email', 'probe@example.com');
-    git('config', 'user.name', 'probe');
     writeFileSync(join(repo, 'app.ts'), 'export const answer = 41;\n');
     git('add', 'app.ts');
     git('commit', '-qm', 'baseline');
@@ -149,14 +164,14 @@ describe('createDaemonCore', () => {
   });
 
   it('checkpoints the real kernel at the session boundary', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     const before = handle.kernel.listTimeline().length;
     handle.core.checkpoint();
     expect(handle.kernel.listTimeline().length).toBe(before + 1);
   });
 
   it('exposes the governed tool catalogue and prompt compile for the session wiring', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(handle.core.catalogue.length).toBeGreaterThan(0);
     expect(handle.core.compile([], { allow: [], deny: [] }).prefixHead).toEqual([]);
   });
@@ -165,7 +180,7 @@ describe('createDaemonCore', () => {
     // The trap this guards against: wiring spawn into only ONE of the two catalogues
     // would ship it dead on whichever provider reads the other (baseCatalogue is what
     // every non-claude provider gets), behind a green typecheck and a green suite.
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(handle.core.catalogueFor).toBeDefined();
     expect(handle.core.baseCatalogueFor).toBeDefined();
 
@@ -204,7 +219,7 @@ describe('createDaemonCore', () => {
   });
 
   it('catalogueFor/baseCatalogueFor degrade to the unavailable branch with no spawn wired', async () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     const claudeTool = handle.core.catalogueFor!('sess-a', undefined).find(
       (t) => t.name === 'spawn_agent',
     );
@@ -222,7 +237,7 @@ describe('createDaemonCore', () => {
   });
 
   it('the shared catalogue/baseCatalogue are unaffected — same tool count, same names', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     const sessionScoped = handle.core.catalogueFor!('sess-a', undefined);
     expect(sessionScoped.map((t) => t.name).sort()).toEqual(
       handle.core.catalogue.map((t) => t.name).sort(),
@@ -232,6 +247,7 @@ describe('createDaemonCore', () => {
   it('runs registered producers off the kernel feed so a change surfaces a flag', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [driftingSsotProducer()],
     });
     expect(handle.flags.flagsForUser('gen/a.ts').expanded).toHaveLength(0);
@@ -242,6 +258,7 @@ describe('createDaemonCore', () => {
   it('makes the close-gate live: a fired Type-1 flag blocks the close', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [driftingSsotProducer()],
     });
     expect(handle.core.gate()).toEqual({ allow: true });
@@ -252,6 +269,7 @@ describe('createDaemonCore', () => {
   it('raises a reconciling producer’s full set at wiring time, before any change event', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [stubProducer({ flags: [stubFlag('docA')] }, true)],
     });
     expect(hasConcern(handle, 'stub:docA')).toBe(true);
@@ -261,6 +279,7 @@ describe('createDaemonCore', () => {
     const state = { flags: [stubFlag('docA')] };
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [stubProducer(state, true)],
     });
     expect(hasConcern(handle, 'stub:docA')).toBe(true);
@@ -278,6 +297,7 @@ describe('createDaemonCore', () => {
     ).producer;
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [stubProducer(reconciling, true), other],
     });
     handle.kernel.emit(MODIFY_SRC); // raises the ssot Type-1 (gen/a.ts drifts)
@@ -294,6 +314,7 @@ describe('createDaemonCore', () => {
     const state = { flags: [stubFlag('docA')] };
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [stubProducer(state, false)],
     });
     handle.kernel.emit(MODIFY_SRC);
@@ -307,6 +328,7 @@ describe('createDaemonCore', () => {
   it('wires the dangling-governance detector live: an edge to an unregistered constraint flags', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       producers: [namedConstraint('my-rule')],
     });
     handle.kernel.assertEdge({
@@ -327,7 +349,7 @@ describe('createDaemonCore', () => {
   });
 
   it('self-heals a dangling-governance flag once the claim is retracted', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     handle.kernel.assertEdge({
       from: 'docB',
       to: 'ghost',
@@ -342,7 +364,7 @@ describe('createDaemonCore', () => {
 
   it('surfaces a pre-existing dangling edge at wiring via the convergence sweep', () => {
     const walPath = join(dir, 'log.ndjson');
-    const first = createDaemonCore({ walPath });
+    const first = createDaemonCore({ walPath, root: dir });
     first.kernel.assertEdge({
       from: 'docB',
       to: 'ghost',
@@ -351,19 +373,19 @@ describe('createDaemonCore', () => {
     });
     first.kernel.close();
 
-    handle = createDaemonCore({ walPath }); // replays the edge from the WAL; no constraint registered
+    handle = createDaemonCore({ walPath, root: dir }); // replays the edge from the WAL; no constraint registered
     expect(hasConcern(handle, 'dangling-governance:docB→ghost')).toBe(true);
   });
 
   it('stays inert with no producers configured (strict-superset floor)', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     handle.kernel.emit(MODIFY_SRC);
     expect(handle.core.gate()).toEqual({ allow: true });
     expect(handle.flags.flagsForUser().expanded).toHaveLength(0);
   });
 
   it('wires the catalogue to the real kernel: get_piece resolves a registered piece', async () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     const piece = {
       name: 'style-guide',
       description: 'd',
@@ -382,6 +404,7 @@ describe('createDaemonCore', () => {
     try {
       handle = createDaemonCore({
         walPath: join(dir, 'log.ndjson'),
+        root: dir,
         web: {
           search: {
             providers: [
@@ -406,7 +429,7 @@ describe('createDaemonCore', () => {
   });
 
   it('omits WebSearch/WebFetch from baseCatalogue with no web config', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     const names = handle.core.baseCatalogue.map((t) => t.name);
     expect(names).not.toContain('WebSearch');
     expect(names).not.toContain('WebFetch');
@@ -418,6 +441,7 @@ describe('createDaemonCore', () => {
     try {
       handle = createDaemonCore({
         walPath: join(dir, 'log.ndjson'),
+        root: dir,
         web: {
           search: {
             providers: [
@@ -444,6 +468,7 @@ describe('createDaemonCore', () => {
     const recorders: Array<(usage: RuntimeUsage) => void> = [];
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
+      root: dir,
       web: { fetch: { providers: [], freeFloor: true, quotaCooldown: 'next-midnight' } },
       summarizer: ({ recordCost }) => {
         recorders.push(recordCost);
@@ -458,7 +483,7 @@ describe('createDaemonCore', () => {
 
   it('never invokes the summarizer factory with no web config', () => {
     const factory = vi.fn(() => undefined);
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), summarizer: factory });
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir, summarizer: factory });
     expect(factory).not.toHaveBeenCalled();
   });
 });

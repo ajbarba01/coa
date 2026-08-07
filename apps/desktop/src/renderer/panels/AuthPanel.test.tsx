@@ -376,10 +376,10 @@ describe('AuthSurface', () => {
     await screen.findByText(/^keys$/i);
     await user.click(screen.getByRole('button', { name: /^tavily-3 actions$/i }));
     await user.click(await screen.findByText(/^replace key…$/i));
-    await user.type(
-      await screen.findByLabelText(/paste the replacement/i),
-      'tvly-brand-new-key-000zzz',
-    );
+    // Pasted, not typed: a key arrives from the clipboard in one go (the field says so), and
+    // driving it character by character costs a re-render per character for no coverage.
+    await user.click(await screen.findByLabelText(/paste the replacement/i));
+    await user.paste('tvly-brand-new-key-000zzz');
     await user.click(screen.getByRole('button', { name: /^replace$/i }));
 
     expect(rpcReplaceSecret).toHaveBeenCalledWith('t3', 'tvly-brand-new-key-000zzz');
@@ -435,7 +435,8 @@ describe('AuthSurface', () => {
     await user.click(within(dialog).getByRole('button', { name: /exa/i }));
 
     // Step 2 is chosen by the LOCATOR KIND (exa is key-file), never by the provider.
-    await user.type(await screen.findByLabelText(/paste the key/i), 'exa-key-abc123456');
+    await user.click(await screen.findByLabelText(/paste the key/i));
+    await user.paste('exa-key-abc123456');
     await user.click(screen.getByRole('button', { name: /^add key$/i }));
 
     expect(rpcAddProvider).toHaveBeenCalledWith('exa');
@@ -460,7 +461,8 @@ describe('AuthSurface', () => {
     await user.click(await screen.findByRole('button', { name: /^\+ add key$/i }));
 
     expect(screen.queryByRole('dialog')).toBeNull();
-    await user.type(await screen.findByLabelText(/paste the key/i), 'tvly-eighth-key-99001');
+    await user.click(await screen.findByLabelText(/paste the key/i));
+    await user.paste('tvly-eighth-key-99001');
     await user.click(screen.getByRole('button', { name: /^add$/i }));
 
     expect(rpcAddCredential).toHaveBeenCalledWith('tavily', 'tavily-8', 'tvly-eighth-key-99001');

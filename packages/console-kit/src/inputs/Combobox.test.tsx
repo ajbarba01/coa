@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Combobox, filterOptions, type ComboboxOption } from './Combobox.js';
@@ -267,7 +267,13 @@ describe('Combobox', () => {
     await user.click(screen.getByRole('combobox', { name: 'Model' }));
     // The rail's first button is the popup's first tabbable element, so the default
     // "focus what comes first" would open onto a scope button and typing would go nowhere.
-    expect(screen.getByPlaceholderText('Filter models…')).toHaveFocus();
+    //
+    // Awaited rather than read the instant the click returns: opening a popup settles the
+    // caret over two steps — the field's own open effect, then the popup's focus manager,
+    // which commits on the next animation frame. Where the caret ENDS UP is the claim; which
+    // of those two got there first is not, and sampling between them is what made this read
+    // as intermittent.
+    await waitFor(() => expect(screen.getByPlaceholderText('Filter models…')).toHaveFocus());
   });
 
   it('holds the list at a fixed height under a rail, so changing scope cannot resize the popup', async () => {
