@@ -83,7 +83,6 @@ function harness(over: Partial<SessionDeps> = {}): {
     assemblePieces: () => ({ pieces: [], frame: { allow: [], deny: [] } }),
     compile: () => NEUTRAL,
     sandboxPolicy: () => SANDBOX,
-    capState: () => ({ capHit: false, remaining: null }),
     charge: (sessionId, usage) => stats.charged.push({ sessionId, usage }),
     perToolDeny: () => undefined,
     gate: () => ({ allow: true }),
@@ -143,19 +142,13 @@ describe('createSession', () => {
     ]);
   });
 
-  it('wires a cost-cap-aware canUseTool predicate onto the tool hook', async () => {
-    const h = harness({ capState: () => ({ capHit: true, remaining: null }) });
+  it('wires the per-tool deny rules into the canUseTool predicate on the tool hook', async () => {
+    const h = harness({ perToolDeny: () => ({ behavior: 'deny', message: 'no secrets' }) });
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
     const decision = await h
       .adapter()
       ?.canUseTool?.({ tool: 'apply_patch', args: {}, sessionId: 'sess-1' });
     expect(decision?.behavior).toBe('deny');
-  });
-
-  it('passes the computed per-session budget to the adapter init', async () => {
-    const h = harness({ perSessionCeiling: 4, capState: () => ({ capHit: false, remaining: 9 }) });
-    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
-    expect(h.adapter()?.init.maxBudgetUsd).toBe(4);
   });
 
   it('threads the active account locator into the adapter init and stamps the session label', async () => {

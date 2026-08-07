@@ -42,8 +42,6 @@ export interface DaemonCoreOptions {
   walPath: string;
   /** The worktree root for git operations; defaults to the process cwd. */
   root?: string;
-  /** The API-route hard ceiling in USD; omitted ⇒ subscription model (no ceiling). */
-  ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
   /** The flag producers (injected) to register and drive off the kernel feed. */
@@ -74,7 +72,6 @@ export interface DaemonCoreHandle {
 export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   const kernel = new ChangeKernel({ walPath: options.walPath });
   const governance = new Governance({
-    ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const flags = new FlagPipeline();

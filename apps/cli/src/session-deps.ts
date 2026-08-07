@@ -37,8 +37,6 @@ export interface DaemonSessionOptions {
   walPath: string;
   /** The worktree root for the session; defaults to the process cwd. */
   root?: string;
-  /** The API-route hard ceiling in USD; omitted ⇒ subscription model. */
-  ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
   /** Resolve a session's subagent-dispatch port (parent = sessionId); absent ⇒ spawning
@@ -75,7 +73,6 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     ...(hasWeb
       ? { web, summarizer: ({ recordCost }) => buildFetchSummarizer(web, recordCost) }
       : {}),
-    ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const registry = new AccountsRegistry(homedir());

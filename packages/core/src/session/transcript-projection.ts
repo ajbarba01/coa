@@ -19,8 +19,8 @@ const INTERRUPTED = '[Tool execution was interrupted]';
 export const INTERRUPTED_BY_USER = '[Request interrupted by user]';
 
 /** The notice a governed stop folds into, so a resumed conversation reads why the previous
- *  run ended rather than appearing to have stopped for no reason. coa has exactly two blocks
- *; both surface here. */
+ *  run ended rather than appearing to have stopped for no reason. Every governed deny
+ *  surfaces here. */
 export const deniedNotice = (denyKind: string, reason: string): string =>
   `[Stopped by coa: ${denyKind} — ${reason}]`;
 
@@ -104,7 +104,7 @@ function foldFrame(
       push({ role: 'user', content: INTERRUPTED_BY_USER });
       break;
     case 'deny':
-      // A governed stop (one of the only two blocks in the system): close whatever partial the model got
+      // A governed stop (a deliberate block, not a fault): close whatever partial the model got
       // out, then record why — same shape as `interrupted`, since this projection also
       // rebuilds context on resume. A close-gate reason is instructional ("resolve or
       // baseline before finishing") and would otherwise be lost entirely.

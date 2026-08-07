@@ -44,7 +44,7 @@ export interface ToolDenyRule {
   message: string;
 }
 
-/** The deny verdict the daemon composes into the one `canUseTool` (after the cost-cap check). */
+/** The deny verdict the daemon composes into the one `canUseTool`. */
 export type ToolDenyVerdict = { behavior: 'deny'; message: string };
 
 export class FlagPipeline {
@@ -147,10 +147,9 @@ export class FlagPipeline {
   }
 
   /**
-   * The per-tool advisory→deny predicate the daemon composes into the one `canUseTool`
-   * (after the cost-cap check). It is policy the flag pipeline declares; the backend adapter only runs it. This is
-   * NOT one of the two system blocks — it is a demotable per-tool surface, not the
-   * close-gate or the cost-cap.
+   * The per-tool advisory→deny predicate the daemon composes into the one `canUseTool`.
+   * It is policy the flag pipeline declares; the backend adapter only runs it. This is
+   * NOT the system block — it is a demotable per-tool surface, not the close-gate.
    */
   perToolDeny(toolName: string, input: unknown): ToolDenyVerdict | undefined {
     for (const rule of this.toolDenyRules) {

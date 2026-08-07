@@ -4,34 +4,29 @@ import { Ledger, type LedgerRecord } from './ledger.js';
 import { type SandboxOptions, type SessionTrustCtx, sandboxPolicy } from './sandbox.js';
 
 /**
- * Governance & Audit. Bounds and records what the rented loop costs and
- * changes, and nothing more: the one hard cost cap, the secret-clean audit ledger,
+ * Governance & Audit. Accounts and records what the rented loop costs and
+ * changes, and nothing more: the spend counter, the secret-clean audit ledger,
  * and the sandbox posture. Every method is synchronous and deterministic (no
  * model on any governance path). Governance is consulted by other modules and surfaces through the flag pipeline;
  * it never reaches into them.
  */
 export interface GovernanceOptions {
-  /** The API-route hard ceiling in USD; omitted ⇒ subscription model (no ceiling). */
-  ceilingUsd?: number;
   /** The session's configured tool baseline for `sandboxPolicy`. */
   allowedTools?: string[];
 }
 
 export class Governance {
-  private readonly cap: CostCap;
+  private readonly cap = new CostCap();
   private readonly ledger = new Ledger();
   private readonly sandboxOptions: SandboxOptions;
 
   constructor(options: GovernanceOptions = {}) {
-    this.cap = new CostCap(
-      options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {},
-    );
     this.sandboxOptions =
       options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {};
   }
 
-  // --- cost cap ----------------------------------------------------------
-  /** Non-mutating read of the daemon-global cost state (the `canUseTool` predicate consults this). */
+  // --- the spend counter --------------------------------------------------
+  /** Non-mutating read of the daemon-global cost state (the inspection surfaces consult this). */
   capState(sessionId?: string): CapState {
     return this.cap.capState(sessionId);
   }

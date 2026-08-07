@@ -18,13 +18,13 @@ import type {
   TurnInterrupt,
 } from '@coa/spi';
 import type { SpawnDeps } from '../workbench/spawn.js';
-import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
+import { buildCanUseTool, buildStopGate } from './permission.js';
 
 /**
  * The per-session lifecycle: create → attach-worktree → compile →
  * render → wire → run → close. The session layer is the orchestration hub: it calls the prompt compile step,
- * hands the neutral config to the backend adapter to render, consults cost governance for the sandbox + cap,
- * and wires the per-session dependency-injection closures (the system's only two blocking
+ * hands the neutral config to the backend adapter to render, consults governance for the sandbox,
+ * and wires the per-session dependency-injection closures (the close-gate and per-tool deny
  * predicates onto the backend adapter's two hooks). The backend adapter stays a swappable leaf — it is reached only
  * through the injected {@link SessionDeps.createAdapter} factory and the
  * {@link RuntimeAdapter} port; the session layer never imports a backend.
@@ -39,8 +39,6 @@ export interface SessionAdapterInit {
   input: string | AsyncIterable<string>;
   /** The agent's model selection; `model`/`reasoning` are the backend's (provider drives adapter routing upstream). */
   model?: ModelSelection;
-  /** The native mid-loop hard stop, when bounded. */
-  maxBudgetUsd?: number;
   /** The backend's settlement step → the cost charge step, called once per settled result. */
   onSettle: (sessionId: string, usage: RuntimeUsage) => void;
   /**
@@ -153,8 +151,6 @@ export interface SessionDeps {
     trust: 'local' | 'imported';
     worktree: string;
   }) => CapabilitySet;
-  /** The non-mutating cost read. */
-  capState: () => { capHit: boolean; remaining: number | null };
   /** Settle cost exactly once per result. */
   charge: (sessionId: string, usage: RuntimeUsage) => void;
   /** Audit-ledger append, attributed to the active account; absent ⇒ spend recording not wired. */
@@ -195,8 +191,6 @@ export interface SessionDeps {
   observeChanges: () => void;
   /** Construct the per-session backend adapter (injected — the session layer holds no backend type). */
   createAdapter: (init: SessionAdapterInit) => RuntimeAdapter;
-  /** Optional API-route per-session ceiling; absent ⇒ subscription model. */
-  perSessionCeiling?: number;
   /** Session trust level; defaults to local. */
   trust?: 'local' | 'imported';
   /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
@@ -290,7 +284,6 @@ export async function createSession(
     req.onCompile?.({ neutral, frame });
   }
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
-  const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);
   // The chosen model names its provider (from the merged model list); that provider's
   // active account supplies the auth pointer. So a DeepSeek model authenticates with the
   // DeepSeek account regardless of which Claude account is active, and vice versa.
@@ -317,7 +310,6 @@ export async function createSession(
     onSettle,
     ...(req.model ? { model: req.model } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
-    ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     observeChanges: deps.observeChanges,
     ...(account?.locator ? { locator: account.locator } : {}),
     ...(req.resume !== undefined ? { resume: req.resume } : {}),
@@ -349,9 +341,7 @@ export async function createSession(
         ? deps.catalogue
         : deps.baseCatalogue;
   adapter.registerTools(catalogue);
-  adapter.interceptTool(
-    buildCanUseTool({ capState: deps.capState, perToolDeny: deps.perToolDeny }),
-  );
+  adapter.interceptTool(buildCanUseTool({ perToolDeny: deps.perToolDeny }));
   adapter.interceptStop(buildStopGate({ gate: deps.gate }));
 
   const config = { role: req.role, scope: req.scope, worktree, capabilityFrame: frame };

@@ -7,8 +7,9 @@
  * not just the root.
  *
  * `parent` can point anywhere — including back up its own ancestry, since the
- * depth cap was deliberately dropped and the cost cap is the only fan-out
- * bound — so the walk tracks `visited` explicitly and refuses to re-descend
+ * depth cap was deliberately dropped and fan-out is deliberately unbounded
+ * (the close gate is the one governed block; nothing bounds the spawn tree)
+ * — so the walk tracks `visited` explicitly and refuses to re-descend
  * into an already-visited id. Without that guard a cyclic parent chain would
  * spin the walk forever, and the worst place for that to happen is mid-abort-
  * cascade, hanging the daemon on exactly the path meant to stop it.

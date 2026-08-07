@@ -35,7 +35,7 @@ export interface DaemonCore {
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
   /** The flag pipeline's close-gate verdict. */
   gate: () => StopDecision;
-  /** The non-mutating cost read. */
+  /** The non-mutating cost read (the console verb and the governed inspect read consume it). */
   capState: () => { capHit: boolean; remaining: number | null };
   /** Settle cost (USD) exactly once per result. */
   charge: (sessionId: string, costUsd: number) => void;
@@ -82,7 +82,6 @@ export interface SessionWiring {
   /** Session id source (defaults to a ULID). */
   newSessionId?: () => string;
   trust?: 'local' | 'imported';
-  perSessionCeiling?: number;
   /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
   activeAccount?: (provider: string) => ActiveAccountResolution;
   /**
@@ -110,7 +109,6 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     assemblePieces: wiring.assemblePieces ?? (() => ({ pieces: [], frame: EMPTY_FRAME })),
     compile: core.compile,
     sandboxPolicy: core.sandboxPolicy,
-    capState: core.capState,
     charge: (sessionId, usage) => core.charge(sessionId, usage.costUsd),
     recordSpend: (record) => core.record(record),
     perToolDeny: core.perToolDeny,
@@ -121,9 +119,6 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     observeChanges: core.observeChanges,
     createAdapter: wiring.createAdapter,
     ...(wiring.trust !== undefined ? { trust: wiring.trust } : {}),
-    ...(wiring.perSessionCeiling !== undefined
-      ? { perSessionCeiling: wiring.perSessionCeiling }
-      : {}),
     ...(wiring.activeAccount ? { activeAccount: wiring.activeAccount } : {}),
     ...(wiring.sessionStrategy ? { sessionStrategy: wiring.sessionStrategy } : {}),
     ...(core.catalogueFor ? { catalogueFor: core.catalogueFor } : {}),

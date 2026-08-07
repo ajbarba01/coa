@@ -100,11 +100,11 @@ afterEach(() => {
 });
 
 describe('createDaemonCore', () => {
-  it('constructs a working core: an open gate and a chargeable cap', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), ceilingUsd: 1 });
+  it('constructs a working core: an open gate and a chargeable spend counter', () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
     expect(handle.core.gate()).toEqual({ allow: true });
     handle.core.charge('s', 1);
-    expect(handle.core.capState().capHit).toBe(true);
+    expect(handle.core.capState()).toEqual({ remaining: null, capHit: false });
   });
 
   it('exposes an observeChanges port that drives producer 2', () => {
@@ -146,11 +146,6 @@ describe('createDaemonCore', () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(() => handle?.core.observeChanges()).not.toThrow();
     expect(() => handle?.core.observeChanges()).not.toThrow();
-  });
-
-  it('is unbounded under the subscription model (no ceiling)', () => {
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
-    expect(handle.core.capState()).toEqual({ remaining: null, capHit: false });
   });
 
   it('checkpoints the real kernel at the session boundary', () => {

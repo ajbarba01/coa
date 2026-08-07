@@ -10,8 +10,8 @@ import { composeSessionDeps, type DaemonCore, type SessionWiring } from './compo
 import type { SessionAdapterInit } from './session.js';
 
 /** A real flags/compiler/catalogue/governance core (only the spine checkpoint stubbed — its FS construction is the daemon host's job). */
-function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } {
-  const governance = new Governance(ceilingUsd !== undefined ? { ceilingUsd } : {});
+function realCore(): DaemonCore & { governance: Governance } {
+  const governance = new Governance();
   const flags = new FlagPipeline();
   return {
     governance,
@@ -49,11 +49,15 @@ const wiring = (over: Partial<SessionWiring> = {}): SessionWiring => ({
 });
 
 describe('composeSessionDeps', () => {
-  it('adapts the settlement usage into the real cost cap (charge takes costUsd)', () => {
-    const core = realCore(1);
-    const deps = composeSessionDeps(core, wiring());
+  it('adapts the settlement usage into the cost charge (charge takes costUsd)', () => {
+    const charges: { sessionId: string; costUsd: number }[] = [];
+    const core = realCore();
+    const deps = composeSessionDeps(
+      { ...core, charge: (sessionId, costUsd) => charges.push({ sessionId, costUsd }) },
+      wiring(),
+    );
     deps.charge('s', { tokensIn: 0, tokensOut: 0, costUsd: 1 });
-    expect(core.governance.capState().capHit).toBe(true);
+    expect(charges).toEqual([{ sessionId: 's', costUsd: 1 }]);
   });
 
   it('defaults assemblePieces to the empty frame that compiles to the vanilla config', () => {
@@ -70,11 +74,16 @@ describe('composeSessionDeps', () => {
     expect(deps.gate()).toEqual({ allow: true });
   });
 
-  it('drives createSession over the real core and charges the real cap at settlement', async () => {
-    const core = realCore(1);
-    const deps = composeSessionDeps(core, wiring());
+  it('drives createSession over the real core and charges the spend counter at settlement', async () => {
+    const charges: { sessionId: string; costUsd: number }[] = [];
+    const core = realCore();
+    const deps = composeSessionDeps(
+      { ...core, charge: (sessionId, costUsd) => charges.push({ sessionId, costUsd }) },
+      wiring(),
+    );
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, deps);
-    expect(core.governance.capState().capHit).toBe(true);
+    expect(charges).toHaveLength(1);
+    expect(charges[0]?.costUsd).toBe(1);
   });
 
   it('passes resolveSpawn through from wiring, unmodified', () => {

@@ -30,12 +30,6 @@ describe('buildSessionDeps', () => {
     expect(built.deps.bindWorktree('s1', 'src')).toBe(dir);
   });
 
-  it('threads the cost ceiling into the real cap', () => {
-    built = buildSessionDeps({ walPath: join(dir, 'log.ndjson'), root: dir, ceilingUsd: 1 });
-    built.deps.charge('s1', { tokensIn: 0, tokensOut: 0, costUsd: 1 });
-    expect(built.handle.governance.capState().capHit).toBe(true);
-  });
-
   it('drives the committed generation registry: a drifted target makes the close-gate live', () => {
     mkdirSync(join(dir, '.coa'), { recursive: true });
     writeFileSync(
