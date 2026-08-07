@@ -176,7 +176,7 @@ and hand a raw callback straight to `query()`, where the bare allow *is* the fin
 grep -n "interceptTool" packages/adapter-claude-sdk/src/*.live.test.ts
 ```
 
-Expected: `barge-in-smoke`, `sot-smoke`, `streaming-output-smoke` and `streaming-smoke` all
+Expected: `turn-interrupt-smoke` (renamed from `barge-in-smoke`), `sot-smoke`, `streaming-output-smoke` and `streaming-smoke` all
 call `adapter.interceptTool(allowAllTools)`. If any hands `allowAllTools` to `query()`
 directly, that one **is** broken and needs its own local echoing callback — report it.
 

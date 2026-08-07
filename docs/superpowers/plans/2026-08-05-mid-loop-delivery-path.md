@@ -861,7 +861,7 @@ git commit -m "feat: land a user steer at the next round trip instead of the tur
 
 - [ ] **Step 1: Extend the live smoke to the real wiring**
 
-Add a third probe that drives a real governed session, steers it while a tool call is in flight, and asserts the steer text appears in the transcript **before** the turn's terminal result — the end-to-end version of Task 1's probe. Model it on `barge-in-smoke.live.test.ts`, which already drives a genuinely-running turn and is the closest precedent for timing assertions.
+Add a third probe that drives a real governed session, steers it while a tool call is in flight, and asserts the steer text appears in the transcript **before** the turn's terminal result — the end-to-end version of Task 1's probe. Model it on `turn-interrupt-smoke.live.test.ts` (renamed from `barge-in-smoke.live.test.ts`), which already drives a genuinely-running turn and is the closest precedent for timing assertions.
 
 - [ ] **Step 2: Run the full live gate**
 
