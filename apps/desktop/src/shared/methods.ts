@@ -173,7 +173,6 @@ export type MethodName =
   | 'newSession'
   | 'listSessions'
   | 'reloadConversation'
-  | 'renameSession'
   | 'deleteSession'
   | 'recompilePrompt'
   | 'interruptSession'
@@ -261,10 +260,6 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
   reloadConversation: { params: z.object({ id: z.string() }), result: persistedTurnsSchema },
-  renameSession: {
-    params: z.object({ id: z.string(), title: z.string() }),
-    result: OkResultSchema,
-  },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   recompilePrompt: {
     params: z.object({ sessionId: z.string() }),

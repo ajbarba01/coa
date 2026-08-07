@@ -61,10 +61,8 @@ describe('buildConversationHandlers', () => {
     expect(listed[0]?.promptConfig).toEqual({ role: 'swe', packageIds: ['research'] });
   });
 
-  it('renames and deletes a session', async () => {
+  it('deletes a session', async () => {
     const { id } = (await h['newSession']!.handle({ agentRef: 'r', scope: '' })) as { id: string };
-    await h['renameSession']!.handle({ id, title: 'audit auth' });
-    expect(store.getMeta(id)?.title).toBe('audit auth');
     await h['deleteSession']!.handle({ id });
     expect(store.getMeta(id)).toBeUndefined();
   });

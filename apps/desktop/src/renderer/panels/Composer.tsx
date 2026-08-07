@@ -1,4 +1,4 @@
-import { Button, Icon, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { Button, Icon, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import type { ModelDescriptor } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
@@ -81,7 +81,7 @@ export interface ComposerProps {
  *  / deny / or type to redirect) · no-session (everything rests). Queued
  *  messages pin above the shell, removable, released FIFO.
  *
- *  The mic is a permanently-disabled coming-soon affordance. */
+ *  The mic and attach buttons are permanently-disabled coming-soon affordances. */
 export function Composer({
   running,
   disabled = false,
@@ -106,7 +106,6 @@ export function Composer({
   onNoticeAction,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<string[]>([]);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   // Multi-line growth: the field grows with its content to ~6 lines, then
@@ -131,7 +130,6 @@ export function Composer({
     const t = text.trim();
     if (t === '') return undefined;
     setText('');
-    setAttachments([]);
     return t;
   };
 
@@ -266,26 +264,6 @@ export function Composer({
             </div>
           </div>
         )}
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
-            {attachments.map((a) => (
-              <span
-                key={a}
-                className="slip-enter flex items-center gap-1.5 rounded-r1 border border-s5 bg-s4 px-1.5 py-0.5 font-mono text-meta text-s9"
-              >
-                {a}
-                <button
-                  type="button"
-                  aria-label={`remove ${a}`}
-                  onClick={() => setAttachments((list) => list.filter((x) => x !== a))}
-                  className="slip cursor-pointer text-s7 hover:text-s10"
-                >
-                  <Icon name="close" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
         <textarea
           ref={areaRef}
           rows={1}
@@ -329,10 +307,7 @@ export function Composer({
         />
         {/* the control shelf: same rect, its own hairline */}
         <div className="flex items-center gap-1 border-t border-s4 px-2 py-1.5">
-          <AttachButton
-            disabled={disabled}
-            onAttach={(name) => setAttachments((a) => (a.includes(name) ? a : [...a, name]))}
-          />
+          <AttachButton disabled={disabled} />
           <MicButton disabled={disabled} />
           <div className="flex-1" />
           {/* The two axes of a turn, side by side and each its own control: WHICH model,
@@ -402,54 +377,27 @@ export function Composer({
 /* shelf controls (search-field skin; disabled states included)         */
 /* ------------------------------------------------------------------ */
 
-function AttachButton({
-  onAttach,
-  disabled = false,
-}: {
-  onAttach: (name: string) => void;
-  disabled?: boolean;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-
+/** File attachment — a coming-soon affordance: it renders permanently disabled
+ *  with no handler, so the shelf's final shape is already in place for whenever
+ *  real attachments land. Mirrors the mic (tooltip on a wrapper, see below). */
+function AttachButton({ disabled = false }: { disabled?: boolean }): React.JSX.Element {
   return (
-    <PopoverCard
-      open={open}
-      onOpenChange={(o) => {
-        if (!disabled) setOpen(o);
-      }}
-      side="top"
-      align="start"
-      className="w-48"
-      tooltip={{ label: 'Attach a file', side: 'top' }}
-      trigger={
+    <Tooltip label="Attach a file (unavailable)" side="top">
+      <span className="flex">
         <button
           type="button"
-          aria-label="Attach"
-          disabled={disabled}
+          aria-label="Attach a file"
+          disabled
+          aria-disabled="true"
           className={cx(
-            'flex h-7 w-7 items-center justify-center rounded-r2 border',
-            disabled
-              ? 'cursor-default border-s4 bg-s3 text-s6'
-              : cx(
-                  'slip slip-press cursor-pointer text-s10 active:scale-[0.95]',
-                  open ? 'border-s6 bg-s5 text-s12' : 'border-s5 bg-s4 hover:bg-s5 hover:text-s12',
-                ),
+            'flex h-7 w-7 cursor-default items-center justify-center rounded-r2 border border-s4 bg-s3 text-s6',
+            disabled && 'opacity-70',
           )}
         >
           <Icon name="attach" />
         </button>
-      }
-    >
-      <MenuItem
-        onClick={() => {
-          onAttach('screenshot.png');
-          setOpen(false);
-        }}
-      >
-        <span className="w-4 text-center font-mono text-code text-s8">⇪</span>
-        Upload File…
-      </MenuItem>
-    </PopoverCard>
+      </span>
+    </Tooltip>
   );
 }
 

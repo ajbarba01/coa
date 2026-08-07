@@ -74,7 +74,6 @@ declare global {
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
       reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
-      renameSession(params: { id: string; title: string }): Promise<{ ok: boolean }>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
       /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
