@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TITLE_BAR_HEIGHT, titleBarConfig, windowBackground } from './titlebar.js';
+import { TITLE_BAR_HEIGHT, titleBarConfig, WINDOW_BACKGROUND } from './titlebar.js';
 
 describe('titleBarConfig', () => {
   it('hides the frame with no native overlay on Windows (controls are DOM)', () => {
@@ -26,9 +26,8 @@ describe('TITLE_BAR_HEIGHT', () => {
   });
 });
 
-describe('windowBackground', () => {
+describe('WINDOW_BACKGROUND', () => {
   it('is the theme base surface, never white', () => {
-    expect(windowBackground('dark')).toBe('#111110'); // sand-dark --color-s1
-    expect(windowBackground('light')).toBe('#f6f1e9');
+    expect(WINDOW_BACKGROUND).toBe('#111110'); // sand-dark --color-s1
   });
 });

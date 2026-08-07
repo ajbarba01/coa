@@ -4,17 +4,10 @@ import type { BrowserWindowConstructorOptions } from 'electron';
  *  (border-box, so this includes the 1px bottom hairline). */
 export const TITLE_BAR_HEIGHT = 44;
 
-/** A concrete theme — the settings `'system'` preference is resolved to one of these
- *  (via `nativeTheme`) before it reaches the chrome. */
-export type ResolvedTheme = 'dark' | 'light';
-
 /** The window background (shows on the pre-paint flash and at the frame edge) —
- *  the theme's base surface, not Electron's default white. Dark mirrors console-kit's
- *  sand-dark `--color-s1` (the theme is pinned dark for now); light keeps the prior
- *  paper hex until a light scale exists in the kit. */
-export function windowBackground(theme: ResolvedTheme): string {
-  return theme === 'light' ? '#f6f1e9' : '#111110'; // paper0 / sand s1
-}
+ *  the theme's base surface, not Electron's default white. Mirrors console-kit's
+ *  sand-dark `--color-s1` (the console ships a single dark theme). */
+export const WINDOW_BACKGROUND = '#111110';
 
 /** Window chrome per platform. The custom DOM title bar (the workbench's segmented bar) is the
  *  only chrome, and the whole bar — including the window controls — is DOM so it scales

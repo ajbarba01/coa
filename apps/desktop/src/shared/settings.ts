@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 /** The console's persisted UI preferences. New toggles just add a defaulted field. */
 export const ConsoleSettingsSchema = z.object({
-  theme: z.enum(['system', 'dark', 'light']).default('dark'),
+  /** Pinned: the console ships exactly one theme (sand dark). A stale persisted value
+   *  (an old `'light'`/`'system'`) degrades to it rather than voiding the whole blob. */
+  theme: z.literal('dark').catch('dark').default('dark'),
   motion: z.enum(['full', 'reduce']).default('full'),
   /** Agent refs the user pinned — a user-local preference (never written into a
    *  Role; a project agent's pin state is yours, not the repo's). */
