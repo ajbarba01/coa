@@ -1,3 +1,6 @@
+// Archived from packages/core/src/context/spec-tier.ts — the read half of the
+// spec-conformance pair. It resolved a touched symbol to the registered constraints
+// governing it, over the `governed-by` edges the seam in ./generation-seam.ts wrote.
 import type { ToolCall } from '@coa/shared';
 
 /**

@@ -1,8 +1,15 @@
+// Archived from packages/core/src/context/health.ts — the code-health signal
+// producer. Its composition helper (`composeProfile` in health-profile.ts) and the
+// graph projections it read (cycles, coupling, the temporal view) stayed in the tree,
+// so the imports below still point back at live modules.
 import type { MetricGranularity, MetricId, MetricSample, HealthProfile } from '@coa/shared';
-import type { CycleComponent } from '../graph/cycles.js';
-import type { CouplingFan } from '../graph/coupling.js';
-import type { TemporalView } from '../graph/temporal.js';
-import { composeProfile, type WorstPredicate } from './health-profile.js';
+import type { CycleComponent } from '../../packages/core/src/graph/cycles.js';
+import type { CouplingFan } from '../../packages/core/src/graph/coupling.js';
+import type { TemporalView } from '../../packages/core/src/graph/temporal.js';
+import {
+  composeProfile,
+  type WorstPredicate,
+} from '../../packages/core/src/context/health-profile.js';
 
 /**
  * L-HLT — the code-health producer floor: the cheap, sound, language-agnostic

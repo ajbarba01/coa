@@ -1,3 +1,4 @@
+// Archived from packages/core/src/context/spec-tier.test.ts
 import { describe, expect, it } from 'vitest';
 import type { ToolCall } from '@coa/shared';
 import { governanceFor, type GovernanceOracle } from './spec-tier.js';

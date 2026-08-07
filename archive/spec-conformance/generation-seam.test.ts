@@ -1,6 +1,11 @@
+// Archived from packages/core/src/context/generation-seam.test.ts
 import { describe, expect, it } from 'vitest';
 import type { GraphEdge, SymbolRecord } from '@coa/shared';
-import type { GenerationRelation, GenerationRunner, RegenOutput } from './ssot-constraint.js';
+import type {
+  GenerationRelation,
+  GenerationRunner,
+  RegenOutput,
+} from '../../packages/core/src/context/ssot-constraint.js';
 import {
   publishGenerationSeam,
   type SeamPublisher,

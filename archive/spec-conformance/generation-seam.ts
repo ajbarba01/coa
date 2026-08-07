@@ -1,5 +1,13 @@
+// Archived from packages/core/src/context/generation-seam.ts — the write half of the
+// spec-conformance pair. It declared the symbols a generation step would produce and
+// asserted the provenance and authority edges the tier in ./spec-tier.ts read back.
+// The generation relations and runner it took stayed in the tree (the drift-detection
+// constraint still uses them), so the import below points back at a live module.
 import type { GraphEdge, SymbolRecord } from '@coa/shared';
-import type { GenerationRelation, GenerationRunner } from './ssot-constraint.js';
+import type {
+  GenerationRelation,
+  GenerationRunner,
+} from '../../packages/core/src/context/ssot-constraint.js';
 
 /**
  * L-GEN — the seam L-GEN publishes to L-GND (GEN-7), via the kernel's sanctioned

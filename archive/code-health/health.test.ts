@@ -1,3 +1,4 @@
+// Archived from packages/core/src/context/health.test.ts
 import { describe, expect, it } from 'vitest';
 import { health, type HealthSource, type HealthThresholds } from './health.js';
 

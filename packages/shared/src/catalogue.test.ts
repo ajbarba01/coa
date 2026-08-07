@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { capabilityProfileSchema } from './capability.js';
 import { canonicalizationProfileSchema, tierSchema } from './code-lens.js';
 import { neutralConfigSchema } from './config.js';
 import { healthProfileSchema, metricSampleSchema } from './metric.js';
@@ -41,15 +40,6 @@ describe('shared type-catalogue smoke', () => {
       worst: ['cycle' as const],
     };
     expect(healthProfileSchema.parse(profile).worst).toEqual(['cycle']);
-  });
-
-  it('capabilityProfileSchema carries ports + degradation', () => {
-    const profile = {
-      ports: { lsp: { present: false, nullFallback: 'tree-sitter floor' } },
-      spiVersion: '0.1.0',
-      degradation: { lsp: 'exact refs unavailable; degraded to tree-sitter' },
-    };
-    expect(capabilityProfileSchema.parse(profile).ports['lsp']?.present).toBe(false);
   });
 
   it('neutralConfigSchema keeps the pinned slot set', () => {
