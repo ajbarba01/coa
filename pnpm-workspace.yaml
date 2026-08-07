@@ -19,6 +19,9 @@ allowBuilds:
   tree-sitter-typescript: true
   electron: false
   esbuild: false
+  # node-pty ships darwin/win prebuilds (install script no-ops there) but must
+  # gyp-build on linux, so it needs scripts allowed like the other runtime addons.
+  node-pty: true
 
 # @types/node 26 is newer than the default minimum-release-age window; allow it.
 minimumReleaseAgeExclude:
