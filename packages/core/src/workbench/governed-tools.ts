@@ -15,14 +15,7 @@ import { TOOL_CATALOGUE } from './catalogue.js';
 import { enrich, type EnrichDeps } from './enrich.js';
 import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
 import { applyPatch, editSymbol, type WorkbenchDeps } from './mutate.js';
-import {
-  contextStatus,
-  getDecision,
-  getSpec,
-  runChecks,
-  why,
-  type InspectDeps,
-} from './inspect.js';
+import { contextStatus, getSpec, runChecks, type InspectDeps } from './inspect.js';
 import { sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
 
 // The dispatch primitives moved to their own leaf module; re-exported so
@@ -83,9 +76,7 @@ const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
     runChecks(a.scope !== undefined ? { scope: a.scope } : {}, d.inspect),
   ),
   context_status: spec({}, (_a, d) => contextStatus(d.inspect)),
-  why: spec({ target: z.string() }, (a, d) => why(a, d.inspect)),
   get_spec: spec({ ref: z.string() }, (a, d) => getSpec(a, d.inspect)),
-  get_decision: spec({ id: z.number() }, (a, d) => getDecision(a, d.inspect)),
   spawn_agent: spec({ agent: z.string(), description: z.string(), prompt: z.string() }, (a, d) => {
     if (d.spawn !== undefined) return spawnAgent(a, d.spawn);
     // `a.agent` is model-chosen text with no format guarantee on this branch

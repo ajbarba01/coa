@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { edgeTypeSchema, symbolRecordSchema } from './graph.js';
-import { governancePayloadSchema } from './governance.js';
 
 /**
  * The change-event log line frame (D126 clause 1). The durable log is NDJSON:
@@ -25,7 +24,7 @@ const envelopeShape = {
   ts: z.string(),
   worktree: z.string(),
   actor: z.enum(['session', 'reconciler', 'human']),
-  /** Non-null for all precise + edge + governance kinds; null ONLY for a bare reconciler file observation. */
+  /** Non-null for all precise + edge kinds; null ONLY for a bare reconciler file observation. */
   op_id: z.string().nullable(),
   provenance: z.enum(['declared', 'inferred', 'gated']),
   /** Optional regenerate provenance the WAL preserves (M4 stamps it). */
@@ -50,7 +49,7 @@ export type FileChangeEvent = z.infer<typeof fileChangeSchema>;
 
 const edgeChangeSchema = z.object({
   ...envelopeShape,
-  // edge/symbol/governance frames always carry a non-null op_id and declared|gated provenance.
+  // edge/symbol frames always carry a non-null op_id and declared|gated provenance.
   op_id: z.string(),
   provenance: z.enum(['declared', 'gated']),
   kind: z.enum(['assert-edge', 'retract-edge']),
@@ -72,20 +71,10 @@ const declareSymbolsSchema = z.object({
 });
 export type DeclareSymbolsEvent = z.infer<typeof declareSymbolsSchema>;
 
-const governanceChangeSchema = z.object({
-  ...envelopeShape,
-  op_id: z.string(),
-  provenance: z.enum(['declared', 'gated']),
-  kind: z.literal('governance'),
-  payload: governancePayloadSchema,
-});
-export type GovernanceChangeEvent = z.infer<typeof governanceChangeSchema>;
-
 /** One canonical change-event. The union of all frame kinds. */
 export const changeEventSchema = z.union([
   fileChangeSchema,
   edgeChangeSchema,
   declareSymbolsSchema,
-  governanceChangeSchema,
 ]);
 export type ChangeEvent = z.infer<typeof changeEventSchema>;

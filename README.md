@@ -21,8 +21,7 @@ writes stays in the project's `.coa/` directory.
 - The model list is yours to edit per provider, and reasoning effort is set per session.
 - Every turn is priced and charged against a cap that stops the session when it runs out. Subscription
   spend is estimated rather than metered.
-- Read the record from the terminal: `coa cap`, `coa flags`, `coa why <target>`, `coa timeline`,
-  `coa decision <id>`.
+- Read the record from the terminal: `coa cap`, `coa flags`, `coa timeline`.
 
 Approvals are not interactive yet. Tool calls are recorded and surfaced, but nothing pauses to ask you
 first — the cost cap is what stops a run.

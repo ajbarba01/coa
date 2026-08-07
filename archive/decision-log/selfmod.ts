@@ -1,3 +1,4 @@
+// Archived from packages/core/src/governance/selfmod.ts
 /**
  * D138 — the self-mod guard (the guard POLICY half; the golden-corpus eval-gate
  * MECHANISM is M9's `runEval`). A self-modifying promotion must pass the

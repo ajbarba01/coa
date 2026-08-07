@@ -86,14 +86,4 @@ describe('changeEventSchema — non-file kinds carry a non-null op_id and declar
     };
     expect(changeEventSchema.parse(ev)).toMatchObject({ kind: 'declare-symbols' });
   });
-
-  it('accepts a governance frame with a regenerate cause', () => {
-    const ev = {
-      ...envelope,
-      kind: 'governance' as const,
-      cause: { kind: 'regenerate' as const, sourceEventSeq: 3 },
-      payload: { sub: 'decision' as const, target: 'rule:x', entry: 'why x changed' },
-    };
-    expect(changeEventSchema.parse(ev)).toMatchObject({ kind: 'governance' });
-  });
 });

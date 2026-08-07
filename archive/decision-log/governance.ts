@@ -1,3 +1,4 @@
+// Archived from packages/shared/src/governance.ts
 import { z } from 'zod';
 
 /**

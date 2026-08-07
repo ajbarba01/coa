@@ -225,37 +225,6 @@ describe('renderToolResult', () => {
       expect(renderToolResult('run_checks', { expanded: [], collapsed: [] })).toBe('0 flags');
     });
 
-    it('why → the decision entries for the target', () => {
-      const result = {
-        target: 'D85',
-        decisions: [
-          { id: 3, target: 'D85', entry: 'strict-superset: never worse than the raw loop' },
-        ],
-      };
-      expect(renderToolResult('why', result)).toBe(
-        'strict-superset: never worse than the raw loop',
-      );
-    });
-
-    it('why with no decisions → a no-rationale message', () => {
-      expect(renderToolResult('why', { target: 'D999', decisions: [] })).toBe(
-        'no recorded rationale for D999',
-      );
-    });
-
-    it('get_decision found → the entry', () => {
-      expect(
-        renderToolResult('get_decision', {
-          found: true,
-          decision: { id: 4, target: 'src/u.ts#userName', entry: 'renamed for clarity' },
-        }),
-      ).toBe('#4 src/u.ts#userName: renamed for clarity');
-    });
-
-    it('get_decision not found → a short message', () => {
-      expect(renderToolResult('get_decision', { found: false })).toBe('not found');
-    });
-
     it('find_references → the reference sites, one per line', () => {
       expect(
         renderToolResult('find_references', {
@@ -336,10 +305,9 @@ describe('renderToolResult', () => {
       expect(toolResultOk('Read', { found: false, reason: 'not-found' })).toBe(false);
     });
 
-    it('get_symbol / get_piece / get_decision found gate', () => {
+    it('get_symbol / get_piece found gate', () => {
       expect(toolResultOk('get_symbol', { found: false })).toBe(false);
       expect(toolResultOk('get_piece', { found: true, piece: {} })).toBe(true);
-      expect(toolResultOk('get_decision', { found: false })).toBe(false);
     });
 
     it('get_spec: a null spec is a miss, a present spec is ok', () => {

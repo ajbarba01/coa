@@ -37,7 +37,6 @@ export const toolRequestSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('apply_patch'), target: z.string(), diff: diffSpecSchema }),
   z.object({ tool: z.literal('run_checks'), scope: z.string().optional() }),
   z.object({ tool: z.literal('invoke_asset'), bundleRef: z.string() }),
-  z.object({ tool: z.literal('why'), target: z.string() }),
 ]);
 export type ToolRequest = z.infer<typeof toolRequestSchema>;
 

@@ -9,7 +9,6 @@ import type {
 import { RPC_ERROR } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
 import type { CapState } from '../governance/cost-cap.js';
-import type { DecisionEntry } from '../governance/governance-log.js';
 import { dispatch } from './router.js';
 import {
   buildAgentRegistryHandlers,
@@ -24,8 +23,6 @@ function ports(over: Partial<ConsoleReadPorts> = {}): ConsoleReadPorts {
   return {
     capState: (): CapState => ({ capHit: false, remaining: 12.5 }),
     flagsForUser: () => EMPTY_FEED,
-    readDecision: () => undefined,
-    decisionsByTarget: () => [],
     listTimeline: () => [],
     ...over,
   };
@@ -85,46 +82,6 @@ describe('console handlers — the read-only inspector verbs over the dispatch r
     expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: feed });
   });
 
-  it('serves getDecision, mapping a missing entry to null', async () => {
-    const entry: DecisionEntry = { id: 4, target: 'pay.ts', entry: 'use decimal' };
-    const handlers = buildConsoleHandlers(
-      ports({ readDecision: (id) => (id === 4 ? entry : undefined) }),
-    );
-
-    const hit = await dispatch(
-      { jsonrpc: '2.0', id: 1, method: 'getDecision', params: { id: 4 } },
-      handlers,
-    );
-    const miss = await dispatch(
-      { jsonrpc: '2.0', id: 1, method: 'getDecision', params: { id: 9 } },
-      handlers,
-    );
-
-    expect(hit).toEqual({ jsonrpc: '2.0', id: 1, result: entry });
-    expect(miss).toEqual({ jsonrpc: '2.0', id: 1, result: null });
-  });
-
-  it('rejects getDecision with a non-numeric id as invalidParams', async () => {
-    const handlers = buildConsoleHandlers(ports());
-    const res = await dispatch(
-      { jsonrpc: '2.0', id: 1, method: 'getDecision', params: { id: 'four' } },
-      handlers,
-    );
-    expect(res).toMatchObject({ error: { code: RPC_ERROR.invalidParams } });
-  });
-
-  it('serves why as the decisions governing a target', async () => {
-    const entries: DecisionEntry[] = [{ id: 1, target: 'pay.ts', entry: 'decimal money' }];
-    const handlers = buildConsoleHandlers(ports({ decisionsByTarget: () => entries }));
-
-    const res = await dispatch(
-      { jsonrpc: '2.0', id: 1, method: 'why', params: { target: 'pay.ts' } },
-      handlers,
-    );
-
-    expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: entries });
-  });
-
   it('serves listTimeline as the checkpoint list', async () => {
     const checkpoints = [
       { id: 'c1', seq: 3, ts: '2026-06-30T00:00:00Z', worktree: 'main', pinned: false },
@@ -140,9 +97,7 @@ describe('console handlers — the read-only inspector verbs over the dispatch r
     expect(Object.keys(buildConsoleHandlers(ports())).sort()).toEqual([
       'capState',
       'flagsForUser',
-      'getDecision',
       'listTimeline',
-      'why',
     ]);
   });
 });

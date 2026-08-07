@@ -10,7 +10,6 @@ export * from './graph.js';
 export * from './scope.js';
 export * from './metric.js';
 export * from './reminder.js';
-export * from './governance.js';
 export * from './capability.js';
 export * from './patch.js';
 export * from './tool.js';

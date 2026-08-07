@@ -26,8 +26,6 @@ function makeDeps(over: Partial<DepOverrides> = {}): GovernedToolDeps {
     inspect: {
       runChecks: () => ({ expanded: [], collapsed: [] }),
       capState: () => ({ remaining: null, capHit: false }),
-      decisionsByTarget: () => [],
-      readDecision: () => undefined,
     },
     enrich: {
       oracle: {
@@ -108,18 +106,16 @@ describe('buildGovernedTools', () => {
         'context_status',
         'edit_symbol',
         'find_references',
-        'get_decision',
         'get_piece',
         'get_spec',
         'get_symbol',
         'outline',
         'run_checks',
         'spawn_agent',
-        'why',
       ].sort(),
     );
     expect(tools.find((t) => t.name === 'edit_symbol')?.partition).toBe('kernel');
-    expect(tools.find((t) => t.name === 'why')?.partition).toBe('on-demand');
+    expect(tools.find((t) => t.name === 'run_checks')?.partition).toBe('on-demand');
   });
 });
 

@@ -8,9 +8,7 @@ import {
   FileText,
   FolderSearch,
   Gauge,
-  Gavel,
   Globe,
-  Info,
   Link,
   ListChecks,
   ListTree,
@@ -168,15 +166,7 @@ const TOOLS: Record<string, ToolEntry> = {
   apply_patch: { icon: FileDiff, target: applyPatchTarget },
   run_checks: { icon: ShieldCheck, target: (r) => str(r, 'scope') ?? 'all' },
   context_status: { icon: Gauge, target: () => '' },
-  why: { icon: Info, target: (r) => str(r, 'target') ?? '' },
   get_spec: { icon: ScrollText, target: (r) => refName(r?.['ref']) },
-  get_decision: {
-    icon: Gavel,
-    target: (r) => {
-      const id = int(r, 'id');
-      return id !== undefined ? `#${id}` : '';
-    },
-  },
   // coa on-demand proxy tools.
   find_tools: { icon: Wrench, target: (r) => str(r, 'query') ?? '' },
   load_tool: { icon: Wrench, target: (r) => str(r, 'name') ?? '' },

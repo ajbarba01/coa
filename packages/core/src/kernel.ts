@@ -2,7 +2,6 @@ import { ulid } from 'ulid';
 import type {
   ChangeEvent,
   EdgeType,
-  GovernancePayload,
   GraphEdge,
   Piece,
   PieceRef,
@@ -157,18 +156,6 @@ export class ChangeKernel {
       cause: null,
       kind: 'declare-symbols',
       payload: { symbols, from },
-    });
-  }
-
-  appendGovernance(payload: GovernancePayload): number {
-    return this.emit({
-      worktree: this.worktree,
-      actor: 'session',
-      op_id: ulid(),
-      provenance: 'declared',
-      cause: null,
-      kind: 'governance',
-      payload,
     });
   }
 
@@ -363,8 +350,6 @@ export class ChangeKernel {
       case 'declare-symbols':
         this.symbols.indexFile(frame.payload.from, frame.payload.symbols);
         this.fuzzyDirty = true;
-        break;
-      case 'governance':
         break;
       default:
         this.graph.setNode(frame.path, 'file');

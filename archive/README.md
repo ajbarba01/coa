@@ -8,3 +8,4 @@ the tree as ordinary code and the row is removed here.
 
 | Entry | What it was | Why parked | Revival path |
 |---|---|---|---|
+| `decision-log/` | The decision-log / provenance layer: an append-only decision log with vouch records and a subtractive-change feed projected from governance WAL frames, the self-modification guard, and their wire schema — read back through the `getDecision`/`why` RPC verbs, the `coa why` / `coa decision` CLI commands, and the `why`/`get_decision` agent tools (all removed with it). | The write side never ran, so every read returned empty forever. | None planned (deliberate). |

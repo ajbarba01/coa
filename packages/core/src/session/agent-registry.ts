@@ -36,17 +36,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
     // The stable baseline conduct (identity/tool-use/quality); the resolver
     // adds the volatile model/env tail when this package is included.
     pieces: baselineStablePieces(),
-    toolRefs: [
-      'Read',
-      'Glob',
-      'Grep',
-      'get_symbol',
-      'outline',
-      'find_references',
-      'why',
-      'get_decision',
-      'spawn_agent',
-    ],
+    toolRefs: ['Read', 'Glob', 'Grep', 'get_symbol', 'outline', 'find_references', 'spawn_agent'],
   },
   {
     id: 'coa-orientation',

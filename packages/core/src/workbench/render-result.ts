@@ -5,7 +5,7 @@ import type {
   ReferencesResult,
 } from './retrieve.js';
 import type { MutateResult } from './mutate.js';
-import type { GetDecisionResult, GetSpecResult, WhyResult } from './inspect.js';
+import type { GetSpecResult } from './inspect.js';
 import type { CoaError, FeedView, SymbolRecord } from '@coa/shared';
 
 /**
@@ -61,8 +61,6 @@ const RENDERERS: Record<string, Renderer> = {
   edit_symbol: (r) => renderMutate(r as MutateResult),
   apply_patch: (r) => renderMutate(r as MutateResult),
   run_checks: (r) => renderChecks(r as FeedView),
-  why: (r) => renderWhy(r as WhyResult),
-  get_decision: (r) => renderDecision(r as GetDecisionResult),
   find_references: (r) => renderReferences(r as ReferencesResult),
   outline: (r) => renderOutline(r as OutlineResult),
 };
@@ -103,7 +101,6 @@ const OK_PREDICATES: Record<string, (result: unknown) => boolean> = {
   get_symbol: (r) => okBool(r, 'found'),
   get_piece: (r) => okBool(r, 'found'),
   get_spec: (r) => okField(r, 'spec'),
-  get_decision: (r) => okBool(r, 'found'),
   edit_symbol: (r) => okBool(r, 'applied'),
   apply_patch: (r) => okBool(r, 'applied'),
   WebFetch: (r) => okBool(r, 'fetched'),
@@ -227,20 +224,6 @@ function renderChecks(r: FeedView): string {
   if (total === 0) return '0 flags';
   if (collapsed === 0) return `${total} flags`;
   return `${total} flags (${r.expanded.length} shown, ${collapsed} collapsed)`;
-}
-
-function renderWhy(r: WhyResult): string {
-  if (r.decisions.length === 0) return `no recorded rationale for ${r.target}`;
-  return renderLines(
-    r.decisions.map((d) => d.entry),
-    '',
-  );
-}
-
-function renderDecision(r: GetDecisionResult): string {
-  if (!r.found) return 'not found';
-  const d = r.decision;
-  return `#${d.id} ${d.target}: ${d.entry}`;
 }
 
 function renderReferences(r: ReferencesResult): string {

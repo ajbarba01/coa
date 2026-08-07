@@ -44,9 +44,7 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
     partition: 'on-demand',
     description: 'assembled-context and cap state',
   },
-  { name: 'why', partition: 'on-demand', description: 'rationale for a constraint or decision' },
   { name: 'get_spec', partition: 'on-demand', description: 'governing spec for a symbol or scope' },
-  { name: 'get_decision', partition: 'on-demand', description: 'a numbered decision-log entry' },
 ];
 
 /** The always-loaded kernel set (D100) — the only schemas that cost standing context. */

@@ -81,10 +81,7 @@ describe('ChangeKernel', () => {
     const seen: ChangeEvent[] = [];
     k.subscribe(0, (e) => seen.push(e));
     k.emit(fileDraft('b.ts', 'h2'));
-    expect(seen.map((e) => (e.kind !== 'governance' && 'path' in e ? e.path : null))).toEqual([
-      'a.ts',
-      'b.ts',
-    ]);
+    expect(seen.map((e) => ('path' in e ? e.path : null))).toEqual(['a.ts', 'b.ts']);
   });
 
   it('indexes file symbols and serves lookup + fuzzy-on-miss', () => {

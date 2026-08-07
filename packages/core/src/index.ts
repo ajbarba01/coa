@@ -86,26 +86,12 @@ export { Governance, type GovernanceOptions } from './governance/governance.js';
 export { CostCap, type CapState, type CostCapOptions } from './governance/cost-cap.js';
 export { Ledger, redactLedgerEvent, type LedgerRecord } from './governance/ledger.js';
 export {
-  GovernanceLog,
-  type GovernanceSpine,
-  type DecisionEntry,
-  type VouchEntry,
-  type SubtractiveEntry,
-  type Principal,
-} from './governance/governance-log.js';
-export {
   sandboxPolicy,
   DENY_READ_GLOBS,
   SECRETS_GLOB,
   type SessionTrustCtx,
   type SandboxOptions,
 } from './governance/sandbox.js';
-export {
-  selfModGuard,
-  type SelfModVerdict,
-  type Promotion,
-  type EvalResult,
-} from './governance/selfmod.js';
 export { compile } from './compiler/compile.js';
 export { importBundle } from './compiler/import-bundle.js';
 export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
@@ -203,13 +189,9 @@ export {
 export {
   runChecks,
   contextStatus,
-  why,
-  getDecision,
   getSpec,
   type InspectDeps,
   type ContextStatusResult,
-  type WhyResult,
-  type GetDecisionResult,
   type GetSpecResult,
 } from './workbench/inspect.js';
 export {
