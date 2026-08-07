@@ -200,3 +200,41 @@ items, screenshots (UI stages). This file is the maintainer's morning audit.
 - Stage 4 prep DONE despite the stop: both harvests complete (run/harvest/) and the
   Stage 4 docs workflow script is pre-written and included in the handoff.
 - Run handed off to another machine via GitHub — see arc-handoff/ on branch arc/handoff.
+
+## 2026-08-07 afternoon — resumed on the maintainer's Windows machine
+
+- Session: Fable 5 CLI, ultracode/dynamic workflows ON, bypass permissions,
+  subscription account (Q4: no spend ceiling). Maintainer present at resume and
+  answered the question queue — rulings recorded at the bottom of questions.md
+  (commit 5fbe1fd). Q2 remains open.
+- Machine deltas vs MACHINE-SETUP.md: Windows; Node 22.20 already on PATH matching
+  .nvmrc; native modules build without the node-gyp venv; `pnpm install` reused the
+  store wholesale (32s, no downloads). CLAUDE.local.md + .git/info/exclude entries +
+  .arc-shots/ restored; settings.local.json deliberately skipped (bypass supersedes).
+- **Q5 executed — the WIP adapter package is GATED and LANDED.** Verbatim final suite
+  line: `Test Files  1 failed | 287 passed | 11 skipped (299)` /
+  `Tests  1 failed | 2920 passed | 30 skipped (2951)` — the 1 fail is AuthPanel.tsx
+  replace-secret, passes solo 37/37 (new third load-flake; see below). Typecheck,
+  lint, prettier, depcruise, docs-check all green. The never-gated package needed
+  ONLY formatting on 3 test files — no type, lint, or test failures of its own.
+- Two real gate fixes made while gating, both machine-honesty bugs the macOS run
+  could not see:
+  - `test/depcruise-canary.test.ts` spawned the POSIX-only `.bin/depcruise` shim →
+    ENOENT on win32. Now spawns `process.execPath` against dependency-cruiser's real
+    `bin/dependency-cruise.mjs` (208cafa).
+  - The LongCat live smoke ran (this machine has `~/.coa/keys/lc`) and failed 402 —
+    the LongCat account's free quota is exhausted, an availability condition, not a
+    round-trip failure. The smoke now skips-with-reason on quota/rate-limit errors,
+    same philosophy as its existing no-key skipIf; every other error stays fatal
+    (f2dabad). NOTE for morning review: LongCat live coverage is UNAVAILABLE until
+    the quota resets/tops up.
+  - Plus 1b70e47: format the unified adapter tests + register the package in the
+    lockfile (ac267ad had added the package without touching pnpm-lock).
+- `arc/architecture` fast-forwarded 0fe96d1..1b70e47 (ac267ad was a direct child of
+  the old tip); both branches pushed.
+- **Flake ledger grew: AuthPanel.test.tsx "replaces a real secret" (5255ms, ~5s
+  timeout boundary) joins Combobox focus + daemon watcher.** All three pass solo;
+  fix-early ruled under Q7.
+- C2 part 2 completion (consumer swap, test convergence, old-package deletion,
+  REPO_LAYOUT row collapse) dispatched to a background subagent on arc/architecture
+  at 1b70e47. No Workflow-script runner needed — single-charter agent.

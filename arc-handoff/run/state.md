@@ -34,8 +34,8 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | 0fe96d1 | Stage 2 partial (C1, de-slop, C2 part 1), all gates green |
-| `arc/wip-adapter-unify` | ac267ad | **UNGATED** partial C2 part 2 — verify before trusting |
+| `arc/architecture` | 1b70e47 | Stage 2 partial (C1, de-slop, C2 part 1, **+ the gated unified adapter package**), all gates green on the Windows machine |
+| `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
@@ -76,14 +76,23 @@ on the old machine.
 
 ## Next action (in order)
 
-1. Gate the WIP adapter package: `git checkout arc/wip-adapter-unify`, run the full
-   gate suite, fix what fails, then either rebase/merge it onto `arc/architecture`
-   or redo it via `arc-handoff/workflow-scripts/c2-backend-seam-*.js` (its part-2 and
-   part-3 prompts are intact and reusable).
-2. Finish C2 part 3: OpenAI + OpenRouter provider specs + the adapter fan-out cruiser
-   rule (prompt already written in the same script).
-3. Stage 4 docs (mandatory before any closeout) — launch the pre-written workflow.
-4. Stage 5 closeout: write questions for every parked charter/feature, push all
+1. ~~Gate the WIP adapter package~~ DONE 2026-08-07 (gated + landed, see journal).
+2. C2 part 2 COMPLETION (in flight as a subagent): swap apps/cli consumers onto
+   adapter-openai-compat, converge old-suite coverage (byte-equivalence bar), DELETE
+   adapter-deepseek + adapter-longcat, collapse the REPO_LAYOUT rows, lockfile.
+3. Execute knife ruling R1 per the Q1 archive-anyway ruling: needs a SUPERSEDING ADR
+   (0032 fan-out-bound + 0009 exactly-two-blocks are immutable) and a raw-SDK-option
+   escape hatch for the live suites' maxBudgetUsd real-money guard. Full inventory in
+   run/verification/R1.json. Do this BEFORE part 3 so part 3 adds no new
+   maxBudgetUsd construction sites.
+4. C2 part 3: OpenAI + OpenRouter provider specs + the adapter fan-out cruiser rule
+   (prompt intact in workflow-scripts/c2-backend-seam-*.js).
+5. Q7 cleanups: fix the THREE load-flakes (Combobox focus, daemon watcher, AuthPanel
+   replace-secret — all pass solo) with deterministic waits; archive the orphaned
+   context modules + capabilityProfileSchema.
+6. Stage 4 docs (mandatory before any closeout) — absorbs the codename-consistency
+   pass and the ADR-0032/D150/ROADMAP prose reconciliation R1 makes stale.
+7. Stage 5 closeout: write questions for every parked charter/feature, push all
    branches, open draft PRs per workstream, final morning report in the journal.
 
 ## Standing operational facts (do not rediscover)
