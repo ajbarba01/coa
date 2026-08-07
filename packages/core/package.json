@@ -5,10 +5,12 @@
   "type": "module",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./rpc": {
+      "development": "./src/rpc/index.ts",
       "types": "./dist/rpc/index.d.ts",
       "import": "./dist/rpc/index.js"
     }

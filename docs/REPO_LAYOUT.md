@@ -35,6 +35,8 @@ coa/
     adr/                     architecture decision records — immutable, the durable "why" (README is the index)
     superpowers/             transient in-flight specs/ + plans/; graduated to adr/ + ROADMAP, then deleted (reappears as new work needs it)
     *.md                     the engineering framework (this doc, ENGINEERING, CODE_STYLE, WORKFLOW, DESIGN, UI)
+  test/                      repo-level tooling tests (the dependency-cruiser canary)
+  archive/                   parked feature code — never compiled, linted, or cruised
   AGENTS.md  CLAUDE.md       how work is done (router + Claude shim)
   ROADMAP.md                 project status + path forward (the in-repo status authority)
   LICENSE                    Apache-2.0
@@ -110,6 +112,12 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
 - **`console-kit` and `console-transcript` are pure UI packages** — they import only
   `react`/`@base-ui`/`lucide-react` (+ the kit's tokens), never `electron`/`core` (enforced:
   `console-ui-no-electron-core`). `console-transcript` depends on `console-kit`; never the reverse.
+- **The ruleset is kept honest, not decorative** — every package's `exports` map carries a
+  `development` condition pointing at its TypeScript source, and the cruiser resolves with
+  `development` first, so cross-package `@coa/*` edges land on the source paths the rules match
+  rather than on built `dist` (which is excluded from the graph). The cruise covers `packages` and
+  `apps` (both binaries). A canary test (`test/depcruise-canary.test.ts`) plants a forbidden edge
+  and asserts it is reported, so a resolution regression cannot silently disarm the rules.
 
 A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
 **same commit** (the same-commit doc rule).

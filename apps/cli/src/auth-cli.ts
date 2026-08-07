@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AccountsRegistry } from '@coa/core';
 import { AMBIENT, providerSchema, type Locator, type Provider } from '@coa/shared';
-import type { CliIo } from './cli.js';
+import type { CliIo } from './io.js';
 
 /**
  * `coa auth …` — local file ops over the credential-blind account registry (no

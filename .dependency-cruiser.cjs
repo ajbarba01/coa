@@ -27,7 +27,9 @@ module.exports = {
       comment:
         'Only adapter-claude-sdk may import a backend SDK. The core calls capability ports and takes the null-fallback (D109) — no which-backend branch anywhere else.',
       from: { pathNot: '^packages/adapter-claude-sdk/' },
-      to: { path: 'node_modules/(@anthropic-ai|@ai-sdk)/|^node_modules/ai/' },
+      // (^|/) rather than ^: pnpm resolves externals through node_modules/.pnpm/<pkg>@<v>/node_modules/<pkg>,
+      // so an anchored ^node_modules/ never matches a real resolved path.
+      to: { path: 'node_modules/(@anthropic-ai|@ai-sdk)/|(^|/)node_modules/ai/' },
     },
     {
       name: 'packages-not-to-apps',
@@ -88,13 +90,22 @@ module.exports = {
     },
   ],
   options: {
+    // node_modules is doNotFollow (NOT exclude): external modules stay in the graph as
+    // endpoints so rules like backend-isolation can match edges into them, without the
+    // cruiser descending into dependency internals.
     doNotFollow: { path: 'node_modules' },
     tsConfig: { fileName: 'tsconfig.json' },
     tsPreCompilationDeps: true,
-    exclude: { path: '(\\.test\\.ts$|/dist/|node_modules)' },
+    // archive/ holds parked feature code — never compiled, linted, or imported.
+    exclude: { path: '(\\.test\\.tsx?$|/dist/|(^|/)archive/)' },
     enhancedResolveOptions: {
       exportsFields: ['exports'],
-      conditionNames: ['import', 'types', 'node'],
+      // 'development' first: every workspace package's exports map carries a
+      // `development` condition pointing at its TypeScript source, so cross-package
+      // `@coa/*` edges resolve to `packages/*/src/**` — the paths the rules above are
+      // written against. Without it they resolve to dist and every cross-package rule
+      // silently goes inert (test/depcruise-canary.test.ts guards this mechanism).
+      conditionNames: ['development', 'import', 'types', 'node'],
     },
   },
 };

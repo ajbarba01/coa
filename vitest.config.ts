@@ -39,6 +39,8 @@ export default defineConfig({
       'packages/*/test/**/*.test.ts',
       'apps/*/src/**/*.test.ts',
       'apps/*/src/**/*.test.tsx',
+      // Repo-level tooling tests (e.g. the dependency-cruiser canary).
+      'test/**/*.test.ts',
     ],
   },
 });

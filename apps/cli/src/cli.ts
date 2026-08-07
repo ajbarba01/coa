@@ -30,6 +30,7 @@ import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
 import { buildSessionDeps } from './session-deps.js';
 import { parseRunArgs, renderPush } from './run-render.js';
+import type { CliIo } from './io.js';
 
 /**
  * The `coa` CLI entrypoint logic. `runCli` serves the read commands a human runs
@@ -43,12 +44,7 @@ import { parseRunArgs, renderPush } from './run-render.js';
  * `coa cap` / `coa flags` / `coa timeline` from another invocation.
  */
 
-export interface CliIo {
-  out: (line: string) => void;
-  err: (line: string) => void;
-  /** Endpoint override (tests); defaults to {@link defaultDaemonPath}. */
-  path?: string;
-}
+export type { CliIo } from './io.js';
 
 /** Map a read command to the JSON-RPC method + params it issues. */
 const READS: Record<string, (args: string[]) => { method: string; params?: RpcParams }> = {
