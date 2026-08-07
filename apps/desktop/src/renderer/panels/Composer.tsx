@@ -480,4 +480,3 @@ function MicButton({ disabled = false }: { disabled?: boolean }): React.JSX.Elem
     </Tooltip>
   );
 }
-
