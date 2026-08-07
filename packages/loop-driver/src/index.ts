@@ -4,7 +4,7 @@
  * OpenAI-compatible API) implements only the {@link CompleteFn} primitive; this
  * package drives the loop, applies the system's only two blocks (the close-gate
  * and the cost-cap), executes every governed
- * tool, and maps each step to a neutral {@link TurnFrame}. Backend-neutral: it
+ * tool, and maps each step to a neutral TurnFrame. Backend-neutral: it
  * imports only `@coa/shared` + `@coa/spi`, no provider SDK.
  */
 
@@ -13,12 +13,6 @@ export type {
   CompletionDelta,
   CompletionResult,
   DriverMessage,
-  LoopToolCall,
   ToolDef,
 } from './complete.js';
-export {
-  runGovernedLoop,
-  toToolDefs,
-  DEFAULT_MAX_ITERATIONS,
-  type GovernedLoopDeps,
-} from './driver.js';
+export { runGovernedLoop } from './driver.js';

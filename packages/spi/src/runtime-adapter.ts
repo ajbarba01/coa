@@ -79,10 +79,8 @@ export type ReminderAt = 'session-start' | 'prompt' | 'post-tool';
  * authority payload delivered at a dictated transcript position — this carries arbitrary text and a
  * provenance tag, not a rule.
  */
-export type DeliveryOrigin = 'user' | 'system';
-
 export interface Delivery {
-  origin: DeliveryOrigin;
+  origin: 'user' | 'system';
   text: string;
 }
 
@@ -112,9 +110,6 @@ export interface SymbolReference {
 /** The governed tool catalogue registered into the loop — the rich, callable shape. */
 export type ToolCatalogue = readonly RegisteredTool[];
 
-/** Where a registered tool's schema sits in the context-token budget: always-loaded vs pulled on demand. */
-export type ToolPartition = 'kernel' | 'on-demand';
-
 /**
  * One governed tool, ready for the adapter to register as an in-process MCP tool.
  * The tool layer (in the core) builds these by wiring its handlers to the live
@@ -129,8 +124,8 @@ export type ToolPartition = 'kernel' | 'on-demand';
 export interface RegisteredTool {
   name: string;
   description: string;
-  /** Schema-budget partition — the adapter marks the kernel set always-loaded, the rest deferred. */
-  partition: ToolPartition;
+  /** Schema-budget partition (always-loaded vs pulled on demand) — the adapter marks the kernel set always-loaded, the rest deferred. */
+  partition: 'kernel' | 'on-demand';
   /** The Zod raw shape handed to the SDK `tool(...)` as the MCP input schema (validate before the handler touches state). */
   inputSchema: ZodRawShape;
   /** The governed, enriched dispatch: validate args → route to the tool handler → enrich the return. */

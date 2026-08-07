@@ -21,7 +21,6 @@ import type { RuntimeUsage } from '@coa/spi';
  * conversation store persists so the transcript round-trips verbatim across turns.
  */
 export type DriverMessage = BackendMessage;
-export type { LoopToolCall };
 
 /** A tool offered to the model — coa-authored name/description + its JSON-schema parameters. */
 export interface ToolDef {
