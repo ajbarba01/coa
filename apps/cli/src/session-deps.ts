@@ -15,6 +15,7 @@ import {
   type DaemonCoreHandle,
   type ModelCacheAccount,
   type SessionDeps,
+  type SessionWiring,
 } from '@coa/core';
 import { providerSchema, type Provider } from '@coa/shared';
 import { createAdapter, fetchModels, sessionStrategy } from './adapter-factory.js';
@@ -39,6 +40,11 @@ export interface DaemonSessionOptions {
   ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
+  /** Resolve a session's subagent-dispatch port (parent = sessionId); absent ⇒ spawning
+   *  unavailable (D85) — the daemon host wires this once `store`/`registry`/the agent
+   *  registry exist, which is after this function returns (see `cli.ts`'s late-bound
+   *  holder). */
+  resolveSpawn?: SessionWiring['resolveSpawn'];
 }
 
 export interface BuiltSession {
@@ -83,6 +89,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
       ),
     }),
     activeAccount,
+    ...(options.resolveSpawn !== undefined ? { resolveSpawn: options.resolveSpawn } : {}),
   });
   const models = new ModelCache({ fetch: fetchModels });
   const modelAccounts = (): ModelCacheAccount[] => activeModelAccounts(registry);

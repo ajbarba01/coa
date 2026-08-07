@@ -98,4 +98,29 @@ describe('composeSessionDeps', () => {
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, deps);
     expect(core.governance.capState().capHit).toBe(true);
   });
+
+  it('passes resolveSpawn through from wiring, unmodified', () => {
+    const resolveSpawn = (sessionId: string) => ({
+      listAgents: () => [],
+      startChild: () => ({ sessionId }),
+    });
+    const deps = composeSessionDeps(realCore(), wiring({ resolveSpawn }));
+    expect(deps.resolveSpawn).toBe(resolveSpawn);
+  });
+
+  it('omits resolveSpawn/catalogueFor/baseCatalogueFor when neither core nor wiring supplies them (D85)', () => {
+    const deps = composeSessionDeps(realCore(), wiring());
+    expect(deps.resolveSpawn).toBeUndefined();
+    expect(deps.catalogueFor).toBeUndefined();
+    expect(deps.baseCatalogueFor).toBeUndefined();
+  });
+
+  it('passes catalogueFor/baseCatalogueFor through from the core', () => {
+    const core = realCore();
+    const catalogueFor = () => [];
+    const baseCatalogueFor = () => [];
+    const deps = composeSessionDeps({ ...core, catalogueFor, baseCatalogueFor }, wiring());
+    expect(deps.catalogueFor).toBe(catalogueFor);
+    expect(deps.baseCatalogueFor).toBe(baseCatalogueFor);
+  });
 });

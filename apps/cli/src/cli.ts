@@ -24,6 +24,7 @@ import {
   type ModelCache,
   type ModelCacheAccount,
   type RpcServer,
+  type StartChildFn,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
@@ -222,9 +223,34 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
 
+  // The agent registry AND `startChild` (session-handlers.ts) both need to exist to
+  // resolve a session's spawn port, but neither does until AFTER `buildSessionDeps`
+  // returns (`registry` below needs `deps.checkpoint`/`releaseWorktree`, so it can't be
+  // built first either — an ordinary composition-root cycle). Broken by a holder:
+  // `startChild` is captured into it once, synchronously, inside the per-connection
+  // handler map below — before any connection can process an RPC call, and therefore
+  // before anything could ever reach a `spawn_agent` dispatch. `agentRegistry` itself
+  // is read directly (a `const` in this same scope; `resolveSpawn` only reads it once
+  // actually invoked, well after the `const` below has initialized).
+  const spawnHolder: { startChild?: StartChildFn } = {};
+
   const { deps, handle, models, modelAccounts } = buildSessionDeps({
     walPath,
     root: process.cwd(),
+    resolveSpawn: (sessionId) => {
+      const startChild = spawnHolder.startChild;
+      if (startChild === undefined) {
+        // Should be unreachable: `startChild` is bound before any connection can
+        // process an RPC call, and no session can exist before that. Loud, never
+        // silent — SC-1 forbids a throw, so this degrades to "spawning unavailable".
+        options.err('coa: spawn requested before startChild was wired — spawning unavailable');
+        return undefined;
+      }
+      return {
+        listAgents: () => agentRegistry.list().agents,
+        startChild: (req) => startChild(sessionId, req),
+      };
+    },
   });
   const consoleHandlers = buildDaemonConsoleHandlers(handle);
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
@@ -287,7 +313,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...agentHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
-    ...buildSessionHandlers(deps, connection, store, registry),
+    ...buildSessionHandlers(deps, connection, store, registry, {
+      listAgents: () => agentRegistry.list().agents,
+      onStartChild: (fn) => {
+        spawnHolder.startChild = fn;
+      },
+    }),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.

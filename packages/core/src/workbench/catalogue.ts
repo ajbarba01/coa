@@ -29,6 +29,13 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
     description: 'lenient localized diff edit (primary)',
   },
   { name: 'apply_patch', partition: 'kernel', description: 'whole-file / multi-hunk patch escape' },
+  {
+    name: 'spawn_agent',
+    partition: 'kernel',
+    description:
+      'start a subagent by name; returns its id immediately — the subagent runs in the ' +
+      'background and its result arrives separately, so do not wait for a report here',
+  },
   // On-demand — pulled in via find_tools/load_tool when needed.
   { name: 'get_piece', partition: 'on-demand', description: 'resolve a reference Knowledge Piece' },
   { name: 'run_checks', partition: 'on-demand', description: 'run the flag pipeline on demand' },

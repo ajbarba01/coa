@@ -1,5 +1,6 @@
 import { packageSummarySchema, pieceSchema, roleSummarySchema } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
+import { TOOL_CATALOGUE } from '../workbench/catalogue.js';
 import {
   STARTER_PACKAGES,
   STARTER_ROLES,
@@ -148,6 +149,25 @@ describe('agent-registry summaries — the picker projections', () => {
       const pkg = STARTER_PACKAGES.find((p) => p.id === id);
       expect(pkg?.toolRefs).toContain('WebSearch');
       expect(pkg?.toolRefs).toContain('WebFetch');
+    }
+  });
+
+  it('grants every catalogue tool through at least one starter package — none is dead on arrival', () => {
+    // A frame's allow-list is the union of the resolved packages' toolRefs (assembleAgent.ts:91),
+    // never the catalogue directly — registering a tool in TOOL_CATALOGUE does not make it
+    // reachable by any agent. Partition (kernel/on-demand) is the D100 schema-budget axis, not
+    // the availability axis, so this deliberately does not require kernel tools to sit in Core
+    // specifically (edit_symbol/apply_patch are kernel yet correctly opt-in-only, via `coding` —
+    // an edit-less role like `researcher` must not gain them). It only asserts that some starter
+    // package grants each tool, catching a catalogue entry no agent configuration can ever reach
+    // (the spawn_agent gap this test was added to catch). One-directional by design: a toolRef
+    // with no catalogue entry (coa-butler's placeholder create_agent/configure_role/list_packages)
+    // is the reverse case and is untouched here.
+    const grantedNames = new Set(STARTER_PACKAGES.flatMap((pkg) => pkg.toolRefs));
+    const catalogueNames = TOOL_CATALOGUE.map((tool) => tool.name);
+    expect(catalogueNames.length).toBeGreaterThan(0);
+    for (const name of catalogueNames) {
+      expect(grantedNames.has(name)).toBe(true);
     }
   });
 });

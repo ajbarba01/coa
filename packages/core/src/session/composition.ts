@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 import type { CapabilityFrame, CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type { RuntimeAdapter, StopDecision, ToolCatalogue } from '@coa/spi';
+import type { SpawnDeps } from '../workbench/spawn.js';
 import type {
   ActiveAccountResolution,
   AssemblePiecesContext,
@@ -52,6 +53,20 @@ export interface DaemonCore {
   catalogue: ToolCatalogue;
   /** M6 — the pure-API catalogue (governance + base tools); used for non-claude providers. */
   baseCatalogue: ToolCatalogue;
+  /**
+   * Build THIS session's own tool catalogue, with `spawn_agent` bound to `sessionId` as
+   * parent — the seam that keeps concurrently-live sessions (a parent and its
+   * already-running child) from racing over which one a spawn belongs to. `buildGovernedTools`
+   * is just closure construction over the same daemon singletons `catalogue` already
+   * closes over, so re-deriving it per session is negligible cost. Absent `spawn` ⇒ the
+   * same tools as `catalogue`, minus a working `spawn_agent` (D85's absent-port floor).
+   * Absent entirely ⇒ `session.ts` falls back to `catalogue` unchanged — a session that
+   * never spawns is byte-identical to before this seam existed.
+   */
+  catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers) — see its doc:
+   *  BOTH catalogues carry `spawn_agent`, and both need this seam covered. */
+  baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
 }
 
 /** The per-session injection points: the backend factory + the not-yet-built worktree/context floors. */
@@ -76,6 +91,12 @@ export interface SessionWiring {
    * provider→strategy maps stay a single source of truth; absent ⇒ per-turn (D85).
    */
   sessionStrategy?: (provider: string) => SessionStrategy;
+  /**
+   * Resolve THIS session's subagent-dispatch port, bound to `sessionId` as the parent a
+   * spawn writes into the child's lineage. Absent ⇒ spawning unavailable for every
+   * session (D85 — byte-identical to before this seam existed).
+   */
+  resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
 }
 
 const EMPTY_FRAME: CapabilityFrame = { allow: [], deny: [] };
@@ -105,5 +126,8 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
       : {}),
     ...(wiring.activeAccount ? { activeAccount: wiring.activeAccount } : {}),
     ...(wiring.sessionStrategy ? { sessionStrategy: wiring.sessionStrategy } : {}),
+    ...(core.catalogueFor ? { catalogueFor: core.catalogueFor } : {}),
+    ...(core.baseCatalogueFor ? { baseCatalogueFor: core.baseCatalogueFor } : {}),
+    ...(wiring.resolveSpawn ? { resolveSpawn: wiring.resolveSpawn } : {}),
   };
 }

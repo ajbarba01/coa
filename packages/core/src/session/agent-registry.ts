@@ -45,6 +45,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       'find_references',
       'why',
       'get_decision',
+      'spawn_agent',
     ],
   },
   {

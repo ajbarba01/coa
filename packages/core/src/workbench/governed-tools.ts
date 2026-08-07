@@ -23,6 +23,7 @@ import {
   why,
   type InspectDeps,
 } from './inspect.js';
+import { sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
 
 /**
  * M6 — the governed tool-dispatch boundary. This is the seam M9 registers into
@@ -52,6 +53,8 @@ export interface GovernedToolDeps {
   base?: BaseToolDeps;
   /** The pure-API web-tool ports; present only when built with includeWebTools. */
   web?: WebToolDeps;
+  /** Subagent dispatch ports; absent ⇒ spawning is not wired for this session. */
+  spawn?: SpawnDeps;
 }
 
 /**
@@ -109,6 +112,24 @@ const SPECS: Record<string, ToolSpec> = {
   why: spec({ target: z.string() }, (a, d) => why(a, d.inspect)),
   get_spec: spec({ ref: z.string() }, (a, d) => getSpec(a, d.inspect)),
   get_decision: spec({ id: z.number() }, (a, d) => getDecision(a, d.inspect)),
+  spawn_agent: spec(
+    { agent: z.string(), description: z.string(), prompt: z.string() },
+    (a, d) => {
+      if (d.spawn !== undefined) return spawnAgent(a, d.spawn);
+      // `a.agent` is model-chosen text with no format guarantee on this branch
+      // either (the port is absent, so nothing has resolved it against the
+      // registry yet) — sanitize before it rides `pointer` back to the model.
+      const safeRef = sanitizeEchoedText(a.agent);
+      return {
+        result: {
+          applied: false,
+          error: { code: 'unavailable', message: 'subagent dispatch is not wired here' },
+        },
+        handle: 'spawn_agent:unavailable',
+        pointer: safeRef,
+      };
+    },
+  ),
 };
 
 /** Validate, dispatch, and enrich one tool call (SC-1: never throws, never denies). */

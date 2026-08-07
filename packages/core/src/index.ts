@@ -269,7 +269,11 @@ export {
 } from './session/agent-registry.js';
 export { AgentRegistry, type LoadedAgents } from './session/agent-defs.js';
 export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
-export { buildSessionHandlers } from './session/session-handlers.js';
+export {
+  buildSessionHandlers,
+  type SpawnSupport,
+  type StartChildFn,
+} from './session/session-handlers.js';
 export { LiveSessionRegistry } from './session/live-registry.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount, type ModelCacheDeps } from './session/model-cache.js';
