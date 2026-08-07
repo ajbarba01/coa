@@ -12,7 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { TextInput } from '../panels/fields.js';
-import { useMockAuth } from '../panels/mockAuth.js';
+import { useAuthStore } from '../panels/authStore.js';
 import { useConsoleState } from './consoleStore.js';
 import { useKeybinds } from './keys.js';
 import { useShell } from './store.js';
@@ -47,8 +47,8 @@ interface SectionSpec {
  *  this row out of the mounted tree while `BrowserPathRow` survives, and that row must not
  *  be left reading an unhydrated store. */
 export function IsolatedBrowserRow(): React.JSX.Element {
-  const session = useMockAuth((s) => s.browserSession);
-  const setOn = useMockAuth((s) => s.setIsolatedBrowserLogins);
+  const session = useAuthStore((s) => s.browserSession);
+  const setOn = useAuthStore((s) => s.setIsolatedBrowserLogins);
   return (
     <span className="flex flex-none items-center gap-2.5">
       {!session.available && <span className="font-mono text-meta text-s7">No browser found</span>}
@@ -64,8 +64,8 @@ export function IsolatedBrowserRow(): React.JSX.Element {
 /** The binary override, prefilled from detection — an override is a correction, never a
  *  required setup step. Blank clears it back to auto-detection. */
 export function BrowserPathRow(): React.JSX.Element {
-  const session = useMockAuth((s) => s.browserSession);
-  const setPath = useMockAuth((s) => s.setBrowserPath);
+  const session = useAuthStore((s) => s.browserSession);
+  const setPath = useAuthStore((s) => s.setBrowserPath);
   const resolved = session.path ?? session.detectedPath ?? '';
   const [value, setValue] = useState(resolved);
   // Re-seed when detection or the stored override changes underneath the field.
@@ -105,8 +105,8 @@ export function BrowserPathRow(): React.JSX.Element {
  * off, and the auth panel is organized by account row (AUTH-1).
  */
 export function ReclaimProfilesRow(): React.JSX.Element {
-  const reclaimable = useMockAuth((s) => s.browserSession.reclaimable);
-  const reclaim = useMockAuth((s) => s.reclaimBrowserProfiles);
+  const reclaimable = useAuthStore((s) => s.browserSession.reclaimable);
+  const reclaim = useAuthStore((s) => s.reclaimBrowserProfiles);
   const [open, setOpen] = useState(false);
   const run = (names: string[]): void => void reclaim(names).catch(() => {});
 
@@ -220,7 +220,7 @@ export function SettingsDialog(): React.JSX.Element {
   // present whenever a row could be — the read must not depend on which row survives.
   useEffect(() => {
     if (!open) return;
-    void useMockAuth
+    void useAuthStore
       .getState()
       .hydrate()
       .catch(() => {});

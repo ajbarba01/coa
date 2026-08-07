@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Range } from './mockUsage.js';
+import type { Range } from './format.js';
 
 /**
  * The auth/usage surfaces' own chrome state.

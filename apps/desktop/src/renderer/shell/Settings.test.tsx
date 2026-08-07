@@ -2,8 +2,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useMockAuth } from '../panels/mockAuth.js';
-import { makeState } from '../panels/fixtures.js';
+import { useAuthStore } from '../panels/authStore.js';
+import { makeState } from '../testing/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import {
   BrowserPathRow,
@@ -14,7 +14,7 @@ import {
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
-const initialAuth = useMockAuth.getState();
+const initialAuth = useAuthStore.getState();
 
 function open(setSettings = vi.fn()): ReturnType<typeof vi.fn> {
   publishConsoleState(makeState({ actions: { setSettings } }));
@@ -26,7 +26,7 @@ function open(setSettings = vi.fn()): ReturnType<typeof vi.fn> {
 beforeEach(() => {
   useShell.setState(initialShell, true);
   useConsoleState.setState(undefined, true);
-  useMockAuth.setState(initialAuth, true);
+  useAuthStore.setState(initialAuth, true);
 });
 
 describe('SettingsDialog', () => {
@@ -71,7 +71,7 @@ describe('SettingsDialog', () => {
 describe('login settings rows', () => {
   it('reflects the daemon toggle and flips it', async () => {
     const setIsolated = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({
+    useAuthStore.setState({
       browserSession: { enabled: false, available: true, reclaimable: [] },
       setIsolatedBrowserLogins: setIsolated,
     });
@@ -84,7 +84,7 @@ describe('login settings rows', () => {
    *  the ordinary state is "none" — and the row stays visible saying so, rather than hiding
    *  and leaving the concept undiscoverable (profiles share one user-data-dir; orphaned jars are reclaimed only on request). */
   it('says none when nothing is reclaimable, rather than disappearing', () => {
-    useMockAuth.setState({
+    useAuthStore.setState({
       browserSession: { enabled: true, available: true, reclaimable: [] },
     });
     render(<ReclaimProfilesRow />);
@@ -93,7 +93,7 @@ describe('login settings rows', () => {
 
   it('lists jars behind a review action and deletes one by name', async () => {
     const reclaim = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({
+    useAuthStore.setState({
       browserSession: {
         enabled: true,
         available: true,
@@ -110,7 +110,7 @@ describe('login settings rows', () => {
 
   it('offers one action for the whole list', async () => {
     const reclaim = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({
+    useAuthStore.setState({
       browserSession: { enabled: true, available: true, reclaimable: ['a-1a2b3c', 'b-4d5e6f'] },
       reclaimBrowserProfiles: reclaim,
     });
@@ -121,7 +121,7 @@ describe('login settings rows', () => {
   });
 
   it('says so when no browser was found instead of hiding the control', () => {
-    useMockAuth.setState({ browserSession: { enabled: true, available: false, reclaimable: [] } });
+    useAuthStore.setState({ browserSession: { enabled: true, available: false, reclaimable: [] } });
     render(<IsolatedBrowserRow />);
     expect(screen.getByText(/no browser found/i)).toBeTruthy();
     expect(screen.getByRole('switch')).toBeTruthy();
@@ -129,7 +129,7 @@ describe('login settings rows', () => {
 
   it('prefills the override from detection and commits an edit', async () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({
+    useAuthStore.setState({
       browserSession: {
         enabled: true,
         available: true,
@@ -148,7 +148,7 @@ describe('login settings rows', () => {
 
   it('does not pin auto-detection as an override when Enter is pressed without editing', async () => {
     const setPath = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({
+    useAuthStore.setState({
       browserSession: {
         enabled: true,
         available: true,
@@ -169,7 +169,7 @@ describe('login settings rows', () => {
     // mounted, so it never sees the daemon's real answer — a blank field must not read as
     // "the user wants no override" and blindly commit that over what the daemon has.
     const setPath = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({ setBrowserPath: setPath });
+    useAuthStore.setState({ setBrowserPath: setPath });
     render(<BrowserPathRow />);
     const field = screen.getByLabelText('Browser');
     expect((field as HTMLInputElement).value).toBe('');
@@ -183,7 +183,7 @@ describe('login settings rows', () => {
     // mounted tree; the dialog is the one thing guaranteed present regardless of the
     // query, so it is the one that must own the read (profile cleanup only ever happens at the user's explicit request).
     const hydrate = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({ hydrate });
+    useAuthStore.setState({ hydrate });
     render(<IsolatedBrowserRow />);
     await new Promise((r) => setTimeout(r, 0));
     expect(hydrate).not.toHaveBeenCalled();
@@ -191,7 +191,7 @@ describe('login settings rows', () => {
 
   it('hydrates the browser session from the dialog itself on open', async () => {
     const hydrate = vi.fn().mockResolvedValue(undefined);
-    useMockAuth.setState({ hydrate });
+    useAuthStore.setState({ hydrate });
     useShell.getState().setSettingsOpen(false);
     publishConsoleState(makeState({ actions: { setSettings: vi.fn() } }));
     render(<SettingsDialog />);

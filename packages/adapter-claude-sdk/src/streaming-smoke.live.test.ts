@@ -29,7 +29,7 @@ import {
  * the running turn (steering), (d) aborts promptly on interrupt, and (e) terminates
  * cleanly (no hang, no leak) once the input iterable closes.
  *
- * Gated exactly like `packages/core/src/workbench/web/web-tools.smoke.test.ts`:
+ * Gated exactly like `packages/core/src/workbench/web/web-tools.live.test.ts`:
  * `COA_LIVE` unset ⇒ the whole describe is skipped, so the default
  * `pnpm vitest run packages/adapter-claude-sdk` stays green with no account and CI
  * never runs it. Spends real subscription tokens — keep every live prompt tiny.

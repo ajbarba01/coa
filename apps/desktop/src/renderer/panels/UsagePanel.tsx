@@ -14,21 +14,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { NO_DRAG } from '../shell/appRegion.js';
 import { useShell } from '../shell/store.js';
 import { RISE, SLIP_MOVE } from './motion.js';
-import { addedProviders, chainPositions, credentialsOf, useMockAuth } from './mockAuth.js';
+import { addedProviders, chainPositions, credentialsOf, useAuthStore } from './authStore.js';
+import { RANGES, RANGE_LABEL, usd, type Range } from './format.js';
 import {
   LIMITS_UNREADABLE,
-  RANGES,
-  RANGE_LABEL,
   accountStackedUsage,
   accountUsage,
   attentionItems,
   serviceUsage,
-  usd,
   workspaceUsage,
   type AccountUsage,
   type AttentionItem,
   type DaySpend,
-  type Range,
   type ServiceUsage,
 } from './mockUsage.js';
 import { providerById, type ProviderDescriptor } from './providers.js';
@@ -79,7 +76,7 @@ export function healthWords(usage: ServiceUsage, enabled: boolean): string {
 
 /** The accounts, as usage — one hook, so the strip, the canvas and the HUD share a reading. */
 function useAccounts(range: Range): AccountUsage[] {
-  const credentials = useMockAuth((s) => s.credentials);
+  const credentials = useAuthStore((s) => s.credentials);
   return useMemo(
     () =>
       credentials
@@ -100,8 +97,8 @@ export function UsageStrip(): React.JSX.Element {
   const range = useUsageUi((s) => s.range);
   const opened = useUsageUi((s) => s.opened);
   const open = useUsageUi((s) => s.open);
-  const added = useMockAuth((s) => s.added);
-  const credentials = useMockAuth((s) => s.credentials);
+  const added = useAuthStore((s) => s.added);
+  const credentials = useAuthStore((s) => s.credentials);
   const accounts = useAccounts(range);
   const account =
     view === 'providers' ? accounts.find((a) => a.credentialId === opened) : undefined;
@@ -217,7 +214,7 @@ export function UsageSurface(): React.JSX.Element {
   // must not depend on the user having visited auth first (idempotent, mirrors AuthSurface).
   // Advisory by design: a failed read degrades to whatever the store already held.
   useEffect(() => {
-    void useMockAuth
+    void useAuthStore
       .getState()
       .hydrate()
       .catch(() => {});
@@ -274,7 +271,7 @@ function ProvidersOverview({
   const setRange = useUsageUi((s) => s.setRange);
   const scopes = useUsageUi((s) => s.scopes);
   const toggleScope = useUsageUi((s) => s.toggleScope);
-  const added = useMockAuth((s) => s.added);
+  const added = useAuthStore((s) => s.added);
 
   // Three meters + an identity + a figure need room. Below that, the row shows the ONE meter
   // that matters (the closest to its limit) rather than three illegible ones stacked on top of
@@ -605,9 +602,9 @@ function AccountRow({
 /** Key health is a service's only real meter — so this view leads with the pools, and every
  *  row is a door to its keys on auth (a service has no dashboard of its own). */
 function ToolsView(): React.JSX.Element {
-  const added = useMockAuth((s) => s.added);
-  const credentials = useMockAuth((s) => s.credentials);
-  const chains = useMockAuth((s) => s.chains);
+  const added = useAuthStore((s) => s.added);
+  const credentials = useAuthStore((s) => s.credentials);
+  const chains = useAuthStore((s) => s.chains);
   const services = addedProviders(added, 'service');
 
   if (services.length === 0) {
@@ -640,8 +637,8 @@ function ServiceRow({
   usage: ServiceUsage;
   positions: string[];
 }): React.JSX.Element {
-  const enabled = useMockAuth((s) => s.enabled[provider.id] ?? true);
-  const all = useMockAuth((s) => s.credentials);
+  const enabled = useAuthStore((s) => s.enabled[provider.id] ?? true);
+  const all = useAuthStore((s) => s.credentials);
   const credentials = credentialsOf(all, provider.id);
   const setSurface = useShell((s) => s.setSurface);
   const select = useAuthUi((s) => s.select);

@@ -14,8 +14,8 @@ import {
   selectAgentsVm,
 } from './AgentsPanel.js';
 import { useAgentsUi } from './agentsUi.js';
-import { makeState, type StateOverrides } from './fixtures.js';
-import { MOCK_AGENTS } from './mockAgents.js';
+import { makeState, type StateOverrides } from '../testing/fixtures.js';
+import { MOCK_AGENTS } from '../testing/mockAgents.js';
 import { PKGS } from './resolvedSet.test.js';
 import { publishConsoleState, useConsoleState } from '../shell/consoleStore.js';
 import type {

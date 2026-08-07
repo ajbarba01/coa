@@ -59,7 +59,7 @@ const READS: Record<string, (args: string[]) => { method: string; params?: RpcPa
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   const [command, ...args] = argv;
   if (command === undefined) {
-    io.err('usage: coa <run|auth|websearch|webfetch|cap|flags|timeline> [args]');
+    io.err('usage: coa <serve|run|auth|websearch|webfetch|cap|flags|timeline> [args]');
     return 1;
   }
   if (command === 'auth') return runAuthCommand(args, io);

@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { TimelineSurface } from './TimelinePanel.js';
-import { makeState } from './fixtures.js';
+import { makeState } from '../testing/fixtures.js';
 import type { ConsoleState } from './state.js';
 
 const stateWith = (timeline: ConsoleState['data']['timeline']): ConsoleState =>

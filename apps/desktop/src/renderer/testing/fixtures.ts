@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
-import type { ConsoleActions, ConsoleState } from './state.js';
-import { initialState } from './state.js';
+import type { ConsoleActions, ConsoleState } from '../panels/state.js';
+import { initialState } from '../panels/state.js';
 
 /** Inert actions for test states; spread and override the ones under test. */
 export const NOOP_ACTIONS: ConsoleActions = {

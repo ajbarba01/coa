@@ -15,8 +15,8 @@ import {
   toGovernedFrame,
 } from './ChatPanel.js';
 import { useShell } from '../shell/store.js';
-import { makeState, type StateOverrides } from './fixtures.js';
-import { MOCK_AGENTS, MOCK_SESSIONS } from './mockAgents.js';
+import { makeState, type StateOverrides } from '../testing/fixtures.js';
+import { MOCK_AGENTS, MOCK_SESSIONS } from '../testing/mockAgents.js';
 import type { ConsoleState } from './state.js';
 
 const NOW = '2026-07-01T16:00:00Z';

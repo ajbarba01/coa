@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/toolRegistry.ts
 import {
   Bot,
   Braces,

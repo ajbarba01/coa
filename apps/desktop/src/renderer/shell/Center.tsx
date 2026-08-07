@@ -70,8 +70,8 @@ function SurfaceHost({
       return <FlagsSurface state={state} />;
     case 'timeline':
       return <TimelineSurface state={state} />;
-    // Auth and Usage are mock-fed today (the renderer owns their data until the four
-    // missing RPC verbs land — see mockAuth.ts), so they take no ConsoleState.
+    // Auth renders from the live daemon-fed store (authStore.ts); Usage is still
+    // deliberately mock-fed (roadmap-tracked). Both own their data, so no ConsoleState.
     case 'auth':
       return <AuthSurface />;
     case 'usage':

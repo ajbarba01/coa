@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/ToolDiffView.tsx
 import type { DiffLine } from './toolDiff.js';
 import { SyntaxText } from './syntaxTheme.js';
 import { cx } from '@coa/console-kit';

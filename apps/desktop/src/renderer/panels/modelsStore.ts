@@ -11,7 +11,7 @@ import {
 } from '../console.js';
 
 /**
- * The model editor's data, LIVE from the daemon (the mockAuth pattern): hydrate
+ * The model editor's data, LIVE from the daemon (the authStore pattern): hydrate
  * reads `modelCatalog`; every write calls its RPC verb and reprojects the
  * returned view — the store never computes lists itself. After a write it also
  * pokes the controller's `loadModels`, because the effective picker feed

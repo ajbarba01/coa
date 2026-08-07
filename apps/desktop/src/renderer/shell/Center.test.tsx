@@ -2,8 +2,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../panels/fixtures.js';
-import { MOCK_AGENTS } from '../panels/mockAgents.js';
+import { makeState } from '../testing/fixtures.js';
+import { MOCK_AGENTS } from '../testing/mockAgents.js';
 import { buildRailItems, Center } from './Center.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';

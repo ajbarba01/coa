@@ -3,8 +3,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeedView } from '@coa/console-viewmodel';
-import { makeState } from '../panels/fixtures.js';
-import { useMockAuth } from '../panels/mockAuth.js';
+import { makeState } from '../testing/fixtures.js';
+import { useAuthStore } from '../panels/authStore.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { Nav, critCount } from './Nav.js';
 import { useShell } from './store.js';
@@ -142,7 +142,7 @@ describe('Nav', () => {
     // NOTHING (indicator law), so assert the absence of a count rather than the row's
     // exact text, which is copy and free to change.
     expect(within(nav).getByRole('button', { name: /auth/i }).textContent).not.toMatch(/\d/);
-    useMockAuth.setState({
+    useAuthStore.setState({
       credentials: [
         {
           id: 'claude:a',

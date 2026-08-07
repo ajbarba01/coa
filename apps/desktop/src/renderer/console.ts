@@ -117,7 +117,7 @@ export interface ConsoleBridge {
 
 /**
  * The auth surface's RPC callers. Unlike the rest of this module, these don't flow through
- * `startConsole`'s injected `ConsoleBridge` — the auth store (`panels/mockAuth.ts`) is a
+ * `startConsole`'s injected `ConsoleBridge` — the auth store (`panels/authStore.ts`) is a
  * standalone zustand store (shared by the auth surface, the usage surface, and the nav HUD),
  * not part of the single `ConsoleState` pipeline, so it reaches the preload bridge directly.
  * Exported (rather than inlined in the store) so a test can `vi.mock` this module and hand

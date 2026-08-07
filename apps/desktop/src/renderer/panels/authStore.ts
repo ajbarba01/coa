@@ -64,7 +64,7 @@ export interface Credential {
   profileShared?: boolean;
 }
 
-export interface MockAuthState {
+export interface AuthState {
   /** Providers the user has ADDED, in order. Empty ⇒ the surface is its own empty state. */
   added: string[];
   credentials: Credential[];
@@ -137,8 +137,8 @@ function toCredential(c: AuthView['credentials'][number]): Credential {
 
 /** Same omission discipline as {@link toCredential}, applied to the nested
  *  `browserSession` block's own optional fields. */
-function toBrowserSession(b: AuthView['browserSession']): MockAuthState['browserSession'] {
-  const session: MockAuthState['browserSession'] = {
+function toBrowserSession(b: AuthView['browserSession']): AuthState['browserSession'] {
+  const session: AuthState['browserSession'] = {
     enabled: b.enabled,
     available: b.available,
     reclaimable: b.reclaimable,
@@ -151,7 +151,7 @@ function toBrowserSession(b: AuthView['browserSession']): MockAuthState['browser
 /** Reprojects a daemon `AuthView` onto the store — the one place a write action's result
  *  becomes state, so every action applies it the same way. */
 const apply =
-  (set: (partial: Partial<MockAuthState>) => void) =>
+  (set: (partial: Partial<AuthState>) => void) =>
   (view: AuthView): void =>
     set({
       added: view.added,
@@ -162,7 +162,7 @@ const apply =
       browserSession: toBrowserSession(view.browserSession),
     });
 
-export const useMockAuth = create<MockAuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   added: [],
   credentials: [],
   activeByProvider: {},

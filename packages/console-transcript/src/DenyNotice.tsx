@@ -13,7 +13,7 @@ export interface DenyNoticeProps {
 }
 
 /** Caps label + the two presentational ways-forward per deny kind. Wired to no
- *  navigation here (console-ui has no router seam) — the surfaces they name
+ *  navigation here (this package has no router seam) — the surfaces they name
  *  (settings/budget, cost, flags, timeline) are a later task's concern. */
 const DENY_COPY: Record<DenyKind, { label: string; ways: { act: string; hint: string }[] }> = {
   'cost-cap': {

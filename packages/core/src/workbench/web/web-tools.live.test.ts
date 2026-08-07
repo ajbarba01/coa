@@ -3,9 +3,18 @@ import { makeParallelSearch } from './parallel.js';
 import { makeFirecrawlFetch, makeFirecrawlSearch } from './firecrawl.js';
 import { makeTavilySearch, makeTavilyFetch } from './tavily.js';
 
-const hasKey = !!process.env.PARALLEL_API_KEY;
-const hasFirecrawl = !!process.env.FIRECRAWL_KEY_1;
-const hasTavily = !!process.env.TAVILY_KEY_1;
+/**
+ * Live network smokes against the real web providers. Gated like every other
+ * `*.live.test.ts`: `COA_LIVE` unset ⇒ every describe is skipped, so a plain
+ * `pnpm test` stays off the network; each provider additionally needs its own
+ * key var to run.
+ *
+ *   COA_LIVE=1 pnpm vitest run packages/core/src/workbench/web/web-tools.live.test.ts
+ */
+const live = process.env.COA_LIVE === '1';
+const hasKey = live && !!process.env.PARALLEL_API_KEY;
+const hasFirecrawl = live && !!process.env.FIRECRAWL_KEY_1;
+const hasTavily = live && !!process.env.TAVILY_KEY_1;
 
 describe.skipIf(!hasKey)('web tools live smoke', () => {
   it('WebSearch returns real hits from Parallel', async () => {

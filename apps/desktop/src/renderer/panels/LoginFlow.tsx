@@ -5,7 +5,7 @@ import type { LoginSnapshot } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
 import { TextInput } from './fields.js';
 import { useLogin } from './loginStore.js';
-import { useMockAuth, type Credential } from './mockAuth.js';
+import { useAuthStore, type Credential } from './authStore.js';
 import { RISE, SLIP_SWIFT } from './motion.js';
 import type { ProviderDescriptor } from './providers.js';
 
@@ -129,7 +129,7 @@ function EmailStep({
   credentialId?: string | undefined;
 }): React.JSX.Element {
   const setLoginEmailFor = useShell((s) => s.setLoginEmailFor);
-  const isolated = useMockAuth((s) => s.browserSession.enabled && s.browserSession.available);
+  const isolated = useAuthStore((s) => s.browserSession.enabled && s.browserSession.available);
   const [email, setEmail] = useState('');
   const valid = looksLikeEmail(email);
 

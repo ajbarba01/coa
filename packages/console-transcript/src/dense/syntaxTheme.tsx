@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/syntaxTheme.ts
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import bash from 'react-syntax-highlighter/dist/esm/languages/hljs/bash';
 import css from 'react-syntax-highlighter/dist/esm/languages/hljs/css';

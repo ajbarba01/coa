@@ -9,7 +9,7 @@ import {
 } from './console.js';
 import type { AgentFile, AgentSummary, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleState } from './panels/state.js';
-import { MOCK_AGENTS } from './panels/mockAgents.js';
+import { MOCK_AGENTS } from './testing/mockAgents.js';
 
 /** A daemon-backed session + its persisted transcript, fed through the fake bridge. */
 const FAKE_SESSIONS = [

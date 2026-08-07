@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/ToolCard.tsx
 import { useState } from 'react';
 import { Tooltip, cx } from '@coa/console-kit';
 import { usePaneOverlay } from '@coa/console-kit';

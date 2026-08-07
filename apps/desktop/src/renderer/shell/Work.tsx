@@ -1,6 +1,6 @@
 import { groupSessionTree, sessionGroupFor } from '@coa/console-viewmodel';
 import { CapsLabel, cx, StatusDot, Tooltip } from '@coa/console-kit';
-import { usd } from '../panels/mockUsage.js';
+import { usd } from '../panels/format.js';
 import { DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';

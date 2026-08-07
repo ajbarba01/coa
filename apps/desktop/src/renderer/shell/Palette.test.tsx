@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../panels/fixtures.js';
+import { makeState } from '../testing/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { Palette } from './Palette.js';
 import { useShell } from './store.js';

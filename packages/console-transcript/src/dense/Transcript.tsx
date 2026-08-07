@@ -666,7 +666,7 @@ export function foldToolFrames(frames: TranscriptFrame[]): TranscriptFrame[] {
 }
 
 /** Pure: seconds elapsed since `sinceMs`, formatted for the working footer's counter.
- *  Mirrors `ChatPanel`'s `formatElapsed` (kept local — console-ui does not depend on
+ *  Mirrors `ChatPanel`'s `formatElapsed` (kept local — this package does not depend on
  *  the desktop app). */
 function formatWorkingElapsed(sinceMs: number, nowMs: number): string {
   return `${Math.floor((nowMs - sinceMs) / 1000)}s`;
