@@ -50,8 +50,6 @@ export interface DaemonCoreOptions {
   walPath: string;
   /** The worktree root for git operations; defaults to the process cwd. */
   root?: string;
-  /** The SQLite projection path; defaults to in-memory. */
-  projectionPath?: string;
   /** The API-route hard ceiling in USD; omitted ⇒ subscription model (no ceiling). */
   ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
@@ -75,10 +73,7 @@ export interface DaemonCoreHandle {
 
 /** Construct the daemon singletons and bind them into a {@link DaemonCore}. */
 export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
-  const kernel = new ChangeKernel({
-    walPath: options.walPath,
-    ...(options.projectionPath !== undefined ? { projectionPath: options.projectionPath } : {}),
-  });
+  const kernel = new ChangeKernel({ walPath: options.walPath });
   const governance = new Governance({
     ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),

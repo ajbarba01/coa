@@ -38,12 +38,9 @@ import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 import { Timeline, type Checkpoint } from './checkpoint.js';
 
-const PROJECTOR_VERSION = 1;
-
 export interface ChangeKernelOptions {
   walPath: string;
   worktree?: string;
-  projectionPath?: string;
 }
 
 /**
@@ -84,7 +81,7 @@ export class ChangeKernel {
   constructor(options: ChangeKernelOptions) {
     this.worktree = options.worktree ?? 'main';
     this.wal = new Wal(options.walPath);
-    this.projection = new ProjectionDb(options.projectionPath ?? ':memory:', PROJECTOR_VERSION);
+    this.projection = new ProjectionDb();
     for (const extractor of STARTER_EXTRACTORS) this.extractors.register(extractor);
 
     for (const frame of this.wal.read().frames) {

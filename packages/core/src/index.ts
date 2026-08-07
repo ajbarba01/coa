@@ -261,7 +261,6 @@ export {
   type DaemonCoreOptions,
   type DaemonCoreHandle,
 } from './session/daemon.js';
-export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
 export { type Checkpoint } from './checkpoint.js';
 export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
