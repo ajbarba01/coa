@@ -2,7 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CapabilitySet, NeutralConfig, Push, RpcNotification, TurnFrame } from '@coa/shared';
+import type {
+  AgentSummary,
+  CapabilitySet,
+  NeutralConfig,
+  Push,
+  RpcNotification,
+  TurnFrame,
+} from '@coa/shared';
 import {
   barebonesProfile,
   type BackendConfig,
@@ -12,11 +19,12 @@ import {
   type RuntimeUsage,
   type StopPredicate,
 } from '@coa/spi';
-import type { SessionAdapterInit, SessionDeps } from './session.js';
-import { buildSessionHandlers } from './session-handlers.js';
+import type { AssemblePiecesContext, SessionAdapterInit, SessionDeps } from './session.js';
+import { buildSessionHandlers, type StartChildFn } from './session-handlers.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 import { configHashOf } from './prompt-freeze.js';
 import { LiveSessionRegistry } from './live-registry.js';
+import { dispatch } from '../rpc/router.js';
 
 const NEUTRAL: NeutralConfig = {
   prefixHead: [],
@@ -34,10 +42,6 @@ const SANDBOX: CapabilitySet = {
 
 /** A fake backend that streams the configured frames through `onTurn`, then settles. */
 class FrameAdapter implements RuntimeAdapter {
-  /** Set by the `steerable` mode once `init.drainSteer` is consulted (test observation point). */
-  drained: readonly string[] = [];
-  /** Set by the `steerable` mode once `init.drainQueuedSteer` is consulted (test observation point). */
-  queueDrained: readonly string[] = [];
   /** Set by the `steerable` mode once `init.drainDeliveries` is consulted (test observation point). */
   deliveryDrained: readonly Delivery[] = [];
 
@@ -57,9 +61,9 @@ class FrameAdapter implements RuntimeAdapter {
      */
     readonly abortable = false,
     /**
-     * Model the pure-API driver's safe-boundary steer drain: yield once (so a
+     * Model the pure-API driver's safe-boundary delivery drain: yield once (so a
      * test can call `steerSession` in the gap) before consulting
-     * `init.drainSteer`, recording what it drained onto `this.drained`.
+     * `init.drainDeliveries`, recording what it drained onto `this.deliveryDrained`.
      */
     readonly steerable = false,
     /**
@@ -106,8 +110,6 @@ class FrameAdapter implements RuntimeAdapter {
     }
     if (this.steerable) {
       await new Promise((r) => setTimeout(r, 0));
-      this.drained = this.init.drainSteer?.() ?? [];
-      this.queueDrained = this.init.drainQueuedSteer?.() ?? [];
       this.deliveryDrained = this.init.drainDeliveries?.() ?? [];
       for (const frame of this.frames) this.init.onTurn?.(frame);
       this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
@@ -242,6 +244,11 @@ function connection(): {
 
 const pushesOf = (notes: RpcNotification[]): Push[] => notes.map((n) => n.params as Push);
 
+/** Every turn frame pushed, in push order — the read-time view of the append-only log. */
+function framesOf(pushes: RpcNotification[]): TurnFrame[] {
+  return pushesOf(pushes).flatMap((p) => (p.kind === 'turn' ? [p.frame] : []));
+}
+
 /** Let every currently-pending microtask (incl. the loop's post-turn `idle` push,
  *  which lands one hop after the turn's own `done`/`error`/`interrupted`) settle. */
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
@@ -352,8 +359,8 @@ describe('buildSessionHandlers — createSession over RPC', () => {
   });
 
   it('emits a governed deny frame through the same path as any other frame', async () => {
-    // A deny is NOT an error, so the barge-in error-suppression must not swallow it, and
-    // `stamp` must pass it through unreshaped. If either is false, M8 needs a fix.
+    // A deny is NOT an error, so no error-suppression path may swallow it, and `stamp`
+    // must pass it through unreshaped. If either is false, M8 needs a fix.
     const conn = connection();
     const handlers = buildSessionHandlers(
       deps([{ t: 'deny', denyKind: 'cost-cap', reason: 'capped' }]),
@@ -1048,7 +1055,11 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
   });
 
-  it('queues a steer turn the pure-API driver drains at its next safe boundary', async () => {
+  it('routes a per-turn steer through steerSession into the delivery queue, not a mode buffer', async () => {
+    // There is only one steer left: a running per-turn backend has no held-open sink, so
+    // `steerSession` pushes straight onto `session.deliveries` — the same queue the
+    // backend's own `drainDeliveries` hook reaches at its next round trip. Nothing routes
+    // through `control.steer`/`control.queueSteer` anymore (those buffers are gone).
     const conn = connection();
     const adapters: FrameAdapter[] = [];
     const handlers = buildSessionHandlers(
@@ -1059,45 +1070,12 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     );
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
-    // `barge-in` mode is this test's intent: a next-safe-boundary inject into the
-    // pure-API `control.steer` buffer that `drainSteer` reads (`queue` mode instead
-    // routes to `control.queueSteer`, drained at the turn-end boundary — Task 4).
     expect(
-      await handlers['steerSession']!.handle({
-        id: sessionId,
-        text: 'also fix the tests',
-        mode: 'barge-in',
-      }),
-    ).toEqual({
-      steered: true,
-    });
+      await handlers['steerSession']!.handle({ id: sessionId, text: 'also fix the tests' }),
+    ).toEqual({ steered: true });
     await conn.settled;
 
-    expect(adapters[0]?.drained).toEqual(['also fix the tests']);
-  });
-
-  it('routes a queue-mode steer to control.queueSteer, drained via drainQueuedSteer at the close-gate boundary', async () => {
-    const conn = connection();
-    const adapters: FrameAdapter[] = [];
-    const handlers = buildSessionHandlers(
-      depsSteerable(adapters),
-      conn,
-      undefined,
-      new LiveSessionRegistry(),
-    );
-    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
-
-    // The default mode (no explicit `mode`) is `queue` — this is the regression-window
-    // case (Task 4): a plain steerSession() call must land in `control.queueSteer` and
-    // actually be drained, not silently dropped.
-    expect(await handlers['steerSession']!.handle({ id: sessionId, text: 'also do X' })).toEqual({
-      steered: true,
-    });
-    await conn.settled;
-
-    expect(adapters[0]?.queueDrained).toEqual(['also do X']);
-    // It must NOT have been routed to the barge-in buffer.
-    expect(adapters[0]?.drained).toEqual([]);
+    expect(adapters[0]?.deliveryDrained).toEqual([{ origin: 'user', text: 'also fix the tests' }]);
   });
 
   it("hands the per-turn adapter the session's delivery drain, so a mid-loop delivery reaches a pure-API loop", async () => {
@@ -1117,6 +1095,27 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     expect(adapters[0]?.deliveryDrained).toEqual([
       { origin: 'user', text: 'check the schema first' },
       { origin: 'system', text: 'child agent finished' },
+    ]);
+  });
+
+  it('writes a per-turn delivery line once, in the delivered order', async () => {
+    const conn = connection();
+    const adapters: FrameAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, registry);
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    const session = registry.get(sessionId)!;
+    session.deliveries.push({ origin: 'user', text: 'check the schema first' });
+    session.deliveries.push({ origin: 'system', text: 'child agent finished' });
+    await conn.settled;
+    await flush();
+
+    const written = framesOf(conn.pushes).flatMap((f) =>
+      f.t === 'text' && (f.role === 'user' || f.role === 'system') ? [[f.role, f.text]] : [],
+    );
+    expect(written).toEqual([
+      ['user', 'check the schema first'],
+      ['system', 'child agent finished'],
     ]);
   });
 
@@ -1141,6 +1140,47 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     );
     expect(await handlers['steerSession']!.handle({ id: 'nope', text: 'hi' })).toEqual({
       steered: false,
+    });
+  });
+
+  it('rejects a whitespace-only steer, not just a bare empty string', async () => {
+    // The console's own composer trims before sending (console.ts), so this only guards
+    // a caller other than the shipped console — but a whitespace-only steer would otherwise
+    // be recorded as a visible blank "you" turn.
+    const conn = connection();
+    const adapters: FrameAdapter[] = [];
+    const handlers = buildSessionHandlers(
+      depsSteerable(adapters),
+      conn,
+      undefined,
+      new LiveSessionRegistry(),
+    );
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+
+    expect(await handlers['steerSession']!.handle({ id: sessionId, text: '   ' })).toEqual({
+      steered: false,
+    });
+    await conn.settled;
+
+    expect(adapters[0]?.deliveryDrained).toEqual([]);
+  });
+
+  it('strips an unknown mode key instead of rejecting it, since there is only one steer', () => {
+    const handlers = buildSessionHandlers(
+      deps([]),
+      connection(),
+      undefined,
+      new LiveSessionRegistry(),
+    );
+    // Asserted on the SCHEMA, not through `.handle()`: `rpcMethod` is a pure type cast and all
+    // Zod validation happens in `dispatch()`, so a direct `.handle()` call proves nothing here.
+    // Not `.strict()`: an older console build still sending `mode` (a version-skew straggler)
+    // must degrade to an ordinary steer, never a rejected RPC call.
+    expect(
+      handlers['steerSession']!.params?.parse({ id: 's', text: 't', mode: 'barge-in' }),
+    ).toEqual({
+      id: 's',
+      text: 't',
     });
   });
 });
@@ -1535,6 +1575,360 @@ class HeldOpenAdapter implements RuntimeAdapter {
   }
 }
 
+/**
+ * A held-open adapter whose turn is GENUINELY still running when the test steers: it emits
+ * `tool_use`, parks on `toolRunning` (the test resolves it), drains deliveries where the Claude
+ * adapter's PostToolUse hook drains them — BEFORE the tool_result reaches core — and only then
+ * emits `tool_result` and the boundary. Parking matters: a fixture that completes inside one
+ * microtask burst exercises an idle turn while claiming to test a running one.
+ */
+class OpenToolHeldAdapter implements RuntimeAdapter {
+  readonly consumed: string[] = [];
+  /** Resolved by the test once its steer has been pushed onto the delivery queue. */
+  release: () => void = () => {};
+  readonly toolRunning: Promise<void>;
+  /** The deliveries this adapter drained, in drain order (test observation point). */
+  deliveryDrained: readonly Delivery[] = [];
+
+  constructor(readonly init: SessionAdapterInit) {
+    this.toolRunning = new Promise<void>((resolve) => {
+      this.release = resolve;
+    });
+  }
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  async runLoop(): Promise<void> {
+    const input = this.init.input;
+    if (typeof input === 'string') return;
+    for await (const text of input) {
+      this.consumed.push(text);
+      this.init.onTurn?.({ t: 'tool_use', tool: 'Bash', input: {}, handle: 'h1' });
+      await this.toolRunning;
+      this.deliveryDrained = this.init.drainDeliveries?.() ?? [];
+      this.init.onTurn?.({ t: 'tool_result', handle: 'h1', ok: true, pointer: 'ok' });
+      this.init.onTurn?.({ t: 'text', text: 'ok' });
+      this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
+      this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+    }
+  }
+  deliverReminder(): void {}
+  render_context(): void {}
+  inject_runtime(): void {}
+  cache_control(): void {}
+  usageTelemetry(): RuntimeUsage {
+    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  }
+  capabilityProfile() {
+    return barebonesProfile;
+  }
+  refs() {
+    return null;
+  }
+  runEval() {
+    return Promise.reject(new Error('no eval'));
+  }
+}
+
+function depsOpenTool(adapters: OpenToolHeldAdapter[]): SessionDeps {
+  return {
+    ...deps([]),
+    sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+    createAdapter: (init) => {
+      const adapter = new OpenToolHeldAdapter(init);
+      adapters.push(adapter);
+      return adapter;
+    },
+  };
+}
+
+/**
+ * A held-open adapter that models a mid-turn provider drop while a tool call is open: it
+ * parks on `toolRunning` (mirroring `OpenToolHeldAdapter`), drains deliveries where the
+ * Claude adapter's PostToolUse hook drains them — handing the text to the model — and then
+ * THROWS instead of ever emitting the matching `tool_result`, the shape a dropped connection
+ * produces. Proves `settleHeldQuery`'s error path flushes a parked line rather than stranding
+ * it (docs/adr/0031).
+ */
+class OpenToolThrowAdapter implements RuntimeAdapter {
+  readonly consumed: string[] = [];
+  release: () => void = () => {};
+  readonly toolRunning: Promise<void>;
+  deliveryDrained: readonly Delivery[] = [];
+
+  constructor(readonly init: SessionAdapterInit) {
+    this.toolRunning = new Promise<void>((resolve) => {
+      this.release = resolve;
+    });
+  }
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  async runLoop(): Promise<void> {
+    const input = this.init.input;
+    if (typeof input === 'string') return;
+    for await (const text of input) {
+      this.consumed.push(text);
+      this.init.onTurn?.({ t: 'tool_use', tool: 'Bash', input: {}, handle: 'h1' });
+      await this.toolRunning;
+      this.deliveryDrained = this.init.drainDeliveries?.() ?? [];
+      throw new Error('stream dropped with tool open');
+    }
+  }
+  deliverReminder(): void {}
+  render_context(): void {}
+  inject_runtime(): void {}
+  cache_control(): void {}
+  usageTelemetry(): RuntimeUsage {
+    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  }
+  capabilityProfile() {
+    return barebonesProfile;
+  }
+  refs() {
+    return null;
+  }
+  runEval() {
+    return Promise.reject(new Error('no eval'));
+  }
+}
+
+function depsOpenToolThrow(adapters: OpenToolThrowAdapter[]): SessionDeps {
+  return {
+    ...deps([]),
+    sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+    createAdapter: (init) => {
+      const adapter = new OpenToolThrowAdapter(init);
+      adapters.push(adapter);
+      return adapter;
+    },
+  };
+}
+
+/**
+ * A per-turn adapter that models the same mid-turn provider drop for the non-held-open
+ * strategy: it emits `tool_use`, yields one microtask (so a test can steer into the gap),
+ * drains deliveries the way the Claude adapter's PostToolUse hook does, then THROWS instead
+ * of emitting the matching `tool_result` — `runPerTurn`'s twin of `OpenToolThrowAdapter`.
+ */
+class OpenToolThenThrowAdapter implements RuntimeAdapter {
+  deliveryDrained: readonly Delivery[] = [];
+  constructor(readonly init: SessionAdapterInit) {}
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  async runLoop(): Promise<void> {
+    this.init.onTurn?.({ t: 'tool_use', tool: 'Bash', input: {}, handle: 'h1' });
+    await new Promise((r) => setTimeout(r, 0));
+    this.deliveryDrained = this.init.drainDeliveries?.() ?? [];
+    throw new Error('stream dropped with tool open');
+  }
+  deliverReminder(): void {}
+  render_context(): void {}
+  inject_runtime(): void {}
+  cache_control(): void {}
+  usageTelemetry(): RuntimeUsage {
+    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  }
+  capabilityProfile() {
+    return barebonesProfile;
+  }
+  refs() {
+    return null;
+  }
+  runEval() {
+    return Promise.reject(new Error('no eval'));
+  }
+}
+
+describe('buildSessionHandlers — a delivery is recorded where the model received it', () => {
+  it('writes the line AFTER the tool_result, never between the tool_use and its result', async () => {
+    const conn = connection();
+    const adapters: OpenToolHeldAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    // The turn is parked mid-tool-call: the tool_use frame is out, the tool_result is not.
+    await vi.waitFor(() => expect(adapters[0]).toBeDefined());
+    await vi.waitFor(() =>
+      expect(framesOf(conn.pushes).some((f) => f.t === 'tool_use')).toBe(true),
+    );
+    expect(framesOf(conn.pushes).some((f) => f.t === 'tool_result')).toBe(false);
+
+    await handlers['steerSession']!.handle({ id: sessionId, text: 'use the JSON one' });
+    // Not yet: the model has not been handed it, so nothing may claim it was said. Matched on
+    // the steer's own text, not on "any user frame" — the turn's opening input is a user frame
+    // too, and asserting against all of them would fail for a reason that is not the bug.
+    expect(framesOf(conn.pushes).some((f) => f.t === 'text' && f.text === 'use the JSON one')).toBe(
+      false,
+    );
+
+    adapters[0]!.release();
+    await conn.settled;
+    await flush();
+
+    const frames = framesOf(conn.pushes);
+    const useAt = frames.findIndex((f) => f.t === 'tool_use');
+    const resultAt = frames.findIndex((f) => f.t === 'tool_result');
+    const steerAt = frames.findIndex(
+      (f) => f.t === 'text' && f.role === 'user' && f.text === 'use the JSON one',
+    );
+    const diag = JSON.stringify(frames.map((f) => f.t));
+    expect(steerAt, diag).toBeGreaterThan(-1);
+    // THE ASSERTION THAT MATTERS: position, not existence. A line between the pair is the
+    // interleaving the Messages API forbids, and it is what the old code produced.
+    expect(steerAt, diag).toBeGreaterThan(resultAt);
+    expect(useAt, diag).toBeLessThan(resultAt);
+  });
+
+  it("records a system-origin delivery in the system role, not the person's", async () => {
+    const conn = connection();
+    const adapters: OpenToolHeldAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await vi.waitFor(() => expect(adapters[0]).toBeDefined());
+    // Two entries, mixed origins: a single-item fixture cannot show the roles diverging.
+    const session = registry.get(sessionId)!;
+    session.deliveries.push({ origin: 'user', text: 'from the person' });
+    session.deliveries.push({ origin: 'system', text: 'child agent finished' });
+    adapters[0]!.release();
+    await conn.settled;
+    await flush();
+
+    const texts = framesOf(conn.pushes).flatMap((f) =>
+      f.t === 'text' && (f.role === 'user' || f.role === 'system') ? [[f.role, f.text]] : [],
+    );
+    expect(texts).toEqual([
+      ['user', 'from the person'],
+      ['system', 'child agent finished'],
+    ]);
+  });
+
+  it('never records a delivery the model was never handed (sealed queue)', async () => {
+    const conn = connection();
+    const adapters: OpenToolHeldAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await vi.waitFor(() => expect(adapters[0]).toBeDefined());
+    const session = registry.get(sessionId)!;
+    session.deliveries.seal();
+    await handlers['steerSession']!.handle({ id: sessionId, text: 'never delivered' });
+    adapters[0]!.release();
+    await conn.settled;
+    await flush();
+
+    expect(framesOf(conn.pushes).some((f) => f.t === 'text' && f.text === 'never delivered')).toBe(
+      false,
+    );
+  });
+});
+
+describe('buildSessionHandlers — a mid-turn throw does not strand a parked delivery (docs/adr/0031)', () => {
+  it('flushes a parked delivery line when a held-open query dies mid-tool-call', async () => {
+    const conn = connection();
+    const adapters: OpenToolThrowAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsOpenToolThrow(adapters), conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    // The turn is parked mid-tool-call: the tool_use frame is out, no tool_result yet.
+    await vi.waitFor(() => expect(adapters[0]).toBeDefined());
+    await vi.waitFor(() =>
+      expect(framesOf(conn.pushes).some((f) => f.t === 'tool_use')).toBe(true),
+    );
+
+    await handlers['steerSession']!.handle({
+      id: sessionId,
+      text: 'check the other file too',
+    });
+    // Not yet: the model has not been handed it while the queue sits behind the open tool.
+    expect(
+      framesOf(conn.pushes).some((f) => f.t === 'text' && f.text === 'check the other file too'),
+    ).toBe(false);
+
+    // Release the park: the adapter drains the queue (handing the text to the model, exactly
+    // like a real PostToolUse hook), then throws instead of ever emitting `tool_result` — a
+    // dropped provider connection mid-tool-call.
+    adapters[0]!.release();
+    await conn.settled;
+    await flush();
+
+    expect(adapters[0]!.deliveryDrained.map((d) => d.text)).toEqual(['check the other file too']);
+
+    const frames = framesOf(conn.pushes);
+    const steerAt = frames.findIndex(
+      (f) => f.t === 'text' && f.role === 'user' && f.text === 'check the other file too',
+    );
+    const errorAt = frames.findIndex((f) => f.t === 'error');
+    const diag = JSON.stringify(frames.map((f) => f.t));
+    // THE ASSERTION THAT MATTERS: the model already read this line, so it must land in the
+    // log — and it must land ABOVE the terminal error frame, matching the interrupt closure's
+    // ordering (the delivery was handed to the model before the turn died).
+    expect(steerAt, diag).toBeGreaterThan(-1);
+    expect(errorAt, diag).toBeGreaterThan(-1);
+    expect(steerAt, diag).toBeLessThan(errorAt);
+  });
+
+  it('flushes a parked delivery line when a per-turn loop throws mid-tool-call', async () => {
+    const conn = connection();
+    const adapters: OpenToolThenThrowAdapter[] = [];
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      createAdapter: (init) => {
+        const adapter = new OpenToolThenThrowAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await vi.waitFor(() =>
+      expect(framesOf(conn.pushes).some((f) => f.t === 'tool_use')).toBe(true),
+    );
+
+    await handlers['steerSession']!.handle({
+      id: sessionId,
+      text: 'check the other file too',
+    });
+    expect(
+      framesOf(conn.pushes).some((f) => f.t === 'text' && f.text === 'check the other file too'),
+    ).toBe(false);
+
+    await conn.settled;
+    await flush();
+
+    expect(adapters[0]!.deliveryDrained.map((d) => d.text)).toEqual(['check the other file too']);
+
+    const frames = framesOf(conn.pushes);
+    const steerAt = frames.findIndex(
+      (f) => f.t === 'text' && f.role === 'user' && f.text === 'check the other file too',
+    );
+    const errorAt = frames.findIndex((f) => f.t === 'error');
+    const diag = JSON.stringify(frames.map((f) => f.t));
+    expect(steerAt, diag).toBeGreaterThan(-1);
+    expect(errorAt, diag).toBeGreaterThan(-1);
+    expect(steerAt, diag).toBeLessThan(errorAt);
+  });
+});
+
 /** Deps whose injected strategy marks `claude` as `held-open` (mirroring the composition
  *  root) and whose adapter factory records each constructed held-open adapter. */
 function depsHeldOpen(
@@ -1557,33 +1951,20 @@ function depsHeldOpen(
 }
 
 /**
- * A held-open adapter that models the I3/SC-1 barge-in contract (docs/adr/0012): it
- * reports its turn-interrupt handle via `onTurnInterrupt` before consuming any input
- * (mirroring the real Claude adapter's streaming-input path), runs turn A only to a
- * PARTIAL frame — never its normal reply — and then blocks until the test's barge-in
- * calls the reported handle. The interrupt handle emits `interruptFrames` for turn A
- * (default: a single terminal `turn-boundary`, the success-subtype live-smoke case; a
- * non-success interrupt scripts an `error` frame + boundary, as turn-frames.ts maps a
- * non-success result to BOTH) and lets the loop resume, consuming the next turn (the
- * framed steer) to a normal completion. A later turn whose index equals
- * `errorOnTurnIndex` emits a genuine `error` frame + boundary instead of the normal
- * reply — the unrelated failure used to prove `barging` was cleared, not leaked.
- * Deterministic: turn A's boundary is driven by the interrupt call itself, never a timer.
+ * A held-open adapter that reports its turn-interrupt handle via `onTurnInterrupt` before
+ * consuming any input (mirroring the real Claude adapter's streaming-input path), runs a
+ * turn to a single PARTIAL frame, and then parks until the reported handle is called. The
+ * handle models what a real interrupted SDK turn can still do — emit a residual terminal
+ * result (here, an `error` + boundary) for the ABANDONED turn — before letting the loop
+ * resume waiting on the same open feed. Used to prove the user-Stop path (`interruptSession`)
+ * actually uses the reported turn-level handle rather than falling back to a whole-query
+ * abort, and that `query.stopped` alone (docs/adr/0012) drops that residual result.
  */
-class BargeInAdapter implements RuntimeAdapter {
+class TurnInterruptAdapter implements RuntimeAdapter {
   readonly consumed: string[] = [];
   interruptCalls = 0;
 
-  constructor(
-    readonly init: SessionAdapterInit,
-    /** What the interrupt handle emits to end turn A. */
-    readonly interruptFrames: TurnFrame[] = [{ t: 'turn-boundary', role: 'assistant' }],
-    /** A later turn index (in `consumed` order) that emits a genuine `error` + boundary. */
-    readonly errorOnTurnIndex = -1,
-    /** Model a rejecting SDK `interrupt()`: after ending turn A, the reported handle throws.
-     *  The daemon must still feed the framed steer so the boundary latch can't hang. */
-    readonly interruptRejects = false,
-  ) {}
+  constructor(readonly init: SessionAdapterInit) {}
   renderNative(): BackendConfig {
     return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
   }
@@ -1592,37 +1973,25 @@ class BargeInAdapter implements RuntimeAdapter {
   interceptTool(_c: CanUseTool): void {}
   interceptStop(_s: StopPredicate): void {}
   async runLoop(): Promise<void> {
-    let resolveTurnA: (() => void) | undefined;
+    let resolveTurn: (() => void) | undefined;
     this.init.onTurnInterrupt?.(async () => {
       this.interruptCalls += 1;
-      for (const frame of this.interruptFrames) this.init.onTurn?.(frame);
-      resolveTurnA?.();
-      if (this.interruptRejects) throw new Error('interrupt rejected');
+      // The abandoned turn's residual terminal result — a real SDK turn-level interrupt can
+      // still surface one. `query.stopped` is already true by the time this runs, so it must
+      // never reach the session sink or the transcript.
+      this.init.onTurn?.({ t: 'error', message: 'interrupted mid-flight', origin: 'loop' });
+      this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+      resolveTurn?.();
     });
     const input = this.init.input;
     if (typeof input === 'string')
-      throw new Error('BargeInAdapter expects a streamed held-open input');
-    let turnIndex = 0;
+      throw new Error('TurnInterruptAdapter expects a streamed held-open input');
     for await (const text of input) {
       this.consumed.push(text);
-      if (turnIndex === 0) {
-        // Turn A: a partial frame only — the barge-in interrupts before it completes.
-        this.init.onTurn?.({ t: 'text', text: 'partial' });
-        await new Promise<void>((resolve) => {
-          resolveTurnA = resolve;
-        });
-      } else if (turnIndex === this.errorOnTurnIndex) {
-        // A later, UNRELATED turn that genuinely fails: its error must surface (proving
-        // an earlier barge-in's `barging` suppression did not leak into this turn).
-        this.init.onTurn?.({ t: 'error', message: 'genuine failure', origin: 'loop' });
-        this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
-      } else {
-        // Turn B (the framed steer): runs to a normal completion + boundary.
-        this.init.onTurn?.({ t: 'text', text: 'ok' });
-        this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
-        this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
-      }
-      turnIndex += 1;
+      this.init.onTurn?.({ t: 'text', text: 'partial' });
+      await new Promise<void>((resolve) => {
+        resolveTurn = resolve;
+      });
     }
   }
   deliverReminder(): void {}
@@ -1843,6 +2212,47 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
   });
 
+  it('a user Stop against a turn-level interrupt handle keeps the query alive and drops the abandoned turn (SC-1)', async () => {
+    const adapters: TurnInterruptAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new TurnInterruptAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush(); // the partial frame lands; the adapter now blocks on the interrupt handle
+
+    expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({
+      interrupted: true,
+    });
+    await flush();
+    await flush();
+
+    // The reported turn-level handle was used — Stop did not fall back to aborting the
+    // whole query.
+    expect(adapters[0]?.interruptCalls).toBe(1);
+
+    const pushes = pushesOf(conn.pushes);
+    // The abandoned turn's residual result never surfaces: no error frame, no error status.
+    expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+    // Nothing renders below the `interrupted` marker — `query.stopped` is the sole guard
+    // for this SC-1 guarantee.
+    const interruptedAt = pushes.findIndex((p) => p.kind === 'turn' && p.frame.t === 'interrupted');
+    expect(interruptedAt).toBeGreaterThan(-1);
+    expect(pushes.slice(interruptedAt + 1).some((p) => p.kind === 'turn')).toBe(false);
+  });
+
   it('re-establishes after an interrupt so the next turn runs instead of hanging on the dead query (SC-1)', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
@@ -1963,268 +2373,24 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     ).toEqual([{ t: 'text', text: 'ok' }]);
   });
 
-  it('barge-in interrupts the running turn and runs the framed steer next (I3: resolves the steer turn)', async () => {
-    const adapters: BargeInAdapter[] = [];
+  it('routes a steer at a working held-open turn to the delivery queue, never an interrupt', async () => {
     const conn = connection();
-    const customDeps: SessionDeps = {
-      ...deps([]),
-      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
-      createAdapter: (init) => {
-        const adapter = new BargeInAdapter(init);
-        adapters.push(adapter);
-        return adapter;
-      },
-    };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+    const adapters: OpenToolHeldAdapter[] = [];
+    const registry = new LiveSessionRegistry();
+    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
 
-    const { sessionId } = await handlers['createSession']!.handle({
-      input: 'go',
-      conversationId: 'h1',
-    });
-    await flush(); // turn A's partial frame lands; the adapter now blocks on the interrupt handle
+    const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
+    await vi.waitFor(() => expect(adapters[0]).toBeDefined());
+    await handlers['steerSession']!.handle({ id: sessionId, text: 'use the JSON one' });
 
-    expect(
-      await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
-    ).toEqual({ steered: true });
+    // The running turn keeps its work: the steer rides the delivery queue, and the input
+    // channel is untouched (a second consumed input would mean it ran as its own turn).
+    expect(registry.get(sessionId)!.deliveries.size()).toBe(1);
+    adapters[0]!.release();
+    await conn.settled;
     await flush();
-    await flush();
-
-    expect(adapters.length).toBe(1);
-    // (a) the turn-interrupt handle was called exactly once.
-    expect(adapters[0]?.interruptCalls).toBe(1);
-    // (b) the framed text — not the bare steer — is what landed in the input feed.
-    expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
-
-    // (c) the driver's turn promise resolves only after the STEER turn's (B) boundary,
-    // not the interrupted turn's (A): exactly one `turn-boundary` frame — A's — precedes
-    // the `done` status, and it is NOT immediately followed by `done` (B's frames land
-    // first).
-    const pushes = pushesOf(conn.pushes);
-    const boundaryIndices = pushes
-      .map((p, i) => (p.kind === 'turn' && p.frame.t === 'turn-boundary' ? i : -1))
-      .filter((i) => i >= 0);
-    const doneIndex = pushes.findIndex((p) => p.kind === 'status' && p.state === 'done');
-    expect(boundaryIndices).toHaveLength(2); // A's boundary, then B's
-    expect(doneIndex).toBeGreaterThan(boundaryIndices[0]!); // NOT resolved right after A
-    expect(doneIndex).toBe(boundaryIndices[1]! + 1); // resolved immediately after B
-  });
-
-  it('reaches a terminal done on a barge-in even when the interrupted turn emits NO boundary (real SDK interrupt)', async () => {
-    // Ground truth (SDK source): `query.interrupt()` stops the running turn WITHOUT the
-    // subprocess emitting a result/boundary for it — the abandoned turn simply ends. A
-    // scheme that PREDICTS the interrupted turn will boundary therefore waits forever and
-    // the pill sticks in 'running' (the reported bug). `interruptFrames: []` models the
-    // real interrupt: no boundary for turn A. The redirect turn B must still complete and
-    // drive the session to a terminal 'done'.
-    const adapters: BargeInAdapter[] = [];
-    const conn = connection();
-    const customDeps: SessionDeps = {
-      ...deps([]),
-      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
-      createAdapter: (init) => {
-        const adapter = new BargeInAdapter(init, []); // interrupt emits NO boundary for turn A
-        adapters.push(adapter);
-        return adapter;
-      },
-    };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
-
-    const { sessionId } = await handlers['createSession']!.handle({
-      input: 'go',
-      conversationId: 'h1',
-    });
-    await flush();
-    expect(
-      await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' }),
-    ).toEqual({ steered: true });
-    await flush();
-    await flush();
-
-    // The framed steer (turn B) still ran…
-    expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
-    // …and the session reached a terminal 'done' rather than hanging in 'running' forever.
-    const pushes = pushesOf(conn.pushes);
-    expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
-  });
-
-  it("suppresses the interrupted turn's own error frame — never emitted nor persisted (SC-1)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'coa-bi-'));
-    try {
-      const store = createConversationStore(dir);
-      const adapters: BargeInAdapter[] = [];
-      const conn = connection();
-      const customDeps: SessionDeps = {
-        ...deps([]),
-        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
-        createAdapter: (init) => {
-          // A NON-success interrupt: turn A's terminal result maps to an `error` frame
-          // AND a boundary (turn-frames.ts pairs both from one non-success message).
-          const adapter = new BargeInAdapter(init, [
-            { t: 'error', message: 'interrupted mid-flight', origin: 'loop' },
-            { t: 'turn-boundary', role: 'assistant' },
-          ]);
-          adapters.push(adapter);
-          return adapter;
-        },
-      };
-      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
-
-      const { sessionId } = await handlers['createSession']!.handle({
-        input: 'go',
-        conversationId: 'h1',
-      });
-      await flush();
-      expect(
-        await handlers['steerSession']!.handle({
-          id: sessionId,
-          text: 'redirect',
-          mode: 'barge-in',
-        }),
-      ).toEqual({ steered: true });
-      await flush();
-      await flush();
-
-      const pushes = pushesOf(conn.pushes);
-      // SC-1: the interrupted turn's error is never surfaced to the session sink…
-      expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
-      expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
-      // …nor persisted into canonical memory.
-      expect(store.reload('h1').some((t) => t.frame.t === 'error')).toBe(false);
-      // The framed steer (turn B) still ran to completion, and the driver resolved on it.
-      expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
-      expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('feeds the framed steer even when the SDK interrupt rejects, so the session never hangs in running', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'coa-bi-'));
-    try {
-      const store = createConversationStore(dir);
-      const adapters: BargeInAdapter[] = [];
-      const conn = connection();
-      const customDeps: SessionDeps = {
-        ...deps([]),
-        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
-        createAdapter: (init) => {
-          // The SDK interrupt REJECTS after ending turn A (a real-world failure mode the
-          // live GUI hit): the framed steer must still be fed or the latch hangs forever.
-          const adapter = new BargeInAdapter(
-            init,
-            [
-              { t: 'error', message: 'interrupted mid-flight', origin: 'loop' },
-              { t: 'turn-boundary', role: 'assistant' },
-            ],
-            -1,
-            true, // interruptRejects
-          );
-          adapters.push(adapter);
-          return adapter;
-        },
-      };
-      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
-
-      const { sessionId } = await handlers['createSession']!.handle({
-        input: 'go',
-        conversationId: 'h1',
-      });
-      await flush();
-      expect(
-        await handlers['steerSession']!.handle({
-          id: sessionId,
-          text: 'redirect',
-          mode: 'barge-in',
-        }),
-      ).toEqual({ steered: true });
-      await flush();
-      await flush();
-
-      // Despite the rejecting interrupt, the framed steer (turn B) was still fed and ran…
-      expect(adapters[0]?.consumed).toEqual(['go', '[The user interrupted to steer you] redirect']);
-      // …so the boundary latch resolved and the session reached a terminal 'done' status,
-      // rather than hanging in 'running' forever (the #2 stuck-status bug).
-      const pushes = pushesOf(conn.pushes);
-      expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('does not leak barge-in error-suppression into a later turn — a success-subtype interrupt clears it (SC-1)', async () => {
-    const adapters: BargeInAdapter[] = [];
-    const conn = connection();
-    const customDeps: SessionDeps = {
-      ...deps([]),
-      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
-      createAdapter: (init) => {
-        // Turn A's interrupt is a SUCCESS subtype: only a boundary, NO error frame — so
-        // `barging` is never decremented by an error and would leak without the reset.
-        // The third consumed turn (index 2, turn C) genuinely fails.
-        const adapter = new BargeInAdapter(init, [{ t: 'turn-boundary', role: 'assistant' }], 2);
-        adapters.push(adapter);
-        return adapter;
-      },
-    };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
-
-    const { sessionId } = await handlers['createSession']!.handle({
-      input: 'go',
-      conversationId: 'h1',
-    });
-    await flush();
-    // Barge-in during turn A (success-subtype interrupt, then framed steer B runs).
-    await handlers['steerSession']!.handle({ id: sessionId, text: 'redirect', mode: 'barge-in' });
-    await flush();
-    await flush();
-
-    // A later, unrelated turn C that genuinely fails.
-    await handlers['createSession']!.handle({ input: 'unrelated', conversationId: 'h1' });
-    await flush();
-    await flush();
-
-    expect(adapters.length).toBe(1);
-    expect(adapters[0]?.consumed).toEqual([
-      'go',
-      '[The user interrupted to steer you] redirect',
-      'unrelated',
-    ]);
-    // C's genuine error IS surfaced — the barge-in's `barging` counter was cleared when
-    // the redirect completed, not left to swallow this unrelated turn's failure.
-    const pushes = pushesOf(conn.pushes);
-    expect(
-      pushes.some(
-        (p) => p.kind === 'turn' && p.frame.t === 'error' && p.frame.message === 'genuine failure',
-      ),
-    ).toBe(true);
-  });
-
-  it('a barge-in with no turn in flight is a plain next turn — no interrupt, no framing (SC-1)', async () => {
-    // `control` stays set between turns of a held-open query; a `barge-in` steer arriving
-    // while idle (pendingTurns === 0) must NOT interrupt nothing, frame the text, or bump
-    // the counters — it is just a normal next turn.
-    const adapters: HeldOpenAdapter[] = [];
-    const conn = connection();
-    const handlers = buildSessionHandlers(
-      depsHeldOpen(adapters),
-      conn,
-      undefined,
-      new LiveSessionRegistry(),
-    );
-
-    const { sessionId } = await handlers['createSession']!.handle({
-      input: 'first',
-      conversationId: 'h1',
-    });
-    await flush(); // turn 1 completes; the query is open but idle (pendingTurns === 0)
-
-    await handlers['steerSession']!.handle({ id: sessionId, text: 'more', mode: 'barge-in' });
-    await flush();
-    await flush();
-
-    // The raw text — NOT the `FRAME_BARGE_IN`-prefixed form — was fed as a normal turn.
-    expect(adapters.length).toBe(1);
-    expect(adapters[0]?.consumed).toEqual(['first', 'more']);
+    expect(adapters[0]!.consumed).toEqual(['go']);
+    expect(adapters[0]!.deliveryDrained).toEqual([{ origin: 'user', text: 'use the JSON one' }]);
   });
 
   it('a queue-mode steer with no turn in flight is a plain next turn, not a pending delivery', async () => {
@@ -2355,8 +2521,8 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       // The steer reaches canonical memory as its own user turn even though it now rides
       // the delivery queue rather than the input feed — the hook route bypasses every
       // stream tap, and the append-only log is the only durable record of what the user
-      // sent (docs/adr/0010). Recorded at the moment it was sent, so it lands after what
-      // the turn had already streamed.
+      // sent (docs/adr/0010). Recorded when the drain call above consumed it, so it lands
+      // after what the turn had already streamed.
       expect(store.loadBackendMessages('h1')).toEqual([
         { role: 'user', content: 'go' },
         { role: 'assistant', content: 'reply:go' },
@@ -2498,59 +2664,13 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       await flush();
       await flush();
 
-      // ONE writer per record: the steer was written to the append-only log the moment it
-      // was queued, so the flush feeds the model WITHOUT appending a second user frame.
+      // ONE writer per record: `takeDeliveries` recorded the steer once, at the drain call
+      // above, so the flush feeds the model WITHOUT appending a second user frame.
       expect(store.loadBackendMessages('h1')).toEqual([
         { role: 'user', content: 'go' },
         { role: 'assistant', content: 'reply:go' },
         { role: 'user', content: 'also do X' },
         { role: 'assistant', content: 'reply:also do X' },
-      ]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('persists a barge-in steer as a FRAMED user turn in the append-only log (regression: steers used to vanish from canonical memory)', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'coa-bi-persist-'));
-    try {
-      const store = createConversationStore(dir);
-      const adapters: BargeInAdapter[] = [];
-      const conn = connection();
-      const customDeps: SessionDeps = {
-        ...deps([]),
-        sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
-        createAdapter: (init) => {
-          const adapter = new BargeInAdapter(init);
-          adapters.push(adapter);
-          return adapter;
-        },
-      };
-      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
-
-      const { sessionId } = await handlers['createSession']!.handle({
-        input: 'go',
-        conversationId: 'h1',
-      });
-      await flush(); // turn A's partial frame lands; the adapter now blocks on the interrupt handle
-
-      expect(
-        await handlers['steerSession']!.handle({
-          id: sessionId,
-          text: 'redirect',
-          mode: 'barge-in',
-        }),
-      ).toEqual({ steered: true });
-      await flush();
-      await flush();
-
-      // The FRAMED text — as fed to the model, not the bare steer — reaches canonical
-      // memory as its own user turn (docs/adr/0012's framing is part of what happened).
-      expect(store.loadBackendMessages('h1')).toEqual([
-        { role: 'user', content: 'go' },
-        { role: 'assistant', content: 'partial' },
-        { role: 'user', content: '[The user interrupted to steer you] redirect' },
-        { role: 'assistant', content: 'ok' },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -2593,12 +2713,438 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'lo' });
       expect(persistedFrames).toContainEqual({ t: 'text', text: 'Hello' });
 
-      // The delta guard sits ahead of the barging/boundary accounting — the turn's
+      // The delta guard sits ahead of the pendingTurns boundary accounting — the turn's
       // `turn-boundary` still resolves the driver normally (a delta must not touch it).
       const pushes = pushesOf(conn.pushes);
       expect(pushes.some((p) => p.kind === 'status' && p.state === 'done')).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('buildSessionHandlers — spawning a subagent child', () => {
+  const AGENTS: AgentSummary[] = [
+    {
+      ref: 'explorer',
+      scope: 'builtin',
+      name: 'Explorer',
+      description: 'read-only',
+      icon: 'search',
+      color: 'sky',
+      roles: ['researcher'],
+    },
+    {
+      ref: 'general-purpose',
+      scope: 'builtin',
+      name: 'General purpose',
+      description: 'general',
+      icon: 'bot',
+      color: 'slate',
+      roles: ['swe'],
+    },
+  ];
+
+  /** Deps for a spawn test: a distinct id per `newSessionId()` call (a child always needs an id
+   *  different from the parent's explicit `conversationId`), and a per-session-id behavior lookup
+   *  so one test can make one child finish while another fails or is stopped. */
+  function spawnableDeps(
+    behaviors: Map<string, 'fail' | 'stop'> = new Map(),
+    recordSpend?: SessionDeps['recordSpend'],
+  ): SessionDeps {
+    let n = 0;
+    return {
+      newSessionId: () => `child-${++n}`,
+      bindWorktree: (id) => `/wt/${id}`,
+      releaseWorktree: () => {},
+      assemblePieces: () => ({ pieces: [], frame: { allow: [], deny: [] } }),
+      compile: () => NEUTRAL,
+      sandboxPolicy: () => SANDBOX,
+      capState: () => ({ capHit: false, remaining: null }),
+      charge: () => {},
+      ...(recordSpend !== undefined ? { recordSpend } : {}),
+      perToolDeny: () => undefined,
+      gate: () => ({ allow: true }),
+      catalogue: [],
+      baseCatalogue: [],
+      checkpoint: () => {},
+      createAdapter: (init) => {
+        const behavior = behaviors.get(init.sessionId);
+        if (behavior === 'fail') return new FrameAdapter(init, [], true);
+        if (behavior === 'stop') {
+          return new FrameAdapter(init, [], false, false, false, false, false, true);
+        }
+        return new FrameAdapter(init, [{ t: 'text', text: 'ok' }]);
+      },
+    };
+  }
+
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0, dirs.length)) rmSync(d, { recursive: true, force: true });
+  });
+
+  function buildTestServer(opts?: {
+    behaviors?: Map<string, 'fail' | 'stop'>;
+    agents?: AgentSummary[];
+    recordSpend?: SessionDeps['recordSpend'];
+  }): {
+    dispatch: (msg: unknown) => ReturnType<typeof dispatch>;
+    registry: LiveSessionRegistry;
+    store: ConversationStore;
+    startChildForTest: (
+      parentId: string,
+      agentRef: string,
+      overrides?: { description?: string; prompt?: string },
+    ) => { sessionId: string };
+  } {
+    const dir = mkdtempSync(join(tmpdir(), 'coa-spawn-'));
+    dirs.push(dir);
+    const store = createConversationStore(dir);
+    const registry = new LiveSessionRegistry();
+    const conn = connection();
+    let startChild: StartChildFn | undefined;
+    const handlers = buildSessionHandlers(
+      spawnableDeps(opts?.behaviors, opts?.recordSpend),
+      conn,
+      store,
+      registry,
+      {
+        listAgents: () => opts?.agents ?? AGENTS,
+        onStartChild: (fn) => {
+          startChild = fn;
+        },
+      },
+    );
+    return {
+      dispatch: (msg) => dispatch(msg, handlers),
+      registry,
+      store,
+      startChildForTest: (parentId, agentRef, overrides) => {
+        if (startChild === undefined) {
+          throw new Error('startChild was not wired by buildSessionHandlers');
+        }
+        return startChild(parentId, {
+          agentRef,
+          description: overrides?.description ?? 'investigate the thing',
+          prompt: overrides?.prompt ?? 'go look',
+        });
+      },
+    };
+  }
+
+  /** Let every currently-pending microtask settle (a child's turn is enqueued and driven
+   *  asynchronously — `startChild` never awaits it, matching the non-blocking contract). */
+  async function settleChild(): Promise<void> {
+    await flush();
+    await flush();
+    await flush();
+  }
+
+  it('starts a child with lineage and notifies the parent when it ends', async () => {
+    const { dispatch: send, registry, store, startChildForTest } = buildTestServer();
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    const parent = registry.get('root-1');
+    expect(parent).toBeDefined();
+
+    const child = startChildForTest('root-1', 'explorer');
+    expect(store.getMeta(child.sessionId)?.parent).toBe('root-1');
+    expect(store.getMeta(child.sessionId)?.root).toBe('root-1');
+    expect(registry.get(child.sessionId)?.root).toBe('root-1');
+
+    await settleChild();
+    const pending = parent!.deliveries.drain();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.origin).toBe('system');
+    expect(pending[0]?.text).toContain(child.sessionId);
+  });
+
+  it('drops the notice when the parent was already stopped', async () => {
+    const { dispatch: send, registry, startChildForTest } = buildTestServer();
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    const child = startChildForTest('root-1', 'explorer');
+    registry.close('root-1'); // cascades and seals
+    await settleChild();
+    // Nothing to assert on the parent's queue — it is gone. The point is that this
+    // does not throw and does not resurrect the session.
+    expect(registry.get('root-1')).toBeUndefined();
+    expect(() => registry.get(child.sessionId)).not.toThrow();
+  });
+
+  it('reaches a grandchild: stopping the middle node cascades to it too, and its root is the top of the tree', async () => {
+    const { dispatch: send, registry, store, startChildForTest } = buildTestServer();
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+
+    const mid = startChildForTest('root-1', 'explorer');
+    await settleChild(); // let the middle child's own turn settle so it stays live, idle
+
+    const grandkid = startChildForTest(mid.sessionId, 'explorer');
+    await settleChild();
+
+    expect(store.getMeta(grandkid.sessionId)?.parent).toBe(mid.sessionId);
+    expect(store.getMeta(grandkid.sessionId)?.root).toBe('root-1');
+    expect(registry.get(grandkid.sessionId)?.root).toBe('root-1');
+
+    // Stop the MIDDLE node, not the root — a fixture one level deep can't tell "cascades to
+    // every descendant" apart from "cascades only when the target is the literal root".
+    registry.close(mid.sessionId);
+    expect(registry.get(mid.sessionId)).toBeUndefined();
+    expect(registry.get(grandkid.sessionId)).toBeUndefined();
+    expect(registry.get('root-1')).toBeDefined(); // the root itself is untouched
+  });
+
+  it('attributes settled spend to the top-of-tree root at every real tree depth, leaving the root itself root-less (D85, mixed three-node fixture)', async () => {
+    const spend: Array<{ costUsd: number; root?: string }> = [];
+    const { dispatch: send, startChildForTest } = buildTestServer({
+      recordSpend: (record) => spend.push(record),
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    await settleChild(); // let the root's own first turn settle before spawning off it
+
+    const mid = startChildForTest('root-1', 'explorer');
+    await settleChild();
+
+    // A grandchild, not just a child — a one-level tree can't distinguish "rolls up to
+    // the root" from "rolls up to whoever spawned it" (they're the same node at depth 1).
+    startChildForTest(mid.sessionId, 'explorer');
+    await settleChild();
+
+    // The root's own turn carries no `root` (D85 — byte-identical to before lineage
+    // existed); the middle child's and the grandchild's BOTH carry the same top-of-tree
+    // id, proving the rollup survives real nesting, not just one level.
+    expect(spend).toEqual([
+      { costUsd: 0.25, tokensIn: 1, tokensOut: 2 },
+      { costUsd: 0.25, tokensIn: 1, tokensOut: 2, root: 'root-1' },
+      { costUsd: 0.25, tokensIn: 1, tokensOut: 2, root: 'root-1' },
+    ]);
+  });
+
+  it('routes provider/model/reasoning/roles/packageIds/exclude through the agent DEFINITION, never the spawn call', async () => {
+    const assembleCalls: AssemblePiecesContext[] = [];
+    let n = 0;
+    const modeledAgent: AgentSummary = {
+      ref: 'modeled',
+      scope: 'project',
+      name: 'Modeled',
+      description: 'carries a pinned model',
+      icon: 'bot',
+      color: 'slate',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      reasoning: { mode: 'effort', effort: 'high' },
+      roles: ['researcher'],
+      packageIds: ['pkg-a'],
+      exclude: ['pkg-b'],
+    };
+    const customDeps: SessionDeps = {
+      newSessionId: () => `child-${++n}`,
+      bindWorktree: (id) => `/wt/${id}`,
+      releaseWorktree: () => {},
+      assemblePieces: (ctx) => {
+        assembleCalls.push(ctx);
+        return { pieces: [], frame: { allow: [], deny: [] } };
+      },
+      compile: () => NEUTRAL,
+      sandboxPolicy: () => SANDBOX,
+      capState: () => ({ capHit: false, remaining: null }),
+      charge: () => {},
+      perToolDeny: () => undefined,
+      gate: () => ({ allow: true }),
+      catalogue: [],
+      baseCatalogue: [],
+      checkpoint: () => {},
+      createAdapter: (init) => new FrameAdapter(init, [{ t: 'text', text: 'ok' }]),
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'coa-spawn-model-'));
+    dirs.push(dir);
+    const store = createConversationStore(dir);
+    const registry = new LiveSessionRegistry();
+    const conn = connection();
+    let startChild: StartChildFn | undefined;
+    const handlers = buildSessionHandlers(customDeps, conn, store, registry, {
+      listAgents: () => [modeledAgent],
+      onStartChild: (fn) => {
+        startChild = fn;
+      },
+    });
+    await dispatch(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'createSession',
+        params: {
+          input: 'hello',
+          conversationId: 'root-1',
+          role: 'general-purpose',
+          scope: 'repo',
+        },
+      },
+      handlers,
+    );
+    assembleCalls.length = 0; // drop the parent's own compile; only the child's is under test
+
+    const child = startChild!('root-1', {
+      agentRef: 'modeled',
+      description: 'd',
+      prompt: 'p',
+    });
+    await settleChild();
+
+    expect(assembleCalls).toHaveLength(1);
+    expect(assembleCalls[0]).toMatchObject({
+      role: 'researcher',
+      roles: ['researcher'],
+      packageIds: ['pkg-a'],
+      exclude: ['pkg-b'],
+      model: {
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        reasoning: { mode: 'effort', effort: 'high' },
+      },
+    });
+    // A second, independent observable: the same facts landed in persistence.
+    expect(store.getMeta(child.sessionId)?.provider).toBe('deepseek');
+    expect(store.getMeta(child.sessionId)?.model).toBe('deepseek-chat');
+  });
+
+  it("derives the child's title from `description` (never raw-injected) and its first turn from `prompt`", async () => {
+    const { registry, store, startChildForTest } = buildTestServer();
+    registry.getOrCreate('root-1');
+    store.create({ id: 'root-1', agentRef: 'general-purpose', title: 'root', scope: 'repo' });
+
+    const lineSep = String.fromCharCode(8232);
+    const child = startChildForTest('root-1', 'explorer', {
+      description: `investigate${lineSep}the thing`,
+      prompt: 'hostile prompt with a fake line break',
+    });
+    await settleChild();
+
+    // `deriveTitle` already collapses every JS-whitespace-class character (which includes
+    // U+2028/U+2029) into a single space — the same path every ordinary session's
+    // auto-title goes through, so a hostile `description` gets no new injection surface.
+    expect(store.getMeta(child.sessionId)?.title).toBe('investigate the thing');
+    expect(store.getMeta(child.sessionId)?.title).not.toContain(lineSep);
+    // The prompt becomes the child's first turn, persisted byte-for-byte like any other
+    // user-authored turn (no extra escaping/mangling introduced by the spawn path).
+    expect(store.loadBackendMessages(child.sessionId)).toEqual([
+      { role: 'user', content: 'hostile prompt with a fake line break' },
+      { role: 'assistant', content: 'ok' },
+    ]);
+  });
+
+  it("stamps the child's own meta with a registry-resolved agentRef, never caller-supplied text", async () => {
+    const { store, startChildForTest } = buildTestServer();
+    const child = startChildForTest('root-1', 'explorer');
+    await settleChild();
+    expect(store.getMeta(child.sessionId)?.agentRef).toBe('explorer');
+  });
+
+  it('does not await the child — it returns before the turn has even started running', () => {
+    const { registry, startChildForTest } = buildTestServer();
+    const child = startChildForTest('root-1', 'explorer');
+    // Enqueuing the turn only schedules a microtask continuation of `runLiveSession`'s
+    // parked `nextTurn()` wait — synchronously after `startChild` returns, nothing has run.
+    expect(registry.get(child.sessionId)?.state).toBe('idle');
+  });
+
+  it("a child whose loop rejects notifies the parent as errored and never reaches Node's unhandledRejection", async () => {
+    const behaviors = new Map<string, 'fail' | 'stop'>([['child-1', 'fail']]);
+    const { registry, startChildForTest } = buildTestServer({ behaviors });
+    registry.getOrCreate('root-1');
+
+    let unhandled = 0;
+    const onUnhandled = (): void => {
+      unhandled += 1;
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const parent = registry.get('root-1')!;
+      const child = startChildForTest('root-1', 'explorer');
+      await settleChild();
+      await settleChild(); // extra headroom: an unhandled rejection is reported on a later tick
+
+      expect(unhandled).toBe(0);
+      const pending = parent.deliveries.drain();
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.text).toContain(child.sessionId);
+      expect(pending[0]?.text).toContain('failed');
+      expect(pending[0]?.text).toContain('loop blew up');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('reports a stopped child (interrupted mid-turn) as `stopped`, not `errored`', async () => {
+    const behaviors = new Map<string, 'fail' | 'stop'>([['child-1', 'stop']]);
+    const { dispatch: send, registry, startChildForTest } = buildTestServer({ behaviors });
+    registry.getOrCreate('root-1');
+    const parent = registry.get('root-1')!;
+
+    const child = startChildForTest('root-1', 'explorer');
+    await flush();
+    expect(registry.get(child.sessionId)?.control).toBeDefined();
+    // The real trigger a child can be stopped by: the `interruptSession` verb, exactly as
+    // a person stopping it (or a future control surface) would call it — NOT a hand-rolled
+    // shortcut that skips the `emitStatus('interrupted')` the verb itself is responsible for.
+    const result = await send({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'interruptSession',
+      params: { id: child.sessionId },
+    });
+    expect((result as { result: unknown })?.result).toEqual({ interrupted: true });
+    await settleChild();
+
+    const pending = parent.deliveries.drain();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.text).toContain('was stopped');
+  });
+
+  it('creates and runs a child even against an already-closed parent (an orphan, never a throw)', async () => {
+    const { registry, startChildForTest } = buildTestServer();
+    registry.getOrCreate('root-1');
+    registry.close('root-1'); // the parent is fully gone before the spawn ever happens
+
+    let child: { sessionId: string } | undefined;
+    expect(() => {
+      child = startChildForTest('root-1', 'explorer');
+    }).not.toThrow();
+    expect(child).toBeDefined();
+    expect(registry.get(child!.sessionId)).toBeDefined();
+    await settleChild();
+    // The orphan still ran its assigned turn to completion — spawning wasn't silently dropped.
+    expect(registry.get(child!.sessionId)?.state).toBe('idle');
+  });
+
+  it('does nothing (D85) when the daemon wires no spawn support — buildSessionHandlers behaves exactly as before', async () => {
+    const conn = connection();
+    // No 5th argument at all — the pre-existing call shape, still legal.
+    const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
+    const response = await dispatch(
+      { jsonrpc: '2.0', id: 1, method: 'createSession', params: { input: 'go' } },
+      handlers,
+    );
+    expect(response).toMatchObject({ result: { sessionId: 'sess-1', worktree: '/wt/sess-1' } });
+    await conn.settled;
   });
 });

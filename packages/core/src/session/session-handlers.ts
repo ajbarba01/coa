@@ -1,19 +1,21 @@
 import { z } from 'zod';
 import {
   modelSelectionSchema,
+  type AgentSummary,
   type BackendMessage,
   type CapabilityFrame,
   type NeutralConfig,
   type RpcNotification,
   type TurnFrame,
 } from '@coa/shared';
-import type { TurnInterrupt } from '@coa/spi';
+import type { Delivery, TurnInterrupt } from '@coa/spi';
 import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import { createSession, type SessionDeps } from './session.js';
 import type { ConversationStore } from './conversation-store.js';
 import { planMemory, type MemoryPlan } from './memory-plan.js';
 import { describeLoopFailure } from './loop-failure.js';
+import { renderChildEnded, type SessionEndReason } from './notify.js';
 import type { LiveSession, Sink, TurnRequest } from './live-session.js';
 import type { LiveSessionRegistry } from './live-registry.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
@@ -55,11 +57,11 @@ import {
  *
  * `interruptSession`/`steerSession` (CHAT-10) act on the CURRENTLY in-flight
  * turn's control state: interrupt aborts a neutral `AbortSignal` the adapter
- * honors on BOTH backends; steer either lands in the running turn's own loop (the
- * session's delivery queue, drained by whichever backend is driving it) or queues a
- * turn the pure-API driver drains at its next safe boundary. SC-1: a user-initiated
- * interrupt is never rendered as an error — see the `interrupted` guard in
- * `makeRunTurn`'s settlement below.
+ * honors on BOTH backends; a steer never abandons the running turn — it lands on
+ * the session's delivery queue, drained by whichever backend is driving it, one
+ * round trip away — or, when the turn is idle, is fed as a plain next turn
+ * (docs/adr/0031). SC-1: a user-initiated interrupt is never rendered as an
+ * error — see the `interrupted` guard in `makeRunTurn`'s settlement below.
  */
 
 const createParams = z.object({
@@ -79,17 +81,11 @@ type CreateParams = z.infer<typeof createParams>;
 
 const closeParams = z.object({ id: z.string() });
 const interruptParams = z.object({ id: z.string() });
-const steerParams = z.object({
-  id: z.string(),
-  text: z.string(),
-  mode: z.enum(['queue', 'barge-in']).default('queue'),
-});
+// `mode` is intentionally not accepted (and not `.strict()`-rejected): there is only one
+// steer left, and a stale caller still sending `mode` (an older console build) must degrade
+// to an ordinary steer, not break — Zod strips the unknown key rather than erroring on it.
+const steerParams = z.object({ id: z.string(), text: z.string() });
 const subscribeParams = z.object({ id: z.string() });
-
-/** Prefix wrapping a Claude barge-in steer so the model reads a deliberate redirect,
- *  not a bare interruption (docs/adr/0012). Claude-specific: pure-API injects at a
- *  clean boundary with no bare-interrupt signal to counteract. */
-const FRAME_BARGE_IN = '[The user interrupted to steer you] ';
 
 /** Prefix marking a `system`-origin delivery flushed as a plain turn, so the model reads a
  *  platform notice rather than the person speaking. Mirrors what every backend renders for
@@ -97,8 +93,8 @@ const FRAME_BARGE_IN = '[The user interrupted to steer you] ';
  *  matching the text already written to the log when it was queued. */
 const FRAME_SYSTEM_NOTICE = '[coa notice] ';
 
-/** Gated barge-in tracing (off by default). Set `COA_DEBUG_STEER=1` to log the interrupt
- *  window's boundary/`pendingTurns` transitions on a live Claude run — the one piece of the
+/** Gated stop tracing (off by default). Set `COA_DEBUG_STEER=1` to log a bare stop's
+ *  boundary/`pendingTurns` transitions on a live Claude run — the one piece of the
  *  interrupt lifecycle that only the real SDK can reveal (does an interrupted turn boundary,
  *  and in what order relative to the interrupt ack). Written to stderr so it never pollutes
  *  the NDJSON RPC channel on stdout. */
@@ -194,32 +190,23 @@ interface HeldQuery {
   /** The in-flight turn's completion latch — resolved on its `turn-boundary` frame
    *  (or when the query settles). `undefined` between turns. */
   boundary: Deferred | undefined;
-  /** How many pushed-but-not-yet-boundaried turns are outstanding on this query
-   *  (initial + continue + any barge-in-injected steer). The driver's `boundary`
-   *  latch resolves only when this returns to 0, so a barge-in's injected steer turn
-   *  resolves the correct awaited turn rather than the interrupted one (docs/adr/0012
-   *  I3). */
+  /** How many pushed-but-not-yet-boundaried turns are outstanding on this query (initial +
+   *  continue). The driver's `boundary` latch resolves only when this returns to 0. */
   pendingTurns: number;
   /** This backend's turn-level interrupt (reported up via `onTurnInterrupt`), used by a
-   *  `barge-in` steer to stop the current turn while keeping the query alive. */
+   *  bare stop (`interruptSession`) to stop the current turn while keeping the query alive. */
   turnInterrupt: TurnInterrupt | undefined;
-  /** Count of in-flight barge-ins whose interrupted-turn terminal result should be
-   *  suppressed from surfacing as an error frame (SC-1). Decremented as those results
-   *  arrive. Finalized against the live smoke (Task 5). */
-  barging: number;
-  /** True from the moment a barge-in issues its interrupt until the redirect turn is fed.
-   *  Any `turn-boundary` that arrives in this window belongs to the ABANDONED turn and must
-   *  not resolve the driver's latch — the redirect turn owns the single pending slot. This
-   *  is what makes completion robust whether or not the SDK emits a boundary for an
-   *  interrupted turn (it emits none — sdk `interrupt()` is a bare control request), instead
-   *  of predicting a boundary count that strands the pill in 'running' (docs/adr/0012 I3). */
-  awaitingRedirect: boolean;
   /** True once a bare stop has closed the in-flight turn: the driver was already released, so
    *  any residual frame the abandoned turn emits must not re-resolve it or surface as an error.
    *  Cleared when the next turn is fed (the query stays alive across a turn-level interrupt). */
   stopped: boolean;
   terminated: boolean;
   close: () => void;
+  /** This query's `DeliveryRecorder.flushAtBoundary` — `settleHeldQuery` is a top-level
+   *  function with no closure over the recorder, so it reaches the flush through the query
+   *  it already receives, the same way `close` does (docs/adr/0031: a mid-turn throw must
+   *  flush a parked line exactly like a turn boundary or an interrupt already does). */
+  flushDeliveries: () => void;
   done: Promise<void>;
 }
 
@@ -312,6 +299,63 @@ function makeStreamAccumulator(): StreamAccumulator {
 }
 
 /**
+ * The delivery-legality gate, and its single writer (docs/adr/0031): a delivery drained
+ * while a tool call is open cannot be written until that call's result lands, or the line
+ * falls between a `tool_use` and its `tool_result` — the one interleaving the Messages API
+ * forbids. The held-open and per-turn closures share this rule so it exists in exactly one
+ * place; only how a frame is EMITTED (which `started` handle, which `seqBox`, which
+ * persistence target) differs between them, so that part alone is injected as `writeFrame`.
+ *
+ * The open-tool count is a COUNT, not a set of handles: a mapped `tool_use` can fall back to
+ * an empty handle, so a set of them would collide on two concurrent calls.
+ */
+interface DeliveryRecorder {
+  /** Drain the queue via the caller-supplied `drain`, writing each entry immediately or
+   *  parking it behind an open tool call. Returns what was drained, so a caller that also
+   *  feeds the text to the model sees every entry regardless of whether it was written or
+   *  parked. */
+  takeDeliveries: (drain: () => readonly Delivery[]) => readonly Delivery[];
+  /** Observe every settled frame: tracks `tool_use`/`tool_result` to keep the open-tool
+   *  count current, flushing whatever is parked the moment it returns to zero. */
+  noteFrame: (frame: TurnFrame) => void;
+  /** Force the gate open and flush. A turn boundary, an interrupt, or the loop ending can
+   *  all leave a tool call open forever, and a delivery already handed to the model must
+   *  never be lost because nothing else was left to close it. */
+  flushAtBoundary: () => void;
+}
+
+function createDeliveryRecorder(writeFrame: (delivery: Delivery) => void): DeliveryRecorder {
+  let openTools = 0;
+  const held: Delivery[] = [];
+
+  function flush(): void {
+    for (const delivery of held.splice(0, held.length)) writeFrame(delivery);
+  }
+
+  return {
+    takeDeliveries: (drain) => {
+      const pending = drain();
+      for (const delivery of pending) {
+        if (openTools > 0) held.push(delivery);
+        else writeFrame(delivery);
+      }
+      return pending;
+    },
+    noteFrame: (frame) => {
+      if (frame.t === 'tool_use') openTools += 1;
+      else if (frame.t === 'tool_result') {
+        openTools = Math.max(0, openTools - 1);
+        if (openTools === 0) flush();
+      }
+    },
+    flushAtBoundary: () => {
+      openTools = 0;
+      flush();
+    },
+  };
+}
+
+/**
  * The identity of a held-open query's prompt-shaping config + model. A later turn
  * whose key differs (a mid-conversation model/role/scope switch) cannot ride the open
  * query — the prompt/model were fixed when it was created — so the driver re-establishes
@@ -331,11 +375,44 @@ function configKeyOf(turn: TurnRequest, role: string): string {
   });
 }
 
+/** Start a child session for `parentId`: everything `spawn.ts`'s `SpawnDeps.startChild`
+ *  needs, plus the parent id its fixed signature deliberately omits (see the module doc
+ *  above `buildSessionHandlers`). Returns once the child has STARTED, never once it has
+ *  finished (SC-1 / the non-blocking contract). */
+export type StartChildFn = (
+  parentId: string,
+  req: { agentRef: string; description: string; prompt: string },
+) => { sessionId: string };
+
+/**
+ * The subagent-dispatch wiring `buildSessionHandlers` needs beyond `registry`/`store`:
+ * the live effective agent set (so a spawned child's turn can carry its agent
+ * DEFINITION's provider/model/reasoning/roles/packageIds/exclude — the spawn call
+ * itself carries none of these, by design) and a callback that receives this
+ * connection's `startChild` the moment it's built.
+ *
+ * `onStartChild` — not a return value — because `buildSessionHandlers` is called fresh
+ * per RPC connection, while the daemon's ONE `SpawnDeps.startChild` (wired into the
+ * governed tool catalogue at composition time, before any connection exists) is bound
+ * to the REAL calling session per spawn via `session.ts`'s `resolveSpawn(sessionId)` —
+ * never an ambient "current session" guess, which would race across the concurrently-
+ * live sessions this feature itself creates (a parent and its already-running child).
+ * The composition root captures whichever `startChild` fires last into a late-bound
+ * holder; every connection's version is behaviorally identical (same `deps`/`store`/
+ * `registry`), so it doesn't matter which one ends up captured.
+ */
+export interface SpawnSupport {
+  /** The LIVE effective agent set. Called per spawn, never cached (mirrors `spawn.ts`). */
+  listAgents: () => readonly AgentSummary[];
+  onStartChild: (startChild: StartChildFn) => void;
+}
+
 export function buildSessionHandlers(
   deps: SessionDeps,
   connection: RpcConnection,
   store: ConversationStore | undefined,
   registry: LiveSessionRegistry,
+  spawnSupport?: SpawnSupport,
 ): RpcHandlers {
   const emit: Sink = (push) => {
     connection.push({ jsonrpc: '2.0', method: 'push', params: push } satisfies RpcNotification);
@@ -344,7 +421,47 @@ export function buildSessionHandlers(
     session: LiveSession,
     worktree: string,
     state: 'done' | 'error' | 'interrupted',
-  ): void => session.emit({ kind: 'status', sessionId: session.id, worktree, state });
+    detail?: string,
+  ): void => {
+    session.emit({ kind: 'status', sessionId: session.id, worktree, state });
+    notifyParentIfChild(session, state, detail);
+  };
+
+  /**
+   * A child's ending is a system fact, not a message from the child: the child never
+   * composes it, and a model must not be able to fabricate one about itself —
+   * `renderChildEnded` hardcodes `origin: 'system'`, unreachable from any tool handler.
+   * Hooked into `emitStatus` — the ONE place every drive strategy (per-turn, held-open),
+   * a direct `interruptSession` call, AND a cascade abort all funnel their terminal
+   * status through — rather than duplicated at each settlement call site. A cascade
+   * abort (`live-registry.ts`'s `#closeOne`) marks `control.interrupted` before it
+   * aborts a running turn, so that turn's own settlement lands here exactly like a
+   * direct interrupt would, reported as `stopped`. A session with no parent (the
+   * overwhelming common case) is untouched: `store?.getMeta(...)?.parent` is undefined,
+   * so this is a no-op — D85.
+   */
+  function notifyParentIfChild(
+    session: LiveSession,
+    state: 'done' | 'error' | 'interrupted',
+    detail?: string,
+  ): void {
+    const meta = store?.getMeta(session.id);
+    if (meta?.parent === undefined) return;
+    const parentSession = registry.get(meta.parent);
+    const reason: SessionEndReason =
+      state === 'done' ? 'completed' : state === 'error' ? 'errored' : 'stopped';
+    // A sealed queue silently drops this — the cancel-guard doing its job after a
+    // cascade stop (delivery.ts), not an error to handle. An already-gone parent
+    // (`registry.get` returns undefined) is the same: nothing left to notify.
+    parentSession?.deliveries.push(
+      renderChildEnded({
+        child: session.id,
+        agentRef: meta.agentRef,
+        reason,
+        ...(detail !== undefined ? { detail } : {}),
+      }),
+    );
+  }
 
   const turnMeta = new WeakMap<TurnRequest, TurnMeta>();
   // Which conversation ids THIS connection has already arranged to (re)subscribe
@@ -510,8 +627,9 @@ export function buildSessionHandlers(
    * Run ONE turn of `session` through today's per-turn `createSession` (session.ts)
    * — the `per-turn` strategy every pure-API backend runs unchanged (D85; see
    * docs/adr/0011, docs/adr/0012). A fresh adapter, a one-shot string `input`, and
-   * the loop awaited to completion; the neutral user-stop + steer queue live on
-   * `control` (mode left unset ⇒ steers drain via `drainSteer`).
+   * the loop awaited to completion; the neutral user-stop lives on `control`. A
+   * steer lands on `session.deliveries` (see `steerSession`), which this turn's own
+   * `drainDeliveries` hook reaches at its next round trip (docs/adr/0031).
    */
   async function runPerTurn(
     turn: TurnRequest,
@@ -525,6 +643,29 @@ export function buildSessionHandlers(
     // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
     // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
     const acc = makeStreamAccumulator();
+    // Same rule as the held-open path: a delivery's line is written when the model receives
+    // it, and never between a `tool_use` and its `tool_result` (docs/adr/0031). Only the
+    // frame-emission shape differs (a plain `started` local, this closure's own `seqBox`).
+    const deliveries = createDeliveryRecorder((delivery) => {
+      if (started === undefined) return;
+      const s = seqBox.value++;
+      const frame: TurnFrame = {
+        t: 'text',
+        text: delivery.text,
+        role: delivery.origin === 'system' ? 'system' : 'user',
+      };
+      session.emit({
+        kind: 'turn',
+        sessionId: started.id,
+        worktree: started.worktree,
+        seq: s,
+        frame,
+      });
+      if (prep.persistIn !== undefined)
+        prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+    });
+    const takeDeliveries = (): readonly Delivery[] =>
+      deliveries.takeDeliveries(() => session.deliveries.drain());
     const record = (frame: TurnFrame, full?: string): void => {
       if (started === undefined) return;
       acc.observe(frame);
@@ -558,10 +699,9 @@ export function buildSessionHandlers(
           { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
         ]);
       }
+      deliveries.noteFrame(frame);
     };
     const controller = new AbortController();
-    const steer: string[] = [];
-    const queueSteer: string[] = [];
 
     try {
       await createSession(
@@ -574,17 +714,18 @@ export function buildSessionHandlers(
           ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
           ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
           sessionId: session.id,
+          // A root session's own spend carries no `root` (D85 — byte-identical to
+          // before lineage existed); a spawned child's does, tagged with its
+          // top-of-tree ancestor regardless of nesting depth (`session.root` already
+          // walks that far — see `startChild`).
+          ...(session.parent !== undefined ? { root: session.root } : {}),
           ...buildPersistenceHooks(prep),
           signal: controller.signal,
-          drainSteer: () => steer.splice(0, steer.length),
-          drainQueuedSteer: () => queueSteer.splice(0, queueSteer.length),
-          drainDeliveries: () => session.deliveries.drain(),
+          drainDeliveries: takeDeliveries,
           onStart: (s) => {
             started = s;
             session.control = {
               controller,
-              steer,
-              queueSteer,
               interrupted: false,
               mode: 'per-turn',
             };
@@ -594,6 +735,7 @@ export function buildSessionHandlers(
             // persisted (docs/adr/0013), so only this settled frame reaches the durable log.
             session.setInterruptClosure(() => {
               for (const partial of acc.drainPartials()) record(partial);
+              deliveries.flushAtBoundary();
               record({ t: 'interrupted' });
               controller.abort();
               return true;
@@ -611,6 +753,9 @@ export function buildSessionHandlers(
         },
         deps,
       );
+      // The loop is over; anything still parked behind a tool that never returned its result
+      // was still handed to the model, so it is written rather than lost.
+      deliveries.flushAtBoundary();
       // A pure-API backend aborted at the loop's top-of-iteration boundary settles
       // cleanly (no throw) — so a completed interrupt is seen here, not in `catch`.
       const interrupted = session.control?.interrupted === true;
@@ -633,10 +778,15 @@ export function buildSessionHandlers(
       // SC-1: an interrupt is a user stop, not a governance block; `interruptSession`
       // already emitted `'interrupted'`. Nothing further to surface.
       if (interrupted) return;
+      // A genuine mid-turn throw reaches neither the interrupt closure nor the `try` block's
+      // own post-await flush — so anything parked behind a still-open tool call is flushed
+      // here, BEFORE the error frame below, so the log shows the delivery where the model
+      // actually read it, above the failure that followed it (docs/adr/0031).
+      deliveries.flushAtBoundary();
       const message = describeLoopFailure(err);
       if (started !== undefined) {
         record({ t: 'error', message, origin: 'loop' });
-        emitStatus(session, started.worktree, 'error');
+        emitStatus(session, started.worktree, 'error', message);
       }
     }
   }
@@ -734,8 +884,38 @@ export function buildSessionHandlers(
     const prep = prepareTurnPersistence(turn, session, persistentStore, seqBox);
     const channel = new InputChannel();
     const controller = new AbortController();
-    const steer: string[] = [];
     const boundary = deferred();
+
+    // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
+    // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
+    const acc = makeStreamAccumulator();
+
+    // Record the steer as a user turn in the single log (the SoT — docs/adr/0010) AND push
+    // it live. Pushing it (rather than leaving the console to render it optimistically) is
+    // the single source of truth: the console shows the steer the instant it is sent, in the
+    // exact form the model saw, and a later reload folds the same persisted frame into the
+    // same place — so the steer never double-renders. Also called for a delivery's line
+    // (below) — the write itself is identical, only the source differs.
+    const recordSteerTurn = (steerText: string, role: 'user' | 'system' = 'user'): void => {
+      const started = startedRef.current;
+      if (started === undefined) return;
+      const s = seqBox.value++;
+      const frame: TurnFrame = { t: 'text', text: steerText, role };
+      session.emit({
+        kind: 'turn',
+        sessionId: started.id,
+        worktree: started.worktree,
+        seq: s,
+        frame,
+      });
+      if (prep.persistIn !== undefined)
+        prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+    };
+
+    const deliveries = createDeliveryRecorder((delivery) =>
+      recordSteerTurn(delivery.text, delivery.origin === 'system' ? 'system' : 'user'),
+    );
+
     const query: HeldQuery = {
       configKey,
       channel,
@@ -743,18 +923,39 @@ export function buildSessionHandlers(
       boundary,
       pendingTurns: 0,
       turnInterrupt: undefined,
-      barging: 0,
-      awaitingRedirect: false,
       stopped: false,
       terminated: false,
       close: () => channel.close(),
+      flushDeliveries: deliveries.flushAtBoundary,
       done: Promise.resolve(),
     };
     setHeld(query);
+    const takeDeliveries = (): readonly Delivery[] =>
+      deliveries.takeDeliveries(() => session.deliveries.drain());
 
-    // `full`, present on a `tool_result`, is the complete body the model saw (docs/adr/0010) —
-    // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
-    const acc = makeStreamAccumulator();
+    /**
+     * Feed whatever is still queued after a turn ends into the input feed as one plain next
+     * turn, preserving FIFO order. Returns whether anything was fed.
+     *
+     * Recorded HERE, by `takeDeliveries`, like every other drain point: nothing wrote these
+     * lines earlier (docs/adr/0031). A `user` entry is then fed bare so the log and the model
+     * agree on the text; a `system` entry is framed as a notice, so the model cannot read an
+     * automated report as the person speaking (docs/adr/0030).
+     *
+     * A sealed queue yields nothing, so a torn-down session is never revived by this.
+     */
+    function flushStrandedDeliveries(): boolean {
+      if (session.deliveries.size() === 0) return false;
+      const pending = takeDeliveries();
+      if (pending.length === 0) return false;
+      const text = pending
+        .map((d) => (d.origin === 'system' ? FRAME_SYSTEM_NOTICE + d.text : d.text))
+        .join('\n');
+      query.pendingTurns += 1;
+      channel.push(text);
+      return true;
+    }
+
     const record = (frame: TurnFrame, full?: string): void => {
       const started = startedRef.current;
       if (started === undefined) return;
@@ -765,8 +966,8 @@ export function buildSessionHandlers(
       if (query.stopped) return;
       acc.observe(frame);
       // Streaming deltas are delivery-only (docs/adr/0013): push for live render, but
-      // NEVER persist, and never touch the barging/boundary accounting below — the
-      // append-only log (docs/adr/0010) holds only settled frames (opencode #11329).
+      // NEVER persist, and never touch the boundary accounting below — the append-only
+      // log (docs/adr/0010) holds only settled frames (opencode #11329).
       if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
         const s = seqBox.value++;
         session.emit({
@@ -776,12 +977,6 @@ export function buildSessionHandlers(
           seq: s,
           frame,
         });
-        return;
-      }
-      // SC-1: an interrupted turn's terminal result (from a barge-in `interrupt()`) must
-      // not surface as an error frame. Swallow one error frame per outstanding barge-in.
-      if (frame.t === 'error' && query.barging > 0) {
-        query.barging -= 1;
         return;
       }
       // A settled `thinking` frame is stamped with the reasoning wall-clock (persisted so a
@@ -800,25 +995,17 @@ export function buildSessionHandlers(
           { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
         ]);
       }
+      deliveries.noteFrame(frame);
       if (frame.t === 'turn-boundary') {
-        // A barge-in's abandoned turn may still emit a residual boundary; it is recorded
-        // (above) but must NOT resolve the driver — the redirect turn owns the pending slot
-        // and drives completion (docs/adr/0012 I3). Robust whether or not the SDK boundaries
-        // an interrupted turn: no boundary ⇒ nothing to swallow, the redirect still resolves.
-        if (query.awaitingRedirect) {
-          dbgSteer('boundary swallowed (abandoned turn)', { pendingTurns: query.pendingTurns });
-          return;
-        }
+        // A turn can end with a tool still open (an interrupt, an error, a result that never
+        // arrived). Nothing else will close it, so write what is parked rather than lose text
+        // the model was already handed.
+        deliveries.flushAtBoundary();
         query.pendingTurns -= 1;
         dbgSteer('boundary counted', { pendingTurns: query.pendingTurns });
-        // Resolve the driver only when every outstanding turn (incl. a barge-in-injected
-        // steer) has boundaried — otherwise the redirect is still running (docs/adr/0012 I3).
+        // Resolve the driver only when every outstanding turn has boundaried.
         if (query.pendingTurns <= 0) {
           query.pendingTurns = 0;
-          // SC-1: bound the interrupt-error suppression to this redirect — a success-subtype
-          // interrupt leaves no error to swallow, so clear it rather than letting it swallow
-          // a future turn's genuine error.
-          query.barging = 0;
           // The turn is over, so any delivery still queued missed every mid-loop drain
           // point this turn had — the last of them (the Claude backend's `Stop` hook) has
           // already fired and returned by the time this frame lands. Feed it as an ordinary
@@ -834,55 +1021,6 @@ export function buildSessionHandlers(
       }
     };
 
-    /**
-     * Feed whatever is still queued after a turn ends into the input feed as one plain next
-     * turn, preserving FIFO order. Returns whether anything was fed.
-     *
-     * NOT re-recorded: a `user` delivery was written to the append-only log by
-     * {@link recordSteerTurn} the moment it was queued, and re-appending here would put the
-     * same turn in canonical memory twice (one writer per record — docs/adr/0010). Its bare
-     * text is therefore what gets fed, so the log and the model agree. A `system` delivery
-     * is a platform notice that was never a user turn and is never logged as one on any
-     * drain path; it is framed here exactly as a backend frames it mid-loop, so the model
-     * cannot read an automated report as the person speaking (docs/adr/0030).
-     *
-     * A sealed queue yields nothing, so a torn-down session is never revived by this.
-     */
-    function flushStrandedDeliveries(): boolean {
-      if (session.deliveries.size() === 0) return false;
-      const pending = session.deliveries.drain();
-      if (pending.length === 0) return false;
-      const text = pending
-        .map((d) => (d.origin === 'system' ? FRAME_SYSTEM_NOTICE + d.text : d.text))
-        .join('\n');
-      query.pendingTurns += 1;
-      channel.push(text);
-      return true;
-    }
-
-    // Record the steer as a user turn in the single log (the SoT — docs/adr/0010) AND push
-    // it live. Pushing it (rather than leaving the console to render it optimistically) is
-    // the single source of truth: the console shows the steer the instant it is sent, in the
-    // exact form the model saw (framed, for a barge-in), and a later reload folds the same
-    // persisted frame into the same place — so the steer never double-renders as the raw
-    // typed text live and the framed text on reload (docs/adr/0012). Records the text AS FED
-    // to the model (framed, for barge-in).
-    const recordSteerTurn = (steerText: string): void => {
-      const started = startedRef.current;
-      if (started === undefined) return;
-      const s = seqBox.value++;
-      const frame: TurnFrame = { t: 'text', text: steerText, role: 'user' };
-      session.emit({
-        kind: 'turn',
-        sessionId: started.id,
-        worktree: started.worktree,
-        seq: s,
-        frame,
-      });
-      if (prep.persistIn !== undefined)
-        prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
-    };
-
     // NOT awaited: this createSession spans the whole live session. Its promise settles
     // only when the input feed closes (clean) or the query aborts (interrupt/error).
     query.done = createSession(
@@ -895,10 +1033,13 @@ export function buildSessionHandlers(
         ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
         ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
         sessionId: session.id,
+        // See the `per-turn` call site's identical spread: a root session's own spend
+        // stays root-less (D85); a spawned child's is tagged with its top-of-tree
+        // ancestor, whatever the nesting depth.
+        ...(session.parent !== undefined ? { root: session.root } : {}),
         ...buildPersistenceHooks(prep),
         signal: controller.signal,
-        drainSteer: () => steer.splice(0, steer.length),
-        drainDeliveries: () => session.deliveries.drain(),
+        drainDeliveries: takeDeliveries,
         onTurnInterrupt: (fn) => {
           query.turnInterrupt = fn;
         },
@@ -906,65 +1047,20 @@ export function buildSessionHandlers(
           startedRef.current = s;
           session.control = {
             controller,
-            steer,
-            queueSteer: [],
             interrupted: false,
             mode: 'held-open',
           };
-          // A steer routes at THIS query, not the per-turn `drainSteer` queue. `barge-in`
-          // stops the running turn (via the reported interrupt handle) and injects a framed
-          // redirect into the input feed. A `queue` steer aimed at a WORKING turn instead
-          // goes onto the session's delivery queue, which the backend drains from inside
-          // that turn — beside the next tool result, one round trip away, discarding
-          // nothing. Only an idle steer still enters the input feed, as a plain next turn.
-          session.setSteerSink((text, mode) => {
-            const running = query.pendingTurns > 0;
-            if (mode === 'barge-in' && running) {
-              // Redirect: abandon the running turn and run the framed steer in its place. Do
-              // NOT pre-count a boundary for the abandoned turn — the SDK `interrupt()` emits
-              // none, so predicting one strands the pill in 'running' forever (the reported
-              // bug). The single pending slot carries over to the redirect; `awaitingRedirect`
-              // swallows any residual boundary the abandoned turn does emit, so completion is
-              // robust either way (docs/adr/0012 I3).
-              query.barging += 1; // suppress the abandoned turn's error frame (SC-1)
-              dbgSteer('barge-in issued', {
-                pendingTurns: query.pendingTurns,
-                barging: query.barging,
-              });
-              // Settle what the abandoned turn streamed BEFORE the redirect's user turn, so it
-              // persists (deltas never do) and its reasoning block closes instead of streaming
-              // forever. Drained before `awaitingRedirect` so these settled frames still record.
-              for (const partial of acc.drainPartials()) record(partial);
-              query.awaitingRedirect = true;
-              const framed = FRAME_BARGE_IN + text;
-              recordSteerTurn(framed);
-              void (async () => {
-                // Redirect the running turn, THEN inject the framed steer. If the SDK
-                // interrupt rejects (or has no handle), the steer is STILL fed — it degrades
-                // to a queued follow-up — so completion can't hang (SC-1: a failed interrupt
-                // is a user action, never fatal).
-                try {
-                  await query.turnInterrupt?.();
-                } catch {
-                  // non-fatal; fall through to feed the steer so the turn still redirects.
-                }
-                query.awaitingRedirect = false;
-                dbgSteer('redirect fed', { pendingTurns: query.pendingTurns });
-                channel.push(framed);
-              })();
-            } else if (running) {
-              // Mid-loop delivery: the running turn's own loop picks this up at its next
-              // round trip. It is NOT another SDK turn, so it must not be counted — the
-              // in-flight turn still owns the single pending slot (docs/adr/0012 I3).
-              // The input feed's stream tap never sees it, so record it here: the
-              // append-only log is the only durable record of what the user sent
-              // (docs/adr/0010). The bare text is what is recorded — each backend frames
-              // the delivery its own way, and core never learns which backend ran it.
-              recordSteerTurn(text);
+          // A steer never abandons work in flight: while a turn runs it rides the session's
+          // delivery queue, which the backend drains from inside that turn — beside the next
+          // tool result, one round trip away, discarding nothing (docs/adr/0031). Only an idle
+          // steer enters the input feed, as a plain next turn, where send and pickup coincide.
+          session.setSteerSink((text) => {
+            if (query.pendingTurns > 0) {
+              // NOT another SDK turn, so it must not be counted — the in-flight turn still
+              // owns the single pending slot (docs/adr/0012 I3). Its log line is written when
+              // the backend drains it, not here.
               session.deliveries.push({ origin: 'user', text });
             } else {
-              // Nothing is running (a queue steer, or a barge-in, while the query idles):
-              // there is no loop to deliver into, so this is a plain next turn, uncounted.
               recordSteerTurn(text);
               channel.push(text);
             }
@@ -979,8 +1075,9 @@ export function buildSessionHandlers(
           // on the next turn). Finally release the driver deterministically — an interrupted turn
           // emits no boundary, so nothing else ever would (SC-1: a user stop, never an error).
           session.setInterruptClosure(() => {
-            if (query.pendingTurns === 0 && !query.awaitingRedirect) return false;
+            if (query.pendingTurns === 0) return false;
             for (const partial of acc.drainPartials()) record(partial);
+            deliveries.flushAtBoundary();
             record({ t: 'interrupted' });
             query.stopped = true;
             dbgSteer('bare stop issued', {
@@ -1000,8 +1097,6 @@ export function buildSessionHandlers(
               controller.abort();
             }
             query.pendingTurns = 0;
-            query.awaitingRedirect = false;
-            query.barging = 0;
             const pending = query.boundary;
             query.boundary = undefined;
             pending?.resolve();
@@ -1073,8 +1168,10 @@ export function buildSessionHandlers(
    * Settle a held query once its long-lived `createSession` promise resolves (input
    * feed closed) or rejects (an interrupt-abort or a mid-turn provider drop). Clears
    * the steer route + control, releases any turn still awaiting a boundary, and — on
-   * a genuine (non-interrupt) error — drops the stale resume token and surfaces the
-   * failure (SC-1: an interrupt is a user stop, never rendered as an error).
+   * a genuine (non-interrupt) error — flushes a delivery still parked behind an open
+   * tool call (docs/adr/0031: nothing else will ever close it now), drops the stale
+   * resume token, and surfaces the failure (SC-1: an interrupt is a user stop, never
+   * rendered as an error).
    */
   function settleHeldQuery(
     session: LiveSession,
@@ -1096,10 +1193,17 @@ export function buildSessionHandlers(
     if (query.persistIn !== undefined)
       query.persistIn.store.clearBackendSession(query.persistIn.convId);
     if (interrupted) return; // SC-1: `interruptSession` already emitted `'interrupted'`.
+    // A genuine mid-turn throw (most often a dropped provider connection) reaches neither the
+    // interrupt closure nor a `turn-boundary` frame — the two other flush points — so nothing
+    // else will ever write a line already parked behind a still-open tool call. Flush it BEFORE
+    // the error frame below, so the log shows the delivery where the model actually read it,
+    // above the failure that followed it (mirrors the interrupt closure's own ordering).
+    query.flushDeliveries();
     const started = startedRef.current;
     if (started !== undefined) {
+      const message = describeLoopFailure(err);
       const s = seqBox.value++;
-      const frame: TurnFrame = { t: 'error', message: describeLoopFailure(err), origin: 'loop' };
+      const frame: TurnFrame = { t: 'error', message, origin: 'loop' };
       session.emit({
         kind: 'turn',
         sessionId: started.id,
@@ -1109,8 +1213,82 @@ export function buildSessionHandlers(
       });
       if (query.persistIn !== undefined)
         query.persistIn.store.append(query.persistIn.convId, [{ seq: s, frame }]);
-      emitStatus(session, started.worktree, 'error');
+      emitStatus(session, started.worktree, 'error', message);
     }
+  }
+
+  // Spawning needs BOTH a persistent store (a child's lineage lives in `SessionMeta`,
+  // and `store.create`/`getMeta` are what makes the notify hook above ever fire) and
+  // the caller-supplied agent lookup — absent either, spawning stays unavailable for
+  // this connection (D85: nothing about this branch runs when spawnSupport is unset).
+  if (spawnSupport !== undefined && store !== undefined) {
+    const boundStore = store;
+    const startChild: StartChildFn = (parentId, req) => {
+      const id = deps.newSessionId();
+      // `registry.get(parentId)?.root` — not `store`'s — because a parent already torn
+      // down still has a durable `SessionMeta`, but its LIVE root is what the cascade
+      // (a parent-link walk over live sessions, lineage.ts) actually needs. Falling back
+      // to `parentId` covers the already-gone-parent case below: the child still gets a
+      // well-formed (if orphaned) root rather than an undefined one.
+      const root = registry.get(parentId)?.root ?? parentId;
+      const scope = boundStore.getMeta(parentId)?.scope ?? '';
+      // The LIVE effective set, read fresh (never cached) — an agent authored moments
+      // ago must be spawnable immediately, and `req.agentRef` already comes from a
+      // registry-resolved match (`spawn.ts` validates before ever calling this).
+      const agent = spawnSupport.listAgents().find((a) => a.ref === req.agentRef);
+
+      // A spawn against an already-closed (or, since `registry.close` never yields
+      // mid-cascade, equivalently an already-CLOSING) parent still creates and runs the
+      // child: refusing would need either a throw (forbidden, SC-1) or a bogus id the
+      // caller would wrongly read as success (worse — the work the model asked for
+      // would silently never happen). The result is a deliberate orphan: no live
+      // ancestor is left to ever cascade a stop through it, but it still runs its one
+      // assigned turn to completion and self-cleans via the ordinary idle-eviction timer.
+      const { session } = registry.getOrCreate(id, { parent: parentId, root });
+      boundStore.create({
+        id,
+        agentRef: req.agentRef,
+        title: deriveTitle(req.description),
+        scope,
+        parent: parentId,
+        root,
+      });
+
+      const turn: TurnRequest = {
+        input: req.prompt,
+        scope,
+        // Model choice routes through the agent DEFINITION, never the spawn call — the
+        // whole reason dispatch goes via the registry. An agentRef the registry no
+        // longer recognizes by the time this runs (a narrow TOCTOU on a hand-edited
+        // agent file) degrades to the account default rather than carrying no model.
+        ...(agent?.provider !== undefined ||
+        agent?.model !== undefined ||
+        agent?.reasoning !== undefined
+          ? {
+              model: {
+                ...(agent?.provider !== undefined ? { provider: agent.provider } : {}),
+                ...(agent?.model !== undefined ? { model: agent.model } : {}),
+                ...(agent?.reasoning !== undefined ? { reasoning: agent.reasoning } : {}),
+              },
+            }
+          : {}),
+        ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
+        ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
+        ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      };
+      turnMeta.set(turn, { role: agent?.roles?.[0] ?? '' });
+
+      // Non-blocking (the design's re-entrancy retirement): start the loop and return
+      // immediately, never awaiting its completion. `runLiveSession` never rejects — a
+      // turn's own failure is caught and rendered as an error frame (`runPerTurn`'s own
+      // try/catch, above) — so there is no unhandled rejection here to strand the
+      // parent; the `errored` notice reaches it through `emitStatus` like any other end.
+      void runLiveSession(session, makeRunTurn(boundStore));
+      session.enqueue(turn);
+      registry.touch(id);
+      return { sessionId: id };
+    };
+    spawnSupport.onStartChild(startChild);
   }
 
   return {
@@ -1191,21 +1369,29 @@ export function buildSessionHandlers(
       return { interrupted: true };
     }),
 
-    // Queue a mid-turn steer (CHAT-10). The held-open route (see the steer sink in
-    // `establishHeldQuery`) delivers it into the WORKING turn, or feeds it as a plain next
-    // turn when the query idles; the pure-API path queues it for `drainSteer` at the
-    // driver's next safe boundary. An empty steer is a no-op — it would otherwise be
-    // recorded as a blank user turn in canonical memory.
+    // Queue a mid-turn steer (CHAT-10): one steer, one destination. The held-open route
+    // (see the steer sink in `establishHeldQuery`) delivers it into the WORKING turn via
+    // the session's delivery queue, or feeds it as a plain next turn when the query idles;
+    // a `per-turn` backend has no held-open sink, so the same delivery queue is pushed
+    // directly here — the running loop drains it at its own next round trip (docs/adr/0031).
+    // A blank-after-trim steer is a no-op — it would otherwise be recorded as a blank user
+    // turn in canonical memory. The TRIMMED text is what gets recorded (not the raw param):
+    // the console's own composer already trims before sending (console.ts `steerSession`),
+    // so this is a no-op on the shipped path, and it keeps the console's optimistic pin —
+    // built from that same trimmed text — matching the daemon's recorded line exactly (the
+    // count-baseline reconciliation in docs/adr/0031 needs an exact match, or the pin hangs
+    // until the idle sweep clears it).
     steerSession: rpcMethod(steerParams, (params) => {
       const session = registry.get(params.id);
       if (session?.control === undefined) return { steered: false };
-      if (params.text === '') return { steered: false };
+      const text = params.text.trim();
+      if (text === '') return { steered: false };
       if (session.control.mode === 'held-open') {
-        session.pushSteer(params.text, params.mode);
-      } else if (params.mode === 'barge-in') {
-        session.control.steer.push(params.text); // next-safe-boundary inject
+        session.pushSteer(text);
       } else {
-        session.control.queueSteer.push(params.text); // run after the current turn
+        // Per-turn backends have no held-open sink; the same one queue reaches their loop
+        // at the top of its next round trip (docs/adr/0031).
+        session.deliveries.push({ origin: 'user', text });
       }
       return { steered: true };
     }),
