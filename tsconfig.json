@@ -11,6 +11,7 @@
     { "path": "packages/adapter-deepseek" },
     { "path": "packages/adapter-longcat" },
     { "path": "packages/console-viewmodel" },
+    { "path": "packages/console-kit" },
     { "path": "packages/console-transcript" },
     { "path": "apps/cli" },
     { "path": "apps/desktop" }

@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./tokens.css": "./src/tokens.css"
   },
   "scripts": {
+    "build": "tsc -b",
     "gen": "jiti scripts/gen-catalog.ts",
     "typecheck": "tsc -b"
   },

@@ -3,10 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolCall, TurnFrame } from '@coa/shared';
 import type { RuntimeUsage } from '@coa/spi';
+import { ClaudeSdkAdapter } from '@coa/adapter-claude-sdk';
 import { DeepSeekAdapter } from '@coa/adapter-deepseek';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
+// The shared live-smoke scaffolding lives with the adapter's own smokes. A test-only
+// reach into that source file: tests sit outside every tsconfig program and outside
+// the dependency-cruiser graph, so this never becomes a package-level edge.
 import {
   barebonesSandbox,
   collectText,
@@ -17,12 +20,12 @@ import {
   neverStop,
   resolveLiveLocator,
   waitForCondition,
-} from './live-smoke-helpers.js';
+} from '../../../packages/adapter-claude-sdk/src/live-smoke-helpers.js';
 
 /**
  * The live gate for the subagent-orchestration arc. SDK 0.3.196 / CLI 2.1.196.
  *
- *   COA_LIVE=1 pnpm vitest run packages/adapter-claude-sdk/src/subagent-orchestration.live.test.ts
+ *   COA_LIVE=1 pnpm vitest run apps/cli/src/subagent-orchestration.live.test.ts
  *
  * A Claude orchestrator spawns a child running on DeepSeek (a different provider — the
  * arc's cross-backend claim, not just "another Claude session") and the test asserts the
@@ -31,12 +34,17 @@ import {
  * aborting the root's session terminates the child rather than leaving it running headless
  * forever.
  *
+ * It lives in `apps/cli` because the CLI is the one place that legitimately owns BOTH
+ * adapters (`@coa/adapter-claude-sdk` and `@coa/adapter-deepseek` are real dependencies
+ * here); in its original home, `packages/adapter-claude-sdk`, this file was the sole
+ * reason for a cross-adapter devDependency.
+ *
  * SCOPE, READ BEFORE TRUSTING THIS FILE'S ASSERTIONS AS PROOF OF THE SHIPPED FEATURE:
- * This package must not depend on `@coa/core` (`live-smoke-helpers.ts`'s own
- * `resolveLiveLocator` doc comment states the same rule for account resolution — an
- * adapter-level test must not depend upward on the daemon core; `@coa/core` itself depends
- * on this package, so the reverse edge would be circular). That means the REAL production
- * code this arc shipped — `packages/core/src/workbench/spawn.ts` (`spawn_agent`'s dispatch),
+ * An adapter-level test must not depend upward on the daemon core (`@coa/core` depends
+ * on the adapters, so the reverse edge would be circular — `live-smoke-helpers.ts`'s own
+ * `resolveLiveLocator` doc comment states the same rule for account resolution), and this
+ * test kept that shape when it moved. That means the REAL production code this arc
+ * shipped — `packages/core/src/workbench/spawn.ts` (`spawn_agent`'s dispatch),
  * `packages/core/src/session/session-handlers.ts` (`startChild`/`notifyParentIfChild`),
  * `packages/core/src/session/live-registry.ts` (the parent-link cascade), and
  * `packages/core/src/governance/ledger.ts` (the `root`-keyed spend record) — is NOT
@@ -65,8 +73,8 @@ import {
  * sits in. A `*.live.test.ts` file placed anywhere under `packages/core/src` (the
  * `browser-launcher.live.test.ts` convention already in that directory) could inject real
  * adapter instances into `spawn.ts`'s `SpawnDeps` port and drive the actual
- * `spawn.ts`/`session-handlers.ts`/`live-registry.ts` — no circularity, unlike this package.
- * See ROADMAP.md item M.
+ * `spawn.ts`/`session-handlers.ts`/`live-registry.ts` — no circularity, unlike an
+ * adapter-level test. See ROADMAP.md item M.
  *
  * Root/child share one worktree on purpose (not two `mkdtempSync` calls): ADR-0034 records
  * that a child shares its root's worktree rather than getting its own (the worktree manager
