@@ -3,6 +3,15 @@
 > **RUN INTERRUPTED 2026-08-07 ~07:20 — individual spend limit hit mid-C2.**
 > Everything is on GitHub. This file is written for a FRESH SESSION ON A NEW MACHINE.
 
+> **RESUMED 2026-08-07 ~13:15 on the maintainer's Windows machine** (Fable 5 CLI,
+> bypass permissions, subscription account — no spend ceiling per Q4). Maintainer
+> answered the question queue: Q1 archive-anyway, Q3 keep-Cost, Q5 gate-and-keep,
+> Q7 archive-orphans/fold-codenames-into-Stage-4/fix-flakes-early; **Q2 still open.**
+> See the answers section at the bottom of `questions.md`. Local-file restore done
+> (CLAUDE.local.md + exclude entries; settings.local.json skipped — bypass makes it
+> moot). Next action unchanged: gate the WIP adapter, then C2 part 3, plus the newly
+> ruled R1 execution and Q7 cleanups.
+
 ## Resume protocol (new machine, from zero)
 
 1. `git clone https://github.com/ajbarba01/coa.git ~/dev/coa`

@@ -92,3 +92,46 @@ architecture workstream is ~40% delivered, not complete.
   full-suite load (both pass solo) — candidates for deterministic waits.
 - `capabilityProfileSchema` in packages/shared lost its last consumer in the port
   shrink; left in place deliberately (out of that charter's scope).
+
+---
+
+# Maintainer answers — 2026-08-07 (arc resumed on the maintainer's Windows machine)
+
+Rulings taken in-session; Q3/Q5/Q7 delegated to the resuming agent, whose calls are
+recorded here as final unless the maintainer objects.
+
+- **Q1 — RULED: archive anyway.** Execute R1 as originally written (hard-cap/deny path
+  + ceilingUsd plumbing archived, spend counter kept), accepting that spawn_agent
+  fan-out is unbounded for now. ADR 0032's "cost cap is the only fan-out bound" claim
+  becomes stale prose to reconcile in Stage 4 docs.
+- **Q2 — OPEN, awaiting ruling.** Explained to the maintainer; agent recommends
+  striking R2 entirely (three of four symbols are live safety code; the fourth,
+  `ledgerEntries`, is the roadmap's named read seam for tree-spend UI). Alternative on
+  the table: re-scope to exactly `ledgerEntries`. Nothing removed until ruled.
+- **Q3 — RULED (delegated): keep the Cost section.** It renders live session-tree
+  spend with pinning tests; the ruling targeted a dead floor that no longer exists.
+  R12f stands as executed (Record floor removed, Cost kept).
+- **Q4 — RULED: no budget.** The resumed run drives a subscription account; the $250
+  ceiling and mechanical token budgets are dropped. Caveat kept live: Fable promo
+  credit (~$200 across two accounts) funds orchestration/UX and is finite — watch it
+  across the UX stages.
+- **Q5 — RULED (delegated): gate-and-keep.** Gate `arc/wip-adapter-unify` as-is under
+  the arc's stop-loss (3 distinct fix attempts); if it survives, land it on
+  `arc/architecture`; if not, discard and redo from the intact part-2/part-3 prompts
+  in `workflow-scripts/c2-backend-seam-*.js`.
+- **Q6 — acknowledged.** C3/C4/C5 resume as written from `architecture-audit.md`.
+- **Q7 — RULED (delegated):**
+  - Orphaned context modules (`spec-tier.ts`, `health.ts`, `generation-seam.ts`) →
+    **archive**, same treatment as the orphaned wire schemas in 2afa808.
+  - `capabilityProfileSchema` → archived in the same pass.
+  - Codename consistency → **fold into Stage 4**; sweep codenames from code comments,
+    but keep Type-1/Type-2 (and other spec-defined vocabulary) in specs/ADRs where
+    they are definitions, not slop.
+  - Flaky tests (`Combobox.test.tsx` focus, `daemon.test.ts` watcher) → **fix early**
+    with deterministic waits; every remaining gate reads through them.
+
+Environment deltas for the resumed run: Windows machine (POSIX setup notes in
+MACHINE-SETUP.md mostly moot — Node 22.20 already present, native modules already
+build here), bypass permissions ON (the settings.local.json allowlist and
+scratch-inside-repo workaround are obsolete), Fable 5 CLI session, no `Workflow`
+tool in this harness — workflow scripts are used as subagent prompt sources instead.
