@@ -8,11 +8,14 @@
  * imports only `@coa/shared` + `@coa/spi`, no provider SDK.
  */
 
+// The `complete()` primitive's neutral shapes live with the other capability-port
+// types in `@coa/spi`; re-exported here because they are this package's contract
+// surface (implement `complete()`, hand it to the driver).
 export type {
   CompleteFn,
   CompletionDelta,
   CompletionResult,
   DriverMessage,
   ToolDef,
-} from './complete.js';
+} from '@coa/spi';
 export { runGovernedLoop } from './driver.js';

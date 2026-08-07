@@ -39,6 +39,14 @@ module.exports = {
       to: { path: '^apps/' },
     },
     {
+      name: 'backend-fan-in-is-injected',
+      severity: 'error',
+      comment:
+        'The core (and every backend-neutral package) never imports an adapter package. Concrete backends are constructed in the app composition roots and injected through the port types in spi. The bare-specifier alternative catches an import that no longer resolves (the offending package.json dependency is gone) but would still break the build.',
+      from: { path: '^packages/(core|spi|shared|loop-driver|code-intel)/src' },
+      to: { path: '^packages/adapter-|^@coa/adapter-' },
+    },
+    {
       name: 'core-consumer-rings-no-sideways',
       severity: 'error',
       comment:

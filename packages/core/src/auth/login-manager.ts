@@ -1,12 +1,13 @@
 import { isAbsolute, join, relative } from 'node:path';
+import type { LoginDriverHandle, LoginDriverPort } from '@coa/spi';
 import type { AccountsRegistry } from './registry.js';
 import { mintAccountId } from './registry.js';
 
 /**
  * The driven-login orchestrating state machine (core). Watches a rented CLI's
  * OAuth handshake via an injected `LoginDriverPort` (the adapter's pty driver +
- * managed-login-dir semantics — core never imports the adapter directly, keeping
- * the adapter import surface at the composition root) and folds the result into
+ * managed-login-dir semantics — core never imports the adapter; the composition
+ * root builds the driver and injects it) and folds the result into
  * the credential-blind `AccountsRegistry`. Also owns the generic health/identity
  * channel: a broken account is flagged (`needs-relogin`), never
  * auto-switched or blocked.
@@ -48,27 +49,6 @@ export interface LoginSnapshot {
   landedEmail?: string; // set on mismatch, and on preexisting (whoever the dir holds)
   identity?: string; // "email · plan" on registered
   error?: string; // set on failed
-}
-
-export interface LoginDriverHandle {
-  onUrl(fn: (url: string) => void): void;
-  onExit(fn: (code: number | undefined) => void): void;
-  writeCode(code: string): void;
-  kill(): void;
-  readonly ptyCaptured: boolean;
-}
-
-export interface LoginDriverPort {
-  /** `browserLauncher`, when present, is the courier shim: it displaces the rented CLI's own
-   *  default-browser open and writes down the authorize url the CLI would have opened, which
-   *  is the one that completes without a pasted code. Absent ⇒ the spawn is
-   *  exactly today's. */
-  start(opts: { dir: string; email: string; browserLauncher?: string }): LoginDriverHandle;
-  probe(
-    dir: string,
-  ): Promise<{ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined>;
-  home: string;
-  dirFor(email: string): string; // managedLoginDir(home, email)
 }
 
 /** The isolation seam. Core asks; the composition root decides (setting, provider

@@ -41,6 +41,7 @@ export { createConversationStore } from './session/conversation-store.js';
 export {
   createDaemonCore,
   buildDaemonConsoleHandlers,
+  type DaemonConsoleDeps,
   type DaemonCoreHandle,
 } from './session/daemon.js';
 export { AccountsRegistry } from './auth/registry.js';
@@ -54,3 +55,6 @@ export {
   FETCH_KINDS,
   type WebChain,
 } from './workbench/web/web-config-store.js';
+export { webConfigSchema, type WebConfig } from './workbench/web/web-config.js';
+export { makeSummarizer } from './workbench/web/summarizer.js';
+export { type Summarizer } from './workbench/web-tools.js';

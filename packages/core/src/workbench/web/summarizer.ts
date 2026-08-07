@@ -1,5 +1,4 @@
-import type { CompleteFn, DriverMessage } from '@coa/loop-driver';
-import type { RuntimeUsage } from '@coa/spi';
+import type { CompleteFn, DriverMessage, RuntimeUsage } from '@coa/spi';
 import type { Summarizer } from '../web-tools.js';
 
 const DEFAULT_SYSTEM =

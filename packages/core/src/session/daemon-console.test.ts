@@ -32,4 +32,34 @@ describe('buildDaemonConsoleHandlers — inspector reads served over the live da
     );
     expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: { expanded: [], collapsed: [] } });
   });
+
+  it('degrades the login verbs to idle when no login driver is injected', async () => {
+    const res = await dispatch(
+      { jsonrpc: '2.0', id: 1, method: 'loginState' },
+      buildDaemonConsoleHandlers(handle),
+    );
+    expect(res).toMatchObject({ result: { phase: 'idle' } });
+  });
+
+  it('constructs the login manager over an injected driver (startLogin launches)', async () => {
+    const loginDriver = {
+      home: dir,
+      dirFor: (email: string) => join(dir, email),
+      probe: async () => undefined,
+      start: () => ({
+        onUrl: () => {},
+        onExit: () => {},
+        writeCode: () => {},
+        kill: () => {},
+        ptyCaptured: false,
+      }),
+    };
+    const handlers = buildDaemonConsoleHandlers(handle, { loginDriver });
+    const res = await dispatch(
+      { jsonrpc: '2.0', id: 1, method: 'startLogin', params: { email: 'a@b.c' } },
+      handlers,
+    );
+    expect(res).toMatchObject({ result: { phase: 'launching', email: 'a@b.c' } });
+    await dispatch({ jsonrpc: '2.0', id: 2, method: 'cancelLogin' }, handlers);
+  });
 });

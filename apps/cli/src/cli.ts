@@ -28,6 +28,7 @@ import {
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
+import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
 import { parseRunArgs, renderPush } from './run-render.js';
 import type { CliIo } from './io.js';
@@ -246,7 +247,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       };
     },
   });
-  const consoleHandlers = buildDaemonConsoleHandlers(handle);
+  // The driven-login plumbing imports the backend package, so it is built here (the
+  // composition root) and injected; core constructs the login manager over the port.
+  const consoleHandlers = buildDaemonConsoleHandlers(handle, {
+    loginDriver: buildClaudeLoginDriver(homedir()),
+  });
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
   const modelCatalog = new ModelCatalogStore(homedir());
   // The agent-assembly catalogue the console picker reads (starter registry today).

@@ -1,15 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
+import type { RuntimeUsage } from '@coa/spi';
 import type { ChangeEventDraft } from '../event.js';
 import { createSsotConstraintProducer } from '../context/ssot-constraint.js';
-import type { Governance } from '../governance/governance.js';
-import { webConfigSchema } from '../workbench/web/web-config.js';
 import {
-  buildFetchSummarizer,
   createDaemonCore,
   gitignoreToIgnoreGlobs,
   listFilesFor,
@@ -447,82 +445,26 @@ describe('createDaemonCore', () => {
     }
   });
 
-  it('composes a DeepSeek summarizer from web.fetch.summarizer when its key resolves', () => {
-    const prior = process.env.DEEPSEEK_SUMMARIZER_KEY;
-    process.env.DEEPSEEK_SUMMARIZER_KEY = 'ds-secret';
-    try {
-      handle = createDaemonCore({
-        walPath: join(dir, 'log.ndjson'),
-        web: {
-          fetch: {
-            providers: [],
-            freeFloor: true,
-            summarizer: {
-              provider: 'deepseek',
-              model: 'deepseek-chat',
-              credential: { type: 'env-var', name: 'DEEPSEEK_SUMMARIZER_KEY' },
-            },
-            quotaCooldown: 'next-midnight',
-          },
-        },
-      });
-      // The tools are offered; the summarizer path is wired without throwing at composition.
-      const names = handle.core.baseCatalogue.map((t) => t.name);
-      expect(names).toContain('WebFetch');
-    } finally {
-      if (prior === undefined) delete process.env.DEEPSEEK_SUMMARIZER_KEY;
-      else process.env.DEEPSEEK_SUMMARIZER_KEY = prior;
-    }
-  });
-});
-
-describe('buildFetchSummarizer', () => {
-  const stubGovernance = { record: () => {} } as unknown as Governance;
-
-  it('returns undefined when web.fetch.summarizer is absent', () => {
-    const web = webConfigSchema.parse({});
-    expect(buildFetchSummarizer(web, stubGovernance)).toBeUndefined();
+  it('invokes the injected summarizer factory with the ledger recorder when web is configured', () => {
+    const recorders: Array<(usage: RuntimeUsage) => void> = [];
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      web: { fetch: { providers: [], freeFloor: true, quotaCooldown: 'next-midnight' } },
+      summarizer: ({ recordCost }) => {
+        recorders.push(recordCost);
+        return undefined; // the raw-markdown floor — WebFetch must still be offered
+      },
+    });
+    expect(recorders).toHaveLength(1);
+    expect(handle.core.baseCatalogue.map((t) => t.name)).toContain('WebFetch');
+    // The handed recorder reaches the live ledger without throwing.
+    recorders[0]?.({ tokensIn: 1, tokensOut: 1, costUsd: 0.01 });
   });
 
-  it('returns undefined when the summarizer credential does not resolve', () => {
-    const prior = process.env.UNSET_SUMMARIZER_KEY;
-    delete process.env.UNSET_SUMMARIZER_KEY;
-    try {
-      const web = webConfigSchema.parse({
-        fetch: {
-          summarizer: {
-            provider: 'deepseek',
-            model: 'deepseek-chat',
-            credential: { type: 'env-var', name: 'UNSET_SUMMARIZER_KEY' },
-          },
-        },
-      });
-      expect(buildFetchSummarizer(web, stubGovernance)).toBeUndefined();
-    } finally {
-      if (prior !== undefined) process.env.UNSET_SUMMARIZER_KEY = prior;
-    }
-  });
-
-  it('returns a Summarizer when the credential resolves', () => {
-    const prior = process.env.SET_SUMMARIZER_KEY;
-    process.env.SET_SUMMARIZER_KEY = 'ds-secret';
-    try {
-      const web = webConfigSchema.parse({
-        fetch: {
-          summarizer: {
-            provider: 'deepseek',
-            model: 'deepseek-chat',
-            credential: { type: 'env-var', name: 'SET_SUMMARIZER_KEY' },
-          },
-        },
-      });
-      const summarizer = buildFetchSummarizer(web, stubGovernance);
-      expect(summarizer).toBeDefined();
-      expect(typeof summarizer?.summarize).toBe('function');
-    } finally {
-      if (prior === undefined) delete process.env.SET_SUMMARIZER_KEY;
-      else process.env.SET_SUMMARIZER_KEY = prior;
-    }
+  it('never invokes the summarizer factory with no web config', () => {
+    const factory = vi.fn(() => undefined);
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), summarizer: factory });
+    expect(factory).not.toHaveBeenCalled();
   });
 });
 

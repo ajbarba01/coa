@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TurnFrame } from '@coa/shared';
-import type { Delivery, RegisteredTool, ToolCatalogue } from '@coa/spi';
-import type { CompletionDelta, CompletionResult } from './complete.js';
-import type { DriverMessage } from './complete.js';
+import type {
+  CompletionDelta,
+  CompletionResult,
+  Delivery,
+  DriverMessage,
+  RegisteredTool,
+  ToolCatalogue,
+} from '@coa/spi';
 import {
   runGovernedLoop,
   toToolDefs,

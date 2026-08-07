@@ -19,6 +19,7 @@ import {
 } from '@coa/core';
 import { providerSchema, type Provider } from '@coa/shared';
 import { createAdapter, fetchModels, sessionStrategy } from './adapter-factory.js';
+import { buildFetchSummarizer } from './fetch-summarizer.js';
 import { buildGenerationProducers } from './generation.js';
 
 /**
@@ -68,7 +69,12 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     walPath: options.walPath,
     root,
     producers: buildGenerationProducers(root),
-    ...(hasWeb ? { web } : {}),
+    // The concrete WebFetch summarizer (a DeepSeek complete()) is composed HERE and
+    // injected — the daemon core stays backend-blind and degrades to raw markdown
+    // when the factory yields nothing.
+    ...(hasWeb
+      ? { web, summarizer: ({ recordCost }) => buildFetchSummarizer(web, recordCost) }
+      : {}),
     ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });

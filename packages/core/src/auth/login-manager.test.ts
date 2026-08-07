@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LoginDriverPort } from '@coa/spi';
 import { AccountsRegistry } from './registry.js';
-import { isManagedLoginDir, LoginManager, type LoginDriverPort } from './login-manager.js';
+import { isManagedLoginDir, LoginManager } from './login-manager.js';
 
 /** A hand-cranked driver: tests fire url/exit and script the probe queue. */
 function fakeDriver(

@@ -1,5 +1,5 @@
 import type { BackendMessage, LoopToolCall } from '@coa/shared';
-import type { RuntimeUsage } from '@coa/spi';
+import type { RuntimeUsage } from './runtime-adapter.js';
 
 /**
  * The `complete()` primitive — the ONE backend-specific

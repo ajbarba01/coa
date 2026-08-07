@@ -12,8 +12,9 @@ import { KeyStateStore } from '../workbench/web/key-state-store.js';
 import { ConsoleStateStore } from '../console/console-state-store.js';
 import { credentialId, type AuthView } from './auth-view.js';
 import { dispatch } from './router.js';
+import type { LoginDriverPort } from '@coa/spi';
 import { buildAuthHandlers, type AuthHandlerDeps } from './auth-handlers.js';
-import { LoginManager, type LoginDriverPort } from '../auth/login-manager.js';
+import { LoginManager } from '../auth/login-manager.js';
 import type { BrowserSessionView } from '../auth/browser-session.js';
 
 let home: string;

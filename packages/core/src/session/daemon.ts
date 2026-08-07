@@ -14,10 +14,8 @@ import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
-import { makeDeepSeekComplete } from '@coa/adapter-deepseek';
-import { makeSummarizer } from '../workbench/web/summarizer.js';
 import type { Summarizer } from '../workbench/web-tools.js';
-import type { Locator } from '@coa/shared';
+import type { LoginDriverPort, RuntimeUsage } from '@coa/spi';
 import { homedir } from 'node:os';
 import { buildConsoleHandlers } from '../rpc/console-handlers.js';
 import { resolveShell } from './shell.js';
@@ -30,12 +28,6 @@ import { ConsoleStateStore } from '../console/console-state-store.js';
 import { BrowserSession } from '../auth/browser-session.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
-import {
-  managedLoginDir,
-  probeAuthStatus,
-  spawnLogin,
-  extractOauthUrl,
-} from '@coa/adapter-claude-sdk';
 
 /**
  * The daemon composition root — construct the daemon-singleton core once, in
@@ -62,6 +54,13 @@ export interface DaemonCoreOptions {
    * tools are simply not offered).
    */
   web?: WebConfig;
+  /**
+   * Compose the WebFetch summarizer from the web config — the composition root owns
+   * the provider-specific `complete()`, so the backend package never enters core.
+   * Handed the ledger's cost recorder. Absent, or returning `undefined`, ⇒ the
+   * raw-markdown floor (WebFetch is still offered; nothing is summarized).
+   */
+  summarizer?: (deps: { recordCost: (usage: RuntimeUsage) => void }) => Summarizer | undefined;
 }
 
 export interface DaemonCoreHandle {
@@ -153,6 +152,17 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   return { core, kernel, flags, governance };
 }
 
+/** The backend plumbing the console handlers consume but core must not construct itself. */
+export interface DaemonConsoleDeps {
+  /**
+   * The rented CLI's driven-login plumbing (pty spawn + auth probe), built by the
+   * composition root over the backend package. Absent ⇒ no login manager is
+   * constructed and every login verb degrades to its idle floor (auth reads,
+   * account verbs, and key management still work).
+   */
+  loginDriver?: LoginDriverPort;
+}
+
 /**
  * Bind the daemon's live singletons to the read-only inspector handler map the
  * JSON-RPC router serves — the seam between the daemon core and the console's
@@ -160,7 +170,10 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
  * (cost cap, flag user feed), no new behavior. The transport layer
  * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
  */
-export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandlers {
+export function buildDaemonConsoleHandlers(
+  handle: DaemonCoreHandle,
+  deps: DaemonConsoleDeps = {},
+): RpcHandlers {
   const accounts = new AccountsRegistry(homedir());
   const consoleState = new ConsoleStateStore(homedir());
   // The one place the three isolation facts meet: the user's setting, the provider's
@@ -177,56 +190,18 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
       };
     },
   });
-  const loginManager = new LoginManager(
-    accounts,
-    {
-      home: homedir(),
-      dirFor: (email) => managedLoginDir(homedir(), email),
-      probe: async (dir) => {
-        // Rebuild by omission (exactOptionalPropertyTypes) — the probe's zod-inferred
-        // `AuthStatus` allows an explicit `undefined` per optional field and carries
-        // `orgName`, neither of which the driver port's narrower shape accepts.
-        const status = await probeAuthStatus(dir);
-        if (status === undefined) return undefined;
-        return {
-          loggedIn: status.loggedIn,
-          ...(status.email !== undefined ? { email: status.email } : {}),
-          ...(status.subscriptionType !== undefined
-            ? { subscriptionType: status.subscriptionType }
-            : {}),
-        };
-      },
-      start: ({ dir, email, browserLauncher }) => {
-        const proc = spawnLogin({
-          dir,
-          email,
-          ...(browserLauncher !== undefined ? { browserLauncher } : {}),
-        });
-        return {
-          onUrl: (fn) =>
-            proc.onData((chunk) => {
-              const url = extractOauthUrl(chunk);
-              if (url !== undefined) fn(url);
-            }),
-          onExit: (fn) => proc.onExit(fn),
-          writeCode: (code) => proc.write(`${code}\r`),
-          kill: () => proc.kill(),
-          get ptyCaptured() {
-            return proc.ptyCaptured;
+  const loginManager =
+    deps.loginDriver === undefined
+      ? undefined
+      : new LoginManager(accounts, deps.loginDriver, {
+          browserSession: {
+            launcherFor: (email) => browser.launcherFor('claude', email),
+            // Fire-and-forget: the open waits briefly for the shim's relayed url, and a login
+            // must never block on a browser window.
+            openUrl: (email, url) => void browser.openUrl('claude', email, url),
+            removeProfile: (email) => browser.removeProfile(email),
           },
-        };
-      },
-    },
-    {
-      browserSession: {
-        launcherFor: (email) => browser.launcherFor('claude', email),
-        // Fire-and-forget: the open waits briefly for the shim's relayed url, and a login
-        // must never block on a browser window.
-        openUrl: (email, url) => void browser.openUrl('claude', email, url),
-        removeProfile: (email) => browser.removeProfile(email),
-      },
-    },
-  );
+        });
   return {
     ...buildConsoleHandlers({
       capState: (sessionId) => handle.governance.capState(sessionId),
@@ -238,7 +213,7 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
       web: new WebConfigStore(homedir()),
       keys: new KeyStateStore(homedir()),
       console: consoleState,
-      loginManager,
+      ...(loginManager !== undefined ? { loginManager } : {}),
       browser,
     }),
   };
@@ -427,9 +402,10 @@ export function listFilesFor(
  * (`WebSearch`/`WebFetch`) whenever `options.web` is configured — the free
  * floor guarantees `buildWebToolDeps` always returns deps in that case,
  * so `includeWebTools` is set whenever a `web` block is present. WebFetch's
- * summarizer is composed here from `web.fetch.summarizer` (a DeepSeek
- * `complete()` bound to a cheap model) and injected as `opts.summarizer`;
- * absent config or an unresolved key degrades to `undefined` (raw markdown).
+ * summarizer comes from the injected factory (`options.summarizer`), handed the
+ * ledger's cost recorder; an absent factory or an `undefined` return degrades to
+ * raw markdown. Summarizer spend is audited (recorded to the ledger) but not
+ * charged against the cost cap — a deliberate deferral.
  */
 function buildBaseCatalogue(
   kernel: ChangeKernel,
@@ -439,7 +415,11 @@ function buildBaseCatalogue(
   sessionId = 'daemon',
   spawn?: SpawnDeps,
 ) {
-  const summarizer = options.web ? buildFetchSummarizer(options.web, governance) : undefined;
+  const summarizer = options.web
+    ? options.summarizer?.({
+        recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
+      })
+    : undefined;
   const web = options.web
     ? buildWebToolDeps(options.web, process.env, { ...(summarizer ? { summarizer } : {}) })
     : undefined;
@@ -451,34 +431,6 @@ function buildBaseCatalogue(
     },
     { includeBaseTools: true, ...(web ? { includeWebTools: true } : {}) },
   );
-}
-
-/**
- * Compose the WebFetch summarizer from `web.fetch.summarizer`: a minimal
- * `makeSummarizer` over the DeepSeek `complete()` primitive, model config-driven,
- * cost recorded to the cost ledger. Absent config or an unresolved key ⇒ `undefined`
- * (the raw-markdown floor). Runs only on non-clean content (the handler decides).
- */
-export function buildFetchSummarizer(
-  web: WebConfig,
-  governance: Governance,
-): Summarizer | undefined {
-  const cfg = web.fetch?.summarizer;
-  if (cfg === undefined || cfg.provider !== 'deepseek') return undefined;
-  const apiKey = resolveEnvVar(cfg.credential);
-  if (apiKey === undefined) return undefined;
-  return makeSummarizer({
-    complete: makeDeepSeekComplete({ apiKey, model: cfg.model }),
-    // Audited (ledger) but NOT charged to the cost-cap this increment — a scoped deferral (see spec Deferred + OPEN.md).
-    recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
-  });
-}
-
-/** Resolve an env-var locator against `process.env`; other kinds ⇒ `undefined` (env-only for now). */
-function resolveEnvVar(locator: Locator): string | undefined {
-  if (locator.type !== 'env-var') return undefined;
-  const value = process.env[locator.name];
-  return value !== undefined && value !== '' ? value : undefined;
 }
 
 function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {

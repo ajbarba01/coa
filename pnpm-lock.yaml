@@ -323,18 +323,9 @@ importers:
 
   packages/core:
     dependencies:
-      '@coa/adapter-claude-sdk':
-        specifier: workspace:*
-        version: link:../adapter-claude-sdk
-      '@coa/adapter-deepseek':
-        specifier: workspace:*
-        version: link:../adapter-deepseek
       '@coa/code-intel':
         specifier: workspace:*
         version: link:../code-intel
-      '@coa/loop-driver':
-        specifier: workspace:*
-        version: link:../loop-driver
       '@coa/shared':
         specifier: workspace:*
         version: link:../shared

@@ -1,18 +1,16 @@
 import type { TurnFrame } from '@coa/shared';
 import type {
   CanUseTool,
-  DrainDeliveries,
-  RuntimeUsage,
-  StopPredicate,
-  ToolCatalogue,
-} from '@coa/spi';
-import type {
   CompleteFn,
   CompletionDelta,
   CompletionResult,
+  DrainDeliveries,
   DriverMessage,
+  RuntimeUsage,
+  StopPredicate,
+  ToolCatalogue,
   ToolDef,
-} from './complete.js';
+} from '@coa/spi';
 
 /**
  * The coa-owned governed loop driver — the ReAct loop the
