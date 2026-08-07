@@ -13,7 +13,6 @@ packages:
 # `dev`/packaging needs the fetched binaries.
 allowBuilds:
   better-sqlite3: true
-  '@parcel/watcher': true
   tree-sitter: true
   tree-sitter-javascript: true
   tree-sitter-typescript: true

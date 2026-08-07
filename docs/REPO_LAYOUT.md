@@ -141,7 +141,7 @@ packages/<name>/
   Native addons are rebuilt deterministically for the **daemon's Node ABI**, never Electron's.
 - **Supply-chain hygiene** — commit `pnpm-lock.yaml`; verify integrity (lockfile + content hashes); default
   **`--ignore-scripts`** with an explicit native-addon allowlist for packages that legitimately need build scripts
-  (`better-sqlite3`, `@parcel/watcher`, the tree-sitter binding). Install-time `postinstall` runs _before_ any
+  (`better-sqlite3`, the tree-sitter binding). Install-time `postinstall` runs _before_ any
   sandbox, so this is the highest-leverage supply-chain control.
 - **CI gates** — `pnpm audit` / `osv-scanner` on the committed lockfile, plus the standard gates (typecheck, lint,
   format, tests, dependency-cruiser). See [WORKFLOW.md](WORKFLOW.md).
