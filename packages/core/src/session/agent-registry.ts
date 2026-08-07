@@ -36,7 +36,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
     // The stable baseline conduct (identity/tool-use/quality); the resolver
     // adds the volatile model/env tail when this package is included.
     pieces: baselineStablePieces(),
-    toolRefs: ['Read', 'Glob', 'Grep', 'get_symbol', 'outline', 'find_references', 'spawn_agent'],
+    toolRefs: ['Read', 'Glob', 'Grep', 'spawn_agent'],
   },
   {
     id: 'coa-orientation',
@@ -48,7 +48,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       behaviorPiece(
         'coa-orientation',
         'what coa is and how it governs',
-        'You run inside coa. Your file changes are recorded on a change spine and may be flagged for review, and a human can watch and steer. Reach for coa’s governed tools (get_symbol, find_references, edit_symbol) when you want symbol-precise work: they resolve a symbol rather than a path, and their results carry any flags already raised against what you touched.',
+        'You run inside coa. Your file changes are recorded on a change spine and may be flagged for review, and a human can watch and steer. Reach for coa’s governed edit_symbol tool when you want symbol-precise edits: it resolves a symbol rather than a path, and its result carries any flags already raised against what you touched.',
         'governance',
       ),
     ],
@@ -97,7 +97,7 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
     name: 'Research',
     description: 'Search the codebase and the web to gather context.',
     inclusion: 'opt-in',
-    toolRefs: ['WebSearch', 'WebFetch', 'get_piece', 'find_references'],
+    toolRefs: ['WebSearch', 'WebFetch', 'get_piece'],
     pieces: [
       behaviorPiece(
         'pkg-research',

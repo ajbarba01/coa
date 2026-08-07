@@ -9,10 +9,10 @@ describe('TOOL_CATALOGUE', () => {
 });
 
 describe('kernelTools', () => {
-  it('returns the always-loaded common edit/retrieve verbs', () => {
+  it('returns the always-loaded common edit verbs', () => {
     const names = kernelTools().map((t) => t.name);
     expect(names).toContain('edit_symbol');
-    expect(names).toContain('get_symbol');
+    expect(names).toContain('apply_patch');
   });
 
   it('excludes the on-demand verbs from the always-loaded set', () => {
@@ -30,7 +30,7 @@ describe('findTools', () => {
 
   it('does not surface always-loaded kernel tools (they are already present)', () => {
     const names = findTools('symbol').map((t) => t.name);
-    expect(names).not.toContain('get_symbol');
+    expect(names).not.toContain('edit_symbol');
   });
 });
 

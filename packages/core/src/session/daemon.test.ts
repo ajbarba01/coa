@@ -369,13 +369,18 @@ describe('createDaemonCore', () => {
     expect(handle.flags.flagsForUser().expanded).toHaveLength(0);
   });
 
-  it('wires the catalogue to the real kernel: get_symbol resolves a declared symbol', async () => {
+  it('wires the catalogue to the real kernel: get_piece resolves a registered piece', async () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
-    const record = { name: 'parseConfig', definedIn: 'src/config.ts' };
-    handle.kernel.declareSymbols([record], 'src/config.ts');
-    const getSymbol = handle.core.catalogue.find((t) => t.name === 'get_symbol');
-    const res = await getSymbol!.invoke({ ref: { name: 'parseConfig' } });
-    expect(res.result).toEqual({ found: true, symbol: record });
+    const piece = {
+      name: 'style-guide',
+      description: 'd',
+      body: 'b',
+      axes: { delivery: 'pull', salience: 'never', provenance: 'authored' },
+    } as const;
+    handle.kernel.registerPiece(piece);
+    const getPiece = handle.core.catalogue.find((t) => t.name === 'get_piece');
+    const res = await getPiece!.invoke({ ref: 'style-guide' });
+    expect(res.result).toEqual({ found: true, piece });
   });
 
   it('offers WebSearch/WebFetch in baseCatalogue when a web config + resolvable key are present', () => {

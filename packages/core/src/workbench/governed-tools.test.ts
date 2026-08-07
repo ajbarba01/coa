@@ -1,9 +1,14 @@
 import { describe, expect, test, it } from 'vitest';
-import type { InjectionBundle, SymbolRecord } from '@coa/shared';
+import type { InjectionBundle, Piece } from '@coa/shared';
 import { buildGovernedTools, type GovernedToolDeps } from './governed-tools.js';
 import type { BaseToolDeps } from './base-tools.js';
 
-const RECORD: SymbolRecord = { name: 'parseConfig', definedIn: 'src/config.ts' };
+const PIECE: Piece = {
+  name: 'style-guide',
+  description: 'd',
+  body: 'b',
+  axes: { delivery: 'pull', salience: 'never', provenance: 'authored' },
+};
 const BUNDLE: InjectionBundle = { groups: [{ concernKey: 'c1', flags: [] }] };
 
 function makeDeps(over: Partial<DepOverrides> = {}): GovernedToolDeps {
@@ -11,10 +16,10 @@ function makeDeps(over: Partial<DepOverrides> = {}): GovernedToolDeps {
     sessionId: 's1',
     retrieve: {
       worktreeRoot: '/wt',
-      lookupSymbol: over.lookupSymbol ?? (() => undefined),
+      lookupSymbol: () => undefined,
       outline: () => [],
       references: () => [],
-      resolvePiece: () => undefined,
+      resolvePiece: over.resolvePiece ?? (() => undefined),
     },
     mutate: {
       worktreeRoot: '/wt',
@@ -34,30 +39,30 @@ function makeDeps(over: Partial<DepOverrides> = {}): GovernedToolDeps {
 }
 
 interface DepOverrides {
-  lookupSymbol: (name: string) => SymbolRecord | undefined;
+  resolvePiece: (ref: string) => Piece | undefined;
   flagsForAgent: (scope?: string) => InjectionBundle;
 }
 
 describe('buildGovernedTools', () => {
-  test('get_symbol routes to the retrieve read and enriches with gated flags', async () => {
+  test('get_piece routes to the retrieve read and enriches with gated flags', async () => {
     const tools = buildGovernedTools(
       makeDeps({
-        lookupSymbol: (n) => (n === 'parseConfig' ? RECORD : undefined),
+        resolvePiece: (ref) => (ref === 'style-guide' ? PIECE : undefined),
         flagsForAgent: () => BUNDLE,
       }),
     );
-    const tool = tools.find((t) => t.name === 'get_symbol');
-    const res = await tool!.invoke({ ref: { name: 'parseConfig' } });
-    expect(res.result).toEqual({ found: true, symbol: RECORD });
+    const tool = tools.find((t) => t.name === 'get_piece');
+    const res = await tool!.invoke({ ref: 'style-guide' });
+    expect(res.result).toEqual({ found: true, piece: PIECE });
     expect(res.flags).toEqual(BUNDLE);
   });
 
   test('a malformed input is rejected as an unapplied result, never thrown (D141(c)/SC-1)', async () => {
     const tools = buildGovernedTools(makeDeps());
-    const tool = tools.find((t) => t.name === 'get_symbol');
+    const tool = tools.find((t) => t.name === 'get_piece');
     const res = await tool!.invoke({ ref: { wrong: 'shape' } });
     expect(res.result).toMatchObject({ applied: false, error: { code: 'invalid-args' } });
-    expect(res.handle).toBe('get_symbol:invalid-args');
+    expect(res.handle).toBe('get_piece:invalid-args');
   });
 
   test('edit_symbol dispatches through producer ① and emits one change-event', async () => {
@@ -85,11 +90,8 @@ describe('buildGovernedTools', () => {
         'apply_patch',
         'context_status',
         'edit_symbol',
-        'find_references',
         'get_piece',
         'get_spec',
-        'get_symbol',
-        'outline',
         'run_checks',
         'spawn_agent',
       ].sort(),
