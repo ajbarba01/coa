@@ -27,7 +27,13 @@ import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 
-export const SURFACES = [
+interface SurfaceSpec {
+  id: string;
+  glyph: string;
+  label: string;
+}
+
+export const SURFACES: readonly SurfaceSpec[] = [
   { id: 'chat', glyph: '❯', label: 'Chat' },
   { id: 'flags', glyph: '⚑', label: 'Flags' },
   { id: 'timeline', glyph: '◷', label: 'Timeline' },
@@ -38,8 +44,11 @@ export const SURFACES = [
   { id: 'auth', glyph: '⬡', label: 'Auth' },
   { id: 'usage', glyph: '$', label: 'Usage' },
   { id: 'agents', glyph: '◇', label: 'Agents' },
-  { id: 'showcase', glyph: '▦', label: 'Showcase' },
-] as const;
+  // The kit showcase is a development gallery, not product: dev builds only. This
+  // array is the one registry — gating it here also gates the palette's "Go to"
+  // entry and the name-strip label, which both derive from it.
+  ...(import.meta.env.DEV ? [{ id: 'showcase', glyph: '▦', label: 'Showcase' }] : []),
+];
 
 /** Pure: the flags row's red count — CRITICAL flags only (red is criticality,
  *  per the indicator law); zero renders nothing. Loading/error render nothing

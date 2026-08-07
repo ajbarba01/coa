@@ -79,7 +79,10 @@ function SurfaceHost({
     case 'agents':
       return <AgentsSurface state={state} />;
     case 'showcase':
-      return <ShowcaseSurface />;
+      // Dev-gated here as well as in the nav registry: a persisted layout restores the
+      // raw surface id, so a production build must fall to the floor even when an old
+      // layout still carries `showcase`.
+      return import.meta.env.DEV ? <ShowcaseSurface /> : <EmptySurface name={surface} />;
     default:
       return <EmptySurface name={surface} />;
   }
