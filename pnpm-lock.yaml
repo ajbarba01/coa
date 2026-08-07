@@ -179,6 +179,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@coa/adapter-deepseek':
+        specifier: workspace:*
+        version: link:../adapter-deepseek
       '@types/node':
         specifier: ^26.0.1
         version: 26.0.1
