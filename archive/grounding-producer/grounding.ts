@@ -1,3 +1,6 @@
+// Archived from packages/core/src/context/grounding.ts
+// GroundingBlock (removed from @coa/shared with this producer) is preserved in
+// ./grounding-block-schema.ts alongside this file.
 import type { GroundingBlock, RankedCandidate, SymbolRecord, ToolCall } from '@coa/shared';
 
 /**

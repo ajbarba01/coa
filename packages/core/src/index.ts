@@ -111,7 +111,6 @@ export {
 export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
 export { connectClient, type RpcClient } from './rpc/client.js';
 export { bindDaemon, probeDaemon } from './rpc/lifecycle.js';
-export { ground, type SymbolOracle } from './context/grounding.js';
 export {
   governanceFor,
   type GovernanceCoverage,

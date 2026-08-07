@@ -1,3 +1,4 @@
+// Archived from packages/core/src/context/grounding.test.ts
 import { describe, expect, it } from 'vitest';
 import type { SymbolRecord, ToolCall } from '@coa/shared';
 import { ground, type SymbolOracle } from './grounding.js';

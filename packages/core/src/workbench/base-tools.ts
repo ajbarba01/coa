@@ -201,7 +201,7 @@ export function numberLines(text: string, offset?: number, limit?: number): stri
   return numbered;
 }
 
-/** Build a distilled-handle tool return (grounding/flags are added by the enrich decorator). */
+/** Build a distilled-handle tool return (flags are added by the enrich decorator). */
 export function wrap<R>(result: R, handle: string, pointer: string): ToolResponse<R> {
   return { result, handle, pointer };
 }

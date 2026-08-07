@@ -80,7 +80,7 @@ function confine(relPath: string, deps: RetrieveDeps): string | undefined {
   return result.ok ? undefined : result.error.code;
 }
 
-/** Build a distilled-handle tool return (grounding/flags are added by the enrich decorator). */
+/** Build a distilled-handle tool return (flags are added by the enrich decorator). */
 function wrap<R>(result: R, handle: string, pointer: string): ToolResponse<R> {
   return { result, handle, pointer };
 }

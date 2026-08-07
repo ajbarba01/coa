@@ -357,11 +357,6 @@ function governedToolDeps(
       capState: () => governance.capState(),
     },
     enrich: {
-      oracle: {
-        lookup: (name) => kernel.lookup(name),
-        fuzzyMatch: (name, limit) => kernel.fuzzyMatch(name, limit),
-        walPosition: () => kernel.walPosition(),
-      },
       flagsForAgent: (scope) => flags.flagsForAgent(scope),
     },
   };

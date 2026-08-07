@@ -26,7 +26,7 @@ export { spec, type ToolSpec } from './tool-spec.js';
  * M6 — the governed tool-dispatch boundary. This is the seam M9 registers into
  * the rented loop: it turns M6's pure handlers into the {@link RegisteredTool}
  * port shape by wiring each to its live M1/M3/M4/M7 read/write ports and
- * decorating every return with `enrich` (grounding + gated flags). The dispatch
+ * decorating every return with `enrich` (gated flags). The dispatch
  * is where the two cross-cutting invariants land — inputs are Zod-validated
  * before a handler touches shared state (D141(c)), and every return is enriched
  * (F6) — so the backend adapter (M9) only has to wrap each as an SDK MCP tool.
@@ -44,7 +44,7 @@ export interface GovernedToolDeps {
   mutate: WorkbenchDeps;
   /** M6 Inspect ports (M3/M4/M7 reads). */
   inspect: InspectDeps;
-  /** The cross-cutting return enrichment (M4.ground + M3.flagsForAgent). */
+  /** The cross-cutting return enrichment (gated agent-audience flags). */
   enrich: EnrichDeps;
   /** The pure-API base-tool ports; present only when built with includeBaseTools. */
   base?: BaseToolDeps;

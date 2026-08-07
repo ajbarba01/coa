@@ -41,7 +41,7 @@ export function getSpec(req: { ref: string }, deps: InspectDeps): ToolResponse<G
   return wrap({ ref: req.ref, spec }, `spec:${req.ref}`, req.ref);
 }
 
-/** Build a distilled-handle tool return (grounding/flags are added by the enrich decorator). */
+/** Build a distilled-handle tool return (flags are added by the enrich decorator). */
 function wrap<R>(result: R, handle: string, pointer: string): ToolResponse<R> {
   return { result, handle, pointer };
 }

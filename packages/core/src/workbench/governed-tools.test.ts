@@ -28,11 +28,6 @@ function makeDeps(over: Partial<DepOverrides> = {}): GovernedToolDeps {
       capState: () => ({ remaining: null, capHit: false }),
     },
     enrich: {
-      oracle: {
-        lookup: over.lookupSymbol ?? (() => undefined),
-        fuzzyMatch: () => [],
-        walPosition: () => 0,
-      },
       flagsForAgent: over.flagsForAgent ?? (() => ({ groups: [] })),
     },
   };
@@ -81,21 +76,6 @@ describe('buildGovernedTools', () => {
     });
     expect(res.result).toEqual({ applied: true, path: 'src/a.ts', seq: 7 });
     expect(emitted).toEqual(['src/a.ts']);
-  });
-
-  test('a symbol near-miss attaches an advisory grounding block (F6/L-GND)', async () => {
-    const deps = makeDeps({ lookupSymbol: () => undefined });
-    deps.enrich.oracle.fuzzyMatch = () => [
-      {
-        symbol: { name: 'parseConfig', definedIn: 'src/config.ts' },
-        confidence: 0.9,
-        why: 'edit distance 1',
-      },
-    ];
-    const tool = buildGovernedTools(deps).find((t) => t.name === 'get_symbol');
-    const res = await tool!.invoke({ ref: { name: 'parseConfgi' } });
-    expect(res.grounding?.named).toBe('parseConfgi');
-    expect(res.grounding?.suggestions[0]?.symbol).toBe('parseConfig');
   });
 
   test('builds exactly the v1 catalogue, carrying each tool its manifest partition', () => {
