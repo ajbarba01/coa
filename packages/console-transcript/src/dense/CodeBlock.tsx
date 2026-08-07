@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { cx } from '@coa/console-kit';
-import { HLJS_TOKEN_STYLE } from './syntaxTheme.js';
+import { HLJS_TOKEN_STYLE, grammarForTag } from './syntaxTheme.js';
 
 export interface CodeBlockProps {
   code: string;
@@ -15,6 +15,9 @@ export interface CodeBlockProps {
 // drops the header and floats the copy control over the body's top-right instead.
 export function CodeBlock({ code, language }: CodeBlockProps): React.JSX.Element {
   const headed = language !== undefined;
+  // The header keeps the tag as the author wrote it (`ts`); the highlighter gets the id it
+  // registered that grammar under. Two different names for the same thing — see grammarForTag.
+  const grammar = language === undefined ? undefined : grammarForTag(language);
   return (
     <div className="group/code relative min-w-0 overflow-hidden rounded-r2 border border-s3 bg-s2">
       {headed && (
@@ -32,7 +35,7 @@ export function CodeBlock({ code, language }: CodeBlockProps): React.JSX.Element
       )}
       <div className="overflow-x-auto px-3 py-2 font-mono text-code leading-[1.7] whitespace-pre">
         <SyntaxHighlighter
-          language={language}
+          language={grammar}
           style={HLJS_TOKEN_STYLE}
           customStyle={{ margin: 0, background: 'transparent' }}
           codeTagProps={{ className: 'font-mono text-code' }}
