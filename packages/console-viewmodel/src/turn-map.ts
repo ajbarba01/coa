@@ -65,13 +65,11 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
   const d = depth === undefined ? {} : { depth };
   switch (frame.t) {
     case 'text': {
-      // `assistant` and `system` both land in the `agent` lane. `system` is a
-      // coa-originated mid-loop notice (never a person) with no dedicated view role
-      // yet — `TurnRoleSchema` is deliberately NOT widened here (a proper
-      // system-notice treatment is deferred to the follow-on orchestration plan); this
-      // is a stand-in: the wrong lane, but never mislabelled as the person, which is
-      // the invariant that matters today.
-      const role = frame.role === 'user' ? 'you' : 'agent';
+      // `user` is the person, `system` is a coa-authored notice (a child session's
+      // ending, e.g.) — neither the person nor the agent's own claim, so it gets its
+      // own lane rather than collapsing into `agent` (a system fact must not read
+      // as something the model said). Anything else is the assistant.
+      const role = frame.role === 'user' ? 'you' : frame.role === 'system' ? 'system' : 'agent';
       return { id, role, kind: 'text', text: frame.text, ...d };
     }
     case 'text-delta':

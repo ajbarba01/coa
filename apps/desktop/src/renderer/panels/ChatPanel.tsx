@@ -69,9 +69,9 @@ export type ChatVm =
        *  changes). A no-op with no active session (Composer only surfaces Stop while
        *  running, which implies one). */
       onInterrupt: () => void;
-      /** Barge-in: redirect the running turn with a message (the composer's Enter/Interrupt
-       *  default while running). A no-op with no active session. */
-      onBargeIn: (text: string) => void;
+      /** Steer: reach the running turn at its next step with a message, discarding nothing
+       *  (the composer's Enter/Interrupt default while running). A no-op with no active session. */
+      onSteer: (text: string) => void;
       /** Reveal a tool card's touched file in the editor/OS at an optional line. Stable
        *  action identity (from `state.actions`) so it can be threaded into the memoized
        *  transcript rows; resolves an advisory result the view toasts on failure. */
@@ -109,6 +109,13 @@ export type ChatVm =
 export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
   switch (f.kind) {
     case 'text':
+      if (f.role === 'system') {
+        // A coa-authored notice (a child session's ending, e.g.) — never the person's
+        // voice and never the agent's own claim, so it renders as the same quiet
+        // system line as a user interrupt: no chat bubble, no role, no gutter — a
+        // system fact can't read as something the model said.
+        return { id: f.id, kind: 'note', text: f.text };
+      }
       return {
         id: f.id,
         role: f.role,
@@ -212,6 +219,20 @@ export function frameToRawLine(f: TurnFrame): string {
       return `> control: subagent ${f.event} ${f.childWorktree}`;
   }
 }
+
+/** A steer pinned at the transcript bottom while it's in flight (docs/adr/0031). `seenAtSend`
+ *  is a COUNT, not a position: how many real `you` text frames already had this pin's exact
+ *  text at the moment it was sent. The reconciliation effect clears a pin once the live count
+ *  for its text has grown past that baseline — so a same-text turn already in the session's
+ *  history before the steer existed can never clear it (it's inside the baseline, not past
+ *  it). A count survives a WHOLESALE frame-array replacement unscathed, unlike an array
+ *  index would: `console.ts`'s `openSession` (reached by ordinary tab switching, keyboard
+ *  tab-cycling, and the command palette — none of which check run status) replaces a
+ *  session's frames outright on a mid-run reload, and the reloaded array replays the SAME
+ *  persisted history, so the count for still-undelivered text is unchanged by it. `id` is a
+ *  monotonic counter (not the pin's position in the array) so a row keeps its own identity —
+ *  and its own DOM node — when an earlier pin clears out from under it. */
+type PendingSteer = { id: number; text: string; seenAtSend: number };
 
 /** Pure: seconds elapsed since `sinceMs`, formatted for the running-status pill. */
 export function formatElapsed(sinceMs: number, nowMs: number): string {
@@ -396,7 +417,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     onInterrupt: () => {
       if (activeSessionId !== undefined) state.actions.interruptSession(activeSessionId);
     },
-    onBargeIn: (text: string) => {
+    onSteer: (text: string) => {
       if (activeSessionId !== undefined) state.actions.steerSession(activeSessionId, text);
     },
     openPath: state.actions.openPath,
@@ -459,14 +480,24 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
 
   // Queued follow-up messages (the composer's Queue action while a turn runs), held per active
   // session and released one at a time (FIFO) as a normal send when that session's turn ends. Kept
-  // console-side so they stay visibly PINNED above the composer until they run; barge-in messages
-  // skip the queue and redirect the running turn immediately (via `onBargeIn`).
+  // console-side so they stay visibly PINNED above the composer until they run; a steer skips the
+  // queue entirely and reaches the running turn at its next step (via `onSteer`).
   const [queuedBySession, setQueuedBySession] = useState<Record<string, string[]>>({});
+  // A sent steer reaches the agent at its next round trip, seconds later, and the daemon
+  // writes its transcript line only THEN (docs/adr/0031). Held here so the sender sees their
+  // own message immediately, rendered last because it has not happened yet.
+  const [pendingSteerBySession, setPendingSteerBySession] = useState<
+    Record<string, PendingSteer[]>
+  >({});
+  // Monotonic id source for pins (see `PendingSteer`) — module-stable per component instance,
+  // never reset, so two pins never collide even after earlier ones have cleared.
+  const pendingIdRef = useRef(0);
   const vmRef = useRef(vm);
   vmRef.current = vm;
   const activeId = vm.status === 'ready' ? vm.activeSessionId : undefined;
   const running = vm.status === 'ready' && vm.sessionStatus === 'running';
   const activeQueue = activeId !== undefined ? (queuedBySession[activeId] ?? []) : [];
+  const activePending = activeId !== undefined ? (pendingSteerBySession[activeId] ?? []) : [];
 
   // Release the oldest queued message when the active session goes running → idle. Sending it
   // flips the session back to running, so any remaining queued messages wait for the next boundary.
@@ -484,7 +515,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   }, [running, activeId, queuedBySession]);
 
   // The composer's Queue action while a turn runs: append to the active session's
-  // queue (barge-in skips the queue entirely — it routes straight to `vm.onBargeIn`).
+  // queue (a steer skips the queue entirely — it routes straight to `vm.onSteer`).
   const handleQueue = useCallback((text: string): void => {
     const cur = vmRef.current;
     if (cur.status !== 'ready' || cur.activeSessionId === undefined) return;
@@ -498,6 +529,77 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     if (id === undefined) return;
     setQueuedBySession((m) => ({ ...m, [id]: (m[id] ?? []).filter((_, i) => i !== index) }));
   }, []);
+
+  // Steer reaches the running turn directly (via `vm.onSteer`), skipping the queue
+  // entirely — but it still needs a placeholder to hold, since the real transcript line
+  // does not exist until the daemon's delivery lands (docs/adr/0031). `seenAtSend` is
+  // stamped from how many REAL `you` frames already carry this exact text, not read later —
+  // the pin must only ever be satisfied by an occurrence beyond that baseline, never a
+  // same-text turn already in the session's history.
+  const handleSteer = useCallback((text: string): void => {
+    const cur = vmRef.current;
+    if (cur.status !== 'ready' || cur.activeSessionId === undefined) return;
+    const id = cur.activeSessionId;
+    const seenAtSend = cur.frames.filter(
+      (f) => f.kind === 'text' && f.role === 'you' && f.text === text,
+    ).length;
+    const pin: PendingSteer = { id: pendingIdRef.current++, text, seenAtSend };
+    setPendingSteerBySession((m) => ({ ...m, [id]: [...(m[id] ?? []), pin] }));
+    cur.onSteer(text);
+  }, []);
+
+  const activeRealFrames = vm.status === 'ready' ? vm.frames : [];
+
+  // Drop a pin when its own line arrives — matched by a COUNT past a baseline, not by
+  // membership or by array position. Per distinct text: count how many real `you` frames
+  // currently carry it, and walk that text's pins oldest-first, each consuming one
+  // occurrence once the running claim pointer has passed both (a) its own `seenAtSend`
+  // floor — a same-text turn already in the history before the pin was born can never
+  // satisfy it, the original bug — and (b) whatever earlier same-text pins already
+  // claimed, so N identical pins whose deliveries land in the SAME transition each get
+  // their own occurrence instead of racing to clear on one hit. Text equality is exact —
+  // the daemon records a delivery verbatim and bare. Carrying an echoed id instead would
+  // put a field on the persisted frame purely to serve the console.
+  //
+  // A COUNT, not an index, on purpose: a wholesale replacement of a session's frame array
+  // is reachable WHILE a turn is still running, not just once idle — `openSession`
+  // (console.ts) is called unconditionally by `selectSession`, wired to ordinary tab
+  // switching, keyboard tab-cycling, and the command palette, none of which check run
+  // status, and its mid-run reload REPLACES the frames array outright. An index-based mark
+  // breaks under that (a stale position can miss the real delivery — wedging the pin past
+  // this effect entirely, caught only by the idle sweep below — or hit an unrelated frame
+  // that merely landed at the same numeric slot). A count survives it: the reload replays
+  // the SAME persisted history, so the occurrence count for still-undelivered text is
+  // unchanged by the array's identity or length changing underneath it.
+  useEffect(() => {
+    if (activeId === undefined) return;
+    const countsByText = new Map<string, number>();
+    for (const f of activeRealFrames) {
+      if (f.kind === 'text' && f.role === 'you') {
+        countsByText.set(f.text, (countsByText.get(f.text) ?? 0) + 1);
+      }
+    }
+    setPendingSteerBySession((m) => {
+      const cur = m[activeId] ?? [];
+      if (cur.length === 0) return m;
+      const claimedByText = new Map<string, number>();
+      const kept = cur.filter((pin) => {
+        const total = countsByText.get(pin.text) ?? 0;
+        const claimed = Math.max(claimedByText.get(pin.text) ?? 0, pin.seenAtSend);
+        claimedByText.set(pin.text, claimed < total ? claimed + 1 : claimed);
+        return claimed >= total;
+      });
+      return kept.length === cur.length ? m : { ...m, [activeId]: kept };
+    });
+  }, [activeRealFrames, activeId]);
+
+  // Belt-and-braces: a turn that ended took every drain point with it, so nothing is still
+  // coming. Without this a pin could wedge forever if the text were ever transformed on the
+  // way (SC-1 — surfacing must never become a stuck state).
+  useEffect(() => {
+    if (activeId === undefined || running) return;
+    setPendingSteerBySession((m) => (m[activeId]?.length ? { ...m, [activeId]: [] } : m));
+  }, [running, activeId]);
 
   // Keep-alive tab inputs (hooks stay above the states-first early return).
   const tabs = useShell((s) => s.tabs);
@@ -574,6 +676,24 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     );
   }
   const queuedMessages = activeQueue.map((text, i) => ({ id: String(i), text }));
+  // Appended after the real frames, never spliced in: a pending steer has not happened
+  // yet, so it cannot sit anywhere but last. Governed-path only (mirrors `pendingApproval`
+  // being excluded from raw) — a pin is console state, not loop output (D85).
+  const framesWithPending: TranscriptFrame[] = [
+    ...vm.frames,
+    ...(vm.rawMode
+      ? []
+      : activePending.map((pin) => ({
+          // Keyed on the pin's OWN id, not its array position — an earlier pin clearing
+          // must not reshuffle a survivor's id (that remounts its row for no reason; see
+          // `PendingSteer`).
+          id: `pending:${activeId ?? ''}:${pin.id}`,
+          role: 'you' as const,
+          kind: 'text' as const,
+          text: pin.text,
+          pending: true,
+        }))),
+  ];
   // Refresh the keep-alive caches for the active session, then derive which
   // tabs stay mounted: every open tab already visited (cache hit) + the active
   // one. Unvisited tabs mount lazily on their first activation.
@@ -616,7 +736,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
                 the module cache; the active tab always renders the live vm. */}
             {keepAlive.map((tid) => {
               const isActive = tid === activeTabId;
-              const frames = isActive ? vm.frames : (framesBySession.get(tid) ?? []);
+              const frames = isActive ? framesWithPending : (framesBySession.get(tid) ?? []);
               return (
                 <div key={tid} className={isActive ? 'h-full' : 'hidden'}>
                   {/* Frozen while hidden: live publishes must not re-render
@@ -686,7 +806,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               onPickEffort={vm.onPickEffort}
               onSend={vm.onSend}
               onQueue={handleQueue}
-              onBarge={vm.onBargeIn}
+              onSteer={handleSteer}
               onStop={vm.onInterrupt}
               onRemoveQueued={(id) => dequeue(Number(id))}
               onApprove={(id) => vm.onRespond(id, 'approve')}

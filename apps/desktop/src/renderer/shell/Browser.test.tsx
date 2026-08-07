@@ -160,6 +160,335 @@ describe('Browser', () => {
     expect(rows()[0]?.className).toContain('bg-s2');
   });
 
+  it('nests a spawned child under its root — the mixed fixture: a root with two children plus an unrelated root', () => {
+    const root = {
+      id: 'root',
+      title: 'root task',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T03:00:00.000Z',
+    };
+    const child1 = {
+      id: 'child1',
+      title: 'first child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    const child2 = {
+      id: 'child2',
+      title: 'second child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    const otherRoot = {
+      id: 'other',
+      title: 'unrelated root',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+    };
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, child1, child2, otherRoot] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    const r = rows();
+    // Both children render nested under their root, in tree order — never as flat
+    // peers of the unrelated root, and the unrelated root is never absorbed into it.
+    expect(r.map((el) => el.getAttribute('data-session-id'))).toEqual([
+      'root',
+      'child1',
+      'child2',
+      'other',
+    ]);
+    expect(r.find((el) => el.dataset.sessionId === 'root')?.dataset.depth).toBe('0');
+    expect(r.find((el) => el.dataset.sessionId === 'child1')?.dataset.depth).toBe('1');
+    expect(r.find((el) => el.dataset.sessionId === 'child2')?.dataset.depth).toBe('1');
+    expect(r.find((el) => el.dataset.sessionId === 'other')?.dataset.depth).toBe('0');
+  });
+
+  it('nests a grandchild two levels deep', () => {
+    const root = {
+      id: 'root',
+      title: 'root task',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+    };
+    const child = {
+      id: 'child',
+      title: 'child task',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    const grandchild = {
+      id: 'grandchild',
+      title: 'grandchild task',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+      parent: 'child',
+      root: 'root',
+    };
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, child, grandchild] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    const r = rows();
+    expect(r.map((el) => el.dataset.sessionId)).toEqual(['root', 'child', 'grandchild']);
+    expect(r.find((el) => el.dataset.sessionId === 'grandchild')?.dataset.depth).toBe('2');
+  });
+
+  it('a session with no lineage renders exactly as before (D85)', () => {
+    mount();
+    const r = rows();
+    expect(r.every((el) => el.dataset.depth === '0')).toBe(true);
+  });
+
+  it('a search hit still nests under its real parent even when the parent’s own title does not match — and the parent count stays the true hit count', () => {
+    const root = {
+      id: 'root',
+      title: 'audit auth',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+    };
+    const child = {
+      id: 'child',
+      title: 'wire the dock',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    useShell.getState().openSearch();
+    useShell.getState().setQuery('wire');
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, child] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    // Only the child matched "wire" — but its real parent is pulled in for
+    // context rather than the child rendering as an apparent, unrelated root.
+    expect(screen.getByText('1 sessions')).toBeTruthy();
+    const r = rows();
+    expect(r.map((el) => el.dataset.sessionId)).toEqual(['root', 'child']);
+    expect(r.find((el) => el.dataset.sessionId === 'root')?.dataset.depth).toBe('0');
+    expect(r.find((el) => el.dataset.sessionId === 'root')?.dataset.matched).toBe('false');
+    expect(r.find((el) => el.dataset.sessionId === 'child')?.dataset.depth).toBe('1');
+    expect(r.find((el) => el.dataset.sessionId === 'child')?.dataset.matched).toBe('true');
+  });
+
+  it('resolves the WHOLE ancestor chain for a matched grandchild whose parent AND grandparent both fail the query — a one-level fix could not prove this', () => {
+    const root = {
+      id: 'root',
+      title: 'audit auth',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+    };
+    const child = {
+      id: 'child',
+      title: 'code review',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    const grandchild = {
+      id: 'grandchild',
+      title: 'polish the diff',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+      parent: 'child',
+      root: 'root',
+    };
+    useShell.getState().openSearch();
+    useShell.getState().setQuery('polish');
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, child, grandchild] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText('1 sessions')).toBeTruthy();
+    const r = rows();
+    // Neither 'root' nor 'child' matched "polish", yet both are pulled in so the
+    // grandchild nests at its true depth instead of surfacing as its own root.
+    expect(r.map((el) => el.dataset.sessionId)).toEqual(['root', 'child', 'grandchild']);
+    expect(r.find((el) => el.dataset.sessionId === 'root')?.dataset.depth).toBe('0');
+    expect(r.find((el) => el.dataset.sessionId === 'child')?.dataset.depth).toBe('1');
+    expect(r.find((el) => el.dataset.sessionId === 'grandchild')?.dataset.depth).toBe('2');
+    expect(r.find((el) => el.dataset.sessionId === 'grandchild')?.dataset.matched).toBe('true');
+    expect(r.find((el) => el.dataset.sessionId === 'child')?.dataset.matched).toBe('false');
+    expect(r.find((el) => el.dataset.sessionId === 'root')?.dataset.matched).toBe('false');
+  });
+
+  it('a search that matches nothing in a tree renders nothing from it — ancestor-pulling never resurrects a non-hit tree', () => {
+    const root = {
+      id: 'root',
+      title: 'audit auth',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+    };
+    const child = {
+      id: 'child',
+      title: 'wire the dock',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    useShell.getState().openSearch();
+    useShell.getState().setQuery('nonexistent-term');
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, child] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    expect(rows()).toHaveLength(0);
+  });
+
+  it('a matched grandchild whose parent was deleted still nests under its root — the root fallback, not just the parent walk', () => {
+    const root = {
+      id: 'root',
+      title: 'audit auth',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+    };
+    // 'deleted-mid' is intentionally absent from `sessions` — a real, supported
+    // action (Browser's own `remove()`) can leave exactly this shape behind: a
+    // grandchild whose immediate parent is gone but whose `root` still names a
+    // present session.
+    const grandchild = {
+      id: 'grandchild',
+      title: 'polish the diff',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+      parent: 'deleted-mid',
+      root: 'root',
+    };
+    useShell.getState().openSearch();
+    useShell.getState().setQuery('polish');
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, grandchild] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    const r = rows();
+    // The broken parent link alone can't find 'root' — only the stored `.root`
+    // fallback can. Without it this renders as a single 'grandchild' row at
+    // depth 0, an apparent unrelated root.
+    expect(r.map((el) => el.dataset.sessionId)).toEqual(['root', 'grandchild']);
+    expect(r.find((el) => el.dataset.sessionId === 'root')?.dataset.depth).toBe('0');
+    expect(r.find((el) => el.dataset.sessionId === 'grandchild')?.dataset.depth).toBe('1');
+  });
+
+  it('a tree only reachable by pulling still sorts by recency among genuine hits, not always last', () => {
+    const rootA = {
+      id: 'rootA',
+      title: 'audit auth',
+      agentRef: 'roles/dev',
+      updatedAt: '2020-01-01T00:00:00.000Z', // old — a DIRECT hit
+    };
+    const rootB = {
+      id: 'rootB',
+      title: 'spawn tree',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z', // newer — never itself matched
+    };
+    const childB = {
+      id: 'childB',
+      title: 'audit report',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T03:00:00.000Z', // newer still — the actual hit
+      parent: 'rootB',
+      root: 'rootB',
+    };
+    useShell.getState().openSearch();
+    useShell.getState().setQuery('audit');
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [rootA, rootB, childB] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    const r = rows();
+    // rootB's tree is newer than rootA even though rootB itself is only pulled
+    // in for context — Sort: Recent must still put it first.
+    expect(r.map((el) => el.dataset.sessionId)).toEqual(['rootB', 'childB', 'rootA']);
+  });
+
+  it('an already-sorted no-search render is untouched by the group re-sort (D85)', () => {
+    const root = {
+      id: 'root',
+      title: 'root task',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T03:00:00.000Z',
+    };
+    const child1 = {
+      id: 'child1',
+      title: 'first child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+      parent: 'root',
+      root: 'root',
+    };
+    const otherRoot = {
+      id: 'other',
+      title: 'unrelated root',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+    };
+    render(
+      <Browser
+        state={makeState({
+          data: {
+            sessions: { status: 'ok', value: [root, child1, otherRoot] },
+            agents: { status: 'ok', value: AGENTS },
+          },
+        })}
+      />,
+    );
+    // No search at all — nothing is pulled, so this is exactly the pre-existing
+    // recency order: newest tree first, unaffected by the ordering fix.
+    expect(rows().map((el) => el.dataset.sessionId)).toEqual(['root', 'child1', 'other']);
+  });
+
   it('picking group: status from the toolbar renders a header per run state', () => {
     render(
       <Browser

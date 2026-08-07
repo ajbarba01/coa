@@ -49,6 +49,28 @@ describe('Work', () => {
     expect(screen.getByText(/^root$/i)).toBeTruthy();
   });
 
+  it('labels a spawned child’s own tab "Subagent", not "Root" — the badge names the session, not the panel', () => {
+    const root = { ...SESSION };
+    const child = {
+      id: 'child1',
+      title: 'first child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'c1',
+      root: 'c1',
+    };
+    publishConsoleState(
+      makeState({
+        data: { sessions: { status: 'ok', value: [root, child] } },
+        ui: { activeSessionId: 'child1' },
+      }),
+    );
+    render(<Work />);
+    expect(screen.getByText('first child')).toBeTruthy();
+    expect(screen.getByText(/^subagent$/i)).toBeTruthy();
+    expect(screen.queryByText(/^root$/i)).toBeNull();
+  });
+
   it('falls to the quiet empty line with no active session', () => {
     publishConsoleState(makeState({ data: { sessions: { status: 'ok', value: [] } } }));
     render(<Work />);
@@ -87,5 +109,57 @@ describe('Work', () => {
   it('labels the un-backed sections as floors, not fake data', () => {
     renderWorkWithTurns([]);
     expect(screen.getAllByText(/not tracked yet/i).length).toBeGreaterThan(0);
+  });
+
+  it('rolls the Cost section up over the whole tree, not the root’s own spend — a root that spends LESS than its descendants', () => {
+    const root = { ...SESSION, costUsd: 1 };
+    const child1 = {
+      id: 'child1',
+      title: 'first child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'c1',
+      root: 'c1',
+      costUsd: 10,
+    };
+    const child2 = {
+      id: 'child2',
+      title: 'second child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'c1',
+      root: 'c1',
+      costUsd: 5,
+    };
+    publishConsoleState(
+      makeState({
+        data: { sessions: { status: 'ok', value: [root, child1, child2] } },
+        ui: { activeSessionId: 'c1' },
+      }),
+    );
+    render(<Work />);
+    expect(screen.getByText('$16.00')).toBeTruthy();
+    expect(screen.queryByText('$1.00')).toBeNull();
+  });
+
+  it('shows the SAME family total from a nested child’s own tab, not just its own spend', () => {
+    const root = { ...SESSION, costUsd: 1 };
+    const child = {
+      id: 'child1',
+      title: 'first child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'c1',
+      root: 'c1',
+      costUsd: 10,
+    };
+    publishConsoleState(
+      makeState({
+        data: { sessions: { status: 'ok', value: [root, child] } },
+        ui: { activeSessionId: 'child1' }, // viewing the CHILD's own tab
+      }),
+    );
+    render(<Work />);
+    expect(screen.getByText('$11.00')).toBeTruthy();
   });
 });

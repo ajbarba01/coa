@@ -1,4 +1,6 @@
+import { groupSessionTree, sessionGroupFor } from '@coa/console-viewmodel';
 import { CapsLabel, cx, StatusDot, Tooltip } from '@coa/console-kit';
+import { usd } from '../panels/mockUsage.js';
 import { DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
@@ -7,10 +9,12 @@ import { AppWindowControls } from './windowControls.js';
 
 /** Right column: the active session's working state, honestly floored — the
  *  root agent row (real title + real run status) and, when the session has
- *  emitted one, its plan checklist are real; subagents/changes/worktree/
- *  record/cost have no backing data yet and render one quiet "not tracked
- *  yet" line each instead of fake chrome. Title-bar segment carries the
- *  AGENTS header + the window controls. */
+ *  emitted one, its plan checklist are real; subagents/changes/worktree/record
+ *  have no backing data yet and render one quiet "not tracked yet" line each
+ *  instead of fake chrome. Cost is real once anything in the active tab's
+ *  family tree carries a recorded spend (the tree-wide roll-up, not just this
+ *  one session's own); it floors the same way until then. Title-bar segment
+ *  carries the AGENTS header + the window controls. */
 export function Work(): React.JSX.Element {
   const workWidth = useShell((s) => s.workWidth);
   const toggleWork = useShell((s) => s.toggleWork);
@@ -30,6 +34,15 @@ export function Work(): React.JSX.Element {
     }
     return undefined;
   })();
+  // The active session's WHOLE family tree's spend (root + every descendant),
+  // wherever the active tab sits in it — never just the one session's own cost
+  // (`groupSessionTree`/`sessionGroupFor` live in console-viewmodel, testable
+  // without jsdom). `undefined` ⇒ nothing in the tree is tracked yet, the same
+  // "not tracked yet" floor as before this existed (D85).
+  const treeCostUsd =
+    activeId === undefined
+      ? undefined
+      : sessionGroupFor(groupSessionTree(sessions), activeId)?.costUsd;
 
   return (
     <div className="flex flex-none flex-col border-l border-s4 bg-s2" style={{ width: workWidth }}>
@@ -45,7 +58,12 @@ export function Work(): React.JSX.Element {
           <div className="flex items-center gap-2 px-3.5 py-1 text-sec font-[550] text-s12">
             <StatusDot status={running ? 'running' : 'idle'} />
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{session.title}</span>
-            <span className="ml-auto font-mono text-caps text-s6">Root</span>
+            {/* Names what lineage makes this session, not the panel itself. A
+                spawned child can be the active tab, so a hardcoded "Root" would
+                state something false rather than degrade to a floor. */}
+            <span className="ml-auto font-mono text-caps text-s6">
+              {session.parent === undefined ? 'Root' : 'Subagent'}
+            </span>
           </div>
 
           {planItems !== undefined && planItems.length > 0 ? (
@@ -89,7 +107,15 @@ export function Work(): React.JSX.Element {
           <FloorSection title="Changes" />
           <FloorSection title="Worktree" />
           <FloorSection title="Record" />
-          <FloorSection title="Cost" />
+          {treeCostUsd === undefined ? (
+            <FloorSection title="Cost" />
+          ) : (
+            <Section title="Cost">
+              <div className="flex items-baseline px-3.5 py-1 text-sec text-s11">
+                <span className="ml-auto font-mono">{usd(treeCostUsd)}</span>
+              </div>
+            </Section>
+          )}
         </div>
       ) : (
         <div className="px-3.5 pt-4 text-code text-s7">No session</div>

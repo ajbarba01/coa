@@ -43,10 +43,20 @@ export type ActiveAccount = z.infer<typeof ActiveAccountSchema>;
 export const TurnRoleSchema = z.enum(['you', 'agent', 'subagent']);
 export type TurnRole = z.infer<typeof TurnRoleSchema>;
 
+// `system` is a coa-authored notice (e.g. a child session's ending — never a
+// person and never the agent's own claim). Scoped to `text` alone — the only
+// kind that ever carries it, matching the wire's own `text` role enum
+// (@coa/shared's `turnFrameSchema`) — rather than widening `TurnRoleSchema`
+// itself, which every other kind's `role` field also uses and which never
+// produces `system` (widening it there would only invite a value the mapper
+// never emits).
+export const TextRoleSchema = z.enum(['you', 'agent', 'subagent', 'system']);
+export type TextRole = z.infer<typeof TextRoleSchema>;
+
 export const TurnFrameSchema = z.discriminatedUnion('kind', [
   z.object({
     id: z.string(),
-    role: TurnRoleSchema,
+    role: TextRoleSchema,
     kind: z.literal('text'),
     text: z.string(),
     depth: z.number().optional(),

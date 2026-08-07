@@ -49,6 +49,20 @@ describe('toGovernedFrame', () => {
     expect(toGovernedFrame(f)).toMatchObject({ id: '1', role: 'you', kind: 'text', text: 'hi' });
   });
 
+  it('maps a system-role text turn (e.g. a child-ended notice) to the quiet note presentation, never a chat bubble', () => {
+    const f: TurnFrame = {
+      id: '9',
+      role: 'system',
+      kind: 'text',
+      text: 'subagent roles/reviewer (child-1) finished. Read its transcript for the result.',
+    };
+    expect(toGovernedFrame(f)).toEqual({
+      id: '9',
+      kind: 'note',
+      text: 'subagent roles/reviewer (child-1) finished. Read its transcript for the result.',
+    });
+  });
+
   it('maps an approval turn to an approval frame', () => {
     const f: TurnFrame = {
       id: '2',
@@ -710,7 +724,7 @@ describe('ChatSurface states-first', () => {
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
 
-  it('the barge-in button redirects the running turn via steerSession', async () => {
+  it('labels the running-turn action Steer and routes it to steerSession, since a steer never abandons the running turn', async () => {
     const steerSession = vi.fn();
     const state = stateWith(
       { status: 'ok', value: [] },
@@ -719,11 +733,220 @@ describe('ChatSurface states-first', () => {
     );
     render(<ChatSurface state={state} />);
     await userEvent.type(screen.getByRole('textbox'), 'go check the tests instead');
-    await userEvent.click(screen.getByRole('button', { name: /barge in/i }));
+    expect(screen.queryByRole('button', { name: /barge/i })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
     expect(steerSession).toHaveBeenCalledExactlyOnceWith(
       's-audit-auth',
       'go check the tests instead',
     );
+  });
+
+  const agentTextFrame = (text: string, id = 'a1'): TurnFrame => ({
+    id,
+    role: 'agent',
+    kind: 'text',
+    text,
+  });
+  const youTextFrame = (text: string, id = 'y1'): TurnFrame => ({
+    id,
+    role: 'you',
+    kind: 'text',
+    text,
+  });
+  // The last mounted row's text — asserts POSITION, not just presence, since a pending
+  // steer belongs at the bottom (it hasn't happened yet, so it can't sit above what has).
+  const lastRowText = (): string | null => {
+    const rows = screen.getByRole('log').querySelectorAll('[data-row-index]');
+    return rows.length > 0 ? (rows[rows.length - 1]?.textContent ?? null) : null;
+  };
+
+  it('pins a sent steer at the transcript bottom and drops the pin when the real frame lands', async () => {
+    const steerSession = vi.fn();
+    const running = stateWith(
+      { status: 'ok', value: [agentTextFrame('working…')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    const { rerender } = render(<ChatSurface state={running} />);
+    await userEvent.type(screen.getByRole('textbox'), 'use the JSON one');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+
+    // Pinned, and LAST — it has not happened yet, so it cannot sit above what has.
+    const pinned = screen.getByText('use the JSON one');
+    expect(pinned.closest('[data-pending="true"]')).not.toBeNull();
+    expect(lastRowText()).toContain('use the JSON one');
+
+    // The daemon's real line arrives at pickup; the pin must go, or the message doubles.
+    const delivered = stateWith(
+      { status: 'ok', value: [agentTextFrame('working…'), youTextFrame('use the JSON one')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={delivered} />);
+    expect(screen.getAllByText('use the JSON one')).toHaveLength(1);
+    expect(document.querySelector('[data-pending="true"]')).toBeNull();
+  });
+
+  it('clears a pin when the session goes idle, so it can never wedge', async () => {
+    const steerSession = vi.fn();
+    const running = stateWith(
+      { status: 'ok', value: [] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    const { rerender } = render(<ChatSurface state={running} />);
+    await userEvent.type(screen.getByRole('textbox'), 'never delivered');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    expect(screen.getByText('never delivered')).toBeInTheDocument();
+
+    const idle = stateWith({ status: 'ok', value: [] }, {}, { steerSession });
+    rerender(<ChatSurface state={idle} />);
+    expect(screen.queryByText('never delivered')).toBeNull();
+  });
+
+  it('does not let an earlier turn with identical text clear a steer pinned later', async () => {
+    const steerSession = vi.fn();
+    // The session's history ALREADY contains a 'you' turn with the exact text the steer
+    // will use — reconciliation must not treat that pre-existing turn as the steer's own
+    // delivery.
+    const running = stateWith(
+      { status: 'ok', value: [youTextFrame('wait', 'y1'), agentTextFrame('on it')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    const { rerender } = render(<ChatSurface state={running} />);
+    await userEvent.type(screen.getByRole('textbox'), 'wait');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
+
+    // An unrelated re-render (e.g. the agent's reply streaming further) must not clear it —
+    // only the delivery of THIS steer's own line may.
+    const midStream = stateWith(
+      {
+        status: 'ok',
+        value: [youTextFrame('wait', 'y1'), agentTextFrame('on it, thinking further')],
+      },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={midStream} />);
+    expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
+
+    // The real delivery lands (a SECOND 'wait' turn, after the pin was created) — now it clears.
+    const delivered = stateWith(
+      {
+        status: 'ok',
+        value: [
+          youTextFrame('wait', 'y1'),
+          agentTextFrame('on it, thinking further'),
+          youTextFrame('wait', 'y2'),
+        ],
+      },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={delivered} />);
+    expect(document.querySelector('[data-pending="true"]')).toBeNull();
+  });
+
+  it('clears both pins when two identical steers are both delivered in one transition', async () => {
+    const steerSession = vi.fn();
+    const running = stateWith(
+      { status: 'ok', value: [agentTextFrame('on it')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    const { rerender } = render(<ChatSurface state={running} />);
+    await userEvent.type(screen.getByRole('textbox'), 'retry');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    await userEvent.type(screen.getByRole('textbox'), 'retry');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    expect(screen.getAllByText('retry')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-pending="true"]')).toHaveLength(2);
+
+    // Both real deliveries land together (e.g. a backgrounded tab catching up in one push).
+    const delivered = stateWith(
+      {
+        status: 'ok',
+        value: [agentTextFrame('on it'), youTextFrame('retry', 'y1'), youTextFrame('retry', 'y2')],
+      },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={delivered} />);
+    expect(screen.getAllByText('retry')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-pending="true"]')).toHaveLength(0);
+  });
+
+  it("keeps a surviving pin's row identity when an earlier pin clears (no spurious remount)", async () => {
+    const steerSession = vi.fn();
+    const running = stateWith(
+      { status: 'ok', value: [agentTextFrame('working…')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    const { rerender } = render(<ChatSurface state={running} />);
+    await userEvent.type(screen.getByRole('textbox'), 'first pin');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    await userEvent.type(screen.getByRole('textbox'), 'second pin');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    const secondNode = screen.getByText('second pin');
+
+    // The first pin's delivery lands; the first pin clears, but the second must keep its
+    // OWN row (same DOM node) rather than shifting into the freed array slot and remounting.
+    const delivered = stateWith(
+      { status: 'ok', value: [agentTextFrame('working…'), youTextFrame('first pin', 'y1')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={delivered} />);
+    expect(screen.getByText('second pin')).toBe(secondNode);
+  });
+
+  it('keeps a pin pinned across a mid-run conversation reload (wholesale frame-array replacement), then clears on the real delivery', async () => {
+    const steerSession = vi.fn();
+    // Several fine-grained live-streamed frames — the shape a push can have before the
+    // daemon's persisted view (what a reload fetches) consolidates them.
+    const running = stateWith(
+      {
+        status: 'ok',
+        value: [
+          agentTextFrame('thinking…', 'a1'),
+          agentTextFrame('still thinking', 'a2'),
+          agentTextFrame('working…', 'a3'),
+        ],
+      },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    const { rerender } = render(<ChatSurface state={running} />);
+    await userEvent.type(screen.getByRole('textbox'), 'use the JSON one');
+    await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
+    expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
+
+    // openSession's mid-run reload (console.ts) replaces the frame array OUTRIGHT — a
+    // different identity AND, here, a different (shorter, consolidated) length — with no
+    // matching delivery yet. The pin must survive this untouched.
+    const reloaded = stateWith(
+      { status: 'ok', value: [agentTextFrame('working…', 'a3')] },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={reloaded} />);
+    expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
+
+    // The real delivery lands in the RELOADED (shorter) array — an index tied to the
+    // pre-reload array's length would never see it. The pin must still clear.
+    const delivered = stateWith(
+      {
+        status: 'ok',
+        value: [agentTextFrame('working…', 'a3'), youTextFrame('use the JSON one', 'y1')],
+      },
+      { runStatus: { 's-audit-auth': { since: 1000 } } },
+      { steerSession },
+    );
+    rerender(<ChatSurface state={delivered} />);
+    expect(document.querySelector('[data-pending="true"]')).toBeNull();
   });
 
   it('Queue pins the message (no daemon steer) and releases it as a send when the turn ends', async () => {
@@ -747,11 +970,11 @@ describe('ChatSurface states-first', () => {
     expect(sendMessage).toHaveBeenCalledWith('also add a test');
   });
 
-  it('shows Send (not Queue/Barge/Stop) while idle', () => {
+  it('shows Send (not Queue/Steer/Stop) while idle', () => {
     render(<ChatSurface state={readyState([])} />);
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /queue/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /barge in/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Steer' })).toBeNull();
     expect(screen.queryByRole('button', { name: /stop the running turn/i })).toBeNull();
   });
 

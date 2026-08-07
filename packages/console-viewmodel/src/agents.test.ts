@@ -26,7 +26,12 @@ describe('agent summary schema', () => {
   });
 
   it('defaults identity when icon/color are absent', () => {
-    const a = agentSummarySchema.parse({ ref: 'r', name: 'n', description: 'd', scope: 'personal' });
+    const a = agentSummarySchema.parse({
+      ref: 'r',
+      name: 'n',
+      description: 'd',
+      scope: 'personal',
+    });
     expect(a.icon).toBe('bot');
     expect(a.color).toBe('slate');
   });
@@ -132,7 +137,12 @@ describe('agent list parsing', () => {
 
   it('parseAgents keeps a builtin agent as-is', () => {
     const parsed = parseAgents([
-      { ref: 'general-purpose', name: 'General purpose', description: 'A general worker.', scope: 'builtin' },
+      {
+        ref: 'general-purpose',
+        name: 'General purpose',
+        description: 'A general worker.',
+        scope: 'builtin',
+      },
     ]);
     expect(parsed).toEqual([
       {
@@ -167,5 +177,27 @@ describe('session summary schema', () => {
       promptConfig: { roles: ['researcher', 'swe'] },
     };
     expect(SessionSummarySchema.parse(s)).toEqual(s);
+  });
+
+  it('accepts a spawned child’s lineage (parent/root) and its recorded spend', () => {
+    const s = {
+      id: 'child-1',
+      agentRef: 'roles/reviewer',
+      title: 'fix auth',
+      updatedAt: '2026-07-01',
+      parent: 'root-1',
+      root: 'root-1',
+      costUsd: 0.42,
+    };
+    expect(SessionSummarySchema.parse(s)).toEqual(s);
+  });
+
+  it('leaves a session with no lineage byte-identical (parent/root/costUsd stay absent)', () => {
+    const s = { id: 's1', agentRef: 'roles/reviewer', title: 'fix auth', updatedAt: '2026-07-01' };
+    const parsed = SessionSummarySchema.parse(s);
+    expect(parsed).toEqual(s);
+    expect('parent' in parsed).toBe(false);
+    expect('root' in parsed).toBe(false);
+    expect('costUsd' in parsed).toBe(false);
   });
 });

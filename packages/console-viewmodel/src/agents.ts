@@ -111,6 +111,17 @@ export const SessionSummarySchema = z.object({
       exclude: z.array(z.string()).optional(),
     })
     .optional(),
+  /** The session that spawned this one (mirrors `SessionMeta.parent`); absent ⇒ a
+   *  root session a person started — the overwhelming common case (D85). */
+  parent: z.string().optional(),
+  /** This session's family-tree root — itself, for a root; the SAME id at every
+   *  depth below it (mirrors `SessionMeta.root`). Stored rather than derived, since
+   *  a `parent` chain can cycle and a stored root cannot — see `session-tree.ts`. */
+  root: z.string().optional(),
+  /** This session's own recorded spend so far; absent ⇒ not tracked. A family
+   *  tree's total is the sum of every session's `costUsd` that shares its root
+   *  (`session-tree.ts`'s `groupSessionTree`), never just the root's own. */
+  costUsd: z.number().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 

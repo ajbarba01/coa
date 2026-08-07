@@ -50,6 +50,11 @@ describe('turn frame schema', () => {
     expect(f).toMatchObject({ depth: 1 });
   });
 
+  it('accepts a system-role text frame — a coa-authored notice, not the agent', () => {
+    const f = TurnFrameSchema.parse({ id: 's1', role: 'system', kind: 'text', text: 'notice' });
+    expect(f).toMatchObject({ role: 'system' });
+  });
+
   it('parses the widened taxonomy: thinking, plan, error, subagent', () => {
     const frames = [
       { id: 'a', role: 'agent', kind: 'thinking', text: 'hmm' },
