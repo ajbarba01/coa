@@ -21,7 +21,7 @@ import type {
  * neutral {@link TurnFrame}. The only backend-specific surface it consumes is the
  * {@link CompleteFn} primitive; adding another pure API is just implementing that.
  *
- * Governance parity with the SDK backend: the per-tool cost-cap + governance
+ * Governance parity with the SDK backend: the per-tool governance
  * deny predicate is checked inline before any execution, and the close-gate runs
  * before the turn is allowed to end — a block injects the reason and the loop
  * continues rather than stopping. Neither ever throws (surface, don't cage).
@@ -65,7 +65,7 @@ export interface GovernedLoopDeps {
    * prefix/context cache hits on the identical leading prefix.
    */
   history?: readonly DriverMessage[];
-  /** The per-tool block: cost-cap + governance deny, assembled by the session host (first-deny-wins, fail-closed). */
+  /** The per-tool deny predicate, assembled by the session host (first-deny-wins, fail-closed). */
   canUseTool: CanUseTool;
   /** The close-gate run before the turn may end. */
   gate: StopPredicate;

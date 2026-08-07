@@ -36,7 +36,7 @@ function asPermissionMode(value: string): PermissionMode {
 
 /**
  * Map the governance per-tool decision (assembled by the daemon from the constraint
- * system and the cost cap) onto the SDK `canUseTool` result.
+ * system's deny rules) onto the SDK `canUseTool` result.
  *
  * The allow branch MUST echo `input` back as `updatedInput`. It is optional on
  * `PermissionResult`, so a bare `{behavior:'allow'}` typechecks — but the real CLI
@@ -68,8 +68,8 @@ export function toStopHookOutput(decision: StopDecision): SyncHookJSONOutput {
 
 /**
  * Build the static `query()` options from the rendered backend config + the governance
- * sandbox set. The dynamic parts (`canUseTool`, the `Stop` hook, `mcpServers`,
- * `maxBudgetUsd`) are layered on by the adapter/daemon at session construction.
+ * sandbox set. The dynamic parts (`canUseTool`, the `Stop` hook, `mcpServers`)
+ * are layered on by the adapter/daemon at session construction.
  */
 export function buildBaseOptions(args: {
   backend: BackendConfig;

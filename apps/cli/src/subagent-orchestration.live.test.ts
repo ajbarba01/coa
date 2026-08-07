@@ -116,7 +116,6 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
         const child = new OpenAiCompatAdapter(deepseekSpec, {
           sessionId: id,
           input: task,
-          maxBudgetUsd: 0.05,
           onTurn: (frame) => allFrames.push({ sessionId: id, frame }),
           onSettle: (sessionId, usage: RuntimeUsage) => costBySession.set(sessionId, usage.costUsd),
         });
@@ -150,7 +149,8 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
         '"Reply with the single word ACKNOWLEDGED and nothing else." ' +
         'Then, without waiting, reply with the single word DONE.',
       locator: resolveLiveLocator(),
-      maxBudgetUsd: 0.25,
+      // The live-suite money guard: the SDK's own budget stop, passed raw (not a coa governance surface).
+      sdkOptions: { maxBudgetUsd: 0.25 },
       onTurn: (frame) => allFrames.push({ sessionId: rootId, frame }),
       onSettle: (sessionId, usage: RuntimeUsage) => costBySession.set(sessionId, usage.costUsd),
     });
@@ -255,7 +255,6 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
         const child = new OpenAiCompatAdapter(deepseekSpec, {
           sessionId: id,
           input: task,
-          maxBudgetUsd: 0.1,
           signal: childController.signal,
           onTurn: (frame) => childFrames.push(frame),
         });
@@ -286,7 +285,8 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
       sandbox: barebonesSandbox(),
       input: queue,
       locator: resolveLiveLocator(),
-      maxBudgetUsd: 0.25,
+      // The live-suite money guard: the SDK's own budget stop, passed raw (not a coa governance surface).
+      sdkOptions: { maxBudgetUsd: 0.25 },
       signal: rootController.signal,
     });
     orchestrator.renderNative(minimalNeutralConfig());

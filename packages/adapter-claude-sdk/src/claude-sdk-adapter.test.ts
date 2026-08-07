@@ -1,4 +1,4 @@
-import type { BackendMessage, CapabilitySet, NeutralConfig, TurnFrame } from '@coa/shared';
+import type { BackendMessage, CapabilitySet, NeutralConfig } from '@coa/shared';
 import type { CanUseTool, StopPredicate } from '@coa/spi';
 import type { query as SdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it, vi } from 'vitest';
@@ -213,8 +213,8 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
   });
 });
 
-describe('runLoop — the cost cap is a block, not a fault', () => {
-  /** A `query` that yields nothing and throws out of iteration, like the SDK's cap does. */
+describe('runLoop — the SDK budget stop is not a coa block', () => {
+  /** A `query` that yields nothing and throws out of iteration, like the SDK's budget stop does. */
   const throwingQuery = (message: string) =>
     (() => ({
       async *[Symbol.asyncIterator]() {
@@ -232,31 +232,26 @@ describe('runLoop — the cost cap is a block, not a fault', () => {
     return a;
   };
 
-  it('emits a cost-cap deny instead of propagating the budget throw', async () => {
-    const frames: TurnFrame[] = [];
-    const a = wired({
-      maxBudgetUsd: 0.02,
-      onTurn: (f) => frames.push(f),
-      query: throwingQuery('Reached maximum budget ($0.02)'),
-    });
-
-    await expect(a.runLoop(session)).resolves.toBeUndefined();
-
-    expect(frames).toEqual([
-      { t: 'deny', denyKind: 'cost-cap', reason: 'Reached maximum budget ($0.02)' },
-      { t: 'turn-boundary', role: 'assistant' },
-    ]);
-  });
-
-  it('rethrows a transient network failure unchanged', async () => {
-    // Recognition is narrow on purpose: a missed match must degrade to today's behaviour,
-    // never to a swallowed error.
-    const a = wired({ maxBudgetUsd: 0.02, query: throwingQuery('fetch failed') });
-    await expect(a.runLoop(session)).rejects.toThrow('fetch failed');
-  });
-
-  it('rethrows a budget-shaped error when coa set no cap', async () => {
+  it('propagates a budget-shaped throw unchanged — coa holds no ceiling to dress it as a deny', async () => {
     const a = wired({ query: throwingQuery('Reached maximum budget ($0.02)') });
     await expect(a.runLoop(session)).rejects.toThrow('Reached maximum budget');
+  });
+
+  it('merges raw sdkOptions over the assembled query options (the live-suite money guard)', async () => {
+    let seen: { maxBudgetUsd?: number; cwd?: string } | undefined;
+    async function* empty(): AsyncGenerator<unknown> {
+      // no messages — only the received options matter here
+    }
+    const a = wired({
+      sdkOptions: { maxBudgetUsd: 0.25 },
+      query: ((arg: { options: { maxBudgetUsd?: number; cwd?: string } }) => {
+        seen = arg.options;
+        return empty();
+      }) as unknown as typeof SdkQuery,
+    });
+    await a.runLoop(session);
+    expect(seen?.maxBudgetUsd).toBe(0.25);
+    // The worktree cwd is the adapter's own and always wins over the passthrough.
+    expect(seen?.cwd).toBe('/wt');
   });
 });

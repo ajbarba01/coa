@@ -42,7 +42,8 @@ describe.skipIf(!live)('the governed gate, live', () => {
       input:
         'Read the file marker.txt in the current directory and reply with its exact contents. Do nothing else.',
       locator: resolveLiveLocator(),
-      maxBudgetUsd: 0.25,
+      // The live-suite money guard: the SDK's own budget stop, passed raw (not a coa governance surface).
+      sdkOptions: { maxBudgetUsd: 0.25 },
       onTurn: (frame) => frames.push(frame),
     });
     adapter.renderNative(minimalNeutralConfig());
@@ -121,7 +122,7 @@ describe.skipIf(!live)('the governed gate, live', () => {
       locator: resolveLiveLocator(),
       // A few cents is plenty: either the deny fires on the first attempt, or the model
       // never attempts one — nothing here should run long enough to need more.
-      maxBudgetUsd: 0.1,
+      sdkOptions: { maxBudgetUsd: 0.1 },
       onTurn: (frame) => frames.push(frame),
     });
     adapter.renderNative(minimalNeutralConfig());
@@ -218,7 +219,8 @@ describe.skipIf(!live)('the gate that one-seam per-tool governance rests on, liv
       sandbox: barebonesSandbox(),
       input: 'Read the file secret.txt in the current directory and reply with its exact contents.',
       locator: resolveLiveLocator(),
-      maxBudgetUsd: 0.25,
+      // The live-suite money guard: the SDK's own budget stop, passed raw (not a coa governance surface).
+      sdkOptions: { maxBudgetUsd: 0.25 },
       onTurn: (frame) => frames.push(frame),
     });
     adapter.renderNative(minimalNeutralConfig());
@@ -274,7 +276,8 @@ describe.skipIf(!live)('the gate that one-seam per-tool governance rests on, liv
       sandbox: barebonesSandbox(),
       input: 'Use the probe_echo tool to echo the word "hello". Do nothing else.',
       locator: resolveLiveLocator(),
-      maxBudgetUsd: 0.25,
+      // The live-suite money guard: the SDK's own budget stop, passed raw (not a coa governance surface).
+      sdkOptions: { maxBudgetUsd: 0.25 },
       onTurn: (frame) => frames.push(frame),
     });
     adapter.renderNative(minimalNeutralConfig());

@@ -80,11 +80,6 @@ describe('assembleSessionOptions — the per-session query() options', () => {
     expect(out).toEqual({ decision: 'block', reason: 'open invariant' });
   });
 
-  it('passes maxBudgetUsd through only when provided', () => {
-    expect(assemble({ maxBudgetUsd: 5 }).maxBudgetUsd).toBe(5);
-    expect(assemble().maxBudgetUsd).toBeUndefined();
-  });
-
   it('passes the auth env through only when provided', () => {
     const env = { CLAUDE_CONFIG_DIR: '/d', ANTHROPIC_API_KEY: undefined };
     expect(assemble({ env }).env).toEqual(env);

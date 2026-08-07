@@ -4,8 +4,8 @@
  * credentials, model discovery) implementing the `complete()` primitive over HTTP
  * and driving the shared `@coa/loop-driver`, parameterized by a {@link ProviderSpec}.
  * DeepSeek and LongCat ship as spec objects; everything else (tools, roles, context,
- * the close-gate and cost-cap blocks) comes from coa. Imports no provider SDK —
- * just `fetch`.
+ * the close-gate block and the per-tool deny rules) comes from coa. Imports no
+ * provider SDK — just `fetch`.
  */
 
 export { OpenAiCompatAdapter, type OpenAiCompatAdapterInit } from './adapter.js';

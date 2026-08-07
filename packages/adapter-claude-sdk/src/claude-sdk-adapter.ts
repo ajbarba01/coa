@@ -17,7 +17,7 @@ import type {
   ToolCatalogue,
   TurnInterrupt,
 } from '@coa/spi';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
 import { toCoaMcpServer } from './mcp-tools.js';
@@ -50,8 +50,14 @@ export interface ClaudeSdkAdapterInit {
   model?: ModelSelection;
   /** The adapter's settlement step → the governance ledger's charge, called once per settled result. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
-  /** The native mid-loop hard stop: the lesser of the per-session ceiling and the cost cap's remaining budget. */
-  maxBudgetUsd?: number;
+  /**
+   * Raw SDK `query()` options merged verbatim over the assembled options (last
+   * wins; the worktree `cwd` stays the adapter's). An escape hatch for SDK
+   * concerns coa deliberately does not govern — its one use today is the live
+   * smoke suites setting the SDK's own `maxBudgetUsd` stop as a real-money
+   * guard. Production wiring never sets it.
+   */
+  sdkOptions?: Partial<Options>;
   /**
    * Record on-disk changes coa did not perform itself (the daemon's reconciler): the
    * adapter fires it after every tool call, since a native Edit — or any file a Bash
@@ -113,27 +119,10 @@ export interface ClaudeSdkAdapterInit {
 }
 
 /**
- * Whether a throw out of `query()` is the enforced cost cap.
- *
- * The SDK raises the cap as a plain `Error` ("Reached maximum budget ($X)") with no
- * inspectable subtype and no `result` frame, so a message match is the only signal
- * available. Matching a vendor string is fragile, which is why the guard is narrow —
- * coa must have set a cap for this run — and the fallback is to rethrow. A missed match
- * degrades to today's generic error frame; it never swallows a real failure.
- */
-function isCostCapStop(err: unknown, maxBudgetUsd: number | undefined): err is Error {
-  return (
-    maxBudgetUsd !== undefined &&
-    err instanceof Error &&
-    /reached maximum budget/i.test(err.message)
-  );
-}
-
-/**
  * The one Claude Agent SDK backend implementation of the `RuntimeAdapter`
  * port. The pure halves (`renderNative`, the option/hook assembly) are the tested
- * core; `runLoop` drives the rented `query()` loop with the system's only two blocks
- * (close-gate + cost-cap) on the two SDK hooks.
+ * core; `runLoop` drives the rented `query()` loop with the close-gate and the
+ * per-tool deny predicates on the two SDK hooks.
  */
 export class ClaudeSdkAdapter implements RuntimeAdapter {
   readonly #init: ClaudeSdkAdapterInit;
@@ -235,7 +224,6 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
         : {}),
       ...(transport.tools ? { tools: transport.tools } : {}),
       ...(mcpServers ? { mcpServers } : {}),
-      ...(this.#init.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.#init.maxBudgetUsd } : {}),
       ...(model?.model !== undefined ? { model: model.model } : {}),
       ...(model?.reasoning !== undefined ? { reasoning: model.reasoning } : {}),
       ...(env ? { env } : {}),
@@ -259,49 +247,35 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     const runQuery = this.#init.query ?? query;
     const sdkQuery = runQuery({
       prompt: toSdkPrompt(modelPrompt),
-      options: { ...options, cwd: sessionConfig.worktree },
+      options: { ...options, ...this.#init.sdkOptions, cwd: sessionConfig.worktree },
     });
     // Streaming-input only: the SDK's turn-level interrupt is a streaming-input control
     // request. A one-shot string turn has no held-open query to interrupt.
     if (typeof this.#init.input !== 'string' && this.#init.onTurnInterrupt !== undefined) {
       this.#init.onTurnInterrupt(() => sdkQuery.interrupt());
     }
-    try {
-      for await (const message of sdkQuery) {
-        // Capture the backend's own session id once — the daemon stores it to `resume`
-        // the conversation's memory on the next send.
-        if (
-          !backendSessionReported &&
-          'session_id' in message &&
-          typeof message.session_id === 'string'
-        ) {
-          backendSessionReported = true;
-          this.#init.onBackendSession?.(message.session_id);
-        }
-        for (const { frame, full } of messageToEnrichedFrames(message))
-          this.#init.onTurn?.(frame, full);
-        if (message.type === 'result') {
-          const usage: RuntimeUsage = {
-            tokensIn: message.usage.input_tokens,
-            tokensOut: message.usage.output_tokens,
-            costUsd: message.total_cost_usd,
-            cacheReadTokens: message.usage.cache_read_input_tokens,
-          };
-          this.#init.onSettle?.(this.#init.sessionId, usage);
-        }
+    for await (const message of sdkQuery) {
+      // Capture the backend's own session id once — the daemon stores it to `resume`
+      // the conversation's memory on the next send.
+      if (
+        !backendSessionReported &&
+        'session_id' in message &&
+        typeof message.session_id === 'string'
+      ) {
+        backendSessionReported = true;
+        this.#init.onBackendSession?.(message.session_id);
       }
-    } catch (err) {
-      if (!isCostCapStop(err, this.#init.maxBudgetUsd)) throw err;
-      // The cap is a deliberate stop (one of the system's two sanctioned blocks), so it
-      // settles the turn as a governed deny rather than propagating a crash to the
-      // session's error path.
-      // The boundary is REQUIRED, not decoration: the daemon resolves its turn driver on a
-      // boundary, so a cap that emits only the deny would leave the session pending
-      // forever. It carries no `terminal` — the SDK threw instead of producing a result,
-      // so there is no terminal_reason to report, and `max_budget` is not a member of the
-      // SDK's TerminalReason union, so inventing it would be a fiction.
-      this.#init.onTurn?.({ t: 'deny', denyKind: 'cost-cap', reason: err.message });
-      this.#init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+      for (const { frame, full } of messageToEnrichedFrames(message))
+        this.#init.onTurn?.(frame, full);
+      if (message.type === 'result') {
+        const usage: RuntimeUsage = {
+          tokensIn: message.usage.input_tokens,
+          tokensOut: message.usage.output_tokens,
+          costUsd: message.total_cost_usd,
+          cacheReadTokens: message.usage.cache_read_input_tokens,
+        };
+        this.#init.onSettle?.(this.#init.sessionId, usage);
+      }
     }
   }
 }

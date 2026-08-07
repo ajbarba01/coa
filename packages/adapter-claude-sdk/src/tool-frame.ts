@@ -12,7 +12,7 @@ import { mcpToolName } from './mcp-tools.js';
  * Key SDK facts this encodes (verified against `sdk.d.ts`): `allowedTools` is an
  * *auto-approve* list, not an availability gate; **availability** of built-ins is
  * the `tools` option, and of coa tools is which MCP tools get registered. Real
- * governance stays on `canUseTool` (the cost-cap + close-gate owner's deny) — this only shapes
+ * governance stays on `canUseTool` (the governed deny channel) — this only shapes
  * *which tools exist* for the agent.
  *
  * An EMPTY `allow` set is the literal pass-through: no `tools` restriction, every coa

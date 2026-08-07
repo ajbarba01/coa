@@ -13,8 +13,8 @@ import type { ProviderSpec } from './provider-spec.js';
  * OpenAI-standard nested `prompt_tokens_details` shape.
  *
  * Pricing: DeepSeek publishes its rates, so the zero floor is not the honest
- * default — shipping the published V4 rates means the cost cap sees real spend
- * without the operator configuring anything.
+ * default — shipping the published V4 rates means the spend ledger sees real
+ * cost without the operator configuring anything.
  */
 export const deepseekSpec: ProviderSpec = {
   id: 'deepseek',

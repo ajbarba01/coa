@@ -123,16 +123,16 @@ export function buildHooks(args: {
 /**
  * Assemble one session's `query()` options from the rendered config, the governance
  * sandbox set, and the injected predicates the daemon hands the adapter at session
- * construction. This is where the system's only two blocks are wired onto the two
- * SDK hooks: the cost-cap/per-tool deny onto `canUseTool`, the close-gate onto
- * the `Stop` hook. The wiring is pure and testable; only the `query()` call
- * itself (in the adapter) touches the live backend.
+ * construction. This is where the governed predicates are wired onto the two
+ * SDK hooks: the per-tool deny onto `canUseTool`, the close-gate (the system's
+ * one deliberate block) onto the `Stop` hook. The wiring is pure and testable;
+ * only the `query()` call itself (in the adapter) touches the live backend.
  */
 export function assembleSessionOptions(args: {
   sessionId: string;
   backend: BackendConfig;
   sandbox: CapabilitySet;
-  /** The assembled per-tool predicate (cost-cap → per-tool deny, first-deny-wins). */
+  /** The assembled per-tool predicate (per-tool deny rules, first-deny-wins, fail-closed). */
   canUseTool: CanUseTool;
   /** The close-gate, read on each Stop event. */
   stopPredicate: StopPredicate;
@@ -149,7 +149,6 @@ export function assembleSessionOptions(args: {
    */
   drainDeliveries?: DrainDeliveries;
   mcpServers?: Record<string, McpServerConfig>;
-  maxBudgetUsd?: number;
   /** The restricted built-in tool set (from the resolved frame); absent ⇒ the SDK default (no restriction). */
   tools?: string[];
   /** The agent's model id; absent ⇒ account/SDK default. */
@@ -176,7 +175,6 @@ export function assembleSessionOptions(args: {
     observeChanges,
     drainDeliveries,
     mcpServers,
-    maxBudgetUsd,
     tools,
     model,
     reasoning,
@@ -211,7 +209,6 @@ export function assembleSessionOptions(args: {
       ...(drainDeliveries !== undefined ? { drainDeliveries } : {}),
     }),
     ...(mcpServers ? { mcpServers } : {}),
-    ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     ...(env ? { env } : {}),
     ...(resume !== undefined ? { resume } : {}),
     ...(abortController !== undefined ? { abortController } : {}),

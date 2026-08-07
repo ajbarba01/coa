@@ -26,8 +26,8 @@ import { loadPriceTable, type PriceTable, type ProviderSpec } from './provider-s
  * {@link ProviderSpec}. All the agentic machinery lives in the shared
  * {@link runGovernedLoop} driver; this adapter only renders the neutral config to a
  * system prompt, resolves the API key from the account's pointer, builds the
- * `complete()` primitive, and hands the loop the close-gate and cost-cap predicates
- * (the system's only two blocks). It imports no provider SDK (just `fetch`), so
+ * `complete()` primitive, and hands the loop the close-gate and per-tool deny
+ * predicates. It imports no provider SDK (just `fetch`), so
  * adding another pure API is a new spec object, the same shape.
  */
 
@@ -49,13 +49,6 @@ export interface OpenAiCompatAdapterInit {
   history?: readonly BackendMessage[];
   /** The account's login pointer (an env-var/key-file pointer); absent ⇒ the spec's default key var. */
   locator?: Locator;
-  /**
-   * Accepted so every backend shares the same session-construction contract; a
-   * raw chat API has no native mid-loop hard stop, so
-   * the cost cap is enforced through the per-tool `canUseTool` predicate + the
-   * settled charge — not a budget passed to the backend.
-   */
-  maxBudgetUsd?: number;
   /**
    * Record on-disk changes no governed tool made (the daemon's reconciler). Fired after
    * every tool call: coa executes its own tools, but a shell command can touch anything

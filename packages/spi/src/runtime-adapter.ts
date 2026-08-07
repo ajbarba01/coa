@@ -51,7 +51,7 @@ export type ToolPermissionDecision = { behavior: 'allow' } | { behavior: 'deny';
 
 /**
  * The single `canUseTool` predicate the adapter wires (assembled by the session
- * host from the cost-cap + the per-tool deny, first-deny-wins, fail-closed). The
+ * host from the per-tool deny rules, first-deny-wins, fail-closed). The
  * adapter holds no policy.
  */
 export type CanUseTool = (
