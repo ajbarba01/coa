@@ -60,9 +60,14 @@ const defaultRun: RunCommand = (cmd, args, env) =>
   });
 
 /** Probe one config dir. Resolves undefined when the CLI is unreachable/unparseable. */
-export async function probeAuthStatus(dir: string, run: RunCommand = defaultRun): Promise<AuthStatus | undefined> {
+export async function probeAuthStatus(
+  dir: string,
+  run: RunCommand = defaultRun,
+): Promise<AuthStatus | undefined> {
   try {
-    return parseAuthStatus(await run('claude', ['auth', 'status', '--json'], { CLAUDE_CONFIG_DIR: dir }));
+    return parseAuthStatus(
+      await run('claude', ['auth', 'status', '--json'], { CLAUDE_CONFIG_DIR: dir }),
+    );
   } catch {
     return undefined;
   }

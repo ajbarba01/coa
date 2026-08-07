@@ -63,7 +63,9 @@ describe('Composer — resting', () => {
     // backend wearing one mark.
     const row = screen.getByRole('option', { name: /V4 Flash/ });
     expect(within(row).getByRole('img', { name: 'DeepSeek' })).toBeInTheDocument();
-    expect(within(screen.getByRole('listbox', { name: 'Model' })).getByText('DeepSeek')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('listbox', { name: 'Model' })).getByText('DeepSeek'),
+    ).toBeInTheDocument();
   });
 
   it('gives reasoning its own shelf control, off the model chip', async () => {

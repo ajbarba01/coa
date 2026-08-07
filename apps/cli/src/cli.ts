@@ -322,7 +322,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.
-    listModels: { handle: () => listEffectiveModels(modelCatalog, models, modelAccounts(), options.err) },
+    listModels: {
+      handle: () => listEffectiveModels(modelCatalog, models, modelAccounts(), options.err),
+    },
   }));
   options.out(`coa daemon listening on ${path}`);
   return bound.server;

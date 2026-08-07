@@ -33,7 +33,9 @@ describe('webConfigSchema', () => {
 
   it('migrates an old bare-locator credential to the structured shape', () => {
     const parsed = webConfigSchema.parse({
-      search: { providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }] },
+      search: {
+        providers: [{ kind: 'tavily', credentials: [{ type: 'env-var', name: 'TAVILY_KEY_1' }] }],
+      },
     });
     expect(parsed.search?.providers[0]).toEqual({
       kind: 'tavily',
@@ -44,7 +46,15 @@ describe('webConfigSchema', () => {
 
   it('accepts the new structured shape verbatim', () => {
     const parsed = webConfigSchema.parse({
-      search: { providers: [{ kind: 'tavily', disabled: true, credentials: [{ locator: { type: 'env-var', name: 'X' }, disabled: true }] }] },
+      search: {
+        providers: [
+          {
+            kind: 'tavily',
+            disabled: true,
+            credentials: [{ locator: { type: 'env-var', name: 'X' }, disabled: true }],
+          },
+        ],
+      },
     });
     expect(parsed.search?.providers[0]?.disabled).toBe(true);
     expect(parsed.search?.providers[0]?.credentials[0]?.disabled).toBe(true);

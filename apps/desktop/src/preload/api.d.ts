@@ -102,7 +102,11 @@ declare global {
         reasoning?: ReasoningProfile;
       }): Promise<ModelCatalogView>;
       removeModel(params: { providerId: string; id: string }): Promise<ModelCatalogView>;
-      setModelHidden(params: { providerId: string; id: string; hidden: boolean }): Promise<ModelCatalogView>;
+      setModelHidden(params: {
+        providerId: string;
+        id: string;
+        hidden: boolean;
+      }): Promise<ModelCatalogView>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;
       /** Reveal a touched file in the editor/OS at an optional line (a tool card's path

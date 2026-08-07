@@ -30,7 +30,12 @@ import { ConsoleStateStore } from '../console/console-state-store.js';
 import { BrowserSession } from '../auth/browser-session.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
-import { managedLoginDir, probeAuthStatus, spawnLogin, extractOauthUrl } from '@coa/adapter-claude-sdk';
+import {
+  managedLoginDir,
+  probeAuthStatus,
+  spawnLogin,
+  extractOauthUrl,
+} from '@coa/adapter-claude-sdk';
 
 /**
  * M8 composition root (R-1) — construct the daemon-singleton core once, in
@@ -193,7 +198,9 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
         return {
           loggedIn: status.loggedIn,
           ...(status.email !== undefined ? { email: status.email } : {}),
-          ...(status.subscriptionType !== undefined ? { subscriptionType: status.subscriptionType } : {}),
+          ...(status.subscriptionType !== undefined
+            ? { subscriptionType: status.subscriptionType }
+            : {}),
         };
       },
       start: ({ dir, email, browserLauncher }) => {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { accountSchema, accountsFileSchema, locatorSchema, supportsIsolatedBrowserSession } from './auth.js';
+import {
+  accountSchema,
+  accountsFileSchema,
+  locatorSchema,
+  supportsIsolatedBrowserSession,
+} from './auth.js';
 
 describe('auth schema', () => {
   it('accepts each locator type', () => {
@@ -33,18 +38,29 @@ describe('auth schema', () => {
   });
 
   it('defaults disabled to false when absent (drop-safe, additive)', () => {
-    const a = accountSchema.parse({ label: 'worm', provider: 'claude', locator: { type: 'config-dir', dir: '~/.claude' } });
+    const a = accountSchema.parse({
+      label: 'worm',
+      provider: 'claude',
+      locator: { type: 'config-dir', dir: '~/.claude' },
+    });
     expect(a.disabled).toBe(false);
   });
 
   it('round-trips an explicit disabled login', () => {
-    const a = accountSchema.parse({ label: 'ds', provider: 'deepseek', disabled: true, locator: { type: 'key-file', path: '/x' } });
+    const a = accountSchema.parse({
+      label: 'ds',
+      provider: 'deepseek',
+      disabled: true,
+      locator: { type: 'key-file', path: '/x' },
+    });
     expect(a.disabled).toBe(true);
   });
 
   it('accountSchema carries an optional declared email and drops none of the old fields', () => {
     const parsed = accountSchema.parse({
-      label: 'a', locator: { type: 'config-dir', dir: '/x' }, email: 'a@b.org',
+      label: 'a',
+      locator: { type: 'config-dir', dir: '/x' },
+      email: 'a@b.org',
     });
     expect(parsed.email).toBe('a@b.org');
     expect(accountSchema.parse({ label: 'a', locator: { type: 'ambient' } }).email).toBeUndefined();

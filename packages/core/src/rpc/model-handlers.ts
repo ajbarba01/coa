@@ -37,9 +37,16 @@ const editParams = z.object({
   reasoning: reasoningProfileSchema.optional(),
 });
 const idParams = z.object({ providerId: z.string().min(1), id: z.string().min(1) });
-const hiddenParams = z.object({ providerId: z.string().min(1), id: z.string().min(1), hidden: z.boolean() });
+const hiddenParams = z.object({
+  providerId: z.string().min(1),
+  id: z.string().min(1),
+  hidden: z.boolean(),
+});
 
-export function buildModelHandlers(store: ModelCatalogStore, providers: readonly string[]): RpcHandlers {
+export function buildModelHandlers(
+  store: ModelCatalogStore,
+  providers: readonly string[],
+): RpcHandlers {
   const view = (): ModelCatalogView => {
     const lists: Record<string, ModelEntry[]> = {};
     const catalog: Record<string, ModelEntry[]> = {};

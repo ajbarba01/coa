@@ -11,11 +11,9 @@ export interface SpawnDeps {
   /** The LIVE effective agent set. Called per dispatch — never a list cached at session start. */
   listAgents: () => readonly AgentSummary[];
   /** Start the child and return once it has STARTED, never once it has finished. */
-  startChild: (req: {
-    agentRef: string;
-    description: string;
-    prompt: string;
-  }) => { sessionId: string };
+  startChild: (req: { agentRef: string; description: string; prompt: string }) => {
+    sessionId: string;
+  };
 }
 
 /** The outcome of a spawn attempt: applied with the child's id, or unapplied with the reason. */

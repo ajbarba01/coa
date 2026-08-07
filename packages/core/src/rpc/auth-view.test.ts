@@ -61,23 +61,28 @@ describe('assembleAuthView', () => {
   it('threads declared email + probe health/identity onto claude credentials', () => {
     const d = deps();
     d.accounts.add('work', { type: 'config-dir', dir: '~/.claude' }, 'claude', 'w@x.org');
-    const view = assembleAuthView(
-      {
-        ...d,
-        login: {
-          healthOf: (id) => (id === 'claude:work' ? 'needs-relogin' : undefined),
-          identityOf: (id) => (id === 'claude:work' ? { email: 'w@x.org', plan: 'pro' } : undefined),
-        },
+    const view = assembleAuthView({
+      ...d,
+      login: {
+        healthOf: (id) => (id === 'claude:work' ? 'needs-relogin' : undefined),
+        identityOf: (id) => (id === 'claude:work' ? { email: 'w@x.org', plan: 'pro' } : undefined),
       },
-    );
+    });
     const cred = view.credentials.find((c) => c.id === 'claude:work');
-    expect(cred).toMatchObject({ email: 'w@x.org', health: 'needs-relogin', identity: 'w@x.org · pro', plan: 'pro' });
+    expect(cred).toMatchObject({
+      email: 'w@x.org',
+      health: 'needs-relogin',
+      identity: 'w@x.org · pro',
+      plan: 'pro',
+    });
   });
 
   it('without the login dep the view is unchanged (additive)', () => {
     const d = deps();
     d.accounts.add('work', { type: 'config-dir', dir: '~/.claude' }, 'claude', 'w@x.org');
     const view = assembleAuthView(d);
-    expect(view.credentials.every((c) => c.health === undefined && c.identity === undefined)).toBe(true);
+    expect(view.credentials.every((c) => c.health === undefined && c.identity === undefined)).toBe(
+      true,
+    );
   });
 });

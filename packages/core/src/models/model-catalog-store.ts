@@ -1,7 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'yaml';
-import { modelsFileSchema, type ModelEntry, type ModelsFile, type ReasoningProfile } from '@coa/shared';
+import {
+  modelsFileSchema,
+  type ModelEntry,
+  type ModelsFile,
+  type ReasoningProfile,
+} from '@coa/shared';
 import { defaultCatalog } from './default-catalog.js';
 
 /** The user-global model-list path. `home` is injectable so tests run over a temp dir. */
@@ -32,12 +37,17 @@ export class ModelCatalogStore {
   addFromDefaults(providerId: string, ids: string[]): void {
     this.#mutate(providerId, (list) => {
       const have = new Set(list.map((m) => m.id));
-      const additions = defaultCatalog(providerId).filter((m) => ids.includes(m.id) && !have.has(m.id));
+      const additions = defaultCatalog(providerId).filter(
+        (m) => ids.includes(m.id) && !have.has(m.id),
+      );
       return [...list, ...additions];
     });
   }
 
-  addCustom(providerId: string, entry: { id: string; label?: string; reasoning?: ReasoningProfile }): void {
+  addCustom(
+    providerId: string,
+    entry: { id: string; label?: string; reasoning?: ReasoningProfile },
+  ): void {
     this.#mutate(providerId, (list) => {
       if (list.some((m) => m.id === entry.id)) return list;
       const next: ModelEntry = { id: entry.id, origin: 'custom' };
@@ -47,7 +57,11 @@ export class ModelCatalogStore {
     });
   }
 
-  edit(providerId: string, id: string, patch: { label?: string; reasoning?: ReasoningProfile }): void {
+  edit(
+    providerId: string,
+    id: string,
+    patch: { label?: string; reasoning?: ReasoningProfile },
+  ): void {
     this.#mutate(providerId, (list) =>
       list.map((m) => {
         if (m.id !== id) return m;

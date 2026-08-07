@@ -291,7 +291,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
   };
 
   const onTabDragStart =
-    (id: string, visualIndex: number): React.DragEventHandler =>
+    (id: string): React.DragEventHandler =>
     (e) => {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id);
@@ -357,7 +357,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
                   ref={on ? activeRef : undefined}
                   type="button"
                   draggable
-                  onDragStart={onTabDragStart(tid, visualIndex)}
+                  onDragStart={onTabDragStart(tid)}
                   onDragOver={onTabDragOver(visualIndex)}
                   onDragEnd={onDragEnd}
                   onClick={() => select(tid)}

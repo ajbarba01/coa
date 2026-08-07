@@ -1,4 +1,11 @@
-import type { AgentFile, AgentScope, AgentSummary, FeedView, PackageSummary, RoleSummary } from '@coa/shared';
+import type {
+  AgentFile,
+  AgentScope,
+  AgentSummary,
+  FeedView,
+  PackageSummary,
+  RoleSummary,
+} from '@coa/shared';
 import { RPC_ERROR } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
 import type { CapState } from '../governance/cost-cap.js';
@@ -181,7 +188,14 @@ describe('buildAgentRegistryHandlers', () => {
   function ports() {
     const saved: { ref: string; file: AgentFile; scope: string }[] = [];
     const agents: AgentSummary[] = [
-      { ref: 'explorer', scope: 'builtin' as AgentScope, name: 'Explorer', description: 'reads', icon: 'search', color: 'sky' },
+      {
+        ref: 'explorer',
+        scope: 'builtin' as AgentScope,
+        name: 'Explorer',
+        description: 'reads',
+        icon: 'search',
+        color: 'sky',
+      },
     ];
     return {
       saved,

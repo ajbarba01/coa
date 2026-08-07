@@ -166,10 +166,7 @@ describe('reclaimProfile', () => {
       },
       BOB_KEY,
     );
-    expect(removed).toEqual([
-      launcherPath(HOME, BOB_KEY, 'win32'),
-      courierPath(HOME, BOB_KEY),
-    ]);
+    expect(removed).toEqual([launcherPath(HOME, BOB_KEY, 'win32'), courierPath(HOME, BOB_KEY)]);
   });
 
   it('refuses a key that could escape the profile root', () => {

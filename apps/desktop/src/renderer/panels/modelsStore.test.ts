@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const view = {
   lists: { claude: [{ id: 'a', origin: 'default' as const }] },
-  catalog: { claude: [{ id: 'a', origin: 'default' as const }, { id: 'b', origin: 'default' as const }] },
+  catalog: {
+    claude: [
+      { id: 'a', origin: 'default' as const },
+      { id: 'b', origin: 'default' as const },
+    ],
+  },
 };
 
 // vi.mock is hoisted above this file's imports, so the factory below must not reference any
@@ -64,12 +69,18 @@ describe('useModels', () => {
 
   it('a write reprojects the returned view and refreshes the picker feed', async () => {
     await useModels.getState().setHidden('claude', 'a', true);
-    expect(rpc.rpcSetModelHidden).toHaveBeenCalledWith({ providerId: 'claude', id: 'a', hidden: true });
+    expect(rpc.rpcSetModelHidden).toHaveBeenCalledWith({
+      providerId: 'claude',
+      id: 'a',
+      hidden: true,
+    });
     expect(useModels.getState().catalog['claude']?.length).toBe(2);
     expect(rpc.notifyModelsChanged).toHaveBeenCalled();
   });
 
   it('offerable = catalog minus the list', () => {
-    expect(offerable(view.catalog['claude']!, view.lists['claude']!).map((m) => m.id)).toEqual(['b']);
+    expect(offerable(view.catalog['claude']!, view.lists['claude']!).map((m) => m.id)).toEqual([
+      'b',
+    ]);
   });
 });

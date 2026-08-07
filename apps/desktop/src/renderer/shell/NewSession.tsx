@@ -46,7 +46,11 @@ export function NewSessionDialog(): React.JSX.Element | null {
               <span className="glyph">›</span>
               {a.name}
               <span className="ml-auto font-mono text-meta text-s6">
-                {a.scope === 'builtin' ? 'Built-in' : a.scope === 'project' ? 'Project' : 'Personal'}
+                {a.scope === 'builtin'
+                  ? 'Built-in'
+                  : a.scope === 'project'
+                    ? 'Project'
+                    : 'Personal'}
               </span>
             </Command.Item>
           ))}

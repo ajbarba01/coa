@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AccountsRegistry, accountsPath } from '../auth/registry.js';
-import { WebConfigStore, webConfigPath, webKeyFilePath } from '../workbench/web/web-config-store.js';
+import {
+  WebConfigStore,
+  webConfigPath,
+  webKeyFilePath,
+} from '../workbench/web/web-config-store.js';
 import { KeyStateStore } from '../workbench/web/key-state-store.js';
 import { ConsoleStateStore } from '../console/console-state-store.js';
 import { credentialId, type AuthView } from './auth-view.js';
@@ -34,7 +38,10 @@ function fakeLoginDriver(home: string): LoginDriverPort & {
 } {
   const self = {
     home,
-    probeQueue: [] as ({ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined)[],
+    probeQueue: [] as (
+      | { loggedIn: boolean; email?: string; subscriptionType?: string }
+      | undefined
+    )[],
     dirFor: (email: string) => join(home, '.coa', 'logins', email.replace(/[^a-z0-9]+/gi, '-')),
     start: () => ({
       onUrl: () => {},
@@ -169,7 +176,7 @@ describe('auth write verbs', () => {
     expect(view.chains['fetch']).toContain('tavily');
   });
 
-  it('renameCredential (service) preserves a benched credential\'s disabled state', async () => {
+  it("renameCredential (service) preserves a benched credential's disabled state", async () => {
     const d = freshDeps(home);
     const h = buildAuthHandlers(d);
     await h.addCredential!.handle({ providerId: 'tavily', label: 'old', secret: 'tv-secret' });
@@ -183,7 +190,7 @@ describe('auth write verbs', () => {
     expect(view.credentials.find((c) => c.label === 'new')?.disabled).toBe(true);
   });
 
-  it('renameCredential (service) clears the OLD path\'s breaker cooldown, so a re-added same-label key is not cooling', async () => {
+  it("renameCredential (service) clears the OLD path's breaker cooldown, so a re-added same-label key is not cooling", async () => {
     const d = freshDeps(home);
     const h = buildAuthHandlers(d);
     await h.addCredential!.handle({ providerId: 'tavily', label: 'old', secret: 'tv-secret' });
@@ -348,10 +355,13 @@ describe('auth write verbs', () => {
     await h.addCredential!.handle({ providerId: 'deepseek', label: 'b', secret: 'k-b' });
     d.accounts.setActive('a');
     const aPath = d.accounts.listByProvider('deepseek').find((x) => x.label === 'a')?.locator;
-    const view = (await h.removeCredential!.handle({ id: credentialId('deepseek', 'a') })) as AuthView;
+    const view = (await h.removeCredential!.handle({
+      id: credentialId('deepseek', 'a'),
+    })) as AuthView;
     expect(view.credentials.map((c) => c.label)).toEqual(['b']);
     expect(view.activeByProvider['deepseek']).toBe(credentialId('deepseek', 'b'));
-    if (aPath !== undefined && aPath.type === 'key-file') expect(existsSync(aPath.path)).toBe(false);
+    if (aPath !== undefined && aPath.type === 'key-file')
+      expect(existsSync(aPath.path)).toBe(false);
   });
 
   it('removeCredential (service) unlinks the key file when no chain references it anymore', async () => {
@@ -360,12 +370,14 @@ describe('auth write verbs', () => {
     await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
     const path = webKeyFilePath(home, 'k1');
     expect(existsSync(path)).toBe(true);
-    const view = (await h.removeCredential!.handle({ id: credentialId('tavily', 'k1') })) as AuthView;
+    const view = (await h.removeCredential!.handle({
+      id: credentialId('tavily', 'k1'),
+    })) as AuthView;
     expect(view.credentials.find((c) => c.label === 'k1')).toBeUndefined();
     expect(existsSync(path)).toBe(false);
   });
 
-  it('removeCredential (service) clears the label\'s breaker cooldown, so a re-added same-label key is not cooling', async () => {
+  it("removeCredential (service) clears the label's breaker cooldown, so a re-added same-label key is not cooling", async () => {
     const d = freshDeps(home);
     const h = buildAuthHandlers(d);
     await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
@@ -487,7 +499,10 @@ describe('auth write verbs', () => {
   it('setProviderEnabled is a no-op for an unsupported provider', async () => {
     const h = buildAuthHandlers(freshDeps(home));
     const before = (await h.authView!.handle(undefined)) as AuthView;
-    const after = (await h.setProviderEnabled!.handle({ providerId: 'exa', on: false })) as AuthView;
+    const after = (await h.setProviderEnabled!.handle({
+      providerId: 'exa',
+      on: false,
+    })) as AuthView;
     expect(after).toEqual(before);
   });
 
@@ -597,7 +612,9 @@ describe('browser session over the auth verbs', () => {
     const before = (await h.authView!.handle(undefined)) as AuthView;
     expect(before.browserSession.reclaimable).toEqual(['ghost-a-1a2b3c', 'ghost-b-4d5e6f']);
 
-    const after = (await h.reclaimBrowserProfiles!.handle({ names: ['ghost-a-1a2b3c'] })) as AuthView;
+    const after = (await h.reclaimBrowserProfiles!.handle({
+      names: ['ghost-a-1a2b3c'],
+    })) as AuthView;
     expect(stub.reclaimed).toEqual(['ghost-a-1a2b3c']);
     expect(after.browserSession.reclaimable).toEqual(['ghost-b-4d5e6f']);
   });
@@ -643,7 +660,13 @@ describe('browser session over the auth verbs', () => {
 
   it('marks a credential whose account has a profile', async () => {
     const deps = freshDeps(home);
-    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    deps.accounts.add(
+      'a@b.org',
+      { type: 'config-dir', dir: 'D' },
+      'claude',
+      'a@b.org',
+      'abc123abc123',
+    );
     const h = buildAuthHandlers({ ...deps, browser: browserStub().view });
     const view = (await h.authView!.handle(undefined)) as AuthView;
     expect(view.credentials.find((c) => c.label === 'a@b.org')?.hasProfile).toBe(true);
@@ -651,15 +674,30 @@ describe('browser session over the auth verbs', () => {
 
   it('deletes the profile with the credential only when asked', async () => {
     const deps = freshDeps(home);
-    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
-    deps.accounts.add('c@d.org', { type: 'config-dir', dir: 'E' }, 'claude', 'c@d.org', 'def456def456');
+    deps.accounts.add(
+      'a@b.org',
+      { type: 'config-dir', dir: 'D' },
+      'claude',
+      'a@b.org',
+      'abc123abc123',
+    );
+    deps.accounts.add(
+      'c@d.org',
+      { type: 'config-dir', dir: 'E' },
+      'claude',
+      'c@d.org',
+      'def456def456',
+    );
     const browser = browserStub();
     const h = buildAuthHandlers({ ...deps, browser: browser.view });
 
     await h.removeCredential!.handle({ id: credentialId('claude', 'a@b.org') });
     expect(browser.removed).toEqual([]);
 
-    await h.removeCredential!.handle({ id: credentialId('claude', 'c@d.org'), removeProfile: true });
+    await h.removeCredential!.handle({
+      id: credentialId('claude', 'c@d.org'),
+      removeProfile: true,
+    });
     expect(browser.removed).toEqual(['c@d.org']);
   });
 
@@ -702,8 +740,20 @@ describe('browser session over the auth verbs', () => {
    *  as the same person. Removing one must not sign the other out (docs/adr/0021). */
   it('keeps a profile another account still signs in with', async () => {
     const deps = freshDeps(home);
-    deps.accounts.add('mine', { type: 'config-dir', dir: 'D' }, 'claude', 'same@b.org', 'aaa111aaa111');
-    deps.accounts.add('theirs', { type: 'config-dir', dir: 'E' }, 'deepseek', 'same@b.org', 'bbb222bbb222');
+    deps.accounts.add(
+      'mine',
+      { type: 'config-dir', dir: 'D' },
+      'claude',
+      'same@b.org',
+      'aaa111aaa111',
+    );
+    deps.accounts.add(
+      'theirs',
+      { type: 'config-dir', dir: 'E' },
+      'deepseek',
+      'same@b.org',
+      'bbb222bbb222',
+    );
     const browser = browserStub();
     const h = buildAuthHandlers({ ...deps, browser: browser.view });
     await h.removeCredential!.handle({ id: credentialId('claude', 'mine'), removeProfile: true });
@@ -712,7 +762,13 @@ describe('browser session over the auth verbs', () => {
 
   it('deletes every profile a removed provider owned when asked', async () => {
     const deps = freshDeps(home);
-    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    deps.accounts.add(
+      'a@b.org',
+      { type: 'config-dir', dir: 'D' },
+      'claude',
+      'a@b.org',
+      'abc123abc123',
+    );
     const browser = browserStub();
     const h = buildAuthHandlers({ ...deps, browser: browser.view });
     await h.removeProvider!.handle({ providerId: 'claude', removeProfiles: true });
@@ -721,7 +777,13 @@ describe('browser session over the auth verbs', () => {
 
   it('deletes no profile a removed provider owned when not asked', async () => {
     const deps = freshDeps(home);
-    deps.accounts.add('a@b.org', { type: 'config-dir', dir: 'D' }, 'claude', 'a@b.org', 'abc123abc123');
+    deps.accounts.add(
+      'a@b.org',
+      { type: 'config-dir', dir: 'D' },
+      'claude',
+      'a@b.org',
+      'abc123abc123',
+    );
     const browser = browserStub();
     const h = buildAuthHandlers({ ...deps, browser: browser.view });
     await h.removeProvider!.handle({ providerId: 'claude' });

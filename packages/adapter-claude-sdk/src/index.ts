@@ -18,7 +18,18 @@ export { toSdkPrompt } from './session-input.js';
 export { reasoningToOptions } from './reasoning.js';
 export { modelInfoToDescriptor, fetchClaudeModels } from './models.js';
 export { DEFAULT_CLEAR_VARS, resolveAuthEnv } from './auth-env.js';
-export { authStatusSchema, parseAuthStatus, probeAuthStatus, type AuthStatus, type RunCommand } from './auth-status.js';
 export {
-  emailSlug, extractOauthUrl, loginEnv, managedLoginDir, spawnLogin, type LoginProcess,
+  authStatusSchema,
+  parseAuthStatus,
+  probeAuthStatus,
+  type AuthStatus,
+  type RunCommand,
+} from './auth-status.js';
+export {
+  emailSlug,
+  extractOauthUrl,
+  loginEnv,
+  managedLoginDir,
+  spawnLogin,
+  type LoginProcess,
 } from './login-driver.js';

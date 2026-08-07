@@ -313,7 +313,11 @@ export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { ModelCatalogStore, modelsPath } from './models/model-catalog-store.js';
 export { defaultCatalog, catalogDescriptor } from './models/default-catalog.js';
 export { effectiveModels } from './models/effective-models.js';
-export { buildModelHandlers, MODEL_PROVIDERS, type ModelCatalogView } from './rpc/model-handlers.js';
+export {
+  buildModelHandlers,
+  MODEL_PROVIDERS,
+  type ModelCatalogView,
+} from './rpc/model-handlers.js';
 export { type WebConfig } from './workbench/web/web-config.js';
 export {
   WebConfigStore,

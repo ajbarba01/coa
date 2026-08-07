@@ -76,7 +76,9 @@ describe('profile keying', () => {
    *  email is what lets a relogin reuse a signed-in session, lets Claude and a future Codex
    *  account share one jar, and stops a deleted row from stranding its directory. */
   it('derives the same key for the same identity however it was typed', () => {
-    expect(profileKey('  Wormsegment1000@Gmail.COM ')).toBe(profileKey('wormsegment1000@gmail.com'));
+    expect(profileKey('  Wormsegment1000@Gmail.COM ')).toBe(
+      profileKey('wormsegment1000@gmail.com'),
+    );
   });
 
   /** The reason a bare slug could not be the key: `emailSlug` collapses every non-alphanumeric
@@ -87,7 +89,9 @@ describe('profile keying', () => {
   });
 
   it('stays readable, so the profile root can be inspected by a human', () => {
-    expect(profileKey('wormsegment1000@gmail.com')).toMatch(/^wormsegment1000-gmail-com-[0-9a-f]+$/);
+    expect(profileKey('wormsegment1000@gmail.com')).toMatch(
+      /^wormsegment1000-gmail-com-[0-9a-f]+$/,
+    );
   });
 
   it('has no key for an identity that is not one', () => {

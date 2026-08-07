@@ -135,7 +135,12 @@ describe('listEffectiveModels', () => {
   it('a failed live fetch degrades to the catalog tier, never empty', async () => {
     const store = new ModelCatalogStore(home);
     const cache = { list: vi.fn().mockRejectedValue(new Error('down')) } as unknown as ModelCache;
-    const out = await listEffectiveModels(store, cache, [{ label: 'a', provider: 'claude' }], () => {});
+    const out = await listEffectiveModels(
+      store,
+      cache,
+      [{ label: 'a', provider: 'claude' }],
+      () => {},
+    );
     expect(out.length).toBeGreaterThan(0);
   });
 

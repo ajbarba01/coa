@@ -2,11 +2,19 @@ import { describe, expect, it } from 'vitest';
 import type { ModelDescriptor, ModelEntry } from '@coa/shared';
 import { effectiveModels } from './effective-models.js';
 
-const entry = (id: string, extra: Partial<ModelEntry> = {}): ModelEntry => ({ id, origin: 'default', ...extra });
+const entry = (id: string, extra: Partial<ModelEntry> = {}): ModelEntry => ({
+  id,
+  origin: 'default',
+  ...extra,
+});
 
 describe('effectiveModels', () => {
   it('hidden entries are dropped; order follows the user list', () => {
-    const out = effectiveModels('claude', [entry('a'), entry('b', { hidden: true }), entry('c')], []);
+    const out = effectiveModels(
+      'claude',
+      [entry('a'), entry('b', { hidden: true }), entry('c')],
+      [],
+    );
     expect(out.map((m) => m.id)).toEqual(['a', 'c']);
   });
 
@@ -21,7 +29,12 @@ describe('effectiveModels', () => {
     ];
     const out = effectiveModels('claude', [entry('claude-x')], live);
     expect(out).toEqual([
-      { id: 'claude-x', provider: 'claude', supportsEffort: true, supportedEffortLevels: ['low', 'high'] },
+      {
+        id: 'claude-x',
+        provider: 'claude',
+        supportsEffort: true,
+        supportedEffortLevels: ['low', 'high'],
+      },
     ]);
   });
 
@@ -57,11 +70,19 @@ describe('effectiveModels', () => {
 
   it('reasoning overrides replace the base caps per the mapping table', () => {
     const live: ModelDescriptor[] = [
-      { id: 'x', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'], supportsAdaptiveThinking: true },
+      {
+        id: 'x',
+        supportsEffort: true,
+        supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        supportsAdaptiveThinking: true,
+      },
     ];
     const cases: [ModelEntry['reasoning'], Partial<ModelDescriptor>][] = [
       [{ kind: 'none' }, {}],
-      [{ kind: 'effort', max: 'high' }, { supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] }],
+      [
+        { kind: 'effort', max: 'high' },
+        { supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
+      ],
       [{ kind: 'thinking' }, { supportsThinking: true }],
       [{ kind: 'budget', tokens: 8000 }, { supportsAdaptiveThinking: true }],
     ];

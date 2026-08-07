@@ -29,20 +29,32 @@ describe('buildModelHandlers', () => {
   });
 
   it('addCustomModel → the view carries the new entry; removeModel deletes it', async () => {
-    const added = await call('addCustomModel', { providerId: 'claude', id: 'my-model', label: 'mine' });
+    const added = await call('addCustomModel', {
+      providerId: 'claude',
+      id: 'my-model',
+      label: 'mine',
+    });
     expect(added.lists['claude']?.find((m) => m.id === 'my-model')?.origin).toBe('custom');
     const removed = await call('removeModel', { providerId: 'claude', id: 'my-model' });
     expect(removed.lists['claude']?.some((m) => m.id === 'my-model')).toBe(false);
   });
 
   it('setModelHidden flips the flag; editModel patches reasoning', async () => {
-    const hidden = await call('setModelHidden', { providerId: 'claude', id: 'claude-fable-5', hidden: true });
+    const hidden = await call('setModelHidden', {
+      providerId: 'claude',
+      id: 'claude-fable-5',
+      hidden: true,
+    });
     expect(hidden.lists['claude']?.find((m) => m.id === 'claude-fable-5')?.hidden).toBe(true);
     const edited = await call('editModel', {
-      providerId: 'claude', id: 'claude-fable-5', reasoning: { kind: 'effort', max: 'high' },
+      providerId: 'claude',
+      id: 'claude-fable-5',
+      reasoning: { kind: 'effort', max: 'high' },
     });
-    expect(edited.lists['claude']?.find((m) => m.id === 'claude-fable-5')?.reasoning)
-      .toEqual({ kind: 'effort', max: 'high' });
+    expect(edited.lists['claude']?.find((m) => m.id === 'claude-fable-5')?.reasoning).toEqual({
+      kind: 'effort',
+      max: 'high',
+    });
   });
 
   it('addModels re-adds a removed default from the catalog', async () => {
