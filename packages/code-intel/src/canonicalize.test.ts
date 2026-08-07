@@ -7,7 +7,7 @@ const eq = (a: string, b: string, profile: CanonicalizationProfile): boolean =>
 
 const TS: CanonicalizationProfile = { lang: 'typescript' };
 
-describe('canonicalize (G0)', () => {
+describe('canonicalize', () => {
   it('emits a schema-valid canonical form carrying the lang', () => {
     const form = canonicalize('const x = 1;', TS);
     expect(canonicalFormSchema.parse(form)).toBeTruthy();

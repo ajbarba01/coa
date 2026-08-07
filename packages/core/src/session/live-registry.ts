@@ -20,7 +20,7 @@ export interface LiveRegistryOptions {
    * `close` below) right before the session is torn down and removed: idle-evict,
    * the `closeSession` verb, and `closeAll()` (daemon shutdown) all route through
    * it exactly once per session. This is where a caller (e.g. `apps/cli`) hangs
-   * the M1 checkpoint + worktree release so cleanup happens in exactly one place.
+   * the change-event-spine checkpoint + worktree release so cleanup happens in exactly one place.
    */
   onClose?: (session: LiveSession) => void;
 }
@@ -84,7 +84,7 @@ export class LiveSessionRegistry {
    * With idle-eviction now running-aware (see `#onIdleFire`), this only ever
    * aborts a turn on the explicit `closeSession` verb or on shutdown — never on
    * a silent idle-timeout race against a genuinely active adapter (v1-acceptable
-   * per docs/adr/0011).
+   * per the daemon-authoritative live session).
    */
   close(id: string): void {
     const entry = this.#entries.get(id);
@@ -113,7 +113,7 @@ export class LiveSessionRegistry {
     this.#closeOne(id);
   }
 
-  /** The actual per-session teardown: idle-timer clear, SC-1-safe abort,
+  /** The actual per-session teardown: idle-timer clear, user-stop-safe abort,
    *  `onClose`, channel close, and map removal. Cascading only decides WHICH
    *  ids this runs for and seals every queue first — this logic itself is
    *  unchanged from before cascading existed. */
@@ -123,7 +123,7 @@ export class LiveSessionRegistry {
     entry.timer?.clear();
     const { session } = entry;
     if (session.control !== undefined) {
-      // SC-1: a close-triggered abort is a user-style stop, never a governance
+      // a close-triggered abort is a user-style stop, never a governance
       // block — mark it interrupted BEFORE aborting so `session-handlers.ts`'s
       // settlement (the same guard `interruptSession` relies on) suppresses the
       // resulting throw/settle instead of rendering it as an error.

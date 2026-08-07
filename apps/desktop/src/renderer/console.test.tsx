@@ -11,7 +11,7 @@ import type { AgentFile, AgentSummary, TurnFrame } from '@coa/console-viewmodel'
 import type { ConsoleState } from './panels/state.js';
 import { MOCK_AGENTS } from './panels/mockAgents.js';
 
-/** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
+/** A daemon-backed session + its persisted transcript, fed through the fake bridge. */
 const FAKE_SESSIONS = [
   {
     id: 'c1',
@@ -183,7 +183,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().data.timeline).toEqual({ status: 'ok', value: [entry] });
   });
 
-  it('loads the reloaded (R-7) conversation transcript into state on mount', async () => {
+  it('loads the reloaded persisted conversation transcript into state on mount', async () => {
     const { last } = await mount();
     expect(last().data.turns).toEqual({
       status: 'ok',
@@ -364,7 +364,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
-  it('hydrates the run-status pill from the daemon on connect (G4 reattach), not from local send-tracking', async () => {
+  it('hydrates the run-status pill from the daemon on connect (reattach — the session exists independent of any viewer), not from local send-tracking', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {

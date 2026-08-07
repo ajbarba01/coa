@@ -79,7 +79,7 @@ export interface ConsoleBridge {
   deleteAgent(params: { ref: string; scope: 'personal' | 'project' }): Promise<{
     removed: boolean;
   }>;
-  // Persistent sessions (R-7): the rail list + per-session transcript reload.
+  // Persistent sessions: the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
   reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
@@ -87,27 +87,27 @@ export interface ConsoleBridge {
   /** Drop a session's frozen prompt + resume token so the next send recompiles (the drift banner's recompile). */
   recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
   /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
-   *  Advisory (SC-1 — a user stop, never a governance block): the pill clears via the
+   *  Advisory (advisory — a user stop, never a governance block): the pill clears via the
    *  daemon's own `'interrupted'` status Push, not this call's result. */
   interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
   /** Steer a running turn — proxies the daemon's `steerSession`. Delivered at the turn's next
-   *  round trip, discarding nothing (SC-1 — a user redirect, never a block). Queue-mode
+   *  round trip, discarding nothing (advisory — a user redirect, never a block). Queue-mode
    *  follow-ups never reach this call; they stay held console-side until the turn ends. */
   steerSession(params: { id: string; text: string }): Promise<{ steered: boolean }>;
-  /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
+  /** Console reattach — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes active; the daemon immediately hydrates this connection with
    *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
-   *  daemon snapshot rather than from this renderer's own send-tracking (docs/adr/0011). */
+   *  daemon snapshot rather than from this renderer's own send-tracking (the daemon, not the renderer, owns the live session). */
   subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
   /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
-   *  worktree by main). Advisory — resolves a result; never blocks (SC-1). */
+   *  worktree by main). Advisory — resolves a result; never blocks. */
   openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
     ok: boolean;
     revealed?: 'editor' | 'folder';
     reason?: string;
   }>;
   /** Open a web URL in the default browser (validated to http(s) by main). Advisory —
-   *  resolves a result; never blocks (SC-1). */
+   *  resolves a result; never blocks. */
   openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
   /** Subscribe to the daemon push stream; returns an unsubscribe. */
   onPush(listener: (payload: unknown) => void): () => void;
@@ -206,7 +206,7 @@ export const rpcSetModelHidden = (p: {
   hidden: boolean;
 }): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
 
-/** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose (SC-1):
+/** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose:
  *  a false hit costs an amber dot the next probe clears, never a block — so the net is
  *  wide (401s, OAuth, login wording) but only ever reads ERROR frames, never chat. */
 const AUTH_FAILURE = /auth|401|unauthorized|oauth|logged? ?in|login/i;
@@ -297,7 +297,7 @@ export async function startConsole(
   // Agents are daemon-owned (built-in ∪ personal ∪ project). On bootstrap the
   // in-memory copy is hydrated from `listAgents`; a failed/malformed read degrades
   // to the "No agents yet" empty state — never to a mock. Sessions + their turns are
-  // REAL: loaded from the daemon's R-7 store below (`initSessions`). The mutable
+  // REAL: loaded from the daemon's conversation store below (`initSessions`). The mutable
   // copy backs the now-durable agent edits (rename, recolor, pin, description) that
   // persist per-agent via `saveAgent`/`deleteAgent`.
   let agents: AgentSummary[] = [];
@@ -488,7 +488,7 @@ export async function startConsole(
     });
   };
 
-  // ---- Persistent sessions (R-7): list + per-session transcript, all daemon-backed ----
+  // ---- Persistent sessions: list + per-session transcript, all daemon-backed ----
 
   /** Refresh the rail's session list (title/recency) without touching the transcript. */
   async function refreshSessionList(): Promise<void> {
@@ -502,9 +502,9 @@ export async function startConsole(
    *  `turnsBySession` entry renders this same frame; a cold one shows the loading
    *  state — and the persisted-transcript reload reconciles in the background,
    *  ignored if the user has already moved on (stale response). Also
-   *  (re)subscribes to the daemon's live session (G4 reattach) so a fresh mount —
+   *  (re)subscribes to the daemon's live session (reattach — the session exists independent of any viewer) so a fresh mount —
    *  e.g. a reload mid-run — hydrates `runStatus` from the daemon's own snapshot
-   *  instead of reconstructing it from this renderer's send-tracking (docs/adr/0011).
+   *  instead of reconstructing it from this renderer's send-tracking (the daemon, not the renderer, owns the live session).
    *  Fire-and-forget like `interruptSession`: the pill is driven by the resulting
    *  status Push (the existing `onPush` handler below), not by this call's result. */
   async function openSession(id: string): Promise<void> {
@@ -593,7 +593,7 @@ export async function startConsole(
     for (const [sessionId, frames] of pendingTurns) {
       const prev = turnsBySession.get(sessionId) ?? [];
       // A `text-delta`/`thinking-delta` accumulates into the live block, then the settled
-      // frame replaces it — no double-render (docs/adr/0013).
+      // frame replaces it — no double-render (delta frames are delivery-only; the final complete frame is authoritative).
       const next = reconcileStreaming(prev, frames);
       turnsBySession.set(sessionId, next);
       if (sessionId === state.ui.activeSessionId) activeValue = next;
@@ -705,16 +705,16 @@ export async function startConsole(
   // so their React keys never collide.
   let youSeq = 0;
 
-  /** The Stop/Esc affordance — a user-initiated stop (SC-1: never a governance block).
+  /** The Stop/Esc affordance — a user-initiated stop (never a governance block).
    *  Fire-and-forget: the running pill clears from the daemon's own `'interrupted'`
    *  status Push (the existing `onPush` handler above), not from this call's result. */
   const interruptSession = (sessionId: string): void => {
     void bridge.interruptSession({ id: sessionId }).catch(() => {});
   };
 
-  /** Steer: reach the running turn at its next step, discarding nothing (SC-1: a user
+  /** Steer: reach the running turn at its next step, discarding nothing (a user
    *  redirect, never a block). The daemon writes the transcript line when the model actually
-   *  RECEIVES the text (docs/adr/0031), which is seconds later — so `ChatPanel` shows the
+   *  RECEIVES the text (a steer is recorded only when the model receives it), which is seconds later — so `ChatPanel` shows the
    *  message pinned at the bottom of the transcript meanwhile and drops the pin when the real
    *  frame arrives. Queue-mode follow-ups stay held console-side until the turn ends. */
   const steerSession = (sessionId: string, text: string): void => {
@@ -819,7 +819,7 @@ export async function startConsole(
     // A model/effort override applied on this send drops a console-local "switched
     // model" note into the transcript — BEFORE the user turn, so it reads as the
     // context the send ran under. Never sent to the agent (a synthetic UI frame, not a
-    // wire TurnFrame) and omitted in `coa raw` (D85: raw is the verbatim loop only).
+    // wire TurnFrame) and omitted in `coa raw` (raw is the verbatim loop only).
     if (override !== undefined) {
       const models = state.data.models.status === 'ok' ? state.data.models.value : [];
       const afterCount = turnsBySession.get(id)?.length ?? 0;

@@ -38,7 +38,7 @@ type WebFetchResult =
  * shows) and the model's tool-message content (so the model reads a clean result).
  *
  * Every renderer is pure and total: an unrecognized shape or an unmapped tool falls
- * back to a verbatim JSON dump (SC-1/D128 — never throw, never lose data).
+ * back to a verbatim JSON dump (never throw, never lose data).
  */
 
 type Renderer = (result: unknown) => string;
@@ -68,7 +68,7 @@ const RENDERERS: Record<string, Renderer> = {
 /**
  * Render one governed tool's result to human-readable display text. Any unmapped
  * tool — or a renderer that hits an unexpected shape — degrades to a verbatim JSON
- * dump. Never throws (SC-1); the driver caps the returned text for the transcript.
+ * dump. Never throws; the driver caps the returned text for the transcript.
  */
 export function renderToolResult(tool: string, result: unknown): string {
   const renderer = RENDERERS[tool];
@@ -84,7 +84,7 @@ export function renderToolResult(tool: string, result: unknown): string {
  * The per-tool success predicate for the pure-API loop's `tool_result` frame — the
  * sibling of {@link renderToolResult}, sharing the same result-shape knowledge. A pure-API
  * backend has no SDK-provided error signal, so the console derives ✗-vs-✓ (and the always-
- * visible red error body) from coa's structured result here. Pure and total (SC-1): an
+ * visible red error body) from coa's structured result here. Pure and total: an
  * unmapped tool or an unrecognized shape returns `true` — a well-formed result is presumed
  * fine, never falsely flagged failed. An empty search/reference result is NOT a failure
  * (mapped to `true`); only an unsuccessful operation (not-found, unapplied, non-zero exit,
@@ -182,7 +182,7 @@ function renderWebSearch(r: WebSearchResult): string {
     .join('\n');
 }
 
-/** WebFetch — the fetched page content, or the failure reason (SC-1: a dead URL is surfaced). */
+/** WebFetch — the fetched page content, or the failure reason (a dead URL is surfaced). */
 function renderWebFetch(r: WebFetchResult): string {
   return r.fetched ? r.content : r.reason;
 }

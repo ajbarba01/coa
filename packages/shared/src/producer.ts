@@ -4,15 +4,15 @@ import type { FlagRecord } from './flag.js';
 import type { Patch } from './patch.js';
 
 /**
- * The producer contract (P2) — the shared seam between M3's one flag pipeline and
- * every module that feeds it (M3's own checkers, M4's generation/grounding/health
- * producers, M6's mutate producer). The TYPE lives in M0 so any module can
- * implement it without importing M3's ring; M3 owns the pipeline + the CF-6
+ * The producer contract — the shared seam between the one flag pipeline and
+ * every module that feeds it (the pipeline's own checkers, the generation/grounding/health
+ * producers, the mutate producer). The TYPE lives here so any module can
+ * implement it without importing the pipeline's ring; the pipeline owns itself + the
  * `validateProducer` registration gate that admits these.
  *
  * Each producer emits into the single pipeline against the one schema; there are
  * no per-producer side channels. The `type` on the flags a producer emits is
- * producer-stamped (M3 holds no `producerId -> type` map).
+ * producer-stamped (the pipeline holds no `producerId -> type` map).
  */
 
 /** What a producer runs against: a scope sweep, a change-event, or a tool call. */
@@ -25,7 +25,7 @@ export interface Producer {
   id: string;
   /** `deterministic` ⇒ may emit Type-1; `judgment` ⇒ Type-2 only. */
   kind: 'deterministic' | 'judgment';
-  /** When the producer runs (a coarse activation label; M8/M1 drive the trigger). */
+  /** When the producer runs (a coarse activation label; the session host and the spine drive the trigger). */
   activation: string;
   run(input: ProducerInput): FlagRecord[];
   /**
@@ -36,10 +36,10 @@ export interface Producer {
    * emit per-event and are append-only — the driver never diff-resolves them.
    */
   reconciling?: boolean;
-  /** A deterministic auto-patch for a Type-1 flag (CF-3). */
+  /** A deterministic auto-patch for a Type-1 flag. */
   fix?(flag: FlagRecord): Patch;
-  /** The bounded evidence slice behind a flag (the CF-5 validator + CON-3 seed). */
+  /** The bounded evidence slice behind a flag (feeds the validator and seeds the context assembly). */
   envelope?(flag: FlagRecord): ContextSlice;
-  /** CF-6: the golden pair the registration gate requires — a good case that must NOT flag, a bad case that MUST. */
+  /** The golden pair the registration gate requires — a good case that must NOT flag, a bad case that MUST. */
   golden: { good: ProducerInput; bad: ProducerInput };
 }

@@ -56,7 +56,7 @@ describe('withHistoryPreambleStreaming', () => {
     expect(seen[1]).toBe('also do this');
   });
 
-  it('degrades to a pure pass-through when there is no history (D85)', async () => {
+  it('degrades to a pure pass-through when there is no history', async () => {
     async function* turns(): AsyncGenerator<string> {
       yield 'hello';
       yield 'world';

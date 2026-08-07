@@ -14,7 +14,7 @@ export const consoleStateSchema = z
     addedProviders: z.array(z.string()).default([]),
     disabledProviders: z.array(z.string()).default([]),
     /** The global "sign logins in through a dedicated browser profile" toggle. OFF by
-     *  default: with it off, a login spawn is byte-identical to today (D85). */
+     *  default: with it off, a login spawn is byte-identical to today (off means a literal pass-through). */
     isolatedBrowserLogins: z.boolean().default(false),
     /** The user's browser-binary override. Absent ⇒ auto-detection decides. */
     browserPath: z.string().optional(),

@@ -3,7 +3,7 @@
  * Sources: Simple Icons (CC0) for Claude / OpenAI / DeepSeek / Gemini; each vendor's own
  * published SVG for the rest. `invert` marks a logo whose native fill is near-black (drawn for
  * light backgrounds): on the sand-dark ground it is drawn in ink instead, which is exactly what
- * those vendors' own dark-mode lockups do. See docs/adr/0015.
+ * those vendors' own dark-mode lockups do. The rationale is recorded with the design system decisions.
  *
  * These are DATA, not components — a new provider adds a row here and nothing else. */
 

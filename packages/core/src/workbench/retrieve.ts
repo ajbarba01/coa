@@ -2,24 +2,24 @@ import type { Piece, PieceRef, SymbolRef, SymbolRecord, ToolResponse } from '@co
 import { confinePath } from './confine.js';
 
 /**
- * M6 Retrieve — the structure-first read surface (D57/D58). Each tool returns a
+ * Retrieve — the structure-first read surface. Each tool returns a
  * distilled handle + a pointer; the raw blob stays in the daemon and is never
- * inflated into the agent's context. These are pure M1 reads over the resident
+ * inflated into the agent's context. These are pure kernel reads over the resident
  * symbol index / graph / piece-resolver (no disk in the floor); a path-bearing
  * ref is still confined to the worktree first (S-1). The byte-level symbol-body
- * slice that touches disk is a D58 follow-up and confines at that point.
+ * slice that touches disk is a follow-up read and confines at that point.
  */
 export interface RetrieveDeps {
   worktreeRoot: string;
   denyRead?: readonly string[];
   realpath?: (absolutePath: string) => string;
-  /** O(1) name → record lookup against M1's symbol table. */
+  /** O(1) name → record lookup against the kernel's symbol table. */
   lookupSymbol: (name: string) => SymbolRecord | undefined;
   /** The structural outline (resident symbols) of a file. */
   outline: (relPath: string) => readonly SymbolRecord[];
-  /** The reference sites of a symbol (M1 graph reverse edges). */
+  /** The reference sites of a symbol (the kernel graph reverse edges). */
   references: (symbol: string) => readonly string[];
-  /** Resolve a reference Piece on demand (M1 piece-resolver). */
+  /** Resolve a reference Piece on demand (the kernel piece-resolver). */
   resolvePiece: (ref: PieceRef) => Piece | undefined;
 }
 

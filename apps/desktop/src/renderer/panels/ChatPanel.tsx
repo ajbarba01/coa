@@ -65,7 +65,7 @@ export type ChatVm =
       onRespond: RespondFn;
       onSend: (text: string) => void;
       /** The Stop/Esc affordance — cooperatively interrupts the active session's running
-       *  turn (SC-1: a user stop, never a governance block; D85: unpressed, nothing
+       *  turn (a user stop, never a governance block; unpressed, nothing
        *  changes). A no-op with no active session (Composer only surfaces Stop while
        *  running, which implies one). */
       onInterrupt: () => void;
@@ -93,8 +93,8 @@ export type ChatVm =
       /** The active session's agent name — feeds the empty state's "`{agent}` is
        *  ready" line. Undefined with no active session/agent. */
       agentName?: string | undefined;
-      /** Phase-1 status floor — `running` while a send is in flight, cleared on the next
-       *  appended turn. The full 6-state `status` Push (Phase 2) replaces this. */
+      /** Interim status floor — `running` while a send is in flight, cleared on the next
+       *  appended turn. The full 6-state `status` Push replaces this later. */
       sessionStatus: 'idle' | 'running';
       /** Epoch ms the in-flight send started; set only while `sessionStatus === 'running'`. */
       runningSince?: number;
@@ -158,7 +158,7 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
       return { id: f.id, kind: 'deny', denyKind: f.denyKind, reason: f.reason };
     case 'interrupted':
       // A user stop renders as the quiet centered system line (the `note` presentation) — never
-      // a chat bubble (the user didn't type it) and never an error tone (SC-1).
+      // a chat bubble (the user didn't type it) and never an error tone (advisory).
       return { id: f.id, kind: 'note', text: 'Request interrupted by user' };
     case 'thinking':
       return {
@@ -194,7 +194,7 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
 }
 
 /** The verbatim (unfiltered-loop) projection of one frame. Mock stand-in for the
- *  turn store's raw bytes; rendered byte-faithfully via the Code block (D128). */
+ *  turn store's raw bytes; rendered byte-faithfully via the Code block (byte-faithful by contract). */
 export function frameToRawLine(f: TurnFrame): string {
   switch (f.kind) {
     case 'text':
@@ -220,7 +220,7 @@ export function frameToRawLine(f: TurnFrame): string {
   }
 }
 
-/** A steer pinned at the transcript bottom while it's in flight (docs/adr/0031). `seenAtSend`
+/** A steer pinned at the transcript bottom while it's in flight (a steer is recorded only when the model receives it). `seenAtSend`
  *  is a COUNT, not a position: how many real `you` text frames already had this pin's exact
  *  text at the moment it was sent. The reconciliation effect clears a pin once the live count
  *  for its text has grown past that baseline — so a same-text turn already in the session's
@@ -256,7 +256,7 @@ export function relativeTime(iso: string, nowIso: string): string {
  *  describes. An `afterCount` past the end of `frames` appends at the end (defensive:
  *  should not happen live, since notes are recorded against the same buffer they're
  *  later spliced into). Never called in raw mode — a UI note isn't loop output, so
- *  `coa raw` omits it (D85: raw is the verbatim, unfiltered projection). Exported for
+ *  `coa raw` omits it (raw is the verbatim, unfiltered projection). Exported for
  *  unit testing independent of the whole vm. */
 export function interleaveNotes(
   frames: TranscriptFrame[],
@@ -278,7 +278,7 @@ export function interleaveNotes(
 }
 
 /** Pure: projects the polled turn stream + agent/session state into the chat vm.
- *  In raw mode every frame becomes its verbatim line (D85); "switched model" notes are
+ *  In raw mode every frame becomes its verbatim line (raw is the verbatim, unfiltered projection); "switched model" notes are
  *  a console-local synthetic frame (never sent to the agent) interleaved only in
  *  governed mode — raw stays the verbatim, unfiltered projection. */
 export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOString()): ChatVm {
@@ -303,7 +303,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   // The pending approval — the newest governed approval frame still unresolved — is
   // lifted out of the transcript and docked to the composer instead (it blocks the
   // input, so it belongs at the input). Raw mode stays the untouched, verbatim
-  // projection: an approval never surfaces there at all (D85).
+  // projection: an approval never surfaces there at all.
   const pendingApproval = rawMode
     ? undefined
     : [...governedFrames]
@@ -473,7 +473,7 @@ function EmptyConversation({
 function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   const [composerHeight, setComposerHeight] = useState(0);
   const composerRoRef = useRef<ResizeObserver | null>(null);
-  // A failed reveal-in-editor surfaces as a toast (SC-1 — surface, never block).
+  // A failed reveal-in-editor surfaces as a toast (surface, never block).
   const [revealError, setRevealError] = useState<string | null>(null);
 
   // Queued follow-up messages (the composer's Queue action while a turn runs), held per active
@@ -482,7 +482,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   // queue entirely and reaches the running turn at its next step (via `onSteer`).
   const [queuedBySession, setQueuedBySession] = useState<Record<string, string[]>>({});
   // A sent steer reaches the agent at its next round trip, seconds later, and the daemon
-  // writes its transcript line only THEN (docs/adr/0031). Held here so the sender sees their
+  // writes its transcript line only THEN (a steer is recorded only when the model receives it). Held here so the sender sees their
   // own message immediately, rendered last because it has not happened yet.
   const [pendingSteerBySession, setPendingSteerBySession] = useState<
     Record<string, PendingSteer[]>
@@ -530,7 +530,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
 
   // Steer reaches the running turn directly (via `vm.onSteer`), skipping the queue
   // entirely — but it still needs a placeholder to hold, since the real transcript line
-  // does not exist until the daemon's delivery lands (docs/adr/0031). `seenAtSend` is
+  // does not exist until the daemon's delivery lands (a steer is recorded only when the model receives it). `seenAtSend` is
   // stamped from how many REAL `you` frames already carry this exact text, not read later —
   // the pin must only ever be satisfied by an occurrence beyond that baseline, never a
   // same-text turn already in the session's history.
@@ -593,7 +593,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
 
   // Belt-and-braces: a turn that ended took every drain point with it, so nothing is still
   // coming. Without this a pin could wedge forever if the text were ever transformed on the
-  // way (SC-1 — surfacing must never become a stuck state).
+  // way (surfacing must never become a stuck state).
   useEffect(() => {
     if (activeId === undefined || running) return;
     setPendingSteerBySession((m) => (m[activeId]?.length ? { ...m, [activeId]: [] } : m));
@@ -625,7 +625,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
 
   // A tool card's web link opens in the default browser (via the openExternal IPC, which
   // validates the scheme). Stable identity (ref pattern) so it threads into the memoized
-  // transcript rows without defeating `MemoRow`'s memoization. A failed open toasts (SC-1).
+  // transcript rows without defeating `MemoRow`'s memoization. A failed open toasts (advisory).
   const onOpenUrl = useCallback((url: string): void => {
     const open = openUrlRef.current;
     if (open === undefined) return;
@@ -676,7 +676,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   const queuedMessages = activeQueue.map((text, i) => ({ id: String(i), text }));
   // Appended after the real frames, never spliced in: a pending steer has not happened
   // yet, so it cannot sit anywhere but last. Governed-path only (mirrors `pendingApproval`
-  // being excluded from raw) — a pin is console state, not loop output (D85).
+  // being excluded from raw) — a pin is console state, not loop output.
   const framesWithPending: TranscriptFrame[] = [
     ...vm.frames,
     ...(vm.rawMode
@@ -779,7 +779,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               container above, not against this wrapper. It exists only to host
               the height-measuring ResizeObserver (see `composerRef`) and to
               give the composer's focused Escape a place to fall through to the
-              Stop affordance (SC-1: a user stop, never a governance block). */}
+              Stop affordance (a user stop, never a governance block). */}
           <div
             ref={composerRef}
             onKeyDown={(e) => {

@@ -220,7 +220,7 @@ describe('createSession', () => {
     ]);
   });
 
-  it('omits root from settled spend for a session with no lineage — byte-identical to before root existed (D85)', async () => {
+  it('omits root from settled spend for a session with no lineage — byte-identical to before root existed', async () => {
     const spend: unknown[] = [];
     const h = harness({
       activeAccount: () => ({ label: 'work' }),
@@ -309,7 +309,7 @@ describe('createSession', () => {
     expect(baseCatalogueForCalls[0]?.sessionId).toBe('sess-1');
   });
 
-  it('falls back to the shared catalogue/baseCatalogue unchanged when catalogueFor/resolveSpawn are absent (D85)', async () => {
+  it('falls back to the shared catalogue/baseCatalogue unchanged when catalogueFor/resolveSpawn are absent', async () => {
     const registered: Record<string, string[]> = {};
     const makeAdapter =
       (label: string) =>

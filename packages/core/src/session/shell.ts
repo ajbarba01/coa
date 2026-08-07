@@ -10,7 +10,7 @@
  * This mirrors that: on Windows we probe for Git Bash and, when found, hand its
  * absolute path to Node as the `shell` (Node invokes `bash.exe -c "<command>"` —
  * it only uses cmd's `/d /s /c` form for `cmd`/`command.com`). When no bash is
- * found we degrade to the platform default (SC-1: never break the loop). Off
+ * found we degrade to the platform default (never break the loop). Off
  * Windows the default shell is already `/bin/sh`, so we pass `true` untouched.
  */
 

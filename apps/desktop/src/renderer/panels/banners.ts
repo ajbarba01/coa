@@ -37,7 +37,7 @@ export function configKey(config: PromptConfigView | undefined): string {
   });
 }
 
-/** A console-local extension of the M0 wire shape: `summary` is the one clause the
+/** A console-local extension of the wire shape: `summary` is the one clause the
  *  notice shows permanently, while `reason` stays the full explanation behind proximity.
  *  It lives here rather than on `bannerSchema` because these notices are DERIVED in the
  *  console, never sent by the daemon — nothing crosses a wire, so nothing needs a schema

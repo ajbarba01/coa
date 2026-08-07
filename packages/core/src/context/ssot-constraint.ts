@@ -8,14 +8,14 @@ import type {
 import { canonicalize } from '@coa/code-intel';
 
 /**
- * M4 / L-GEN — the SSOT-as-constraint producer (GEN-3), the rank-1 deterministic
+ * L-GEN — the SSOT-as-constraint producer (GEN-3), the rank-1 deterministic
  * replacement for the staleness *guess*. Per declared relation it regenerates the
  * target from its source (pinned generator, via the injected runner) → canonicalizes
- * both the fresh output and the checked-in copy (M2 G0) → byte-compares. Different
+ * both the fresh output and the checked-in copy (the parser's canonical print) → byte-compares. Different
  * ⇒ a Type-1, may-block, auto-patchable `generated-stale:<name>` flag whose `fix`
  * writes the fresh output. Identical ⇒ PASS (zero tokens, zero judgment). It is
  * sound because it runs the same generator+version the build uses and is purely
- * deterministic (P1) — no model on this path.
+ * deterministic — no model on this path.
  *
  * Soundness is proven before it is claimed (GEN-8): at construction each relation
  * runs the reproducibility self-test (regenerate twice from unchanged source; if
@@ -35,13 +35,13 @@ export interface GenerationRelation {
   readonly name: string;
   readonly source: string;
   readonly target: string;
-  /** The target's `lang` id, for the M2 canonicalization profile. */
+  /** The target's `lang` id, for the parser's canonicalization profile. */
   readonly lang: string;
   /** GEN-8 `strip-banner` normalization (drops a volatile leading codegen banner). */
   readonly stripBanner?: boolean;
   /**
    * GEN-8 `sort-keys` normalization (parse → re-serialize sorted, defeats unstable ordering).
-   * Threaded to the M2 canonicalization profile; canonicalize defers the actual reorder to a
+   * Threaded to the parser's canonicalization profile; canonicalize defers the actual reorder to a
    * later tier, so until then a relation that relies on it self-tests as non-reproducible and
    * degrades to detection-only — never a false Type-1.
    */
@@ -70,7 +70,7 @@ export interface DegradedRelation {
 }
 
 export interface SsotConstraintProducer {
-  /** The M3 Type-1 producer over the reproducible relations. */
+  /** The flag pipeline Type-1 producer over the reproducible relations. */
   readonly producer: Producer;
   /** Relations excluded from the Type-1 producer (origin_anchor / L-DET territory). */
   readonly degraded: readonly DegradedRelation[];

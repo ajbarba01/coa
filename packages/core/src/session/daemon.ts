@@ -38,15 +38,15 @@ import {
 } from '@coa/adapter-claude-sdk';
 
 /**
- * M8 composition root (R-1) — construct the daemon-singleton core once, in
- * dependency order (M1 the kernel → M3 flags → M7 governance, with M5 compile +
- * M6 catalogue bound by reference). Returns the {@link DaemonCore} the
+ * The daemon composition root — construct the daemon-singleton core once, in
+ * dependency order (the change-event spine as kernel → the flag pipeline → cost governance, with prompt compile +
+ * governed tool catalogue bound by reference). Returns the {@link DaemonCore} the
  * session wiring consumes plus the live singletons, so the daemon host can read
  * projections and drive the worktree/conversation layers as they are built. The
- * backend (M9) is constructed per session, outside this root.
+ * backend is constructed per session, outside this root.
  */
 export interface DaemonCoreOptions {
-  /** The WAL path (M1) — its parent directory must exist. */
+  /** The WAL path (the change-event spine) — its parent directory must exist. */
   walPath: string;
   /** The worktree root for git operations; defaults to the process cwd. */
   root?: string;
@@ -54,11 +54,11 @@ export interface DaemonCoreOptions {
   ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
-  /** The M3 producers (M4's, injected) to register and drive off the kernel feed (R-3). */
+  /** The flag producers (injected) to register and drive off the kernel feed. */
   producers?: readonly Producer[];
   /**
    * The web-egress config (credential-gated); when present and a key resolves,
-   * `baseCatalogue` gains `WebSearch`/`WebFetch` (D85 — absent/unresolved ⇒ the
+   * `baseCatalogue` gains `WebSearch`/`WebFetch` (absent/unresolved ⇒ the
    * tools are simply not offered).
    */
   web?: WebConfig;
@@ -85,9 +85,9 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   });
   wireProducers(kernel, flags, [...(options.producers ?? []), governanceAnchor]);
 
-  // Producer ② (D123). The class shipped with tests but was never constructed anywhere,
+  // Producer ②. The class shipped with tests but was never constructed anywhere,
   // so a change made by a tool coa does not execute itself — a native Edit, or anything a
-  // Bash command touches — reached M1 on no backend. `reconcile()` scopes dirty paths with
+  // Bash command touches — reached the change-event spine on no backend. `reconcile()` scopes dirty paths with
   // git, dedups coa's own precise writes into a `confirm`, and respects .gitignore, so a
   // backend only has to trigger it.
   //
@@ -97,7 +97,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   // baseline from already-modified disk, so the first edit to a tracked file would show
   // no change at all. Guarded because `git ls-files` throws outside a git worktree — coa
   // must work on any project (no-lock-in) and producer ② is an enhancement, so a non-git
-  // root degrades to a no-op rather than breaking every session (D85). A later failure
+  // root degrades to a no-op rather than breaking every session. A later failure
   // latches the same way, so a broken git does not respawn a process per tool call.
   let reconciler: Reconciler | undefined;
   try {
@@ -137,7 +137,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
         hasGeneratedFrom: (name) =>
           kernel.graph.outEdges(name).some((edge) => edge.type === 'generated-from'),
       });
-      for (const finding of findings) flags.ingest(finding); // TAX-4 coercions are feed items, never silent
+      for (const finding of findings) flags.ingest(finding); // schema coercions are feed items, never silent
       return config;
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
@@ -157,14 +157,14 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
  * Bind the daemon's live singletons to the read-only inspector handler map the
  * JSON-RPC router serves — the seam between the daemon core and the console's
  * CON-CAT reads. Pure projection wiring: each port reads an existing surface
- * (M7 cap, M3 user feed), no new behavior. The transport layer
+ * (cost cap, flag user feed), no new behavior. The transport layer
  * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
  */
 export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandlers {
   const accounts = new AccountsRegistry(homedir());
   const consoleState = new ConsoleStateStore(homedir());
   // The one place the three isolation facts meet: the user's setting, the provider's
-  // declared capability, and what browser this machine actually has (docs/adr/0018).
+  // declared capability, and what browser this machine actually has.
   const browser = new BrowserSession({
     home: homedir(),
     platform: process.platform,
@@ -221,7 +221,7 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
       browserSession: {
         launcherFor: (email) => browser.launcherFor('claude', email),
         // Fire-and-forget: the open waits briefly for the shim's relayed url, and a login
-        // must never block on a browser window (docs/adr/0020).
+        // must never block on a browser window.
         openUrl: (email, url) => void browser.openUrl('claude', email, url),
         removeProfile: (email) => browser.removeProfile(email),
       },
@@ -248,12 +248,12 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
 const RECONCILE_SWEEP: ProducerInput = { kind: 'scope', scope: '' };
 
 /**
- * R-3 — register M4's producers into M3 (each gated by the CF-6 `validateProducer`
- * stamp inside `registerProducer`) and drive them off the kernel feed: M3 is a
+ * Register context assembly's producers into the flag pipeline (each gated by the CF-6 `validateProducer`
+ * stamp inside `registerProducer`) and drive them off the kernel feed: the flag pipeline is a
  * projection-owning consumer, so it subscribes **from cursor 0** (replay-from-0)
  * and every change-event — historical on replay, then live — runs each producer
  * over `{ kind: 'change', event }`, ingesting the flags it emits. With no
- * producers configured the pipeline stays inert (the D85 strict-superset floor:
+ * producers configured the pipeline stays inert (the strict-superset floor:
  * the gate allows and no flag fires). Each producer's own `run` decides whether
  * the event is relevant; coarse activation-label filtering is a later optimization.
  *
@@ -295,7 +295,7 @@ function wireProducers(
   });
 }
 
-/** Resolve a Piece, degrading a missing/ambiguous ref to `undefined` (SC-1, never a throw). */
+/** Resolve a Piece, degrading a missing/ambiguous ref to `undefined` (degrade gracefully, never a throw). */
 function resolvePieceSafely(kernel: ChangeKernel, ref: PieceRef) {
   try {
     return kernel.resolvePiece(ref);
@@ -305,11 +305,11 @@ function resolvePieceSafely(kernel: ChangeKernel, ref: PieceRef) {
 }
 
 /**
- * Wire M6's governed tools to the live daemon singletons: Retrieve/enrich read
+ * Wire the governed tools to the live daemon singletons: Retrieve/enrich read
  * the resident kernel index/graph, Mutate routes writes through the kernel spine
- * (producer ①) and the worktree's disk, and Inspect reads M7's cap and M3's
- * flag pipeline. The not-yet-built halves degrade to a floor (D85):
- * the graph outline/dependents reads, the M4 assembled-context/spec store, and
+ * (producer ①) and the worktree's disk, and Inspect reads the cost governor's cap and the flag pipeline's
+ * flag pipeline. The not-yet-built halves degrade to a floor:
+ * the graph outline/dependents reads, the assembled-context/spec store, and
  * the reconciler's precise-write expectation. The worktree is the configured root
  * (the per-session worktree manager is later); confinement runs in POSIX path
  * space, so the root is normalized to forward slashes.
@@ -361,7 +361,7 @@ function governedToolDeps(
  * Wire the pure-API base-tool ports (Read/Glob/Grep/Write/Edit/Bash) to real disk +
  * process I/O: `@vscode/ripgrep`'s bundled binary backs `searchFiles`, `tinyglobby`
  * backs `listFiles`, and `exec` wraps `spawnSync` so a spawn failure degrades to a
- * non-zero exit rather than throwing (SC-1). Mirrors `governedToolDeps` — same
+ * non-zero exit rather than throwing (a user stop, never an error). Mirrors `governedToolDeps` — same
  * kernel, same forward-slash-normalized worktree root.
  */
 /** Always-ignored noise, regardless of the worktree's `.gitignore` (S-1-adjacent: keeps tool results sane). */
@@ -425,7 +425,7 @@ export function listFilesFor(
 /**
  * Build the pure-API catalogue: governance + base tools, plus the web tools
  * (`WebSearch`/`WebFetch`) whenever `options.web` is configured — the free
- * floor (D85) guarantees `buildWebToolDeps` always returns deps in that case,
+ * floor guarantees `buildWebToolDeps` always returns deps in that case,
  * so `includeWebTools` is set whenever a `web` block is present. WebFetch's
  * summarizer is composed here from `web.fetch.summarizer` (a DeepSeek
  * `complete()` bound to a cheap model) and injected as `opts.summarizer`;
@@ -454,10 +454,10 @@ function buildBaseCatalogue(
 }
 
 /**
- * Compose the WebFetch summarizer (§5) from `web.fetch.summarizer`: a minimal
+ * Compose the WebFetch summarizer from `web.fetch.summarizer`: a minimal
  * `makeSummarizer` over the DeepSeek `complete()` primitive, model config-driven,
- * cost recorded to the M7 ledger. Absent config or an unresolved key ⇒ `undefined`
- * (D85 raw-markdown floor). Runs only on non-clean content (the handler decides).
+ * cost recorded to the cost ledger. Absent config or an unresolved key ⇒ `undefined`
+ * (the raw-markdown floor). Runs only on non-clean content (the handler decides).
  */
 export function buildFetchSummarizer(
   web: WebConfig,
@@ -469,7 +469,7 @@ export function buildFetchSummarizer(
   if (apiKey === undefined) return undefined;
   return makeSummarizer({
     complete: makeDeepSeekComplete({ apiKey, model: cfg.model }),
-    // Audited (ledger) but NOT charged to the M7 cost-cap this increment — a scoped deferral (see spec Deferred + OPEN.md).
+    // Audited (ledger) but NOT charged to the cost-cap this increment — a scoped deferral (see spec Deferred + OPEN.md).
     recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
   });
 }

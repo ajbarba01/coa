@@ -23,7 +23,7 @@ import { ConsoleSettingsSchema } from './settings.js';
 /** Params/result for starting a governed session from the console (proxies the daemon `createSession`). */
 export const StartSessionParamsSchema = z.object({
   input: z.string(),
-  /** The persistent conversation this send belongs to (R-7); absent ⇒ an ephemeral one-shot. */
+  /** The persistent conversation this send belongs to (persisted by the daemon); absent ⇒ an ephemeral one-shot. */
   conversationId: z.string().optional(),
   roles: z.array(z.string()).optional(),
   scope: z.string().optional(),
@@ -34,7 +34,7 @@ export const StartSessionParamsSchema = z.object({
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
-/** Params for creating a persistent session record (R-7) — proxies the daemon `newSession`. */
+/** Params for creating a persistent session record — proxies the daemon `newSession`. */
 export const NewSessionParamsSchema = z.object({
   agentRef: z.string(),
   scope: z.string().optional(),
@@ -58,7 +58,7 @@ export const DeleteAgentResultSchema = z.object({ removed: z.boolean() });
 
 /** Reveal-in-editor (a tool card's path/match click). `sessionId` names whose worktree
  *  root the (worktree-relative) path resolves against; `line` jumps VS Code to the line.
- *  The result is advisory (SC-1 — surface, never block): `revealed` says how it opened
+ *  The result is advisory (surface, never block): `revealed` says how it opened
  *  (`editor` via `code -g`, or the `folder` fallback when `code` is absent/failed), and
  *  `reason` carries a message the renderer toasts on failure. */
 export const OpenPathParamsSchema = z.object({
@@ -73,7 +73,7 @@ export const OpenPathResultSchema = z.object({
 });
 
 /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser. Validated
- *  to `http:`/`https:` only — any other scheme is refused. Advisory (SC-1 — surface, never
+ *  to `http:`/`https:` only — any other scheme is refused. Advisory (surface, never
  *  block): the result's `ok` says whether it opened, and `reason` carries a message the
  *  renderer toasts on failure. */
 export const OpenExternalParamsSchema = z.object({ url: z.string() });
@@ -266,19 +266,19 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     result: z.object({ recompiled: z.boolean() }),
   },
   /** The Stop control / Esc affordance — proxies the daemon's cooperative
-   *  `interruptSession` (CHAT-10, H1). SC-1: a user stop, never a governance block. */
+   *  `interruptSession`. A user stop, never a governance block. */
   interruptSession: {
     params: z.object({ id: z.string() }),
     result: z.object({ interrupted: z.boolean() }),
   },
   /** Send a message to a running turn — proxies the daemon's `steerSession`. Delivered at the
-   *  turn's next round trip, discarding nothing. SC-1: steering is a user redirect, never a
+   *  turn's next round trip, discarding nothing. steering is a user redirect, never a
    *  governance block. */
   steerSession: {
     params: z.object({ id: z.string(), text: z.string() }),
     result: z.object({ steered: z.boolean() }),
   },
-  /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
+  /** Console reattach — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes the active one; the daemon immediately hydrates this
    *  connection with the session's CURRENT run-status, so a reload mid-run reads
    *  `running` from the daemon snapshot, not from this renderer's own send-tracking. */

@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import type { SymbolRef, ToolResponse } from '@coa/shared';
 
 /**
- * One tool's input schema + its dispatch into the M6 handler, typed against the shape.
+ * One tool's input schema + its dispatch into the workbench handler, typed against the shape.
  * Dispatch may be sync (the retrieve/mutate/inspect handlers) or async (the egress web
  * tools) — `invokeSpec` awaits either uniformly before `enrich` sees the response.
  *

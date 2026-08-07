@@ -6,7 +6,7 @@ import { resultText } from './transcript.js';
 /**
  * One mapped {@link TurnFrame} plus, for a `tool_result`, the FULL body the model
  * saw — the lossy render-stream pointer paired with the append-only log's fidelity
- * companion (docs/adr/0010). `full` is persistence-only; it never reaches the wire.
+ * companion. `full` is persistence-only; it never reaches the wire.
  */
 export interface EnrichedFrame {
   frame: TurnFrame;

@@ -1,18 +1,18 @@
 import type { HealthProfile, MetricGranularity, MetricId, MetricSample } from '@coa/shared';
 
 /**
- * M4 / L-HLT — the HLT-2 non-compensatory composition (the field's #1 failure
+ * L-HLT — the HLT-2 non-compensatory composition (the field's #1 failure
  * mode: a weighted "spaghetti number" with arbitrary weights that lets a clean
  * file hide a 5,000-line hotspot). coa composes **worst-of, not weighted-sum**:
  * each signal flags independently, and the profile carries **no `score` field**
- * (M0 omits it by construction). `worst` names every breaching signal so no
+ * (the shared schema omits it by construction). `worst` names every breaching signal so no
  * average can mask a hotspot.
  *
  * Two metric classes never drive the advisory: `size-loc` is the HLT-3 confound
  * control (reported alongside every metric, never itself a health signal), and
  * the HLT-3 hint-only metrics (`instability` / `lcom4`) are labeled heuristic and
  * never scored. The per-metric breach test is injected (`isWorst`) — the
- * threshold cut-points are a D107 knob the v0 spike calibrates, kept out of this
+ * threshold cut-points are a tuning knob the v0 spike calibrates, kept out of this
  * composition law.
  */
 

@@ -1,18 +1,18 @@
 /**
- * D35 / D93-simple — the cost cap: a local SEAM that, by default, does NOT block.
+ * The cost cap: a local SEAM that, by default, does NOT block.
  * Under the subscription model (the v1 default) coa imposes no ceiling of its own —
- * the loop runs until the plan's own usage limit stops it (the D85 floor), so
+ * the loop runs until the plan's own usage limit stops it (the pass-through floor), so
  * `remaining` is unbounded (`null`) and `capHit` is always false. The dollar
  * ceiling becomes meaningful only on the optional **API route**: a single
  * configured, per-user, per-daemon **local** ceiling that, when reached, denies the
  * next call (`fail-expensive`). This is one of only two things in coa that can
- * block the agent (the other is M3's close-gate). Budget is local-only; no
+ * block the agent (the other is the flag pipeline's close-gate). Budget is local-only; no
  * shared/team budget. Synchronous and deterministic — no model on any path.
  *
  * Read/write are split (replacing a single `chargeAndCheck`) so the cap is
  * concurrency-safe and the predicate path never charges: `capState` is the
  * non-mutating read the `canUseTool` predicate consults; `charge` is the mutating
- * write M9 calls exactly once per settled usage at the SDK `ResultMessage`.
+ * write the backend adapter calls exactly once per settled usage at the SDK `ResultMessage`.
  */
 export interface CapState {
   /** USD remaining under the ceiling, or `null` under the subscription model (unbounded). */

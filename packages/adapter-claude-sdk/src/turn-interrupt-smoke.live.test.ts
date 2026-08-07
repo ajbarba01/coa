@@ -21,7 +21,7 @@ import {
 } from './live-smoke-helpers.js';
 
 /**
- * The turn-level-interrupt de-risk gate (docs/adr/0012): a real
+ * The turn-level-interrupt de-risk gate for streaming-input steering: a real
  * `@anthropic-ai/claude-agent-sdk` `query()` in streaming-input mode, driven
  * directly through {@link ClaudeSdkAdapter}, proving the assumption the fake
  * suite could only model — that the SDK's TURN-LEVEL `query.interrupt()` (the
@@ -142,7 +142,8 @@ describe.skipIf(!process.env['COA_LIVE'])(
       // A live-established fact: interrupting a RUNNING turn yields a NON-success result
       // (`error_during_execution`) that maps to an error frame for the ABANDONED turn —
       // exactly what `query.stopped` must (and does) drop, so a user Stop never renders
-      // as an error (SC-1). Locking it here flags any future SDK change to that shape.
+      // as an error (a user stop is deliberate, not a crash). Locking it here flags any
+      // future SDK change to that shape.
       expect(window.some((f) => f.t === 'error' && f.message === 'error_during_execution')).toBe(
         true,
       );

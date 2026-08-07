@@ -222,7 +222,7 @@ describe('auth write verbs', () => {
 
     expect(view.credentials.map((c) => c.label)).toEqual(['b']);
     expect(view.activeByProvider['claude']).toBe(credentialId('claude', 'b'));
-    // the id keys the account's browser profile dir (docs/adr/0018) — a rename must not
+    // the id keys the account's browser profile dir — a rename must not
     // re-mint it, or the renamed account orphans its existing profile
     expect(d.accounts.list().find((a) => a.label === 'b')?.id).toBe(idBefore);
   });
@@ -702,8 +702,7 @@ describe('browser session over the auth verbs', () => {
   });
 
   /** Removal means removal for what coa created: leaving the sign-in behind is what let a
-   *  re-added account silently resurrect a session the user thought they had removed
-   *  (docs/adr/0023). */
+   *  re-added account silently resurrect a session the user thought they had removed. */
   it('deletes the login dir coa created, along with the row', async () => {
     const deps = freshDeps(home);
     const dir = join(home, '.coa', 'logins', 'a-b-org');
@@ -737,7 +736,7 @@ describe('browser session over the auth verbs', () => {
   });
 
   /** One jar can back several rows once it is keyed by identity — a Claude and a Codex login
-   *  as the same person. Removing one must not sign the other out (docs/adr/0021). */
+   *  as the same person. Removing one must not sign the other out. */
   it('keeps a profile another account still signs in with', async () => {
     const deps = freshDeps(home);
     deps.accounts.add(

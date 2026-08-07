@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { handleParseRequest } from './parser-process.js';
 
-describe('handleParseRequest (the D112 child-process protocol)', () => {
+describe('handleParseRequest (the parser child-process protocol)', () => {
   it('answers a valid request with a serialized CST line', () => {
     const response = JSON.parse(handleParseRequest('{"lang":"typescript","bytes":"const x = 1;"}'));
     expect(response.lang).toBe('typescript');

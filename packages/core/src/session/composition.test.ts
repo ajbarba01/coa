@@ -14,7 +14,7 @@ import { createSession } from './session.js';
 import { composeSessionDeps, type DaemonCore, type SessionWiring } from './composition.js';
 import type { SessionAdapterInit } from './session.js';
 
-/** A real M3/M5/M6/M7 core (only M1.checkpoint stubbed — its FS construction is the daemon host's job). */
+/** A real flags/compiler/catalogue/governance core (only the spine checkpoint stubbed — its FS construction is the daemon host's job). */
 function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } {
   const governance = new Governance(ceilingUsd !== undefined ? { ceilingUsd } : {});
   const flags = new FlagPipeline();
@@ -107,7 +107,7 @@ describe('composeSessionDeps', () => {
     expect(deps.resolveSpawn).toBe(resolveSpawn);
   });
 
-  it('omits resolveSpawn/catalogueFor/baseCatalogueFor when neither core nor wiring supplies them (D85)', () => {
+  it('omits resolveSpawn/catalogueFor/baseCatalogueFor when neither core nor wiring supplies them', () => {
     const deps = composeSessionDeps(realCore(), wiring());
     expect(deps.resolveSpawn).toBeUndefined();
     expect(deps.catalogueFor).toBeUndefined();

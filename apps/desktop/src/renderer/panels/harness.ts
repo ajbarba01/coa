@@ -44,7 +44,7 @@ export function harnessBlurb(h: Harness): string {
 /** coa's own mark: no vendor art exists for coa itself, so `BrandMark` draws the
  *  monogram tile — the harness reuses the same extensibility floor providerMarks.ts
  *  established for third-party vendors with no bundled logo. Unlike a vendor hex
- *  (ADR-0015's carve-out — "the OUTSIDE world's brand colour... not a token and
+ *  (the recorded carve-out — "the OUTSIDE world's brand colour... not a token and
  *  never will be"), this IS coa's own mark, so it wears a token and re-themes with
  *  everything else instead of being nailed to one retired brass hex forever.
  *  `--color-s10` keeps it in the neutral family SetBox's own `added` fill uses

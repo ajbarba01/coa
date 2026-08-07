@@ -1,13 +1,13 @@
 import type { GraphEdge } from '@coa/shared';
 
 /**
- * GRF-3 — deterministic, per-ecosystem **convention extractors**. The
+ * Deterministic, per-ecosystem **convention extractors**. The
  * tree-sitter import floor misses two whole edge classes (codegen/config wiring;
  * runtime/registry/DI wiring) that, in every stressed repo, are exactly where the
  * real architecture lives. Extractors are pluggable deterministic pattern
- * matchers (P1) that **auto-engage where a known convention exists and contribute
- * nothing where it does not** (D85). They emit `convention`-provenance edges —
- * local/derived (D49), rebuilt on reparse, never committed to the WAL (whose edge
+ * matchers that **auto-engage where a known convention exists and contribute
+ * nothing where it does not**. They emit `convention`-provenance edges —
+ * local/derived, rebuilt on reparse, never committed to the WAL (whose edge
  * frames carry only `declared`/`gated`). An unresolvable match is reported as an
  * unresolved site (anti-false-graph), never silently dropped.
  */

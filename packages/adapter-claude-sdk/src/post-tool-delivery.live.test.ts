@@ -39,7 +39,7 @@ import {
  *
  * Two more probes below settle the same class of fact for the shipped wiring itself
  * (`session-options.ts`'s `buildHooks`), not the raw SDK: a real governed session, driven through
- * {@link ClaudeSdkAdapter} exactly as M8 drives it, steered mid-tool-call and at the `Stop` floor.
+ * {@link ClaudeSdkAdapter} exactly as the daemon drives it, steered mid-tool-call and at the `Stop` floor.
  * Both are verified against the SDK's actual hook-output handling rather than TypeScript types —
  * the same norm `governed-gate.live.test.ts` (lines 86-90) documents: `sdk.mjs` never reads
  * `hookSpecificOutput`, the bundled CLI binary does, so a type-valid output does not get to ship
@@ -167,7 +167,7 @@ function createLocalDeliveryQueue(): {
  *
  * The two probes above settled the raw SDK facts against a bare `query()`. These drive a real
  * governed session through {@link ClaudeSdkAdapter} — exactly the path `session-options.ts`'s
- * `buildHooks`/`assembleSessionOptions` wires for M8 — so what is proven here is the shipped
+ * `buildHooks`/`assembleSessionOptions` wires for the daemon — so what is proven here is the shipped
  * code, not a hand-rolled hook that merely resembles it.
  */
 describe.skipIf(!live)('mid-loop delivery through the real adapter wiring', () => {

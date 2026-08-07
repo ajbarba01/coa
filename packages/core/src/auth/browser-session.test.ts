@@ -72,7 +72,7 @@ describe('profile keying', () => {
     expect(isSafeProfileKey('a@b.org')).toBe(false);
   });
 
-  /** The jar belongs to an IDENTITY, not to an account row (docs/adr/0021). Keying it by
+  /** The jar belongs to an IDENTITY, not to an account row. Keying it by
    *  email is what lets a relogin reuse a signed-in session, lets Claude and a future Codex
    *  account share one jar, and stops a deleted row from stranding its directory. */
   it('derives the same key for the same identity however it was typed', () => {
@@ -197,7 +197,7 @@ describe('browser args', () => {
   });
 
   /** The disk lever: the root every identity shares, the profile-directory that isolates
-   *  them (docs/adr/0024). Same root, different jar. */
+   *  them. Same root, different jar. */
   it('isolates by profile-directory while sharing the user-data-dir', () => {
     const alice = browserArgs('/root', 'alice', 'https://x');
     const bob = browserArgs('/root', 'bob', 'https://x');
@@ -249,7 +249,7 @@ function harness(
 
 const EMAIL = 'a.b@c.com';
 const KEY = profileKey(EMAIL)!;
-/** The jar sits inside the shared user-data-dir; the shim and url beside it (docs/adr/0024).
+/** The jar sits inside the shared user-data-dir; the shim and url beside it.
  *  Built with the same path helpers the session uses, so the expected strings carry the
  *  separator of whatever host runs the suite, exactly as the session's own paths do. */
 const PROFILE = browserProfileDir(HOME, KEY);
@@ -276,7 +276,7 @@ describe('BrowserSession', () => {
     expect(files.has(COURIER)).toBe(false);
   });
 
-  /** Jars from before the shared root are NOT carried over (docs/adr/0024). Adopting one
+  /** Jars from before the shared root are NOT carried over. Adopting one
    *  would import the old layout into the new, which the clean break rejects — a pre-shared-
    *  root directory is the reclaim surface's business now, not the launcher's. */
   it('never renames a legacy jar into place when issuing a launcher', () => {

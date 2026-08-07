@@ -44,15 +44,15 @@ export interface ChangeKernelOptions {
 }
 
 /**
- * M1 — the Change Kernel: the single source of truth for "what changed", and the
+ * The Change Kernel: the single source of truth for "what changed", and the
  * narrow waist every producer writes to and every consumer reads from. `emit` is
- * the one append path (P7); the typed write methods construct a frame and funnel
+ * the one append path; the typed write methods construct a frame and funnel
  * through it. On a change-event it appends synchronously to the WAL, updates the
  * in-memory hot graph synchronously, then the SQLite projection — exactly the
- * D120 event-sourced order. On startup it replays the WAL to rebuild every
+ * event-sourced order. On startup it replays the WAL to rebuild every
  * projection (the log is the source of truth; everything else is derived).
  *
- * The graph carries the GRF-* hardening (cycle/coupling/temporal views,
+ * The graph carries the graph hardening (cycle/coupling/temporal views,
  * convention extractors, the inferred import graph, SCIP export) and the SCO-*
  * scope tier (composable membership resolution, the scope linter).
  */
@@ -93,7 +93,7 @@ export class ChangeKernel {
 
   // --- the one append path + the typed writers ---------------------------------
 
-  /** The single append path (P7). Returns the authoritative `seq`. */
+  /** The single append path. Returns the authoritative `seq`. */
   emit(draft: ChangeEventDraft): number {
     if (draft.kind === 'assert-edge' && this.graph.wouldCreateCycle(edgeOf(draft))) {
       throw new Error(
@@ -164,9 +164,9 @@ export class ChangeKernel {
   // --- index / resolve reads ---------------------------------------------------
 
   /**
-   * Drive M2 to (re)index a file: its symbols into the resident table, and its
+   * Drive the parser module to (re)index a file: its symbols into the resident table, and its
    * derived (inferred import + convention) edges into the graph (local/rebuilt,
-   * not WAL'd — D49). A reparse first clears the file's stale derived edges.
+   * not WAL'd). A reparse first clears the file's stale derived edges.
    */
   indexFile(path: string, lang: string, bytes: string): void {
     const { symbols, cst } = reparseFile({ path, lang, bytes });
@@ -191,12 +191,12 @@ export class ChangeKernel {
     for (const site of conventions.unresolved) this.unresolvedSites.add(`${path}:${site}`);
   }
 
-  /** GRF-3 — admit a deterministic per-ecosystem convention extractor (runs on reparse). */
+  /** Admit a deterministic per-ecosystem convention extractor (runs on reparse). */
   registerExtractor(extractor: ConventionExtractor): void {
     this.extractors.register(extractor);
   }
 
-  /** GRF-5 — the WAL⨝structure temporal view for a node. */
+  /** The WAL⨝structure temporal view for a node. */
   temporal(node: string, options?: TemporalOptions): TemporalView {
     const touches: FileTouch[] = this.frames
       .filter((f): f is Extract<ChangeEvent, { path: string }> => 'path' in f)
@@ -204,12 +204,12 @@ export class ChangeKernel {
     return temporal(node, touches, options ?? {});
   }
 
-  /** GRF-3 — the anti-false-graph honesty read: per-provenance counts + unresolved sites. */
+  /** The anti-false-graph honesty read: per-provenance counts + unresolved sites. */
   coverage(): Record<EdgeProvenance, number> & { unresolved: number } {
     return { ...this.graph.provenanceCounts(), unresolved: this.unresolvedSites.size };
   }
 
-  /** GRF-6 — the one-way SCIP export of the indexed symbol layer. */
+  /** The one-way SCIP export of the indexed symbol layer. */
   exportScip(options: ScipOptions): Uint8Array {
     return exportScip(this.symbols.all(), options);
   }

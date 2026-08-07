@@ -2,12 +2,12 @@ import type { CST, GraphEdge } from '@coa/shared';
 import { walk, type SerializedNode } from '@coa/code-intel';
 
 /**
- * The tree-sitter import-graph floor (GRF). M1 drives M2.parse and walks the CST
+ * The tree-sitter import-graph floor. The kernel drives the parser's `parse` and walks the CST
  * for static `import`/re-export source specifiers, emitting `inferred` `imports`
  * edges — the language-agnostic structural floor every consumer reads before the
- * precise (D144 TS-LSP) and convention (GRF-3) layers add fidelity. Specifier
+ * precise (TS-LSP) and convention layers add fidelity. Specifier
  * resolution (relative → repo path) is delegated to the caller's resolver, which
- * knows the indexed file set. It cannot see dynamic/string-keyed imports (D51);
+ * knows the indexed file set. It cannot see dynamic/string-keyed imports;
  * those are the convention extractors' domain.
  */
 export function extractImports(

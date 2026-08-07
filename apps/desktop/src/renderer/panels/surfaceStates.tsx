@@ -13,7 +13,7 @@ export function SkeletonLines({ widths }: { widths: string[] }): React.JSX.Eleme
 }
 
 /** A surface read that failed — a quiet line, red dot, `role="alert"` so it is
- *  announced (and asserted). Never an error affordance the user must clear (SC-1). */
+ *  announced (and asserted). Never an error affordance the user must clear (advisory). */
 export function SurfaceError({ message }: { message: string }): React.JSX.Element {
   return (
     <div role="alert" className="flex items-center gap-2 px-3.5 py-3 text-body text-s10">

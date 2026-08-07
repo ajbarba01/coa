@@ -2,11 +2,11 @@ import { renderSections, type NeutralConfig, type Reminder } from '@coa/shared';
 
 /**
  * The neutral→LongCat prompt render. A pure API has only a system message, so this
- * collapses M5's `NeutralConfig` to a single system-prompt string: the most-stable-first
+ * collapses the compiled `NeutralConfig` to a single system-prompt string: the most-stable-first
  * prefix (byte-stable — cache invariant honored), rendered into the section skeleton,
  * followed by the standing-authority reminders. LongCat has no preset to defer to, so it
  * renders every Piece — no drop-set, no boundary heading. Pull-only/scope-pushed content
- * is deferred (TAX-1), never folded in.
+ * is deferred to its own delivery channel, never folded in.
  */
 function renderReminder(reminder: Reminder): string {
   return `[${reminder.rule}] ${reminder.reason}`;

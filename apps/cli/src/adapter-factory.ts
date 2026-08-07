@@ -16,15 +16,16 @@ import type { ModelDescriptor } from '@coa/shared';
 import type { RuntimeAdapter } from '@coa/spi';
 
 /**
- * The app-side M9 adapter registry — the ONE place that constructs concrete
- * backends, routing by the agent's `provider` (D121's `createAdapter` seam). This
- * lives in the app, not `core`, because it imports backend packages
- * (backend-isolation: the core never does). M8 holds {@link createAdapter} as the
+ * The app-side backend adapter registry — the ONE place that constructs concrete
+ * backends, routing by the agent's `provider` (the neutral-construction seam:
+ * the init carries only neutral types). This lives in the app, not `core`,
+ * because it imports backend packages
+ * (backend-isolation: the core never does). The session core holds {@link createAdapter} as the
  * injected closure, keeping backends swappable leaves.
  *
  * `claude` (the Claude Agent SDK), `deepseek`, and `longcat` (both thin pure-API
  * backends over the shared loop driver) are wired. An unknown/unwired provider
- * throws — which `createSession` surfaces as an SC-1 error frame, never a silent
+ * throws — which `createSession` surfaces as an advisory error frame, never a silent
  * wrong-backend run.
  */
 export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
@@ -43,9 +44,9 @@ export function createAdapter(init: SessionAdapterInit): RuntimeAdapter {
 
 /**
  * The per-provider turn-drive strategy — co-located with {@link createAdapter} so the
- * provider→backend and provider→strategy maps are a SINGLE source of truth (M8 core
- * consumes only the abstract verdict, never a provider literal — see docs/adr/0012,
- * ADR 0002/0004). The Claude SDK backend holds ONE `query` open across turns (its
+ * provider→backend and provider→strategy maps are a SINGLE source of truth (the
+ * session core stays backend-blind: it consumes only the abstract verdict, never a
+ * provider literal). The Claude SDK backend holds ONE `query` open across turns (its
  * streaming-input steering); every pure-API backend stays per-turn (a fresh loop each
  * turn). An unknown provider defaults to the safe per-turn floor.
  */
@@ -87,7 +88,7 @@ async function fetchLongCatFor(account: ModelCacheAccount): Promise<ModelDescrip
   return fetchLongCatModels({ apiKey, caps: loadLongCatEffortCaps() });
 }
 
-/** Construct the thin DeepSeek backend, mapping M8's neutral init onto its init. */
+/** Construct the thin DeepSeek backend, mapping the session core's neutral init onto its init. */
 export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter {
   return new DeepSeekAdapter({
     sessionId: init.sessionId,
@@ -103,7 +104,7 @@ export function createDeepSeekAdapter(init: SessionAdapterInit): RuntimeAdapter 
   });
 }
 
-/** Construct the thin LongCat backend, mapping M8's neutral init onto its init. */
+/** Construct the thin LongCat backend, mapping the session core's neutral init onto its init. */
 export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
   return new LongCatAdapter({
     sessionId: init.sessionId,
@@ -119,7 +120,7 @@ export function createLongCatAdapter(init: SessionAdapterInit): RuntimeAdapter {
   });
 }
 
-/** Construct the Claude Agent SDK backend, mapping M8's neutral init onto the SDK adapter's init. */
+/** Construct the Claude Agent SDK backend, mapping the session core's neutral init onto the SDK adapter's init. */
 export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
   return new ClaudeSdkAdapter({
     sessionId: init.sessionId,

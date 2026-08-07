@@ -8,7 +8,7 @@ const symbols: SymbolRecord[] = [
   { name: 'baz', definedIn: 'src/b.ts:1:1', kind: 'class' },
 ];
 
-describe('buildScipIndex (GRF-6 SCIP export)', () => {
+describe('buildScipIndex (SCIP export)', () => {
   const index = buildScipIndex(symbols, { projectRoot: '/repo', toolVersion: '0.0.0' });
 
   it('carries coa tool metadata', () => {

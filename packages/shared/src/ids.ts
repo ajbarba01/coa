@@ -1,6 +1,6 @@
 /**
  * Identifier aliases used across module boundaries. These are plain string
- * aliases (the SPEC's D-CAT defines them as `string`); they document intent at
+ * aliases (the product spec defines them as `string`); they document intent at
  * call sites without imposing nominal typing.
  */
 
@@ -10,7 +10,7 @@ export type WorktreeId = string;
 /** A live agent session. */
 export type SessionId = string;
 
-/** A named scope reference (D32) — the key into a {@link Scope} definition. */
+/** A named scope reference — the key into a {@link Scope} definition. */
 export type ScopeRef = string;
 
 /** A reference to a {@link Piece} (its `name`). */

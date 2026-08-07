@@ -24,7 +24,7 @@ describe('resolveToolTransport', () => {
   });
 
   it('empty allow registers every coa tool and bounds built-ins to the floor', () => {
-    // The D85 pass-through still holds for the COA catalogue (all registered, nothing
+    // The literal pass-through still holds for the COA catalogue (all registered, nothing
     // denied), but built-ins are no longer unrestricted: an empty frame now yields the
     // floor rather than the CLI's whole ~37-tool set, because coa governs and records
     // only the floor and no other backend can match the rest.

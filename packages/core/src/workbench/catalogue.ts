@@ -1,11 +1,11 @@
 /**
- * M6 — the tool catalogue manifest (D99/D100). M6's public surface IS the set of
- * tools M9 registers into the rented loop. To keep the always-loaded tool-schema
+ * The tool catalogue manifest. The workbench's public surface IS the set of
+ * tools the backend adapter registers into the rented loop. To keep the always-loaded tool-schema
  * footprint small (every loaded schema costs the agent context), the catalogue
  * is partitioned: a small KERNEL set of common edit/retrieve verbs is always
  * loaded, and the rest are ON-DEMAND — discovered via {@link findTools} and
- * pulled in via {@link loadTool} through M9's MCP proxy. Deferred tools
- * (AST-ops, fork, asset-invoke) are absent until their dependencies land (D85).
+ * pulled in via {@link loadTool} through the backend adapter's MCP proxy. Deferred tools
+ * (AST-ops, fork, asset-invoke) are absent until their dependencies land.
  */
 export type ToolPartition = 'kernel' | 'on-demand';
 
@@ -17,7 +17,7 @@ export interface ToolManifestEntry {
   group?: 'read' | 'write' | 'exec' | 'egress';
 }
 
-/** The buildable v1 catalogue, partitioned by the D99 four-gate / D100 schema-budget test. */
+/** The buildable v1 catalogue, partitioned by the four-gate / schema-budget test. */
 export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
   // Kernel set — the common verbs worth their standing schema cost. The symbol-read
   // verbs (get_symbol / outline / find_references) are implemented but deliberately
@@ -47,12 +47,12 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
   { name: 'get_spec', partition: 'on-demand', description: 'governing spec for a symbol or scope' },
 ];
 
-/** The always-loaded kernel set (D100) — the only schemas that cost standing context. */
+/** The always-loaded kernel set — the only schemas that cost standing context. */
 export function kernelTools(): ToolManifestEntry[] {
   return TOOL_CATALOGUE.filter((tool) => tool.partition === 'kernel');
 }
 
-/** `find_tools` — discover on-demand tools by a query over name and description (D100 proxy). */
+/** `find_tools` — discover on-demand tools by a query over name and description (via the discovery proxy). */
 export function findTools(query: string): ToolManifestEntry[] {
   const needle = query.toLowerCase();
   return TOOL_CATALOGUE.filter(
@@ -62,7 +62,7 @@ export function findTools(query: string): ToolManifestEntry[] {
   );
 }
 
-/** `load_tool` — pull a tool's manifest entry by name so M9 can register its schema. */
+/** `load_tool` — pull a tool's manifest entry by name so the backend adapter can register its schema. */
 export function loadTool(name: string): ToolManifestEntry | undefined {
   return TOOL_CATALOGUE.find((tool) => tool.name === name);
 }

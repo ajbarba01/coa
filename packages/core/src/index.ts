@@ -1,8 +1,8 @@
 /**
- * @coa/core (M1) — the Change Kernel: the narrow waist and only shared mutable
+ * @coa/core — the Change Kernel: the narrow waist and only shared mutable
  * substrate. Producers and consumers point only here. This is the floor (WAL +
  * typed graph + symbol/fuzzy/piece index + reconciler + projections +
- * checkpoint/rewind); the GRF-* graph hardening and SCO-* scope tier are a
+ * checkpoint/rewind); the graph hardening and SCO-* scope tier are a
  * follow-up batch.
  */
 

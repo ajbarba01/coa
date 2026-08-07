@@ -2,8 +2,8 @@ import type { GenerationRelation, GenerationRunner, RegenOutput } from './ssot-c
 import type { GenerationEntry } from './generate-config.js';
 
 /**
- * M4 / L-GEN (GEN-2) — a concrete {@link GenerationRunner} that orchestrates the
- * declared generators (P8 — it never reimplements codegen). Per relation it runs
+ * L-GEN (GEN-2) — a concrete {@link GenerationRunner} that orchestrates the
+ * declared generators (it never reimplements codegen). Per relation it runs
  * the pinned `command` through the injected {@link GenerationIo} exec port in a
  * **fixed environment** (GEN-8 (c): `C`/`UTF-8` locale, `UTC`, a pinned
  * `SOURCE_DATE_EPOCH`) so environment leakage cannot manufacture false drift,

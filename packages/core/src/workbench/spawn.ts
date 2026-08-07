@@ -1,8 +1,8 @@
 import type { AgentSummary, CoaError, ToolResponse } from '@coa/shared';
 
 /**
- * M6 — the model-facing subagent-dispatch surface. `spawn_agent` is an ordinary coa
- * tool: `PreToolUse` gates it exactly like every other call (ADR-0029), so no
+ * The model-facing subagent-dispatch surface. `spawn_agent` is an ordinary coa
+ * tool: `PreToolUse` gates it exactly like every other call (one bounded tool surface, governed at one seam), so no
  * governance surface lives here. The ports below are declared, not supplied — the
  * daemon injects the real registry read + child-session start at the composition
  * root once the child-session plumbing exists.
@@ -85,7 +85,7 @@ export function sanitizeEchoedText(raw: string, maxLength: number = MAX_ECHOED_L
  * call: compiled prompts are frozen byte-stable for cache warmth, so any list baked
  * at session start is stale the moment an agent is authored.
  *
- * SC-1: an unknown ref is an unapplied result naming what does exist, never a throw
+ * an unknown ref is an unapplied result naming what does exist, never a throw
  * and never a denial — the model can correct itself and retry. `description` and
  * `prompt` are opaque data on every path here: they are forwarded to `startChild`
  * unexamined and never interpolated into a message this handler constructs, so they

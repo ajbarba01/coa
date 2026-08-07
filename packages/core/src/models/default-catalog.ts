@@ -3,8 +3,8 @@ import type { ClaudeEffort, ModelDescriptor, ModelEntry } from '@coa/shared';
 /**
  * The coa-owned default model catalog — hand-curated, versioned by us, enriched
  * (never defined) by the backend read. The Claude backend advertises aliases
- * only, so the authoritative "these work" set is ours (see the ADR added with
- * this feature). Seeds a provider's editable list on first touch and backs the
+ * only, so the authoritative "these work" set is ours (a decision recorded when
+ * this feature landed). Seeds a provider's editable list on first touch and backs the
  * "add from defaults" picker.
  *
  * last-verified: 2026-07-18 (claude ids against a live Pro subscription).

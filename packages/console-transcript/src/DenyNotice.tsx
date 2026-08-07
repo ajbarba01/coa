@@ -34,7 +34,7 @@ const DENY_COPY: Record<DenyKind, { label: string; ways: { act: string; hint: st
 
 /** Surfaces a deny the daemon already issued. It gates nothing itself.
  *
- *  One of the only two blocks in the whole system (SC-1 — help, never cage): it must
+ *  One of the only two blocks in the whole system (the rest is advisory — help, never cage): it must
  *  read as a firm, legible stop with a reason and a way forward, not an alarm — no
  *  fill, no modal, no scold. The critical dot is the only red; the reason is the
  *  daemon's, verbatim. `role="status"` (not "alert") — it is informational, not an

@@ -38,7 +38,7 @@ export function Work(): React.JSX.Element {
   // wherever the active tab sits in it — never just the one session's own cost
   // (`groupSessionTree`/`sessionGroupFor` live in console-viewmodel, testable
   // without jsdom). `undefined` ⇒ nothing in the tree is tracked yet, the same
-  // "not tracked yet" floor as before this existed (D85).
+  // "not tracked yet" floor as before this existed.
   const treeCostUsd =
     activeId === undefined
       ? undefined

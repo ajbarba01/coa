@@ -134,7 +134,7 @@ describe('LongCatAdapter', () => {
     expect(disabled.body?.['thinking']).toEqual({ type: 'disabled' });
   });
 
-  it('fails (SC-1 surfaces upstream) when no API key resolves', async () => {
+  it('fails loudly (the error surfaces upstream, never silently swallowed) when no API key resolves', async () => {
     const adapter = new LongCatAdapter({ sessionId: 's1', input: 'go', env: {} });
     wire(adapter);
     await expect(adapter.runLoop(SESSION)).rejects.toThrow('no API key');

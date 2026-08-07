@@ -38,11 +38,12 @@ import {
 } from './complete.js';
 
 /**
- * The DeepSeek backend (dual-backend spec C3) — a **thin** `RuntimeAdapter`. All
+ * The DeepSeek backend — a **thin** `RuntimeAdapter`. All
  * the agentic machinery lives in the shared {@link runGovernedLoop} driver; this
  * adapter only renders the neutral config to a system prompt, resolves the API key
  * from the account's env-var pointer, builds the `complete()` primitive, and hands
- * the loop the two SC-1 predicates. Every enhancement port degrades to its
+ * the loop the close-gate and cost-cap predicates (the system's only two blocks).
+ * Every enhancement port degrades to its
  * null-fallback (barebones profile) — DeepSeek is a cheap **test** backend, not a
  * fidelity reference. It imports no provider SDK (just `fetch`), so adding another
  * pure API is the same shape.
@@ -55,29 +56,31 @@ export interface DeepSeekAdapterInit {
   /** The session's prompt input (neutral); the one-shot prompt is the first turn. */
   input: string | AsyncIterable<string>;
   model?: ModelSelection;
-  /** M9's settlement step → M7.charge, called once with the loop's summed usage. */
+  /** The adapter's settlement step → the governance ledger's charge, called once with the loop's summed usage. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /**
-   * Per-frame session output → M8's emission policy. `full`, present on a
+   * Per-frame session output → the daemon's emission policy. `full`, present on a
    * `tool_result`, is the complete display body — the append-only log's fidelity
-   * companion to the frame's `pointer` (docs/adr/0010); forwarded unchanged from
+   * companion to the frame's lossy `pointer`; forwarded unchanged from
    * the governed loop driver, which already supplies it.
    */
   onTurn?: (frame: TurnFrame, full?: string) => void;
-  /** The prior conversation transcript (R-7, system omitted), resent verbatim for cross-turn memory — a pure chat API has no server-side session to `resume`. */
+  /** The prior conversation transcript (system omitted), resent verbatim for cross-turn memory — a pure chat API has no server-side session to `resume`. */
   history?: readonly BackendMessage[];
   /** The account's login pointer (an env-var pointer for DeepSeek); absent ⇒ the default key var. */
   locator?: Locator;
   /**
-   * Accepted for D121 parity; a raw chat API has no native mid-loop hard stop, so
+   * Accepted so every backend shares the same session-construction contract; a
+   * raw chat API has no native mid-loop hard stop, so
    * the cost cap is enforced through the per-tool `canUseTool` predicate + the
    * settled charge — not a budget passed to the backend.
    */
   maxBudgetUsd?: number;
   /**
-   * Record on-disk changes no governed tool made (producer ②, M8-owned). Fired after
+   * Record on-disk changes no governed tool made (the daemon's reconciler). Fired after
    * every tool call: coa executes its own tools, but a shell command can touch anything
-   * and only a worktree scan sees that. Absent ⇒ byte-identical to today (D85).
+   * and only a worktree scan sees that. Absent ⇒ byte-identical to today (the feature
+   * degrades to a pass-through).
    */
   observeChanges?: () => void;
   /** Injectable seams (tests / config). */
@@ -86,15 +89,15 @@ export interface DeepSeekAdapterInit {
   prices?: PriceTable;
   fetchImpl?: FetchLike;
   /**
-   * The neutral user-stop from M8, forwarded into the governed loop so an interrupt
-   * aborts the in-flight HTTP request; SC-1 — a user stop, not a governance block.
+   * The neutral user-stop from the daemon, forwarded into the governed loop so an
+   * interrupt aborts the in-flight HTTP request; a user stop, not a governance block.
    */
   signal?: AbortSignal;
   /**
    * A synchronous drain of the session's pending mid-loop deliveries (a user steer, a
-   * system notice) from M8. Not a turn: the governed loop injects it as a message at
-   * the top of its next round trip, inside the turn already running. Absent ⇒ nothing
-   * is delivered, byte-identical to today (D85).
+   * system notice) from the daemon. Not a turn: the governed loop injects it as a
+   * message at the top of its next round trip, inside the turn already running.
+   * Absent ⇒ nothing is delivered, byte-identical to today.
    */
   drainDeliveries?: DrainDeliveries;
 }

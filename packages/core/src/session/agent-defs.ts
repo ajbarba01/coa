@@ -121,7 +121,7 @@ export function loadAgentScope(
 /**
  * Fold scopes into one effective set. Pass them in precedence order — built-in,
  * personal, project — and the LAST occurrence of a ref wins (most specific), the
- * same posture as coa's built-in ∪ user merge (docs/adr/0003). Cross-scope
+ * same posture as coa's built-in ∪ user merge. Cross-scope
  * collisions are intentional overrides and are not diagnostics; within-scope
  * duplicates were already reported by the loader.
  */

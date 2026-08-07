@@ -4,7 +4,7 @@ import { changeEventSchema, SCHEMA_VERSION, type ChangeEvent } from '@coa/shared
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 /**
- * A change-event as a producer hands it to `emit` — everything but the fields M1
+ * A change-event as a producer hands it to `emit` — everything but the fields the kernel
  * stamps authoritatively: the monotonic `seq`, the `ts`, and the frame
  * `schema_version`. The typed write methods and the reconciler build these.
  */

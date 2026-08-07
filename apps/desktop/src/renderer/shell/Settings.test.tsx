@@ -82,7 +82,7 @@ describe('login settings rows', () => {
 
   /** Under identity keying an orphan can only appear when an account's email is renamed, so
    *  the ordinary state is "none" — and the row stays visible saying so, rather than hiding
-   *  and leaving the concept undiscoverable (docs/adr/0024). */
+   *  and leaving the concept undiscoverable (profiles share one user-data-dir; orphaned jars are reclaimed only on request). */
   it('says none when nothing is reclaimable, rather than disappearing', () => {
     useMockAuth.setState({
       browserSession: { enabled: true, available: true, reclaimable: [] },
@@ -181,7 +181,7 @@ describe('login settings rows', () => {
   it('no longer hydrates from IsolatedBrowserRow — that is the dialog\u2019s job now', async () => {
     // A row-owned hydrate breaks the moment a search query filters that row out of the
     // mounted tree; the dialog is the one thing guaranteed present regardless of the
-    // query, so it is the one that must own the read (docs/adr/0018).
+    // query, so it is the one that must own the read (profile cleanup only ever happens at the user's explicit request).
     const hydrate = vi.fn().mockResolvedValue(undefined);
     useMockAuth.setState({ hydrate });
     render(<IsolatedBrowserRow />);

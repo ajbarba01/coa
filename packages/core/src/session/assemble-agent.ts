@@ -8,27 +8,27 @@ import {
 import type { AssemblePiecesContext } from './session.js';
 
 /**
- * The agent-assembly resolver (M8) — turn a {@link Role} (+ ad-hoc skills, minus
+ * The agent-assembly resolver (the session layer) — turn a {@link Role} (+ ad-hoc skills, minus
  * any excluded packages) into compile-ready Pieces + a deduped tool
  * {@link CapabilityFrame} + the external MCP servers to enable + the list of
  * advised-but-absent packages to nudge on.
  *
- * Inclusion (nothing is mandatory — D85): every `default` package is included
+ * Inclusion (nothing is mandatory; an empty selection degrades to the plain floor): every `default` package is included
  * unless the spec excludes it; `opt-in` packages come in only when the role lists
  * them. The `core` package (which carries the coa scaffold, see below) is a normal
  * `default` package — excluding it degrades the agent to the raw loop.
  *
  * Ordering: package Pieces (defaults in registry order, then the role's opt-ins) →
  * role Pieces → skill Pieces → the volatile baseline tail (model/env, injected
- * only when `core` is included so it lands last, cache-friendly, D-P2). The
+ * only when `core` is included so it lands last, cache-friendly). The
  * `core` package's own Pieces (identity/tone/tool-use) lead because it
  * is the first default. Tools + mcps are set-unions (never doubled); Pieces are
  * deduped by name (first wins). Unknown/excluded ids are dropped, never thrown
- * (SC-1 degrade-don't-cage).
+ * (degrade, don't cage).
  *
  * Output is a neutral frame (intent). Mapping each tool ref to a backend
  * transport — a Claude built-in vs an `mcp__coa__*` tool vs a loop-driver
- * executor — is M9's `renderNative` job, not this resolver's.
+ * executor — is the backend port's `renderNative` job, not this resolver's.
  */
 
 /** The package that carries the coa scaffold (its Pieces + the volatile model/env tail). A normal `default` package. */
@@ -117,7 +117,7 @@ function isoDateUtc(when: Date): string {
  * **Known** roles are resolved through {@link assembleAgent} — their packages shape
  * the pieces + the (restricting) tool frame, unioned across every role. **Unknown
  * or unset** roles are the permissive floor: the baseline scaffold with an empty
- * frame (D85 pass-through — every backend tool stays available), so callers that
+ * frame (every backend tool stays available), so callers that
  * don't pick a role (e.g. the CLI's `coa run`) behave exactly as before.
  * `ctx.roles` is preferred when present; otherwise the single `ctx.role` is used
  * (back-compat). `platform`/`now` are injected so the function stays testable.

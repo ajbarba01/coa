@@ -3,7 +3,7 @@ import type { CoaError } from '@coa/shared';
 import { matchGlob } from '../scope/glob.js';
 
 /**
- * M6 S-1 — the load-bearing path-confinement precondition. Because M6's
+ * S-1 — the load-bearing path-confinement precondition. Because the workbench's
  * Retrieve/Mutate handlers are in-process MCP tools, the SDK OS sandbox does NOT
  * confine them (deny-rules bind built-in/bash tools, not custom MCP tools). So
  * every handler runs this deterministic check (no model call) before touching

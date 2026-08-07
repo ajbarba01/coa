@@ -7,16 +7,16 @@ import type { AssemblePiecesContext } from './session.js';
  * the Claude Agent SDK's `claude_code` preset would carry but coa's custom-string
  * prompt path deletes, and it is the exact scaffold a pure-API backend (which has
  * NOTHING native) needs. Authored once here; both backends consume it through the
- * existing `assemblePieces → M5.compile → M9.renderNative` pipeline (no backend
+ * existing `assemblePieces → the prompt compile step → the backend renderNative step` pipeline (no backend
  * ever imports this module — it flows through the neutral config).
  *
- * Design rules (see docs/design/research/pieces-and-dual-backend-spec.md §A1):
+ * Design rules (see docs/design/research/pieces-and-dual-backend-spec.md):
  * - coa-neutral identity — never impersonate "Claude Code" (matters for parity
  *   AND for a from-scratch backend).
  * - minimal-but-sufficient — a faithful re-declaration, not a copy of the preset.
  * - cache-friendly order — stable authored text first, volatile environment last,
- *   so M5's most-stable-first ordering + the renderer's byte-stable prefix keep
- *   the prompt cache warm (D-P2 / P1).
+ *   so the compiler's most-stable-first ordering + the renderer's byte-stable prefix keep
+ *   the prompt cache warm (cache-warm prefix; determinism-first).
  */
 
 /**
@@ -103,7 +103,7 @@ function modelPiece(model: ModelPrompt): Piece {
   return authoredPush('baseline-model', 'which model the agent is running as', body, 'model');
 }
 
-/** Author the volatile environment Piece from the session-invariant facts (ordered last, per D-P2). */
+/** Author the volatile environment Piece from the session-invariant facts (ordered last to keep the stable prefix cache-warm). */
 function environmentPiece(ctx: BaselineContext): Piece {
   const lines = [`Platform: ${ctx.platform}`, `Shell: ${ctx.shell}`, `Date: ${ctx.date}`];
   return authoredPush(
@@ -126,7 +126,7 @@ export function baselineStablePieces(): Piece[] {
 
 /**
  * The volatile per-session tail — the environment block (platform + date). Ordered
- * last so the stable prefix stays cache-warm (D-P2). The model id is deliberately
+ * last so the stable prefix stays cache-warm. The model id is deliberately
  * absent: the backend names its own model, and keeping it out keeps the compiled
  * prompt (and thus `promptVersion`) invariant across model switches.
  */
@@ -158,7 +158,7 @@ function isoDate(when: Date): string {
  * neutral baseline scaffold (an empty capability frame — the kept-built-in
  * allow-list is a later increment). `platform` and `now` are injected so the
  * function stays pure/testable; the daemon passes `process.platform` + the wall
- * clock. Role/scope Pieces and M4-derived context are concatenated later.
+ * clock. Role/scope Pieces and assembled context are concatenated later.
  */
 export function createBaselineAssemblePieces(deps: {
   platform: string;

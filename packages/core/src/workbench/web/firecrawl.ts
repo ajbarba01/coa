@@ -7,7 +7,7 @@ import { firecrawlLimit } from './limits.js';
  * The Firecrawl scrape adapter — a thin HTTP call to `POST /v2/scrape`, mapping the
  * response to a {@link ProviderOutcome}: a 200 → clean markdown; a 429 → rate-limit
  * (reading `Retry-After` seconds if present); a 402 → quota; anything else → error.
- * Injectable `fetchImpl`; credential-blind (the key is passed in). Never throws (SC-1).
+ * Injectable `fetchImpl`; credential-blind (the key is passed in). Never throws.
  */
 const DEFAULT_BASE_URL = 'https://api.firecrawl.dev';
 

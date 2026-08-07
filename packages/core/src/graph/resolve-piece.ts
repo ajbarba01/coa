@@ -15,10 +15,10 @@ export class PieceStore {
 }
 
 /**
- * The pure piece-resolver (D101): byte-identical output regardless of caller (the
+ * The pure piece-resolver: byte-identical output regardless of caller (the
  * workbench's `get_piece` tool and the config compiler call the same resolver),
- * which is why it reads M1's own store + graph. It augments the piece's authored
- * `governedBy` with any `governed-by` authority edges (TAX-2) recorded in the
+ * which is why it reads the kernel's own store + graph. It augments the piece's authored
+ * `governedBy` with any `governed-by` authority edges recorded in the
  * graph for the piece node.
  */
 export function resolvePiece(ref: PieceRef, deps: { store: PieceStore; graph: TypedGraph }): Piece {

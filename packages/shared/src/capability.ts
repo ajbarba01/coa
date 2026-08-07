@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 /**
- * The three disambiguated `Capability*` shapes (D-CAT):
+ * The three disambiguated `Capability*` shapes:
  * - {@link CapabilityFrame}  — pre-compile per-(sub)agent allow/deny tool intents.
- * - {@link CapabilityProfile} — the backend port manifest (D62/D109).
+ * - {@link CapabilityProfile} — the backend port manifest.
  * - {@link CapabilitySet}    — the enforced per-session sandbox set.
  */
 
@@ -16,7 +16,7 @@ export const capabilityFrameSchema = z.object({
 });
 export type CapabilityFrame = z.infer<typeof capabilityFrameSchema>;
 
-/** The capability-profile manifest shape (D62/D109). M0 owns the shape; M9 owns the ports. */
+/** The capability-profile manifest shape. This package owns the shape; the backend adapter owns the ports. */
 export const capabilityProfileSchema = z.object({
   ports: z.record(z.string(), z.object({ present: z.boolean(), nullFallback: z.string() })),
   spiVersion: z.string(),

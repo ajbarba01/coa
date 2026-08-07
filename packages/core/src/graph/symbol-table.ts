@@ -2,7 +2,7 @@ import type { SymbolRecord } from '@coa/shared';
 
 /**
  * The resident `name → SymbolRecord` index — the graph's node-set index, which
- * is why it lives in M1, not M2. M1 builds it by driving `M2.extractSymbols` on
+ * is why it lives in the kernel, not the parser module. The kernel builds it by driving the parser's `extractSymbols` on
  * each reparse (see `reparse.ts`) and feeding the path-qualified records here.
  * Records are tracked by their defining file so a reparse cleanly replaces a
  * file's symbols rather than leaking stale names.

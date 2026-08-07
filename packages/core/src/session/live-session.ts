@@ -27,19 +27,19 @@ export type Sink = (push: Push) => void;
 
 /**
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
- * {@link AbortController} whose signal M8 forwards to the adapter as the
+ * {@link AbortController} whose signal the session layer forwards to the adapter as the
  * neutral user-stop. `interrupted` distinguishes a user-initiated stop from a
- * genuine loop failure in `session-handlers.ts`'s settlement — SC-1: an
+ * genuine loop failure in `session-handlers.ts`'s settlement — an
  * interrupt must never surface as an error. Lives on the {@link LiveSession}
  * (not a per-connection map) so ANY connection sharing the daemon's registry —
  * not just the one that started the turn — can resolve and act on it (see
- * docs/adr/0011, the G4 reattach contract).
+ * the daemon-authoritative reattach contract).
  */
 export interface TurnControl {
   controller: AbortController;
   interrupted: boolean;
   /**
-   * Which drive strategy owns this turn (see docs/adr/0012). `held-open` ⇒ a steer
+   * Which drive strategy owns this turn (the held-open streaming-input strategy). `held-open` ⇒ a steer
    * is routed into the live query's derived input feed via {@link LiveSession.pushSteer};
    * absent/`per-turn` ⇒ the caller pushes onto `session.deliveries` directly, for the
    * backend to drain at its next round trip. Set when the turn starts.
@@ -86,7 +86,7 @@ export class LiveSession {
 
   /**
    * Point the held-open steer route at the live query's derived input feed (the SDK
-   * streaming-input strategy — see docs/adr/0012). Set by the held-open driver when
+   * streaming-input strategy). Set by the held-open driver when
    * a query is established, cleared (`undefined`) when it terminates; a `per-turn`
    * session leaves it unset, so {@link pushSteer} reports it has nowhere to route.
    */
@@ -108,7 +108,7 @@ export class LiveSession {
    * cleared when it ends). The closure settles the turn's streamed-but-unsettled blocks, records
    * the interrupt marker, and stops the backend the way THAT drive strategy must (a held-open
    * query takes a turn-level interrupt and stays alive; a per-turn loop aborts). Keeping it here
-   * lets `interruptSession` stay strategy-agnostic (ADR 0002/0004).
+   * lets `interruptSession` stay strategy-agnostic (the backend-blind-core rule).
    */
   setInterruptClosure(fn: (() => boolean) | undefined): void {
     this.#interruptClosure = fn;
@@ -122,7 +122,7 @@ export class LiveSession {
 
   /** Register a finalizer run once from {@link close} — where the held-open driver
    *  ends its derived input feed so the long-lived backend query terminates after
-   *  the last turn's result (docs/adr/0012). */
+   *  the last turn's result. */
   onClose(fn: () => void): void {
     this.#onClose.push(fn);
   }

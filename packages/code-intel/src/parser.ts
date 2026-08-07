@@ -12,7 +12,7 @@ export interface SourceFile {
   bytes: string;
 }
 
-/** `parse` returns the failure across the D112 boundary; it never throws there. */
+/** `parse` returns the failure across the child-process isolation boundary; it never throws there. */
 export type ParseResult = CST | { ok: false; reason: 'crash' | 'timeout' };
 
 // The native Language objects expose `{ language, nodeTypeInfo }`, structurally a
@@ -27,7 +27,7 @@ const NATIVE_GRAMMAR: Record<GrammaredLang, Parser.Language> = {
 /**
  * Parse source bytes to a serializable CST.
  *
- * D112 — the parser runs in-process and synchronously in v1; the isolation seam
+ * The parser runs in-process and synchronously in v1; the isolation seam
  * (running tree-sitter in a separate child process) is a build flag, not a
  * re-tooling. The sync signature is honored in-process by catching a native
  * crash and *returning* `{ ok:false, reason:'crash' }`; the `'timeout'` variant
@@ -37,7 +37,7 @@ const NATIVE_GRAMMAR: Record<GrammaredLang, Parser.Language> = {
  *
  * An ungrammared language is not a failure: it returns the Tier-0 floor — a
  * single degenerate node spanning the file — so callers get a uniform CST and
- * `extractSymbols`/`extractMetrics` degrade by construction (D85).
+ * `extractSymbols`/`extractMetrics` degrade by construction.
  */
 export function parse(file: SourceFile): ParseResult {
   const bytesHash = createHash('sha256').update(file.bytes, 'utf8').digest('hex');

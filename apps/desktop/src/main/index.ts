@@ -234,7 +234,7 @@ async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
 }
 
 /** Result of a reveal-in-editor attempt (mirrors `OpenPathResultSchema`). Advisory: a
- *  failure surfaces to the renderer (which toasts it) but never blocks (SC-1). */
+ *  failure surfaces to the renderer (which toasts it) but never blocks. */
 type RevealResult = { ok: boolean; revealed?: 'editor' | 'folder'; reason?: string };
 
 /** Spawn `code -g <abs>:<line>`, resolving to whether it launched. `code`/`code.cmd`
@@ -283,7 +283,7 @@ function spawnCode(absPath: string, line: number | undefined): Promise<boolean> 
  * escapes the root is refused — never open an arbitrary file), then opens it in VS Code
  * at the line via `code -g`, falling back to `shell.showItemInFolder` when `code` is
  * unavailable. Always resolves a structured result (never throws to the renderer) — the
- * renderer toasts a failure; the reveal is advisory and never blocks (SC-1).
+ * renderer toasts a failure; the reveal is advisory and never blocks.
  */
 async function revealPath(params: {
   path: string;
@@ -312,7 +312,7 @@ async function revealPath(params: {
  * Open a web URL in the default browser (a tool card's WebSearch/WebFetch link). Validates
  * the URL to `http:`/`https:` first (any other scheme is refused — never hand the OS a
  * `file:`/`javascript:`/shell URL), then `shell.openExternal`. Always resolves a structured
- * result (never throws to the renderer); the renderer toasts a failure. Advisory (SC-1).
+ * result (never throws to the renderer); the renderer toasts a failure. Advisory.
  */
 async function openExternalUrl(params: { url: string }): Promise<{ ok: boolean; reason?: string }> {
   const check = validateExternalUrl(params.url);

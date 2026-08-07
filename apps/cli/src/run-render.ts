@@ -66,7 +66,7 @@ export interface Rendered {
   lines: string[];
   /**
    * Set when this record ends the session — `'error'` if the loop failed,
-   * `'interrupted'` for a clean user-initiated stop (SC-1: never treated as a failure).
+   * `'interrupted'` for a clean user-initiated stop (never treated as a failure).
    */
   terminal?: 'done' | 'error' | 'interrupted';
 }
@@ -107,7 +107,7 @@ function renderFrame(frame: TurnFrame): string[] {
     case 'error':
       return [`✗ error (${frame.origin}): ${frame.message}`];
     case 'deny':
-      // A governed stop, not a fault (SC-1) — its own marker so it never reads as an error.
+      // A governed stop, not a fault — its own marker so it never reads as an error.
       return [`⊘ blocked (${frame.denyKind}): ${frame.reason}`];
     case 'turn-boundary':
       return [''];

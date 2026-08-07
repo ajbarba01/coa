@@ -282,7 +282,9 @@ describe('assumption 2 — FALSE: "settingSources: [] fully isolates the session
     // settingSources: [], and BackendConfig.files was consumed by nobody.
     expect(sdkTypes('sdk.d.ts')).toContain("Must include `'project'` to load CLAUDE.md files.");
     const rendered = renderNative(
-      neutral({ systemReminders: [{ rule: 'no-silent-pretend', reason: 'SC-1', tier: 0 }] }),
+      neutral({
+        systemReminders: [{ rule: 'no-silent-pretend', reason: 'surface, never block', tier: 0 }],
+      }),
     );
     expect(rendered).not.toHaveProperty('files');
     expect(rendered.systemPrompt).toContain('no-silent-pretend');
@@ -437,7 +439,7 @@ describe('assumption 5 — FALSE: "removing the native delegation tool requires 
     expect(adapterSource).toContain('...(transport.tools ? { tools: transport.tools } : {})');
 
     // The pass-through case USED to ship no restriction at all. It now ships the built-in
-    // floor (docs/adr/0029): an unrestricted session was one coa could neither govern nor
+    // floor: an unrestricted session was one coa could neither govern nor
     // record across most of its surface, so "no frame" means the floor, not everything.
     const passthrough = resolveToolTransport({ allow: [], deny: [], coaToolNames: [] });
     expect(passthrough.tools).toEqual([...CLAUDE_BUILTIN_FLOOR]);
@@ -465,7 +467,7 @@ describe('stage 7: the Task/Agent rename — coa guards both spellings', () => {
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
 
-    // coa's transport policy changed under it: the built-in floor (docs/adr/0029) demotes
+    // coa's transport policy changed under it: the built-in floor demotes
     // delegation whichever spelling names it, so neither reaches the model. A rename that
     // slipped past the vocabulary would still be caught by the assertions above.
     for (const spelling of ['Agent', 'Task']) {
@@ -475,7 +477,7 @@ describe('stage 7: the Task/Agent rename — coa guards both spellings', () => {
         coaToolNames: [],
       });
       expect(granted.tools, spelling).toEqual(['Read']);
-      // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
+      // autoApprove is always empty (coa never grants, only denies) — availability lives entirely in
       // `tools`, which KNOWN_BUILTINS and the floor together drive.
       expect(granted.autoApprove, spelling).toEqual([]);
     }

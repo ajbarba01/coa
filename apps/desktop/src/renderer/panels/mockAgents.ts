@@ -1,8 +1,7 @@
 import type { AgentSummary, SessionSummary, TurnFrame } from '@coa/console-viewmodel';
 import { MOCK_TURNS } from './mockConversation.js';
 
-/** Mock agents shaped like the future `listRoles` read (an agent = a Role,
- *  SPEC CON-1). Project agents live committed in `.coa/`; personal agents are
+/** Mock agents shaped like the future `listRoles` read (an agent = a Role; *  see the product spec). Project agents live committed in `.coa/`; personal agents are
  *  user-level. Swapping these for the daemon verbs is a data-source change. */
 export const MOCK_AGENTS: AgentSummary[] = [
   {
@@ -109,7 +108,7 @@ const LEDGER_TURNS: TurnFrame[] = [
     id: 'c2',
     role: 'agent',
     kind: 'text',
-    text: 'Writing the red tests against the D135 projection first.',
+    text: 'Writing the red tests against the spend-ledger privacy projection first.',
   },
 ];
 

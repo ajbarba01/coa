@@ -55,9 +55,9 @@ export interface ConsoleData {
 /** Local view state (not daemon data). */
 export interface ConsoleUi {
   settings: ConsoleSettings;
-  /** When true the conversation renders the unfiltered loop (D85). */
+  /** When true the conversation renders the unfiltered loop (raw is always available). */
   rawMode: boolean;
-  /** Inert local record of mock approvals the operator resolved (SC-1: surfacing
+  /** Inert local record of mock approvals the operator resolved (advisory: surfacing
    *  only — the daemon owns the real decision). */
   resolvedApprovals: Record<string, 'approved' | 'denied'>;
   /** The agent open in the Agents editor (not the chat's — that follows the session). */
@@ -124,7 +124,7 @@ export interface ConsoleActions {
   setSessionModel: (sessionId: string, selection: ModelSelection) => void;
   /** Reveal a touched file (a tool card's path/match link) in the editor/OS at an
    *  optional line, confined to the given session's worktree. Resolves an advisory
-   *  result the caller toasts on failure — never blocks (SC-1). */
+   *  result the caller toasts on failure — never blocks. */
   openPath: (
     path: string,
     line: number | undefined,
@@ -132,14 +132,14 @@ export interface ConsoleActions {
   ) => Promise<{ ok: boolean; revealed?: 'editor' | 'folder'; reason?: string }>;
   /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
    *  Validated to http(s) by main; resolves an advisory result the caller toasts on
-   *  failure — never blocks (SC-1). */
+   *  failure — never blocks. */
   openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
   /** The Stop/Esc affordance: cooperatively interrupts a session's running turn
-   *  (SC-1 — a user stop, never a governance block). Fire-and-forget; the running
+   *  (advisory — a user stop, never a governance block). Fire-and-forget; the running
    *  pill clears from the daemon's own `'interrupted'` status Push. */
   interruptSession: (sessionId: string) => void;
   /** Steer: send a message that reaches a session's running turn at its next step, discarding
-   *  nothing (SC-1 — a user redirect, never a block). Fire-and-forget; the transcript updates
+   *  nothing (advisory — a user redirect, never a block). Fire-and-forget; the transcript updates
    *  from the daemon's own turn Push. Queue-mode follow-ups are held console-side by the panel. */
   steerSession: (sessionId: string, text: string) => void;
 }

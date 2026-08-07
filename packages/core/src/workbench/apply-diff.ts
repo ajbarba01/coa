@@ -3,13 +3,13 @@ import type { CoaError, DiffSpec } from '@coa/shared';
 /**
  * The result of applying a {@link DiffSpec} to a source artifact. A success
  * carries the new bytes; a failure carries a house {@link CoaError} (the agent
- * falls back to the whole-file escape or a fresh attempt — M6 never blocks).
+ * falls back to the whole-file escape or a fresh attempt — the workbench never blocks).
  */
 export type DiffResult = { ok: true; bytes: string } | { ok: false; error: CoaError };
 
 /**
- * M6 producer ① — the deterministic, lenient edit core (Ruling-3). Apply a
- * {@link DiffSpec} to `source` and return the new bytes, with no model call (P1).
+ * Producer ① — the deterministic, lenient edit core. Apply a
+ * {@link DiffSpec} to `source` and return the new bytes, with no model call.
  * The whole-file form is the co-equal escape (always reachable); search-replace
  * is the preferred lenient localized path. A hunk that cannot be matched
  * unambiguously is a failure, never a silent wrong edit.
@@ -22,7 +22,7 @@ export function applyDiff(source: string, diff: DiffSpec): DiffResult {
       return applySearchReplace(source, diff.hunks);
     case 'unified':
       // A textual unified-diff engine is a deferred follow-up; degrade to a typed
-      // error (D85) so the agent falls back to the search-replace / whole-file path.
+      // error so the agent falls back to the search-replace / whole-file path.
       return {
         ok: false,
         error: {
@@ -64,7 +64,7 @@ const ambiguous = (find: string, count: number): DiffResult => ({
 });
 
 /**
- * The lenient fallback (Ruling-3): match the find block against source lines
+ * The lenient fallback: match the find block against source lines
  * ignoring per-line leading/trailing whitespace, then splice in the replacement
  * re-indented to the matched block's indentation. Requires a single match —
  * zero or many is a failure, never a silent wrong edit.

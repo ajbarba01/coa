@@ -56,8 +56,9 @@ export function makeLongCatComplete(config: LongCatCompleteConfig): CompleteFn {
   const doFetch = config.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
   const prices = config.prices ?? {};
 
-  // Streaming form (Piece B / G7): SSE-parse the round-trip, yield each content/reasoning
-  // delta as it arrives, and RETURN the assembled settled result (docs/adr/0013). The
+  // Streaming form: SSE-parse the round-trip, yield each content/reasoning delta as it
+  // arrives, and RETURN the assembled settled result (deltas are delivery-only and are
+  // never persisted; only the settled result is). The
   // driver maps each delta to a delivery-only frame; the settled result is what persists.
   return async function* (messages, tools, signal) {
     const body = {
@@ -156,7 +157,7 @@ function toWireTool(tool: ToolDef): Record<string, unknown> {
   };
 }
 
-/** Convert the M6 Zod raw shape the driver carries to JSON schema; degrade to a permissive object. */
+/** Convert the governed tool's Zod raw shape the driver carries to JSON schema; degrade to a permissive object. */
 function toJsonSchema(parameters: unknown): unknown {
   try {
     return z.toJSONSchema(z.object(parameters as ZodRawShape));

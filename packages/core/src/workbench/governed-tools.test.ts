@@ -57,7 +57,7 @@ describe('buildGovernedTools', () => {
     expect(res.flags).toEqual(BUNDLE);
   });
 
-  test('a malformed input is rejected as an unapplied result, never thrown (D141(c)/SC-1)', async () => {
+  test('a malformed input is rejected as an unapplied result, never thrown (validated up front)', async () => {
     const tools = buildGovernedTools(makeDeps());
     const tool = tools.find((t) => t.name === 'get_piece');
     const res = await tool!.invoke({ ref: { wrong: 'shape' } });
@@ -107,7 +107,7 @@ describe('buildGovernedTools — spawn_agent', () => {
     expect(tools.find((t) => t.name === 'spawn_agent')?.partition).toBe('kernel');
   });
 
-  it('returns an unapplied result, never a throw, when deps.spawn is unwired (SC-1)', async () => {
+  it('returns an unapplied result, never a throw, when deps.spawn is unwired', async () => {
     const tools = buildGovernedTools(makeDeps());
     const tool = tools.find((t) => t.name === 'spawn_agent');
     const res = await tool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
@@ -216,7 +216,7 @@ describe('buildGovernedTools — base-tool gate', () => {
     for (const n of BASE_NAMES) expect(names).toContain(n);
   });
 
-  it('a base tool invoke returns an unapplied result on a bad path (SC-1, never throws)', async () => {
+  it('a base tool invoke returns an unapplied result on a bad path (never throws)', async () => {
     const tools = buildGovernedTools(
       { ...makeDeps(), base: baseDeps() },
       { includeBaseTools: true },

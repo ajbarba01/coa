@@ -1,5 +1,5 @@
 /**
- * @coa/shared (M0) — the canonical wire/record types every module agrees on.
+ * @coa/shared — the canonical wire/record types every module agrees on.
  * Type definitions + Zod schemas only; no behavior. The acyclic-graph root.
  */
 

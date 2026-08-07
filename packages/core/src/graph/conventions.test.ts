@@ -5,7 +5,7 @@ import {
   ExtractorRegistry,
 } from './conventions.js';
 
-describe('codegenMarkerExtractor (GRF-3 codegen markers)', () => {
+describe('codegenMarkerExtractor (codegen markers)', () => {
   it('emits a generated-from convention edge for a marked file', () => {
     const result = codegenMarkerExtractor.extract({
       path: 'gen/types.ts',
@@ -43,7 +43,7 @@ describe('codegenMarkerExtractor (GRF-3 codegen markers)', () => {
   });
 });
 
-describe('registrySingletonExtractor (GRF-3 DI/registry call-sites)', () => {
+describe('registrySingletonExtractor (DI/registry call-sites)', () => {
   it('emits a convention dependency edge for a registerSingleton call-site', () => {
     const result = registrySingletonExtractor.extract({
       path: 'platform/files.ts',

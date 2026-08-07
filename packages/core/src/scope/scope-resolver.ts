@@ -3,7 +3,7 @@ import { matchGlob } from './glob.js';
 
 /**
  * SCO-1/2 — the pure, deterministic scope resolver. Membership is a function of
- * (expression × graph × WAL) with **no model on any path** (P1). It evaluates a
+ * (expression × graph × WAL) with **no model on any path**. It evaluates a
  * `ScopeExpr` over three leaf bases — `glob` (neutral floor), `tag` (cross-cutting),
  * and `dependsOn` (the one bounded graph leaf this round) — with `any`/`all`
  * set algebra, `exclude` difference, and `scope` composition. The degradation

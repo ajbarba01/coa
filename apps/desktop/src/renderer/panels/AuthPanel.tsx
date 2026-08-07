@@ -156,7 +156,7 @@ export function AuthSurface(): React.JSX.Element {
   const narrow = useNarrow(hostRef, NARROW_PX);
 
   // Live daemon read on every mount (idempotent) — mirrors how the account selector
-  // triggers `listAccounts`. The surface starts empty and hydrates in. Advisory (SC-1):
+  // triggers `listAccounts`. The surface starts empty and hydrates in. Advisory by design:
   // a failed read degrades to the empty state, never an unhandled rejection. The health
   // probe follows the hydrate (sequenced — both reprojects the full view): surfacing the
   // logins without their probe-judged health would show yesterday's verdict as today's.
@@ -257,7 +257,7 @@ function RemoveProviderDialog(): React.JSX.Element {
   const removeProvider = useMockAuth((s) => s.removeProvider);
   const count = useMockAuth((s) => s.credentials.filter((c) => c.providerId === providerId).length);
   // How many of the provider's logins carry a dedicated browser profile — zero renders no
-  // opt-in at all (D85: a provider that never used isolation removes exactly as it does today).
+  // opt-in at all (a provider that never used isolation removes exactly as it does today).
   const profiles = useMockAuth(
     (s) => s.credentials.filter((c) => c.providerId === providerId && c.hasProfile === true).length,
   );
@@ -328,7 +328,7 @@ function RemoveProviderDialog(): React.JSX.Element {
 /** Removing a login that has a dedicated browser profile asks about the profile too: it is
  *  tens of MB of cookie jar on disk, and deleting it is a filesystem act the user should
  *  see rather than inherit. Keeping it is the default — the cautious half of a destructive
- *  choice (docs/adr/0018). */
+ *  choice (profile cleanup only ever happens at the user's explicit request). */
 function RemoveCredentialDialog(): React.JSX.Element {
   const id = useShell((s) => s.confirmRemoveCredential);
   const setConfirm = useShell((s) => s.setConfirmRemoveCredential);
@@ -359,7 +359,7 @@ function RemoveCredentialDialog(): React.JSX.Element {
             </span>
             {credential.profileShared === true ? (
               // The jar belongs to an identity, not to this row, and another login still
-              // signs in with it — deleting it would sign that one out too (docs/adr/0021).
+              // signs in with it — deleting it would sign that one out too (profiles are keyed by identity, which several accounts can share).
               <span className="text-s8">
                 Its browser profile stays: another login signs in as the same person and still uses
                 it.
@@ -690,7 +690,7 @@ function CredentialRow({
   const clearCooldown = useMockAuth((s) => s.clearCooldown);
   const startRelogin = useStartRelogin();
   // Probe-derived: the login behind this pointer no longer answers. Flagged, never
-  // auto-switched (SC-1) — the row keeps its place and gains the one act that heals it.
+  // auto-switched (advisory) — the row keeps its place and gains the one act that heals it.
   const needsRelogin = credential.health === 'needs-relogin';
   const [replacing, setReplacing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -897,8 +897,8 @@ function CredentialRow({
           )}
           <MenuItem
             onClick={() => {
-              // D85: a login that never used isolation has nothing to ask about — one click,
-              // exactly as it did before ADR-0018. `hasProfile` is the only thing that
+              // a login that never used isolation has nothing to ask about — one click,
+              // exactly as it did before isolated login profiles existed. `hasProfile` is the only thing that
               // routes this through a prompt instead.
               if (credential.hasProfile === true) {
                 useShell.getState().setConfirmRemoveCredential(credential.id);

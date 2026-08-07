@@ -22,16 +22,16 @@ import type { FrozenCompilation } from './prompt-freeze.js';
 import { foldEventsToTranscript, type PersistedEvent } from './transcript-projection.js';
 
 /**
- * M8 — the R-7 conversation store. It mirrors each session's conversation to a
- * gitignored per-session tree under `.coa/local/conversation/<id>/` (SPEC R-7 keys
- * this by worktree; until the worktree manager D90/D96 lands every session shares
+ * The persistent conversation store. It mirrors each session's conversation to a
+ * gitignored per-session tree under `.coa/local/conversation/<id>/` (the spec keys
+ * this by worktree; until the worktree manager lands every session shares
  * the repo root, so the session id stands in for the worktree — the documented
  * tripwire). Each session directory holds:
  *   - `meta.json`        — the session index entry (agent, title, timestamps, the
  *                          backend session id used to resume the loop's memory)
- *   - `events.ndjson`    — ONE append-only event log (docs/adr/0010), each line a
+ *   - `events.ndjson`    — ONE append-only event log, each line a
  *                          {@link PersistedEvent} (`{ seq, frame, full? }`) — the
- *                          UNCHANGED M0 wire frame plus, for a `tool_result`, the full
+ *                          UNCHANGED wire frame plus, for a `tool_result`, the full
  *                          body the model saw. `messages.json`/`turns.ndjson` are
  *                          retired: there is no separate whole-rewrite transcript file
  *                          — the provider-neutral transcript is a READ-TIME FOLD of
@@ -45,7 +45,7 @@ import { foldEventsToTranscript, type PersistedEvent } from './transcript-projec
  *
  * Reads never throw: a corrupt `meta.json` drops that session from the listing, and a
  * garbage `events.ndjson` line is skipped — so a hand-edited or partially-written store
- * still re-materializes what it can (the D85 floor).
+ * still re-materializes what it can (the degrade-to-what-we-can floor).
  */
 
 /** The (provider, model) a `backendSessionId` was captured under — the native
@@ -113,8 +113,8 @@ const metaSchema = z.object({
 /** A session's index entry — the durable metadata behind the rail's `SessionSummary`. */
 export type SessionMeta = z.infer<typeof metaSchema>;
 
-/** A persisted turn — the UI view of the event log: the M0 `TurnFrame` with the
- *  monotonic `seq` M8 assigned it (the persistence-only `full` body, when present, is
+/** A persisted turn — the UI view of the event log: the wire `TurnFrame` with the
+ *  monotonic `seq` the session layer assigned it (the persistence-only `full` body, when present, is
  *  dropped — that's the fold's job, not the raw frame stream's). */
 export interface PersistedTurn {
   seq: number;
@@ -161,7 +161,7 @@ export interface ConversationStore {
    *  stream, `full` dropped (the UI view). */
   reload(id: string, toSeq?: number): PersistedTurn[];
   /** The canonical neutral transcript (system omitted) — a read-time fold of the event
-   *  log (docs/adr/0010); empty if none / unparseable. */
+   *  log; empty if none / unparseable. */
   loadBackendMessages(id: string): BackendMessage[];
   /** The session's frozen compilation (the byte-stable prompt reused every turn), or
    *  undefined before the first turn compiles it / if unparseable. */
@@ -184,7 +184,7 @@ export function createConversationStore(
   const eventsPath = (id: string): string => join(sessionDir(id), 'events.ndjson');
   const compilationPath = (id: string): string => join(sessionDir(id), 'compilation.json');
 
-  /** Read + validate the raw event log, skipping any garbage line (never throw — D85). */
+  /** Read + validate the raw event log, skipping any garbage line (never throw; re-materialize what we can). */
   const readEvents = (id: string): PersistedEvent[] => {
     const path = eventsPath(id);
     if (!existsSync(path)) return [];
@@ -195,7 +195,7 @@ export function createConversationStore(
       try {
         raw = JSON.parse(line);
       } catch {
-        continue; // skip a garbage line (D85 floor: re-materialize what we can)
+        continue; // skip a garbage line (re-materialize what we can)
       }
       const parsed = persistedEventSchema.safeParse(raw);
       if (!parsed.success) continue;

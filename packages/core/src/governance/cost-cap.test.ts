@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CostCap } from './cost-cap.js';
 
-describe('CostCap (D35 — the cost-cap seam, default pass-through)', () => {
+describe('CostCap (the cost-cap seam, default pass-through)', () => {
   it('imposes no ceiling under the subscription model (the v1 default)', () => {
     const cap = new CostCap();
     cap.charge('s1', 5);

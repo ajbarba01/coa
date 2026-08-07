@@ -2,7 +2,7 @@ import type { Tier } from '@coa/shared';
 import { hasGrammar, langFromPath } from './languages.js';
 
 /**
- * The neutral-floor / bounded-layer tier decision (D146 clause 3). A file is
+ * The neutral-floor / bounded-layer tier decision. A file is
  * Tier-2 (tags/refs) when a bounded grammar covers its language, else Tier-0
  * (the universal floor that always works). Tier-1 (outline) is not emitted this
  * round. `lang` wins over `path`; either may be absent.

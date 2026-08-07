@@ -13,7 +13,7 @@ import type { CapState } from '../governance/cost-cap.js';
 import { rpcMethod, type RpcHandlers } from './router.js';
 
 /**
- * M8 — the read-only slice of the CON-CAT method catalogue: the inspector verbs
+ * The read-only slice of the CON-CAT method catalogue: the inspector verbs
  * the human console calls to SEE coa's state. Each is a non-mutating render over a
  * daemon-core method that already exists (the "(b)" tag — this wiring is the work,
  * not new behavior); the console computes nothing. They are injected as narrow
@@ -26,9 +26,9 @@ import { rpcMethod, type RpcHandlers } from './router.js';
  * on as those surfaces land.
  */
 export interface ConsoleReadPorts {
-  /** M7 cost surface — non-mutating, safe to call repeatedly. */
+  /** The cost surface — non-mutating, safe to call repeatedly. */
   capState: (sessionId?: string) => CapState;
-  /** M3 CF-1 user-audience feed (crit/high expanded, med/low collapsed-but-counted). */
+  /** The flag pipeline's user-audience feed (crit/high expanded, med/low collapsed-but-counted). */
   flagsForUser: (scope?: string) => FeedView;
   /** The checkpoint timeline — the ordered list the console's Timeline panel renders. */
   listTimeline: () => Checkpoint[];

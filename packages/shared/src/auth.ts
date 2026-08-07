@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * M0 — the credential-blind multi-account types. coa stores POINTERS to Claude
+ * The credential-blind multi-account types. coa stores POINTERS to Claude
  * subscription logins (a Claude Code config dir holding one `claude /login`),
  * never tokens. The locator→env mapping that turns a locator into SDK auth lives
  * in the Claude adapter (the backend seam), not here. `ambient` = no override =
@@ -44,7 +44,7 @@ export const accountSchema = z.object({
   email: z.string().optional(),
   /** A stable, opaque account id. Minted at registration and never derived from the
    *  email or label: both change, and a slug of either collides. It is what per-account
-   *  side state (a browser profile dir) is keyed by — see docs/adr/0018. Absent on rows
+   *  side state (a browser profile dir) is keyed by. Absent on rows
    *  written before ids existed; the registry backfills lazily. Additive, drop-safe. */
   id: z.string().optional(),
 });
@@ -64,7 +64,7 @@ export type AccountsFile = z.infer<typeof accountsFileSchema>;
 /** What a backend's sign-in NEEDS at the auth layer. `isolatedBrowserSession` says the
  *  sign-in is a browser cookie-session flow, so a dedicated browser profile is what makes
  *  the declared identity actually select the account. Claude is the first consumer, not
- *  the owner: a future provider is a row here, never new machinery (docs/adr/0018). */
+ *  the owner: a future provider is a row here, never new machinery. */
 export interface ProviderCapabilities {
   isolatedBrowserSession: boolean;
 }
@@ -76,7 +76,7 @@ export const PROVIDER_CAPABILITIES: Record<Provider, ProviderCapabilities> = {
 };
 
 /** Capability lookup for an unvalidated provider id — an id no backend claims is a `false`,
- *  never a throw (SC-1: an unknown provider just takes the plain path). */
+ *  never a throw (an unknown provider just takes the plain path — surface, never block). */
 export function supportsIsolatedBrowserSession(provider: string): boolean {
   const parsed = providerSchema.safeParse(provider);
   return parsed.success && PROVIDER_CAPABILITIES[parsed.data].isolatedBrowserSession;

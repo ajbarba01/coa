@@ -15,7 +15,7 @@ import type {
 } from './complete.js';
 
 /**
- * The coa-owned governed loop driver (dual-backend spec C2) — the ReAct loop the
+ * The coa-owned governed loop driver — the ReAct loop the
  * Claude Agent SDK runs for its backend, reimplemented once here so every thin
  * pure-API backend reuses it. It owns the governance-critical machinery so it
  * lives in one audited place: the per-tool block, the close-gate, executing every
@@ -23,10 +23,10 @@ import type {
  * neutral {@link TurnFrame}. The only backend-specific surface it consumes is the
  * {@link CompleteFn} primitive; adding another pure API is just implementing that.
  *
- * Governance parity with the SDK backend (spec Part E): the per-tool cost-cap + M3
+ * Governance parity with the SDK backend: the per-tool cost-cap + governance
  * deny predicate is checked inline before any execution, and the close-gate runs
  * before the turn is allowed to end — a block injects the reason and the loop
- * continues rather than stopping. Neither ever throws (SC-1: surface, don't cage).
+ * continues rather than stopping. Neither ever throws (surface, don't cage).
  */
 
 /** A hard bound on model round-trips — a fail-safe against a non-terminating loop. */
@@ -53,31 +53,31 @@ export interface GovernedLoopDeps {
   sessionId: string;
   /** The one backend-specific surface — a pure model round-trip. */
   complete: CompleteFn;
-  /** M6's governed tool catalogue; the driver executes `invoke` itself (producer ①). */
+  /** The governed tool catalogue; the driver executes `invoke` itself (producer ①). */
   catalogue: ToolCatalogue;
-  /** The coa-authored system prompt (M5 render → the scaffold + context). */
+  /** The coa-authored system prompt (the compiled-config render → the scaffold + context). */
   systemPrompt: string;
   /** The user's turn. */
   input: string;
   /**
-   * The prior conversation (R-7), minus the system prompt, replayed verbatim ahead
+   * The prior conversation from the conversation store, minus the system prompt, replayed verbatim ahead
    * of `input` so a pure-API backend has memory across turns (a server-session
    * backend resumes by id instead). The WHOLE transcript is resent unmodified —
    * tool calls and results included — so the model stays coherent and the provider's
    * prefix/context cache hits on the identical leading prefix.
    */
   history?: readonly DriverMessage[];
-  /** The per-tool block: cost-cap + M3 deny, assembled by M8 (first-deny-wins, fail-closed). */
+  /** The per-tool block: cost-cap + governance deny, assembled by the session host (first-deny-wins, fail-closed). */
   canUseTool: CanUseTool;
-  /** The close-gate (M3.gate) run before the turn may end. */
+  /** The close-gate run before the turn may end. */
   gate: StopPredicate;
   /**
-   * Per-frame session output → M8's emission policy (sequenced + pushed, R-12).
+   * Per-frame session output → the session host's emission policy (sequenced + pushed).
    * `full`, present on a `tool_result`, is the complete (uncapped) display body —
-   * the append-only log's fidelity companion to the capped `pointer` (docs/adr/0010).
+   * the append-only log's fidelity companion to the capped `pointer`.
    */
   onTurn?: (frame: TurnFrame, full?: string) => void;
-  /** Settlement → M7.charge, called once with the loop's summed usage. */
+  /** Settlement → the cost meter's charge, called once with the loop's summed usage. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /** Override the round-trip bound (tests / tuning). */
   maxIterations?: number;
@@ -85,20 +85,20 @@ export interface GovernedLoopDeps {
    * Record on-disk changes the loop did not make through a catalogue tool — a file a
    * Bash command wrote, for instance. Driven at the same boundary the Claude backend
    * drives it from (its `PostToolUse` hook), so both backends record the same facts.
-   * Absent ⇒ byte-identical to today (D85).
+   * Absent ⇒ byte-identical to today (a disabled feature degrades to a pass-through).
    */
   observeChanges?: () => void;
   /**
    * A user-initiated stop (interrupt), checked at the safe boundary — the top of
-   * the loop. SC-1: this is a user stop, not a governance block. Absent ⇒ current
+   * the loop. This is a user stop, not a governance block. Absent ⇒ current
    * behavior byte-identical. A steer no longer produces a whole-session stop signal —
-   * it only ever lands on `session.deliveries` (docs/adr/0031).
+   * it only ever lands on `session.deliveries`.
    */
   signal?: AbortSignal;
   /**
    * Pending mid-loop deliveries (user steers and system notices), drained at the top
    * of each round trip — the driver's soonest safe boundary, discarding nothing.
-   * Absent ⇒ no deliveries, byte-identical to today (D85).
+   * Absent ⇒ no deliveries, byte-identical to today (a disabled feature degrades to a pass-through).
    */
   drainDeliveries?: DrainDeliveries;
 }
@@ -108,7 +108,7 @@ export function toToolDefs(catalogue: ToolCatalogue): ToolDef[] {
   return catalogue.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    // The M6 Zod raw shape; the concrete adapter converts it to its provider's
+    // The governed tool's Zod raw shape; the concrete adapter converts it to its provider's
     // tool-parameter format (JSON schema), so the driver stays provider-neutral.
     parameters: tool.inputSchema,
   }));
@@ -145,7 +145,7 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
    * A `system` entry rides the user role because the Messages API offers no other slot
    * for mid-conversation input; the notice framing keeps the model from reading an
    * automated report as the person speaking. No frame is emitted — core's drain closure
-   * is the single writer of the log line (docs/adr/0010, docs/adr/0031).
+   * is the single writer of the log line.
    */
   const absorbDeliveries = (): boolean => {
     const pending = deps.drainDeliveries?.() ?? [];
@@ -161,12 +161,12 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
   try {
     for (let i = 0; i < maxIterations; i += 1) {
       if (deps.signal?.aborted) break;
-      // Mid-loop delivery, drained at the loop's soonest safe boundary (SC-1: user/system
+      // Mid-loop delivery, drained at the loop's soonest safe boundary (user/system
       // input injected, not a governance block).
       absorbDeliveries();
       // Drive the streaming round-trip: emit each delta live, then settle from the
-      // generator's return value. Delta frames are delivery-only (docs/adr/0013) —
-      // M8's record policy pushes but never persists them.
+      // generator's return value. Delta frames are delivery-only —
+      // the session host's record policy pushes but never persists them.
       const it = deps.complete(messages, tools, deps.signal);
       let step: IteratorResult<CompletionDelta, CompletionResult>;
       try {
@@ -178,12 +178,12 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
           step = await it.next();
         }
       } catch (err) {
-        // SC-1 + A1: a user interrupt mid-stream is not an error. The partial is NOT re-emitted
-        // here — M8's interrupt closure already settled it from the streamed deltas and recorded
-        // the `interrupted` marker, so emitting it again would duplicate the block (once from the
-        // live stream, once from this settled frame). Any other throw still propagates.
+        // A user interrupt mid-stream is not an error. The partial is NOT re-emitted
+        // here — the session host's interrupt closure already settled it from the streamed deltas
+        // and recorded the `interrupted` marker, so emitting it again would duplicate the block
+        // (once from the live stream, once from this settled frame). Any other throw still propagates.
         if (deps.signal?.aborted === true) {
-          break; // settle via the outer finally; interrupted-status suppression is M8's job
+          break; // settle via the outer finally; interrupted-status suppression is the session host's job
         }
         throw err;
       }
@@ -202,12 +202,13 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       });
 
       if (result.toolCalls.length === 0) {
-        // The model wants to stop — the close-gate decides (SC-1). Allowed ⇒ settle & end;
+        // The model wants to stop — the close-gate decides (one of the system's two
+        // sanctioned blocks). Allowed ⇒ settle & end;
         // blocked ⇒ inject the reason (as the SDK's Stop hook does) and let it continue.
         const decision = await deps.gate();
         if (decision.allow) {
           // The floor: text that arrived with no drain point left would otherwise be fed to
-          // nobody — the person or the parent agent would get silence (SC-1, docs/adr/0031).
+          // nobody — the person or the parent agent would get silence.
           if (absorbDeliveries()) continue;
           break;
         }
@@ -218,7 +219,7 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
       for (const call of result.toolCalls) {
         const handle = `${deps.sessionId}:${call.id}`;
         emit({ t: 'tool_use', tool: call.name, input: call.arguments, handle });
-        // Per-tool block (Part E): the predicate is checked before any execution, so a
+        // Per-tool block: the predicate is checked before any execution, so a
         // denied call never runs — the deny reason goes back to the model as the result.
         const decision = await deps.canUseTool({
           tool: call.name,
@@ -242,7 +243,7 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
           continue;
         }
         // coa executes every governed tool itself (producer ①) → total visibility. `invoke`
-        // never throws and never denies (SC-1): a bad input comes back as an unapplied result.
+        // never throws and never denies (advisory only — surface, never block): a bad input comes back as an unapplied result.
         const response = await tool.invoke(call.arguments);
         // A pure-API backend has no SDK-rendered result text, so the tool renders its own
         // structured `result` to human-readable display text (its `pointer` is only a terse
@@ -263,14 +264,14 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
         messages.push({ role: 'tool', toolCallId: call.id, content: display });
         // Producer ② at the same boundary the SDK backend uses. coa executes this tool
         // itself, so its own writes are already on the spine — but a shell command can
-        // touch anything, and only a worktree scan sees that (docs/adr/0029).
+        // touch anything, and only a worktree scan sees that.
         deps.observeChanges?.();
       }
     }
   } finally {
     // Settle on EVERY exit — clean end, model/fetch error, or (later) interrupt — so a
     // partial turn is still charged. The canonical transcript is the append-only event
-    // log (docs/adr/0010), not this in-memory array; `messages` (bounded per-tool by
+    // log, not this in-memory array; `messages` (bounded per-tool by
     // `capToolResult`) exists only to resend the round-trip history to the model.
     deps.onSettle?.(deps.sessionId, usage);
   }

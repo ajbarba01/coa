@@ -52,7 +52,7 @@ function stubProducer(state: { flags: FlagRecord[] }, reconciling: boolean): Pro
 const hasConcern = (handle: DaemonCoreHandle, key: string): boolean =>
   handle.flags.flagsForUser().collapsed.some((c) => c.concernKey === key);
 
-/** A minimal registered constraint (an M3 producer) that emits nothing on normal runs. */
+/** A minimal registered constraint (a flag producer) that emits nothing on normal runs. */
 function namedConstraint(id: string): Producer {
   return {
     id,
@@ -66,7 +66,7 @@ function namedConstraint(id: string): Producer {
   };
 }
 
-/** A real M4 SSOT producer whose target drifts from its regenerated source. */
+/** A real single-source-of-truth producer whose target drifts from its regenerated source. */
 function driftingSsotProducer() {
   const relation = { name: 'gen', source: 'src/a.ts', target: 'gen/a.ts', lang: 'typescript' };
   const runner = {
@@ -144,7 +144,7 @@ describe('createDaemonCore', () => {
   it('degrades observeChanges to a no-op outside a git worktree', () => {
     // The reconciler baselines itself with `git ls-files`, which throws in a directory
     // that is not a git repo — as this temp dir is, and as any non-git project would be.
-    // Producer ② is an enhancement, so its absence must never break a session (D85).
+    // Producer ② is an enhancement, so its absence must never break a session.
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(() => handle?.core.observeChanges()).not.toThrow();
     expect(() => handle?.core.observeChanges()).not.toThrow();
@@ -162,7 +162,7 @@ describe('createDaemonCore', () => {
     expect(handle.kernel.listTimeline().length).toBe(before + 1);
   });
 
-  it('exposes the M6 catalogue and M5 compile for the session wiring', () => {
+  it('exposes the governed tool catalogue and prompt compile for the session wiring', () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
     expect(handle.core.catalogue.length).toBeGreaterThan(0);
     expect(handle.core.compile([], { allow: [], deny: [] }).prefixHead).toEqual([]);
@@ -210,7 +210,7 @@ describe('createDaemonCore', () => {
     ]);
   });
 
-  it('catalogueFor/baseCatalogueFor degrade to the unavailable branch with no spawn wired (D85)', async () => {
+  it('catalogueFor/baseCatalogueFor degrade to the unavailable branch with no spawn wired', async () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
     const claudeTool = handle.core.catalogueFor!('sess-a', undefined).find(
       (t) => t.name === 'spawn_agent',
@@ -228,7 +228,7 @@ describe('createDaemonCore', () => {
     expect(JSON.stringify(baseResult)).toContain('unavailable');
   });
 
-  it('the shared catalogue/baseCatalogue are unaffected — same tool count, same names (D85)', () => {
+  it('the shared catalogue/baseCatalogue are unaffected — same tool count, same names', () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
     const sessionScoped = handle.core.catalogueFor!('sess-a', undefined);
     expect(sessionScoped.map((t) => t.name).sort()).toEqual(
@@ -236,7 +236,7 @@ describe('createDaemonCore', () => {
     );
   });
 
-  it('runs registered producers off the kernel feed so a change surfaces a flag (R-3)', () => {
+  it('runs registered producers off the kernel feed so a change surfaces a flag', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
       producers: [driftingSsotProducer()],
@@ -246,7 +246,7 @@ describe('createDaemonCore', () => {
     expect(handle.flags.flagsForUser('gen/a.ts').expanded).toHaveLength(1);
   });
 
-  it('makes the close-gate live: a fired Type-1 flag blocks the close (R-3)', () => {
+  it('makes the close-gate live: a fired Type-1 flag blocks the close', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
       producers: [driftingSsotProducer()],
@@ -441,7 +441,7 @@ describe('createDaemonCore', () => {
       });
       const names = handle.core.baseCatalogue.map((t) => t.name);
       expect(names).toContain('WebFetch');
-      expect(names).toContain('WebSearch'); // registered but inert without a key (SC-1)
+      expect(names).toContain('WebSearch'); // registered but inert without a key (a user stop, never an error)
     } finally {
       if (prior !== undefined) process.env.MISSING_KEY_VAR = prior;
     }

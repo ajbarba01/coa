@@ -1,9 +1,9 @@
 import type { Producer, ProducerInput } from '@coa/shared';
 
 /**
- * M3 owns the pipeline + the CF-6 registration gate; the producer contract TYPE
- * it gates against (`Producer`/`ProducerInput`) lives in M0 (`@coa/shared`) so any
- * feeding module — M4's producers, M6's mutate producer — implements it without
+ * The flag pipeline owns the pipeline + the CF-6 registration gate; the producer contract TYPE
+ * it gates against (`Producer`/`ProducerInput`) lives in `@coa/shared` so any
+ * feeding module — the context layer's producers, the workbench's mutate producer — implements it without
  * importing this ring. Re-exported here for the historical `@coa/core` surface.
  */
 export type { Producer, ProducerInput } from '@coa/shared';

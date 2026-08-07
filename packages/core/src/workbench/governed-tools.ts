@@ -23,26 +23,26 @@ import { sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
 export { spec, type ToolSpec } from './tool-spec.js';
 
 /**
- * M6 — the governed tool-dispatch boundary. This is the seam M9 registers into
- * the rented loop: it turns M6's pure handlers into the {@link RegisteredTool}
- * port shape by wiring each to its live M1/M3/M4/M7 read/write ports and
+ * The governed tool-dispatch boundary. This is the seam the backend adapter registers into
+ * the rented loop: it turns the workbench's pure handlers into the {@link RegisteredTool}
+ * port shape by wiring each to its live kernel/flag/context/governance read/write ports and
  * decorating every return with `enrich` (gated flags). The dispatch
  * is where the two cross-cutting invariants land — inputs are Zod-validated
- * before a handler touches shared state (D141(c)), and every return is enriched
- * (F6) — so the backend adapter (M9) only has to wrap each as an SDK MCP tool.
+ * before a handler touches shared state, and every return is enriched
+ * (F6) — so the backend adapter only has to wrap each as an SDK MCP tool.
  *
  * It is honestly partial: it builds exactly the v1 catalogue (the buildable set),
- * and `invoke` never throws and never denies (SC-1) — a malformed input or a
+ * and `invoke` never throws and never denies — a malformed input or a
  * confinement/diff failure comes back as an unapplied result the agent can retry.
  */
 export interface GovernedToolDeps {
   /** The owning session — stamped on each dispatched {@link ToolCall} for enrichment. */
   sessionId: string;
-  /** M6 Retrieve ports (M1 reads). */
+  /** Retrieve ports (the kernel reads). */
   retrieve: RetrieveDeps;
-  /** M6 Mutate ports (producer ① writes). */
+  /** Mutate ports (producer ① writes). */
   mutate: WorkbenchDeps;
-  /** M6 Inspect ports (M3/M4/M7 reads). */
+  /** Inspect ports (flag/context/governance reads). */
   inspect: InspectDeps;
   /** The cross-cutting return enrichment (gated agent-audience flags). */
   enrich: EnrichDeps;
@@ -94,7 +94,7 @@ const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
   }),
 };
 
-/** Validate, dispatch, and enrich one tool call (SC-1: never throws, never denies). */
+/** Validate, dispatch, and enrich one tool call (never throws, never denies). */
 async function invokeSpec(
   name: string,
   toolSpec: ToolSpec<GovernedToolDeps>,
@@ -119,7 +119,7 @@ async function invokeSpec(
 
 /**
  * Build the governed tool surface for a session: the v1 catalogue, each wired to
- * the live handler ports and ready for M9 to register as in-process MCP tools.
+ * the live handler ports and ready for the backend adapter to register as in-process MCP tools.
  */
 export function buildGovernedTools(
   deps: GovernedToolDeps,

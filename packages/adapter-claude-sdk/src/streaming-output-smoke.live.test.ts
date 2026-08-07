@@ -17,10 +17,11 @@ import {
 } from './live-smoke-helpers.js';
 
 /**
- * The Piece B (G7) de-risk gate: real `@anthropic-ai/claude-agent-sdk` streaming output.
+ * The streaming-output de-risk gate: real `@anthropic-ai/claude-agent-sdk` streaming output.
  * `includePartialMessages` is a real-SDK assumption a fake CANNOT verify — that the SDK
  * emits partial-message content-block deltas mid-turn, which the adapter maps to
- * delivery-only `text-delta`/`thinking-delta` frames (docs/adr/0013). This proves the
+ * delivery-only `text-delta`/`thinking-delta` frames (pushed to subscribers, never
+ * persisted). This proves the
  * live shape Tasks 1-7 built on:
  *  (a) a turn emits MULTIPLE `text-delta` frames BEFORE its settled `text` frame, and
  *  (b) the concatenated deltas equal the settled text (delivery == record).

@@ -17,7 +17,7 @@ function flag(over: Partial<FlagRecord> = {}): FlagRecord {
   };
 }
 
-describe('resolutionFor (D131 typed-reason → effect)', () => {
+describe('resolutionFor (typed-reason → effect)', () => {
   it('treats a wrong-guess as a false positive (resolve)', () => {
     expect(resolutionFor('wrong-guess')).toBe('resolve');
   });
@@ -33,7 +33,7 @@ describe('resolutionFor (D131 typed-reason → effect)', () => {
   });
 });
 
-describe('FlagPipeline.submitFeedback (D131)', () => {
+describe('FlagPipeline.submitFeedback', () => {
   it('records the typed reason for later constraint proposals', () => {
     const pipe = new FlagPipeline();
     pipe.ingest(flag());

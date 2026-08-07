@@ -1,12 +1,12 @@
 import { feedViewSchema, type FeedView } from '@coa/shared';
 import { z } from 'zod';
 
-/** The CF-1 user feed (M3) — re-exported from the M0 wire type so the console
+/** The honest user feed — re-exported from the shared wire type so the console
  *  validates the real shape. */
 export const FeedViewSchema = feedViewSchema;
 export type { FeedView };
 
-/** A timeline checkpoint (M1). Mirrors the core shape; the renderer cannot import
+/** A timeline checkpoint from the change-event spine. Mirrors the core shape; the renderer cannot import
  *  `@coa/core`, so the edge schema lives here (pure). Unknown fields are stripped. */
 export const CheckpointSchema = z.object({
   id: z.string(),
@@ -61,7 +61,8 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     text: z.string(),
     depth: z.number().optional(),
     // Piece B: an in-progress streaming block (fed by `text-delta`), replaced by the
-    // settled `text` frame that follows. Absent ⇒ a committed block (docs/adr/0013).
+    // settled `text` frame that follows (deltas are delivery-only, never persisted).
+    // Absent ⇒ a committed block.
     streaming: z.boolean().optional(),
   }),
   z.object({
@@ -107,7 +108,7 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
     text: z.string(),
     depth: z.number().optional(),
     // Piece B: an in-progress streaming thinking block (fed by `thinking-delta`),
-    // replaced by the settled `thinking` frame that follows (docs/adr/0013).
+    // replaced by the settled `thinking` frame that follows (deltas are delivery-only, never persisted).
     streaming: z.boolean().optional(),
     // Persisted wall-clock (ms) the model spent reasoning — the reveal renders "Thought
     // for Ns" from it identically live and on reload (a token estimate is derived from
@@ -185,7 +186,7 @@ export const LoginSnapshotSchema = z
       'watching',
       'registered',
       // The dir was already signed in before the flow began, so nothing this attempt did
-      // can be credited for it — a decision, not a success (docs/adr/0017).
+      // can be credited for it — a decision, not a success (login health is probe-derived).
       'preexisting',
       'mismatch',
       'failed',
@@ -226,7 +227,7 @@ export const AuthViewSchema = z
   .strip();
 export type AuthView = z.infer<typeof AuthViewSchema>;
 
-/** A model entry as the editor needs it — mirrors the M0 shape; the renderer
+/** A model entry as the editor needs it — mirrors the shared wire shape; the renderer
  *  cannot import `@coa/shared`'s server modules, so the edge schema lives here. */
 export const ReasoningProfileSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('inherit') }),

@@ -60,7 +60,7 @@ export interface Credential {
   /** A dedicated browser profile exists for this login — what the removal prompt asks about. */
   hasProfile?: boolean;
   /** Another login signs in as the same identity, so the profile is not this row's to delete
-   *  (docs/adr/0021) — the prompt says so instead of offering it. */
+   *  (profiles are keyed by identity, which several accounts can share) — the prompt says so instead of offering it. */
   profileShared?: boolean;
 }
 
@@ -81,7 +81,7 @@ export interface MockAuthState {
     available: boolean;
     detectedPath?: string;
     path?: string;
-    /** Profile dirs no account resolves to (docs/adr/0024). Normally empty. */
+    /** Profile dirs no account resolves to (profiles share one user-data-dir; orphaned jars are reclaimed only on request). Normally empty. */
     reclaimable: string[];
   };
   /** Reads `authView` and reprojects it. Idempotent — safe to call on every surface mount. */
@@ -107,7 +107,7 @@ export interface MockAuthState {
   setIsolatedBrowserLogins: (on: boolean) => Promise<void>;
   /** An empty path clears the override back to auto-detection. */
   setBrowserPath: (path: string) => Promise<void>;
-  /** Delete the named jars. Never called except from a click (docs/adr/0018). */
+  /** Delete the named jars. Never called except from a click (profile cleanup only ever happens at the user's explicit request). */
   reclaimBrowserProfiles: (names: string[]) => Promise<void>;
 }
 

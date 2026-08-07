@@ -50,13 +50,13 @@ describe('ClaudeSdkAdapter — pure ports + floor state', () => {
     expect(adapter().renderNative(neutral()).systemPrompt).toBe('# coa governance layer\n\nBODY');
   });
 
-  it('capabilityProfile reports the barebones baseline (valid M0 profile, refs absent)', () => {
+  it('capabilityProfile reports the barebones baseline (valid shared-schema profile, refs absent)', () => {
     const profile = adapter().capabilityProfile();
     expect(() => capabilityProfileSchema.parse(profile)).not.toThrow();
     expect(profile.ports['refs']?.present).toBe(false);
   });
 
-  it('refs returns the null-fallback (caller degrades to the M2 floor)', () => {
+  it('refs returns the null-fallback (caller degrades to the tree-sitter floor)', () => {
     expect(adapter().refs({ name: 'foo' })).toBeNull();
   });
 
@@ -89,7 +89,7 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
         session_id: 'srv-1',
         message: { content: [{ type: 'text', text: 'partial work' }] },
       };
-      controller.abort(); // M8 interrupts after the first message
+      controller.abort(); // the daemon interrupts after the first message
       if (opts.abortController?.signal.aborted) return; // the SDK stops when its controller aborts
       yield {
         type: 'result',
@@ -192,7 +192,7 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
     expect(interrupt).toHaveBeenCalledTimes(1);
   });
 
-  it("wires M8's delivery drain onto the PostToolUse hook, so pending text rides the next tool result", async () => {
+  it("wires the daemon's delivery drain onto the PostToolUse hook, so pending text rides the next tool result", async () => {
     // The whole mid-loop route in one assertion: an injected drain must survive the
     // option assembly and end up as the hook's `additionalContext`. Without it the
     // session queue fills and nothing ever pulls it — the delivery silently never lands.

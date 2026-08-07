@@ -5,22 +5,22 @@ import type { TemporalView } from '../graph/temporal.js';
 import { composeProfile, type WorstPredicate } from './health-profile.js';
 
 /**
- * M4 / L-HLT — the code-health producer floor: the cheap, sound, language-agnostic
- * signals that ride M1's already-built projections (cycles, coupling, the WAL
+ * L-HLT — the code-health producer floor: the cheap, sound, language-agnostic
+ * signals that ride the kernel's already-built projections (cycles, coupling, the WAL
  * temporal view) before the AST cognitive-complexity layer (HLT-6, degrades where
  * no grammar). It composes them into a non-compensatory {@link HealthProfile}
  * (worst-of, never a score — HLT-2) and is a Type-2 advisory read that NEVER
- * blocks (HLT-7 / SC-1). `size-loc` rides along every profile as the HLT-3
+ * blocks (HLT-7). `size-loc` rides along every profile as the HLT-3
  * confound control.
  *
- * Deferred (seams kept): the AST `cognitive-complexity` (HLT-6, needs M2
+ * Deferred (seams kept): the AST `cognitive-complexity` (HLT-6, needs the parser's
  * `extractMetrics`), the system-tier `propagation-cost` / `core-size` (needs a
  * graph-closure pass), `cbo`/`rfc` headline scoring, and the `instability`/`lcom4`
  * refactoring hints. The numerology deny-list (HLT-4) is honored by omission —
  * none of those metrics are computed here.
  */
 
-/** The M1 read-surface health needs (the kernel + graph helpers satisfy it at the wiring layer). */
+/** The kernel read-surface health needs (the kernel + graph helpers satisfy it at the wiring layer). */
 export interface HealthSource {
   cycles(): CycleComponent[];
   coupling(node: string): CouplingFan;
@@ -29,7 +29,7 @@ export interface HealthSource {
   walPosition(): number;
 }
 
-/** Per-metric breach cut-points — a D107 knob the v0 spike calibrates (HLT, conservative defaults). */
+/** Per-metric breach cut-points — a tuning knob the v0 spike calibrates (HLT, conservative defaults). */
 export interface HealthThresholds {
   churn: number;
   hotspot: number;

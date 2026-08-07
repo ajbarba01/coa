@@ -13,7 +13,7 @@ function fakeClock(): () => string {
 
 const text = (s: string): TurnFrame => ({ t: 'text', text: s });
 
-describe('conversation store (R-7)', () => {
+describe('conversation store', () => {
   let dir: string;
   let store: ConversationStore;
 

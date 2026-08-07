@@ -1,13 +1,13 @@
 import { renderSections, type NeutralConfig, type Reminder } from '@coa/shared';
 
 /**
- * The neutral→DeepSeek prompt render (M9). A pure API has only a system message,
- * so this collapses M5's `NeutralConfig` to a single system-prompt string: the
+ * The neutral→DeepSeek prompt render. A pure API has only a system message,
+ * so this collapses the compiled `NeutralConfig` to a single system-prompt string: the
  * most-stable-first prefix (byte-stable — cache invariant honored), rendered into
  * the DC-6 section skeleton, followed by the standing-authority reminders. Unlike
  * the Claude adapter there is no drop-set and no boundary heading — DeepSeek has no
  * preset to defer to, so it renders every Piece. Pull-only/scope-pushed content is
- * deferred (TAX-1), never folded in.
+ * deferred to its own delivery channel, never folded in.
  */
 function renderReminder(reminder: Reminder): string {
   return `[${reminder.rule}] ${reminder.reason}`;

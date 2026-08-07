@@ -41,7 +41,7 @@ const runner = (
 });
 
 describe('assembleProducers', () => {
-  it('returns no producers for an empty registry (the D85 inert floor)', () => {
+  it('returns no producers for an empty registry (the inert floor)', () => {
     expect(assembleProducers([], runner({}))).toEqual([]);
   });
 

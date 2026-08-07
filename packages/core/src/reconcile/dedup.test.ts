@@ -8,7 +8,7 @@ const obs = (over: Partial<Observation> = {}): Observation => ({
   ...over,
 });
 
-describe('classifyObservation (causal dedup, D120)', () => {
+describe('classifyObservation (causal dedup)', () => {
   it('emits an inferred create for a newly observed file', () => {
     const draft = classifyObservation(obs({ postHash: 'h1' }), { priorHash: null });
     expect(draft?.kind).toBe('create');

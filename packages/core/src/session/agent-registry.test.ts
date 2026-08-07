@@ -155,7 +155,7 @@ describe('agent-registry summaries — the picker projections', () => {
   it('grants every catalogue tool through at least one starter package — none is dead on arrival', () => {
     // A frame's allow-list is the union of the resolved packages' toolRefs (assembleAgent.ts:91),
     // never the catalogue directly — registering a tool in TOOL_CATALOGUE does not make it
-    // reachable by any agent. Partition (kernel/on-demand) is the D100 schema-budget axis, not
+    // reachable by any agent. Partition (kernel/on-demand) is the schema-budget axis, not
     // the availability axis, so this deliberately does not require kernel tools to sit in Core
     // specifically (edit_symbol/apply_patch are kernel yet correctly opt-in-only, via `coding` —
     // an edit-less role like `researcher` must not gain them). It only asserts that some starter

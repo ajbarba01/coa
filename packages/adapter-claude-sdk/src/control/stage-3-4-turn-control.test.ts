@@ -105,12 +105,12 @@ describe('stage 3 — per-call interception', () => {
       // A real call through the production assembler — not a text scrape — so a
       // future change that wires a further event moves this EXPECTATION, and that
       // diff is the thing a reviewer sees. PreToolUse joined Stop once the native
-      // spawn call turned out to bypass canUseTool entirely (docs/adr/0028), and
+      // spawn call turned out to bypass canUseTool entirely, and
       // has since become the general per-tool gate rather than a delegation-only
       // one, because canUseTool proved unreliable for ordinary calls too.
       // PostToolUse joined them as the producer trigger: it governs nothing and
-      // drives the reconciler, so a change made by a native tool reaches M1 at all
-      // (docs/adr/0029, which supersedes 0028).
+      // drives the reconciler, so a change made by a native tool reaches the
+      // change-event spine at all.
       const options = assembleSessionOptions({
         sessionId: 'probe',
         backend: emptyBackend(),
@@ -355,7 +355,7 @@ describe('stage 4 — turn boundary', () => {
       expect(KNOWN_TERMINAL_REASONS).toContain('max_turns');
     });
 
-    it('coa now reads terminal_reason — turn-frames.ts reports it on the boundary (docs/adr/0028)', () => {
+    it('coa now reads terminal_reason — turn-frames.ts reports it on the boundary', () => {
       // This survey originally found the opposite: turn-frames.ts derived its error frame
       // from `subtype` alone, so stop_hook_prevented vs. max_turns vs. completed were
       // indistinguishable to coa regardless of what the wire sent. That gap is closed —

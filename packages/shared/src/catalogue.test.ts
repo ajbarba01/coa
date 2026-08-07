@@ -4,8 +4,8 @@ import { canonicalizationProfileSchema, tierSchema } from './code-lens.js';
 import { neutralConfigSchema } from './config.js';
 import { healthProfileSchema, metricSampleSchema } from './metric.js';
 
-/** Smoke coverage for the remaining D-CAT records that have no dedicated test file. */
-describe('D-CAT catalogue smoke', () => {
+/** Smoke coverage for the remaining shared records that have no dedicated test file. */
+describe('shared type-catalogue smoke', () => {
   it('tierSchema accepts only 0|1|2', () => {
     expect(tierSchema.parse(2)).toBe(2);
     expect(tierSchema.safeParse(3).success).toBe(false);
@@ -17,7 +17,7 @@ describe('D-CAT catalogue smoke', () => {
     ).toEqual([[0, 10]]);
   });
 
-  it('metricSampleSchema requires sizeLoc alongside the value (HLT-3 confound)', () => {
+  it('metricSampleSchema requires sizeLoc alongside the value (the size confound control)', () => {
     const ok = {
       metric: 'cognitive-complexity' as const,
       granularity: 'symbol' as const,
@@ -52,7 +52,7 @@ describe('D-CAT catalogue smoke', () => {
     expect(capabilityProfileSchema.parse(profile).ports['lsp']?.present).toBe(false);
   });
 
-  it('neutralConfigSchema keeps the D105 slot set', () => {
+  it('neutralConfigSchema keeps the pinned slot set', () => {
     const cfg = {
       prefixHead: [],
       systemReminders: [],

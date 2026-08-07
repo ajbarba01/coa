@@ -5,7 +5,7 @@ import { baselineStablePieces } from './baseline-pieces.js';
 /**
  * The built-in starter registry of {@link AgentPackage}s and {@link Role}s — the
  * first code-shipped set an agent can be assembled from (user-authored `.coa/`
- * packages come later). Tool names reference the M6 catalogue (governed tools) and
+ * packages come later). Tool names reference the governed tool catalogue (governed tools) and
  * the backend built-in set (`Read`/`Bash`/…); each is defined once elsewhere and
  * only referenced here, so a tool is never doubled.
  *
@@ -114,8 +114,8 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
       'Meta-capabilities: assemble and configure agents, packages, and roles on the user’s behalf.',
     inclusion: 'opt-in',
     // PLACEHOLDER: the coa-control tool family is not built yet; these are the
-    // intended grants (a new governed tool family that acts on coa itself — R-13
-    // self-mod territory, governed + audited).
+    // intended grants (a new governed tool family that acts on coa itself —
+    // self-modification territory, governed + audited).
     toolRefs: ['create_agent', 'configure_role', 'list_packages'],
     pieces: [
       behaviorPiece(

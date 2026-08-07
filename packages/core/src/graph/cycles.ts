@@ -1,7 +1,7 @@
 import type { EdgeType, GraphEdge } from '@coa/shared';
 
 /**
- * GRF-1 — cycles/tangles as first-class findings. A dependency cycle is the #1
+ * Cycles/tangles as first-class findings. A dependency cycle is the #1
  * "spaghetti" signal, so the graph **retains every intra-cycle edge** and the SCC
  * condensation is a *view* computed on demand here — never a destructive write
  * that collapses the edges. Beyond detecting the strongly-connected component,

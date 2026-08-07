@@ -8,7 +8,7 @@ import { HLJS_TOKEN_STYLE, SyntaxText } from './syntaxTheme.js';
 describe('SyntaxText', () => {
   it('tokenizes a registered language into multiple spans, byte-faithfully', () => {
     const { container } = render(<SyntaxText code="const x = 1;" language="typescript" />);
-    expect(container.textContent).toBe('const x = 1;'); // D128: verbatim
+    expect(container.textContent).toBe('const x = 1;'); // byte-faithful: verbatim
     expect(container.querySelectorAll('span').length).toBeGreaterThan(1); // real highlighting
   });
 

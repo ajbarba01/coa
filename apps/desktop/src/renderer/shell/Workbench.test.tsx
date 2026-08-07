@@ -68,9 +68,9 @@ describe('Workbench', () => {
   it('routes the auth surface to its pane — credentials outgrew the ◐ foot popover', async () => {
     publishConsoleState(makeState());
     useShell.getState().setSurface('auth');
-    // The auth store is empty until its mount-time `hydrate()` resolves (Task 10 — live
-    // daemon reads); this file's `window.coa` stub carries no `authView`, so that read
-    // rejects (swallowed, SC-1) and never populates the store. Seed directly instead —
+    // The auth store is empty until its mount-time `hydrate()` resolves (the live
+    // daemon reads land later); this file's `window.coa` stub carries no `authView`, so that read
+    // rejects (swallowed — surfacing failures never block) and never populates the store. Seed directly instead —
     // this test is only routing, not auth's own render coverage (AuthPanel.test.tsx owns
     // that).
     useMockAuth.setState({ added: ['claude', 'tavily'], enabled: { claude: true, tavily: true } });

@@ -7,10 +7,10 @@ import {
 import type { RegisteredTool } from '@coa/spi';
 
 /**
- * The M6↔M9 tool bridge: turn M6's governed {@link RegisteredTool}s into the
+ * The workbench↔adapter tool bridge: turn the governed {@link RegisteredTool}s into the
  * Claude Agent SDK's in-process MCP surface. coa registers them under one SDK MCP
  * server (`createSdkMcpServer`), so each tool's handler runs in the daemon
- * process — which is exactly why M6 already Zod-validates and path-confines every
+ * process — which is exactly why the workbench already Zod-validates and path-confines every
  * call (the SDK OS sandbox does NOT confine in-process MCP tools). Each SDK tool
  * just awaits the governed `invoke` (validate → dispatch → enrich) and serializes
  * the enriched {@link import('@coa/shared').ToolResponse} as the tool result; all
@@ -24,12 +24,12 @@ export function mcpToolName(name: string): string {
   return `mcp__${SERVER_NAME}__${name}`;
 }
 
-/** The MCP allow-list M9 adds to `allowedTools` so the governed tools are callable. */
+/** The MCP allow-list the adapter adds to `allowedTools` so the governed tools are callable. */
 export function mcpToolNames(tools: readonly RegisteredTool[]): string[] {
   return tools.map((registered) => mcpToolName(registered.name));
 }
 
-/** Wrap one governed tool as an SDK MCP tool definition (kernel set is always-loaded, D100). */
+/** Wrap one governed tool as an SDK MCP tool definition (the kernel tool set is always loaded). */
 export function coaSdkTool(registered: RegisteredTool): SdkMcpToolDefinition {
   return tool(
     registered.name,

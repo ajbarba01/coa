@@ -2,12 +2,12 @@ import { z } from 'zod';
 import type { ScopeRef } from './ids.js';
 
 /**
- * Scope membership (the SCO-* family). A scope's membership is a composable
+ * Scope membership. A scope's membership is a composable
  * expression over tag / glob / graph-query leaves with set algebra and
- * composition (SCO-1); M1 owns resolution, M0 owns the type.
+ * composition; the change-event spine owns resolution, this package owns the type.
  */
 
-/** A composable membership expression (SCO-1). Recursive via `any`/`all`/`scope`. */
+/** A composable membership expression. Recursive via `any`/`all`/`scope`. */
 export type ScopeExpr =
   | { tag: string }
   | { glob: string }
@@ -29,7 +29,7 @@ export const scopeExprSchema: z.ZodType<ScopeExpr> = z.lazy(() =>
   ]),
 );
 
-/** A named scope (SCO-1; supersedes glob-only D32). `attach` = SCO-4 delivery; `mayDependOn` = SCO-6 (deferred-enforce). */
+/** A named scope (supersedes the earlier glob-only form). `attach` = pieces delivered when the scope activates; `mayDependOn` = declared-but-deferred dependency enforcement. */
 export const scopeSchema = z.object({
   name: z.string(),
   include: scopeExprSchema,
@@ -39,7 +39,7 @@ export const scopeSchema = z.object({
 });
 export type Scope = z.infer<typeof scopeSchema>;
 
-/** The cached membership projection + WAL freshness stamp (SCO-2). `degraded` records leaves that resolved to nothing. */
+/** The cached membership projection + WAL freshness stamp. `degraded` records leaves that resolved to nothing. */
 export const scopeResolutionSchema = z.object({
   scope: z.string(),
   members: z.array(z.string()),
@@ -48,7 +48,7 @@ export const scopeResolutionSchema = z.object({
 });
 export type ScopeResolution = z.infer<typeof scopeResolutionSchema>;
 
-/** A record of one SCO-4 delivery firing (which scope, what was injected/suppressed, and why) — SCO-4/5. */
+/** A record of one scope-delivery firing (which scope, what was injected/suppressed, and why). */
 export const scopeActivationSchema = z.object({
   scope: z.string(),
   trigger: z.enum(['read', 'edit', 'mention', 'session']),

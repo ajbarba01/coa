@@ -13,7 +13,7 @@ type PackagePatch = Partial<Pick<AgentSummary, 'packageIds' | 'exclude'>>;
 /**
  * The packages an agent currently includes: the `default` packages + the UNION of
  * every selected role's opt-ins + the user's added opt-ins, minus the user's
- * exclusions. Mirrors the M8 resolver so the picker shows exactly what the backend
+ * exclusions. Mirrors the daemon-side resolver so the picker shows exactly what the backend
  * would assemble.
  */
 export function includedPackageIds(

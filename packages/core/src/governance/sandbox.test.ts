@@ -3,14 +3,14 @@ import { DENY_READ_GLOBS, SECRETS_GLOB, sandboxPolicy } from './sandbox.js';
 
 const worktree = '/work/main';
 
-describe('sandboxPolicy (D148/D141 — the per-session capability set M9 enforces)', () => {
+describe('sandboxPolicy (the per-session capability set the backend adapter enforces)', () => {
   it('denies reads of the completed secrets set, including the SDK credential home', () => {
     const set = sandboxPolicy({ sessionId: 's1', trust: 'local', worktree });
     for (const glob of DENY_READ_GLOBS) expect(set.denyRead).toContain(glob);
     expect(set.denyRead).toContain('~/.claude/**');
   });
 
-  it('uses the one secrets glob (D129 single-glob) in the deny-read set', () => {
+  it('uses the one secrets glob (single-glob) in the deny-read set', () => {
     const set = sandboxPolicy({ sessionId: 's1', trust: 'local', worktree });
     expect(set.denyRead).toContain(SECRETS_GLOB);
   });

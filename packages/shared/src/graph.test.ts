@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { graphEdgeSchema, symbolRecordSchema } from './graph.js';
 
 describe('graphEdgeSchema', () => {
-  it('accepts an edge with provenance, weight, and an inScc marker (GRF-1/3/4)', () => {
+  it('accepts an edge with provenance, weight, and an inScc marker', () => {
     const edge = {
       from: 'a',
       to: 'b',

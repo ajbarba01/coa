@@ -571,7 +571,7 @@ function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.E
     <>
       {active.map(([provider, label]) => {
         // A broken ACTIVE login is FLAGGED here too, its re-login one click away — never
-        // swapped out from under you (badge surface #3, SC-1).
+        // swapped out from under you (the console flags, it never auto-switches).
         const broken = activeNeedsRelogin(activeByProvider, provider, credentials);
         const name = providerById(provider)?.label ?? provider;
         if (!broken) return <Kv key={provider} k={name} v={label} />;

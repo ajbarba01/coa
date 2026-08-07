@@ -215,7 +215,7 @@ export function UsageSurface(): React.JSX.Element {
 
   // Usage reads the SAME live credential store the auth surface hydrates — a mount here
   // must not depend on the user having visited auth first (idempotent, mirrors AuthSurface).
-  // Advisory (SC-1): a failed read degrades to whatever the store already held.
+  // Advisory by design: a failed read degrades to whatever the store already held.
   useEffect(() => {
     void useMockAuth
       .getState()

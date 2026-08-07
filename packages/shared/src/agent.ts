@@ -3,19 +3,20 @@ import { claudeReasoningSchema } from './config.js';
 import { pieceSchema } from './piece.js';
 
 /**
- * The agent-assembly composition model (TAX-6). An {@link AgentPackage} is a
+ * The agent-assembly composition model. An {@link AgentPackage} is a
  * reusable capability bundle — a named set of **skills** (Pieces) + **tools**
  * (individual grants) + **mcps** (whole external MCP servers) it pulls in. A
  * {@link Role} is a *composition of packages* plus its own role data (role-level
  * Pieces). The resolver unions everything and dedupes, so a tool is never doubly
  * defined; tools/mcps are REFERENCED by name (each is defined once elsewhere).
  *
- * Nothing is mandatory (D85 strict-superset / SC-1 "help never cage"): a package
+ * Nothing is mandatory (help, never cage — a disabled package degrades to a pass-through): a package
  * is either `default` (on unless excluded) or `opt-in` (off unless a role adds
  * it), and `advise` marks a package coa recommends — the resolver reports advised
  * packages that are absent so the console/agent can nudge, never force. This is
- * the lean runtime model M8's resolver consumes; the heavier versioned form is
- * {@link BundleManifest}. M0 owns the types; the resolver is M8's.
+ * the lean runtime model the session host's resolver consumes; the heavier versioned
+ * form is {@link BundleManifest}. This package owns the types; the resolver is the
+ * session host's.
  */
 
 export const agentPackageSchema = z.object({

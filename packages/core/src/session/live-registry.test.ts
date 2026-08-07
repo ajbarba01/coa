@@ -109,7 +109,7 @@ describe('LiveSessionRegistry', () => {
     expect(closed.sort()).toEqual(['c1', 'c2']);
   });
 
-  it('close(id) aborts an in-flight turn and marks it interrupted first (SC-1-safe abort)', () => {
+  it('close(id) aborts an in-flight turn and marks it interrupted first (user-stop-safe abort)', () => {
     const r = new LiveSessionRegistry();
     const { session } = r.getOrCreate('c1');
     const controller = new AbortController();

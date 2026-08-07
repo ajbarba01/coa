@@ -3,7 +3,7 @@ import type { ChangeEvent } from '@coa/shared';
 import { readFrames, serializeFrame, type ReadResult } from './frame.js';
 
 /**
- * The durable WAL (D94): ordered append + `fsync` at the batch boundary. The
+ * The durable WAL: ordered append + `fsync` at the batch boundary. The
  * file is opened in append mode so a reopen continues the existing log (the log
  * is the source of truth — every projection rebuilds from it). `append` performs
  * the write; `sync` performs the one `fsync` per coalesced batch the caller
@@ -21,7 +21,7 @@ export class Wal {
     writeSync(this.fd, serializeFrame(event) + '\n');
   }
 
-  /** Flush the OS buffer to disk — one call per coalesced batch (D94). */
+  /** Flush the OS buffer to disk — one call per coalesced batch. */
   sync(): void {
     fsyncSync(this.fd);
   }

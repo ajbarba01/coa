@@ -25,7 +25,7 @@ describe('probe-kit — the stub-CLI capture harness', () => {
 
   it('reads a flag the SDK spells inline, and keeps empty distinct from absent', async () => {
     // `settingSources: []` renders as the single token `--setting-sources=`. Read
-    // naively that looks like an absent flag, which would invert the D108 probe.
+    // naively that looks like an absent flag, which would invert the config-isolation probe.
     const capture = await captureSpawn({ settingSources: [] });
     expect(capture.argv).toContain('--setting-sources=');
     expect(capture.hasFlag('--setting-sources')).toBe(true);

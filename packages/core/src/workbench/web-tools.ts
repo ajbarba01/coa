@@ -9,7 +9,7 @@ import type { ProviderOutcome, ChainResult } from './web/routing.js';
  * The pure-API web tools (WebSearch/WebFetch). coa supplies these only on the
  * owned-adapter path — Claude gets equivalents server-side. They are egress tools:
  * they never touch the worktree and never emit a change-event. Every handler obeys
- * SC-1 — a provider error or dead URL comes back as an unapplied result, never a throw.
+ * A provider error or dead URL comes back as an unapplied result, never a throw.
  */
 
 export interface SearchHit {
@@ -62,7 +62,7 @@ export async function webSearch(
   );
 }
 
-/** The optional page-summarizer (a stripped model call). Absent ⇒ raw-markdown mode (D85). */
+/** The optional page-summarizer (a stripped model call). Absent ⇒ raw-markdown mode. */
 export interface Summarizer {
   summarize(req: { markdown: string; prompt: string }): Promise<string>;
 }
@@ -83,10 +83,10 @@ const DEFAULT_MAX_CHARS = 100_000;
 
 /**
  * `WebFetch` — mirrors Claude's args (url + prompt). Runs the routed {@link RoutedFetch}
- * chain, then: on `exhausted` (only possible with the free floor off) → an SC-1 unapplied
+ * chain, then: on `exhausted` (only possible with the free floor off) → an unapplied
  * result; on `ok` clean content (Firecrawl) → return as-is, SKIPPING the summarizer; on `ok`
  * non-clean content (free floor) → summarize if configured, else the capped markdown. The
- * up-front `maxChars` cap bounds both the summarizer input and the returned markdown (SC-1).
+ * up-front `maxChars` cap bounds both the summarizer input and the returned markdown.
  */
 export async function webFetch(
   req: { url: string; prompt: string },
@@ -107,7 +107,7 @@ export async function webFetch(
       const content = await deps.summarizer.summarize({ markdown, prompt: req.prompt });
       return wrap({ fetched: true, content, summarized: true }, `web_fetch:${req.url}`, req.url);
     } catch {
-      // Summarizer failure degrades to raw markdown rather than failing the fetch (D85 / SC-1).
+      // Summarizer failure degrades to raw markdown rather than failing the fetch.
     }
   }
   return wrap(

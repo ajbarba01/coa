@@ -12,7 +12,7 @@ describe('DenyNotice', () => {
         detail="Raise the cap to continue."
       />,
     );
-    // SC-1: one of the only two blocks in the system — a firm stop, not an alarm.
+    // One of the only two blocks in the system — a firm stop, not an alarm.
     // role="status" (not "alert") reads as an informational, non-modal notice.
     const notice = screen.getByRole('status');
     expect(notice).toHaveAttribute('data-deny-kind', 'cost-cap');

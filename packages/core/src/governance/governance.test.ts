@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Governance } from './governance.js';
 
-describe('Governance (the composed M7 surface)', () => {
+describe('Governance (the composed governance surface)', () => {
   it('exposes the cost cap as a default pass-through and meters when charged', () => {
     const gov = new Governance();
     gov.charge('s1', 5);

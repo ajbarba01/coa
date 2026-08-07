@@ -25,7 +25,7 @@ import { runSession } from './cli.js';
 
 /**
  * End-to-end proof of the `coa run` path over a real OS pipe with a FAKE backend:
- * client → daemon → session lifecycle → R-12 push → terminal render. The live-SDK
+ * client → daemon → session lifecycle → live push → terminal render. The live-SDK
  * smoke test (a real `query()`) is the v0-spike gate and runs behind auth, not here.
  */
 

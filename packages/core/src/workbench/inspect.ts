@@ -2,21 +2,21 @@ import type { ContextPackage, FeedView, ToolResponse } from '@coa/shared';
 import type { CapState } from '../governance/cost-cap.js';
 
 /**
- * M6 Graph/Context/Flags + Explain — the read surface over the governed session
- * state (D103). Each return is a distilled handle + a pointer. Surfaces whose
- * upstream is not yet built degrade honestly to a floor (D85): `context_status`
- * returns the live cap with a null assembled-context until M4's package lands,
- * and `get_spec` returns null until M4's spec store exists. `run_checks` runs
- * M3's pipeline on demand.
+ * Graph/Context/Flags + Explain — the read surface over the governed session
+ * state. Each return is a distilled handle + a pointer. Surfaces whose
+ * upstream is not yet built degrade honestly to a floor: `context_status`
+ * returns the live cap with a null assembled-context until the context layer's package lands,
+ * and `get_spec` returns null until the context layer's spec store exists. `run_checks` runs
+ * the flag pipeline on demand.
  */
 export interface InspectDeps {
-  /** Run M3's flag pipeline for a scope and return the user-audience feed. */
+  /** Run the flag pipeline for a scope and return the user-audience feed. */
   runChecks: (scope?: string) => FeedView;
-  /** The non-mutating M7 cap read (never the charging path). */
+  /** The non-mutating governance cap read (never the charging path). */
   capState: () => CapState;
-  /** M4's assembled-context package — floored until L-ASM is built. */
+  /** The context layer's assembled-context package — floored until L-ASM is built. */
   contextPackage?: () => ContextPackage | undefined;
-  /** M4's governing spec for a ref — floored until the spec store is built. */
+  /** The context layer's governing spec for a ref — floored until the spec store is built. */
   getSpec?: (ref: string) => string | undefined;
 }
 
@@ -35,7 +35,7 @@ export function contextStatus(deps: InspectDeps): ToolResponse<ContextStatusResu
   return wrap({ cap: deps.capState(), context }, 'context-status', 'session');
 }
 
-/** `get_spec` — the governing spec for a symbol/scope (floored until M4's spec store exists). */
+/** `get_spec` — the governing spec for a symbol/scope (floored until the context layer's spec store exists). */
 export function getSpec(req: { ref: string }, deps: InspectDeps): ToolResponse<GetSpecResult> {
   const spec = deps.getSpec?.(req.ref) ?? null;
   return wrap({ ref: req.ref, spec }, `spec:${req.ref}`, req.ref);

@@ -44,7 +44,8 @@ const ANSI = /\x1b\[[0-9;]*m/g;
  * box from. Dropping the whole sequence leaves the link text, which is the same url, clean.
  *
  * Escape handling is load-bearing here only because coa now opens the browser from its own
- * capture rather than delegating to the CLI (docs/adr/0019).
+ * capture rather than delegating to the CLI (coa opens the profiled browser itself so
+ * the login lands in the identity's own profile).
  */
 // eslint-disable-next-line no-control-regex -- ditto
 const OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
@@ -78,7 +79,7 @@ const WIN32_NAMES = ['claude.exe', 'claude.cmd', 'claude.bat'];
  * node-pty does no shell resolution — it needs a name the OS can execute directly — so a
  * wrong guess here throws and silently degrades the whole flow to the pipe branch. Falls
  * back to the bare name rather than throwing, leaving the pipe branch's `shell: true`
- * resolution a last chance (SC-1).
+ * resolution a last chance (help, never cage).
  */
 export function resolveClaudeCommand(
   platform: string,
@@ -111,9 +112,10 @@ function claudeCommand(): string {
 /**
  * Pure: the environment the login spawn runs under. `CLAUDE_CONFIG_DIR` is what keeps the
  * login inside coa's managed dir; `BROWSER` points the CLI at coa's courier shim, which
- * displaces the CLI's own open and writes down the url it was handed (docs/adr/0020). No
- * launcher ⇒ the variable is not touched at all, so an unisolated login is byte-for-byte
- * today's (D85).
+ * displaces the CLI's own open and writes down the url it was handed (the shim relays the
+ * self-completing url instead of racing the CLI for it). No launcher ⇒ the variable is not
+ * touched at all, so an unisolated login is byte-for-byte today's — the feature degrades
+ * to a pass-through.
  */
 export function loginEnv(
   base: NodeJS.ProcessEnv,

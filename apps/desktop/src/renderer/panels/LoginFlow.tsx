@@ -14,12 +14,12 @@ import type { ProviderDescriptor } from './providers.js';
  * --email <email>` against a managed dir (~/.coa/logins/<slug>/, via CLAUDE_CONFIG_DIR),
  * watches the CLI's output for the OAuth URL, polls `claude auth status --json` for the
  * login to land, and registers the account under its email. coa never reads the token —
- * credential-blindness holds (the ADR shipped with this feature).
+ * credential-blindness holds.
  *
  * An account is DEFINED by its email here: the flow opens on an email-first pre-step
  * (renderer-local — the daemon only hears about a flow once the email is known), the
  * browser opens pre-filled with it, and the probe's landed email is the truth — a
- * mismatch is FLAGGED with keep/retry, never blocked (SC-1). Everything after the
+ * mismatch is FLAGGED with keep/retry, never blocked (advisory). Everything after the
  * pre-step is a projection of the daemon's `LoginSnapshot`; phases advance only from
  * polling, never from clicks.
  */
@@ -166,7 +166,7 @@ function EmailStep({
             aria-label="Email"
           />
         </label>
-        {/* Isolation is real now (ADR-0018) — the copy names the dedicated profile only
+        {/* Isolation is real now — the copy names the dedicated profile only
             when it's actually live, never as an aspiration. */}
         <span className="text-meta leading-relaxed text-s7">
           {isolated

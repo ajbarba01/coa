@@ -1,8 +1,8 @@
 import type { BackendMessage } from '@coa/shared';
 
 /**
- * M8 — the per-turn memory strategy (SPEC R-7). The canonical transcript is the
- * read-time fold over the conversation's append-only `events.ndjson` (docs/adr/0010)
+ * The per-turn memory strategy . The canonical transcript is the
+ * read-time fold over the conversation's append-only `events.ndjson`
  * — the single source of truth for a conversation's memory; this decides HOW to hand
  * it to the turn's backend so the agent's memory always matches what the user sees,
  * across restarts and provider switches, while keeping the provider's cache as warm

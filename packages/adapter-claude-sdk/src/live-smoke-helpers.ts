@@ -11,7 +11,7 @@ import type { CanUseTool, StopPredicate } from '@coa/spi';
  * turn-interrupt, single-source-of-truth, streaming-output). Each smoke drives a real
  * `@anthropic-ai/claude-agent-sdk` `query()` through {@link ClaudeSdkAdapter}; these
  * helpers are the generic, backend-agnostic plumbing every one of them needs — the
- * minimal neutral config + SC-1 predicates, the credential-blind account resolution,
+ * minimal neutral config + close-gate/cost-cap predicates, the credential-blind account resolution,
  * a hand-rolled push queue for feeding turns on the test's own schedule, and the
  * timing/frame utilities. Kept in one module so a new smoke does not fork a fourth copy.
  */

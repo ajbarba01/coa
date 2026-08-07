@@ -708,7 +708,7 @@ describe('ChatSurface states-first', () => {
     expect(within(driftRow).getByRole('button', { name: 'Recompile' })).toBeInTheDocument();
   });
 
-  it('the dedicated Stop control while running wires to interruptSession (SC-1, not an error affordance)', async () => {
+  it('the dedicated Stop control while running wires to interruptSession (a user stop, not an error affordance)', async () => {
     const interruptSession = vi.fn();
     const state = stateWith(
       { status: 'ok', value: [] },
@@ -718,7 +718,7 @@ describe('ChatSurface states-first', () => {
     render(<ChatSurface state={state} />);
     const stop = screen.getByRole('button', { name: /stop/i });
     // The Stop control is a clean-stop affordance, not the danger tone an error surface would
-    // use (SC-1: a user stop, never a governance block).
+    // use (a user stop, never a governance block).
     expect(stop.className).not.toMatch(/danger/);
     await userEvent.click(stop);
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');

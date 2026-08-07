@@ -1,8 +1,9 @@
 /**
- * @coa/loop-driver — the coa-owned governed ReAct loop for pure-API backends
- * (dual-backend spec Part C). A thin chat-completions adapter (DeepSeek, or any
+ * @coa/loop-driver — the coa-owned governed ReAct loop for pure-API backends.
+ * A thin chat-completions adapter (DeepSeek, or any
  * OpenAI-compatible API) implements only the {@link CompleteFn} primitive; this
- * package drives the loop, applies the two SC-1 blocks, executes every governed
+ * package drives the loop, applies the system's only two blocks (the close-gate
+ * and the cost-cap), executes every governed
  * tool, and maps each step to a neutral {@link TurnFrame}. Backend-neutral: it
  * imports only `@coa/shared` + `@coa/spi`, no provider SDK.
  */

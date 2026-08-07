@@ -1,17 +1,17 @@
 import type { CanUseTool, StopDecision, StopPredicate, ToolPermissionDecision } from '@coa/spi';
 
 /**
- * M8 — the two session predicates handed to M9's hooks (D121). These are the
- * ONLY two blocks in the whole system (SC-1): the cost cap + per-tool deny ride
- * the `canUseTool` hook, and the close-gate rides the `Stop` hook. M9 holds no
- * policy — it only runs the predicate M8 assembles.
+ * The two session predicates handed to the backend adapter's hooks. These are the
+ * ONLY two blocks in the whole system (a user stop, never an error): the cost cap + per-tool deny ride
+ * the `canUseTool` hook, and the close-gate rides the `Stop` hook. The backend adapter holds no
+ * policy — it only runs the predicate the session layer assembles.
  */
 
-/** The narrow M7/M3 reads the `canUseTool` predicate composes (injected, not imported). */
+/** The narrow cost/flag reads the `canUseTool` predicate composes (injected, not imported). */
 export interface PermissionDeps {
-  /** Non-mutating cost read (M7.capState) — the cap check, consulted first. */
+  /** Non-mutating cost read — the cap check, consulted first. */
   capState: () => { capHit: boolean };
-  /** The per-tool deny rule check (M3.perToolDeny) — consulted only if the cap is clear. */
+  /** The per-tool deny rule check — consulted only if the cap is clear. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
 }
 
@@ -42,7 +42,7 @@ export function buildCanUseTool(deps: PermissionDeps): CanUseTool {
   };
 }
 
-/** Wire the close-gate: M3.gate's verdict is already the `Stop`-hook decision shape. */
+/** Wire the close-gate: the close-gate verdict is already the `Stop`-hook decision shape. */
 export function buildStopGate(deps: { gate: () => StopDecision }): StopPredicate {
   return () => deps.gate();
 }

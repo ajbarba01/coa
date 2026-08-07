@@ -4,7 +4,7 @@ import type { Delivery } from '@coa/spi';
  * The neutral pending-delivery queue: text waiting to reach a session's model at
  * the soonest point its backend's turn model allows. Core fills it; each adapter
  * drains it at its own boundary (the pure-API loop's next round trip, the Claude
- * adapter's PostToolUse hook), so no plane above M9 branches on backend.
+ * adapter's PostToolUse hook), so no plane above the backend port branches on backend.
  *
  * `origin` separates what a person said from what the system reports: a `user`
  * entry is recorded as a user turn in canonical memory, a `system` entry is a

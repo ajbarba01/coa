@@ -33,7 +33,7 @@ const EMPTY: AccountsFile = { active: {}, accounts: [] };
 
 /** A stable, opaque account id. Random rather than derived: an id derived from the email
  *  or label inherits their collisions and dies on a rename, and per-account side state
- *  (a browser profile) is keyed by this — see docs/adr/0018. */
+ *  (a browser profile) is keyed by this. */
 export function mintAccountId(): string {
   return randomBytes(6).toString('hex');
 }

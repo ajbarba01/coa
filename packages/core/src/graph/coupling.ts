@@ -1,13 +1,13 @@
 import type { EdgeType, GraphEdge } from '@coa/shared';
 
 /**
- * GRF-4 — the coupling substrate. Coupling metrics (CBO/RFC/fan-in/out) need
+ * The coupling substrate. Coupling metrics (CBO/RFC/fan-in/out) need
  * typed, weighted symbol edges the import-only model lacked. This returns the
  * **typed/weighted fan** over `calls`/`inherits` (the OO coupling edges; module-
  * tier `depends-on`/`imports` are a different granularity) plus the cheap,
- * deterministic counts (P1). M4's L-HLT composes the actual non-compensatory
- * health profile from this — M1 owns the substrate, not the metric judgment.
- * Staleness ignores `weight` and this fan entirely (D54 unchanged).
+ * deterministic counts. The context layer's L-HLT composes the actual non-compensatory
+ * health profile from this — the kernel owns the substrate, not the metric judgment.
+ * Staleness ignores `weight` and this fan entirely.
  */
 export interface CouplingFan {
   node: string;

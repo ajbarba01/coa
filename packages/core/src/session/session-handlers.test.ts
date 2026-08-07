@@ -151,7 +151,7 @@ class FrameAdapter implements RuntimeAdapter {
 
 /** A fake backend that streams enriched (frame, full) pairs through `onTurn`, then settles —
  *  proving a tool_result's FULL body (not just the lossy pointer) reaches persistence
- *  (docs/adr/0010's fidelity companion, threaded end to end via `onTurn(frame, full)`). */
+ *  (the append-only log's full-body fidelity companion, threaded end to end via `onTurn(frame, full)`). */
 class EnrichedFrameAdapter implements RuntimeAdapter {
   constructor(
     readonly init: SessionAdapterInit,
@@ -360,7 +360,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
 
   it('emits a governed deny frame through the same path as any other frame', async () => {
     // A deny is NOT an error, so no error-suppression path may swallow it, and `stamp`
-    // must pass it through unreshaped. If either is false, M8 needs a fix.
+    // must pass it through unreshaped. If either is false, the session layer needs a fix.
     const conn = connection();
     const handlers = buildSessionHandlers(
       deps([{ t: 'deny', denyKind: 'cost-cap', reason: 'capped' }]),
@@ -400,7 +400,7 @@ function depsCapturing(
   };
 }
 
-describe('buildSessionHandlers — streaming deltas are delivery-only (docs/adr/0013)', () => {
+describe('buildSessionHandlers — streaming deltas are delivery-only', () => {
   it('pushes a text-delta frame but never appends it to the durable log (regression: opencode #11329)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-delta-'));
     try {
@@ -433,7 +433,7 @@ describe('buildSessionHandlers — streaming deltas are delivery-only (docs/adr/
   });
 });
 
-describe('buildSessionHandlers — persistent conversation (R-7)', () => {
+describe('buildSessionHandlers — persistent conversation', () => {
   let dir: string;
   let store: ConversationStore;
   beforeEach(() => {
@@ -937,8 +937,8 @@ function depsSteerable(adapters: FrameAdapter[]): SessionDeps {
 
 /**
  * The real shape of an interrupted turn: the model streams reasoning + answer as DELTAS (which
- * are never persisted — docs/adr/0013) and is stopped before emitting any settled frame. Only
- * M8's interrupt closure can settle what it streamed.
+ * are never persisted — streaming deltas are delivery-only, never persisted) and is stopped before emitting any settled frame. Only
+ * the session layer's interrupt closure can settle what it streamed.
  */
 class PartialStreamAdapter extends FrameAdapter {
   override async runLoop(): Promise<void> {
@@ -994,7 +994,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     }
   });
 
-  it('aborts the session and surfaces a clean interrupted stop — never an error (SC-1)', async () => {
+  it('aborts the session and surfaces a clean interrupted stop — never an error (a user stop, never an error)', async () => {
     const conn = connection();
     const handlers = buildSessionHandlers(
       depsAbortable(),
@@ -1242,7 +1242,7 @@ describe('buildSessionHandlers — block-preserving persistence on error', () =>
         role: 'assistant',
         content: 'reply',
       });
-      // The failure is still surfaced (SC-1: surface, don't cage).
+      // The failure is still surfaced (surface, don't cage).
       expect(pushesOf(conn.pushes)).toContainEqual(
         expect.objectContaining({ kind: 'status', state: 'error' }),
       );
@@ -1252,7 +1252,7 @@ describe('buildSessionHandlers — block-preserving persistence on error', () =>
   });
 });
 
-describe('buildSessionHandlers — full tool-result fidelity (docs/adr/0010)', () => {
+describe('buildSessionHandlers — full tool-result fidelity', () => {
   it("persists a tool_result's FULL body (not its lossy pointer), so it folds into loadBackendMessages", async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-conv-'));
     try {
@@ -1323,7 +1323,7 @@ describe('buildSessionHandlers — one live session across turns (P-α multi-tur
   });
 });
 
-describe('buildSessionHandlers — subscribeSession (G4 reattach)', () => {
+describe('buildSessionHandlers — subscribeSession (console reattach)', () => {
   it('hydrates a newly subscribing connection with the running status of an in-flight session', async () => {
     const registry = new LiveSessionRegistry();
     const founder = connection();
@@ -1351,7 +1351,7 @@ describe('buildSessionHandlers — subscribeSession (G4 reattach)', () => {
   });
 });
 
-describe('buildSessionHandlers — interrupt on a registry-backed conversation preserves SC-1', () => {
+describe('buildSessionHandlers — interrupt on a registry-backed conversation keeps a user stop from surfacing as an error', () => {
   it('interrupts the live session (a real conversationId) and never renders an error', async () => {
     const registry = new LiveSessionRegistry();
     const conn = connection();
@@ -1371,12 +1371,12 @@ describe('buildSessionHandlers — interrupt on a registry-backed conversation p
     expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'interrupted')).toBe(true);
-    // The interrupt is a user stop (SC-1) — the live session survives, it isn't torn down.
+    // The interrupt is a user stop (a user stop, never an error) — the live session survives, it isn't torn down.
     expect(registry.get(sessionId)).toBeDefined();
   });
 });
 
-describe('buildSessionHandlers — interruptSession resolves via the LiveSession, not a per-connection map (docs/adr/0011 G4)', () => {
+describe('buildSessionHandlers — interruptSession resolves via the LiveSession, not a per-connection map (the interrupt resolves via the daemon-owned live session, which survives reattach)', () => {
   it('a second connection that never started the turn can still interrupt it through the shared registry', async () => {
     const registry = new LiveSessionRegistry();
 
@@ -1387,7 +1387,7 @@ describe('buildSessionHandlers — interruptSession resolves via the LiveSession
 
     // Connection B is a DIFFERENT `buildSessionHandlers` call (its own, empty
     // per-connection state) that only shares the daemon-singleton registry — the
-    // G4 reattach shape (e.g. a viewer that reconnects and never itself sent the
+    // reattach shape (e.g. a viewer that reconnects and never itself sent the
     // turn). Before the fix, B's own `control` map is empty, so this would
     // silently return `{ interrupted: false }` and never touch A's in-flight turn.
     const connB = connection();
@@ -1397,7 +1397,7 @@ describe('buildSessionHandlers — interruptSession resolves via the LiveSession
     expect(result).toEqual({ interrupted: true });
 
     // The interrupt lands on the turn connection A is watching: an `interrupted`
-    // status is fanned out, and — SC-1 — never rendered as an error.
+    // status is fanned out, and — never rendered as an error.
     const pushesA = pushesOf(connA.pushes);
     expect(pushesA.some((p) => p.kind === 'status' && p.state === 'interrupted')).toBe(true);
     expect(pushesA.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
@@ -1453,7 +1453,7 @@ describe('buildSessionHandlers — connection-close teardown (FIX #2b)', () => {
     expect(conn.pushes.length).toBe(pushesBeforeClose);
   });
 
-  it('unsubscribes a subscribeSession (G4 reattach) sink too, once that connection closes', async () => {
+  it('unsubscribes a subscribeSession (console reattach) sink too, once that connection closes', async () => {
     const registry = new LiveSessionRegistry();
     const founder = connection();
     const handlers = buildSessionHandlers(depsSteerable([]), founder, undefined, registry);
@@ -1498,10 +1498,10 @@ describe('buildSessionHandlers — idle-timer touch on turn activity (FIX #1)', 
 });
 
 /**
- * A fake held-open streaming adapter (docs/adr/0012): its `input` is the LiveSession's
+ * A fake held-open streaming adapter: its `input` is the LiveSession's
  * derived {@link InputChannel}, and it consumes EVERY turn (initial + steers) from that
  * ONE iterable, marking each with a `turn-boundary` frame — the per-turn completion
- * signal M8's driver awaits. It flushes the canonical transcript at each result
+ * signal the session driver awaits. It flushes the canonical transcript at each result
  * (per-turn-boundary durability) and again when the feed closes (the A1 net). A string
  * `input` (which only happens if the driver mistakenly runs per-turn) is consumed as a
  * single one-shot — so a mis-wired strategy shows up as multiple adapter constructions.
@@ -1652,7 +1652,7 @@ function depsOpenTool(adapters: OpenToolHeldAdapter[]): SessionDeps {
  * Claude adapter's PostToolUse hook drains them — handing the text to the model — and then
  * THROWS instead of ever emitting the matching `tool_result`, the shape a dropped connection
  * produces. Proves `settleHeldQuery`'s error path flushes a parked line rather than stranding
- * it (docs/adr/0031).
+ * it.
  */
 class OpenToolThrowAdapter implements RuntimeAdapter {
   readonly consumed: string[] = [];
@@ -1840,7 +1840,7 @@ describe('buildSessionHandlers — a delivery is recorded where the model receiv
   });
 });
 
-describe('buildSessionHandlers — a mid-turn throw does not strand a parked delivery (docs/adr/0031)', () => {
+describe('buildSessionHandlers — a mid-turn throw does not strand a parked delivery', () => {
   it('flushes a parked delivery line when a held-open query dies mid-tool-call', async () => {
     const conn = connection();
     const adapters: OpenToolThrowAdapter[] = [];
@@ -1958,7 +1958,7 @@ function depsHeldOpen(
  * result (here, an `error` + boundary) for the ABANDONED turn — before letting the loop
  * resume waiting on the same open feed. Used to prove the user-Stop path (`interruptSession`)
  * actually uses the reported turn-level handle rather than falling back to a whole-query
- * abort, and that `query.stopped` alone (docs/adr/0012) drops that residual result.
+ * abort, and that `query.stopped` alone drops that residual result.
  */
 class TurnInterruptAdapter implements RuntimeAdapter {
   readonly consumed: string[] = [];
@@ -2088,7 +2088,7 @@ function depsParkedHeldOpen(adapters: QueueSteerAdapter[]): SessionDeps {
   };
 }
 
-describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/adr/0012)', () => {
+describe('buildSessionHandlers — held-open SDK streaming-input strategy', () => {
   it('feeds two turns of one live session into ONE held-open query, not two createSession calls', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
@@ -2127,7 +2127,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
 
     // It reaches the WORKING turn through the adapter's delivery port — the one the SDK's
     // PostToolUse hook pulls, which lands the text beside the next tool result (the same
-    // round trip) instead of after the whole turn (docs/adr/0012's measured ceiling).
+    // round trip) instead of after the whole turn (the held-open strategy's measured latency ceiling).
     expect(adapters[0]?.init.drainDeliveries?.()).toEqual([{ origin: 'user', text: 'also do X' }]);
 
     adapters[0]!.boundaryCurrent();
@@ -2170,7 +2170,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
         { seq: 5, frame: { t: 'turn-boundary', role: 'assistant' } },
       ]);
       // The canonical transcript is the read-time fold of the persisted frame stream
-      // above (docs/adr/0010) — it covers both turns.
+      // above — it covers both turns.
       expect(store.loadBackendMessages('h1')).toEqual([
         { role: 'user', content: 'first' },
         { role: 'assistant', content: 'ok' },
@@ -2182,7 +2182,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     }
   });
 
-  it('surfaces an interrupt as a clean interrupted stop — never an error (SC-1)', async () => {
+  it('surfaces an interrupt as a clean interrupted stop — never an error (a user stop, never an error)', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     const handlers = buildSessionHandlers(
@@ -2212,7 +2212,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
   });
 
-  it('a user Stop against a turn-level interrupt handle keeps the query alive and drops the abandoned turn (SC-1)', async () => {
+  it('a user Stop against a turn-level interrupt handle keeps the query alive and drops the abandoned turn (a user stop, never an error)', async () => {
     const adapters: TurnInterruptAdapter[] = [];
     const conn = connection();
     const customDeps: SessionDeps = {
@@ -2247,13 +2247,13 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
     // Nothing renders below the `interrupted` marker — `query.stopped` is the sole guard
-    // for this SC-1 guarantee.
+    // for this never-an-error guarantee.
     const interruptedAt = pushes.findIndex((p) => p.kind === 'turn' && p.frame.t === 'interrupted');
     expect(interruptedAt).toBeGreaterThan(-1);
     expect(pushes.slice(interruptedAt + 1).some((p) => p.kind === 'turn')).toBe(false);
   });
 
-  it('re-establishes after an interrupt so the next turn runs instead of hanging on the dead query (SC-1)', async () => {
+  it('re-establishes after an interrupt so the next turn runs instead of hanging on the dead query (a user stop, never an error)', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     // Only the FIRST query is abortable — it gets interrupted and never settles on its
@@ -2297,7 +2297,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(states.filter((s) => s === 'done')).toHaveLength(1);
   });
 
-  it("re-establishes a NEW query when a later turn switches model — not turn 1's query (config-change safety, R4)", async () => {
+  it("re-establishes a NEW query when a later turn switches model — not turn 1's query (config-change safety: the held-open query is keyed by model)", async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     const handlers = buildSessionHandlers(
@@ -2347,7 +2347,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     expect(registry.get(sessionId)).toBeUndefined();
   });
 
-  it('a one-turn SDK conversation is observably unchanged: running, the turn frames, done, idle (D85)', async () => {
+  it('a one-turn SDK conversation is observably unchanged: running, the turn frames, done, idle', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     const handlers = buildSessionHandlers(
@@ -2396,7 +2396,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
   it('a queue-mode steer with no turn in flight is a plain next turn, not a pending delivery', async () => {
     // The delivery queue only reaches a WORKING agent — a backend drains it from inside a
     // running turn. Routing an idle steer there would strand it until some later turn
-    // happened to run, so an idle steer stays exactly today's plain next turn (D85).
+    // happened to run, so an idle steer stays exactly today's plain next turn.
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     const handlers = buildSessionHandlers(
@@ -2423,7 +2423,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
 
   it('a queue-mode steer delivered mid-turn adds no SDK turn, so a later send rides its OWN boundary (I3)', async () => {
     // A queue-mode steer used to be fed into the input feed as its own SDK turn, whose
-    // boundary had to be counted or a later send's latch resolved on it (docs/adr/0012 I3).
+    // boundary had to be counted or a later send's latch resolved on it (the single-pending-steer-slot invariant).
     // Delivered mid-loop it is not a turn at all — so it must add NO pending turn either:
     // over-counting strands the first send in 'running' forever, under-counting resolves a
     // later send early. This pins exactly one completion per client send across the change.
@@ -2506,7 +2506,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       });
       // The running turn's own drain point consumes it — the backend's job, which this
       // fixture does not do on its own. Without this the delivery would never be picked up
-      // by anything and would degrade to a plain next turn at the boundary (docs/adr/0030),
+      // by anything and would degrade to a plain next turn at the boundary,
       // so the "rides the queue, not the feed" claim below would be tested against a turn
       // that had already given up on the queue.
       expect(adapters[0]!.init.drainDeliveries?.()).toEqual([
@@ -2521,7 +2521,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
       // The steer reaches canonical memory as its own user turn even though it now rides
       // the delivery queue rather than the input feed — the hook route bypasses every
       // stream tap, and the append-only log is the only durable record of what the user
-      // sent (docs/adr/0010). Recorded when the drain call above consumed it, so it lands
+      // sent. Recorded when the drain call above consumed it, so it lands
       // after what the turn had already streamed.
       expect(store.loadBackendMessages('h1')).toEqual([
         { role: 'user', content: 'go' },
@@ -2533,7 +2533,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     }
   });
 
-  it("flushes a delivery stranded past the turn's last drain point as a plain next turn (docs/adr/0030)", async () => {
+  it("flushes a delivery stranded past the turn's last drain point as a plain next turn", async () => {
     const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
     const handlers = buildSessionHandlers(
@@ -2565,7 +2565,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     await flush();
     await flush();
 
-    // SC-1/docs/adr/0030: it degrades to the ordinary turn boundary rather than sitting in
+    // help, never cage: it degrades to the ordinary turn boundary rather than sitting in
     // the queue forever while the user watches their own message get no reply and no error.
     expect(adapters[0]?.consumed).toEqual(['go', 'also do X']);
     // Drained, not duplicated — a later hook must not deliver it a second time.
@@ -2585,7 +2585,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     ).toHaveLength(1);
   });
 
-  it('flushes mixed origins in FIFO order, framing only the system notice (docs/adr/0030)', async () => {
+  it('flushes mixed origins in FIFO order, framing only the system notice', async () => {
     const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
     const registry = new LiveSessionRegistry();
@@ -2637,7 +2637,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     ).toHaveLength(1);
   });
 
-  it('records a stranded delivery exactly once — the flush re-sends, it does not re-log (docs/adr/0010)', async () => {
+  it('records a stranded delivery exactly once — the flush re-sends, it does not re-log', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-ho-strand-'));
     try {
       const store = createConversationStore(dir);
@@ -2677,7 +2677,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy (docs/
     }
   });
 
-  it('pushes streaming deltas over the held-open query but never appends them (docs/adr/0013)', async () => {
+  it('pushes streaming deltas over the held-open query but never appends them', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-ho-delta-'));
     try {
       const store = createConversationStore(dir);
@@ -2908,7 +2908,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(registry.get('root-1')).toBeDefined(); // the root itself is untouched
   });
 
-  it('attributes settled spend to the top-of-tree root at every real tree depth, leaving the root itself root-less (D85, mixed three-node fixture)', async () => {
+  it('attributes settled spend to the top-of-tree root at every real tree depth, leaving the root itself root-less (mixed three-node fixture)', async () => {
     const spend: Array<{ costUsd: number; root?: string }> = [];
     const { dispatch: send, startChildForTest } = buildTestServer({
       recordSpend: (record) => spend.push(record),
@@ -2929,7 +2929,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     startChildForTest(mid.sessionId, 'explorer');
     await settleChild();
 
-    // The root's own turn carries no `root` (D85 — byte-identical to before lineage
+    // The root's own turn carries no `root` (byte-identical to before lineage
     // existed); the middle child's and the grandchild's BOTH carry the same top-of-tree
     // id, proving the rollup survives real nesting, not just one level.
     expect(spend).toEqual([
@@ -3136,7 +3136,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(registry.get(child!.sessionId)?.state).toBe('idle');
   });
 
-  it('does nothing (D85) when the daemon wires no spawn support — buildSessionHandlers behaves exactly as before', async () => {
+  it('does nothing when the daemon wires no spawn support — buildSessionHandlers behaves exactly as before', async () => {
     const conn = connection();
     // No 5th argument at all — the pre-existing call shape, still legal.
     const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());

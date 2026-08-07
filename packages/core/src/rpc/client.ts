@@ -3,12 +3,12 @@ import type { RpcNotification, RpcParams, RpcResponse } from '@coa/shared';
 import { encodeLine, FrameDecoder } from './codec.js';
 
 /**
- * M8 — the daemon RPC client: connect to the OS pipe/socket the daemon serves and
+ * The daemon RPC client: connect to the OS pipe/socket the daemon serves and
  * issue JSON-RPC requests/notifications. It frames outgoing messages, auto-numbers
  * request ids, and matches each response back to its pending promise by id, so
  * concurrent in-flight requests resolve correctly. Server→client notifications
- * (the R-12 push stream) are delivered to the optional `onNotification` callback.
- * This is the connection the console (M10) and any other client opens.
+ * (the daemon's push-notification stream) are delivered to the optional `onNotification` callback.
+ * This is the connection the console and any other client opens.
  *
  * `request` resolves with the JSON-RPC response (success OR a coded error — a
  * server-side error is data, not a thrown exception); a transport failure rejects

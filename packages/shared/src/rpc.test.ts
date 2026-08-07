@@ -9,7 +9,7 @@ import {
   rpcSuccessResponseSchema,
 } from './rpc.js';
 
-describe('JSON-RPC 2.0 envelope schemas (D124)', () => {
+describe('JSON-RPC 2.0 envelope schemas', () => {
   it('accepts a well-formed request', () => {
     const req = { jsonrpc: '2.0', id: 1, method: 'openSession', params: { role: 'dev' } };
     expect(rpcRequestSchema.parse(req)).toEqual(req);

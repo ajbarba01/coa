@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { slotIdSchema } from './slots.js';
 
 /**
- * The ONE composable content atom (the TAX-* collapse). The former kinds
+ * The ONE composable content atom (the content-taxonomy collapse). The former kinds
  * (knowledge/protocol/behaviour) dissolve into three orthogonal axes; `Role`
  * stays a separate type (see {@link BundleManifest}). Authority is a
- * `governed-by` graph edge (TAX-2), not a front-matter flag. M0 owns the type;
- * the axis→slot compilation is M5's.
+ * `governed-by` graph edge, not a front-matter flag. This package owns the type;
+ * the axis→slot compilation is the config compiler's.
  */
 
-/** The three orthogonal content axes (TAX-1). */
+/** The three orthogonal content axes. */
 export const contentAxesSchema = z.object({
   /** `pull` = body pulled on demand; `push` = delivered into context (scope-gated iff `scope` set). */
   delivery: z.enum(['pull', 'push']),
@@ -31,10 +31,10 @@ export const pieceSchema = z.object({
   axes: contentAxesSchema,
   /** Which DC-6 section this Piece renders in; absent ⇒ the end bucket (rendered last, no header). */
   slot: slotIdSchema.optional(),
-  /** The TAX-2 authority link — `governed-by` edges to constraints. */
+  /** The authority link — `governed-by` edges to constraints. */
   governedBy: z.array(z.string()).optional(),
   bundle: z.string().optional(),
-  /** The D31 import-trust descriptor. */
+  /** The import-trust descriptor. */
   source: z
     .object({
       origin: z.string(),

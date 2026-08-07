@@ -3,7 +3,7 @@
  * The open-external IPC's load-bearing safety check: only `http:`/`https:` URLs may be
  * handed to the OS — any other scheme (`file:`, `javascript:`, `mailto:`, a shell command,
  * a malformed string) is rejected here before any `openExternal` call. Pure; never throws
- * — a bad input returns a rejection object rather than raising (SC-1: surface, never block).
+ * — a bad input returns a rejection object rather than raising (surface, never block).
  */
 
 /** The web-open scheme allow-list. Only these two reach `shell.openExternal`. */

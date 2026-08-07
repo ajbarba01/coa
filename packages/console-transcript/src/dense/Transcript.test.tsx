@@ -460,7 +460,7 @@ describe('TranscriptRow', () => {
     expect(screen.queryByRole('button', { name: /deny/i })).toBeNull();
   });
 
-  it('renders a deny frame through the SC-1 DenyNotice (it gates nothing)', () => {
+  it('renders a deny frame through the DenyNotice (it gates nothing itself)', () => {
     const { container } = render(
       <TranscriptRow
         frame={{ id: 't7', kind: 'deny', denyKind: 'cost-cap', reason: 'cap reached' }}
@@ -470,7 +470,7 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('cap reached')).toBeTruthy();
   });
 
-  it('renders a raw frame verbatim, plain mono with no chrome — D85, the mask comes off', () => {
+  it('renders a raw frame verbatim, plain mono with no chrome — the mask comes off', () => {
     const text = '> assistant: hello\n> tool_use read_file {"path":"a"}';
     const { container } = render(<TranscriptRow frame={{ id: 't8', kind: 'raw', text }} />);
     expect(container.textContent).toBe(text);
@@ -478,7 +478,7 @@ describe('TranscriptRow', () => {
     expect(el?.className).toMatch(/font-mono/);
   });
 
-  it('never animates a raw row (D85 — the loop is byte-faithful, not styled)', () => {
+  it('never animates a raw row (the raw loop is byte-faithful, not styled)', () => {
     const text = 'verbatim';
     render(<TranscriptRow frame={{ id: 't8b', kind: 'raw', text }} />);
     const el = screen.getByText(text);
@@ -638,7 +638,7 @@ describe('TranscriptRow', () => {
     expect(screen.getByText('done thing').className).not.toContain('line-through');
   });
 
-  it("renders a user turn as plain text, never markdown-interpreted (D85 — the mask stays off the user's own words)", () => {
+  it("renders a user turn as plain text, never markdown-interpreted (the mask stays off the user's own words)", () => {
     render(<TranscriptRow frame={{ id: 'u1', role: 'you', kind: 'text', text: 'run `ls` now' }} />);
     // The literal backtick survives — no <code> element is produced for a user turn.
     expect(screen.getByText('run `ls` now')).toBeInTheDocument();
@@ -1005,7 +1005,7 @@ describe('Transcript container motion (block entrance)', () => {
     expect(liveRow?.getAttribute('data-enter')).toBe('fadeRise');
   });
 
-  it('never gives a live raw row the block entrance (D85 — the loop is byte-faithful, never styled)', () => {
+  it('never gives a live raw row the block entrance (the raw loop is byte-faithful, never styled)', () => {
     const frames: TranscriptFrame[] = [{ id: 'a', role: 'agent', kind: 'text', text: 'hi' }];
     const { rerender, container } = render(<Transcript frames={frames} />);
     const frames2: TranscriptFrame[] = [...frames, { id: 'raw1', kind: 'raw', text: 'verbatim' }];

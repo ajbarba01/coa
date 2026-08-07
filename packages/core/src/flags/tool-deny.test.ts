@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FlagPipeline } from './pipeline.js';
 
-describe('FlagPipeline.perToolDeny (the M6-declared per-tool advisory→deny)', () => {
+describe('FlagPipeline.perToolDeny (the workbench-declared per-tool advisory→deny)', () => {
   it('returns undefined when no rule is registered for the tool', () => {
     expect(new FlagPipeline().perToolDeny('Edit', {})).toBeUndefined();
   });

@@ -23,16 +23,16 @@ import { buildGenerationProducers } from './generation.js';
 
 /**
  * The app-side spike harness — assemble runnable {@link SessionDeps} from the
- * real daemon core (M1–M7) plus the Claude adapter factory (M9). This is the one
+ * real daemon core plus the Claude adapter factory. This is the one
  * place the whole closure meets the backend; a spike script then calls
  * `createSession(req, deps)` to drive the rented loop end to end. The worktree
  * binder is the current floor (the session worktree is the configured root);
  * the coupling-aware worktree manager and the OS-socket daemon host are later.
- * M4's generation producers are assembled from the worktree's committed
+ * The generation producers are assembled from the worktree's committed
  * `.coa/generate.yaml`, so the SSOT-constraint producer fires on real relations.
  */
 export interface DaemonSessionOptions {
-  /** The WAL path (M1); its parent directory must exist. */
+  /** The change-event spine's WAL path; its parent directory must exist. */
   walPath: string;
   /** The worktree root for the session; defaults to the process cwd. */
   root?: string;
@@ -41,7 +41,7 @@ export interface DaemonSessionOptions {
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
   /** Resolve a session's subagent-dispatch port (parent = sessionId); absent ⇒ spawning
-   *  unavailable (D85) — the daemon host wires this once `store`/`registry`/the agent
+   *  unavailable, degrading to today's spawn-free behavior — the daemon host wires this once `store`/`registry`/the agent
    *  registry exist, which is after this function returns (see `cli.ts`'s late-bound
    *  holder). */
   resolveSpawn?: SessionWiring['resolveSpawn'];
@@ -60,7 +60,7 @@ export interface BuiltSession {
 export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   const root = options.root ?? process.cwd();
   // Load the user-global web-key config (`~/.coa/web.yaml`); offer the web tools only
-  // when at least one provider is configured (D85 — an unconfigured user gets today's
+  // when at least one provider is configured (an unconfigured user gets today's
   // behavior). Credentials resolve at chain assembly from env vars / coa-saved key files.
   const web = new WebConfigStore(homedir()).read();
   const hasWeb = (web.search?.providers.length ?? 0) > 0 || (web.fetch?.providers.length ?? 0) > 0;

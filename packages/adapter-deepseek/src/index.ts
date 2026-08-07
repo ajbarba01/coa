@@ -1,8 +1,8 @@
 /**
- * @coa/adapter-deepseek (M9 backend) — the thin DeepSeek `RuntimeAdapter`
- * (dual-backend spec Part C). Implements the `complete()` primitive over
- * DeepSeek's OpenAI-compatible HTTP API and drives the shared `@coa/loop-driver`;
- * everything else (tools, roles, context, the two SC-1 blocks) comes from coa.
+ * @coa/adapter-deepseek — the thin DeepSeek `RuntimeAdapter` behind the backend
+ * port. Implements the `complete()` primitive over DeepSeek's OpenAI-compatible
+ * HTTP API and drives the shared `@coa/loop-driver`; everything else (tools,
+ * roles, context, the close-gate and cost-cap blocks) comes from coa.
  * Imports no provider SDK — just `fetch`.
  */
 

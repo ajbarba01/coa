@@ -17,11 +17,10 @@ import {
 import { useAuthUi, useUsageUi } from './surfaceUi.js';
 import { useShell } from '../shell/store.js';
 
-// The store is empty until `hydrate()` resolves (Task 10 — live daemon reads). This file
+// The store is empty until `hydrate()` resolves (the live daemon reads land later). This file
 // never mocks `../console.js`, so the surface's mount-time `hydrate()` fires the REAL
-// `rpcAuthView` against an absent `window.coa` in jsdom, rejects, and is swallowed (SC-1,
-// see AuthPanel/UsagePanel's mount effects) — leaving whatever this fixture seeds directly
-// below untouched. Usage stays Phase 2 mock: these are rendering assertions against a known
+// `rpcAuthView` against an absent `window.coa` in jsdom, rejects, and is swallowed (see AuthPanel/UsagePanel's mount effects) — leaving whatever this fixture seeds directly
+// below untouched. Usage stays a mock for now: these are rendering assertions against a known
 // credential set, not RPC wiring (that's AuthPanel.test.tsx's job).
 const EMPTY_STATE = useMockAuth.getState();
 const FIXTURE_CREDENTIALS: Credential[] = [

@@ -117,7 +117,7 @@ describe('foldEventsToTranscript', () => {
       ev(2, { t: 'turn-boundary', role: 'assistant' }),
     ];
     // The retired messageToBackendMessages returned [] for an empty assistant turn; the
-    // fold must not emit a stray { role:'assistant', content:'' } (D85 parity).
+    // fold must not emit a stray { role:'assistant', content:'' } (parity with the single-log fold).
     expect(foldEventsToTranscript(events)).toEqual([{ role: 'user', content: 'hi' }]);
   });
 
@@ -195,7 +195,7 @@ describe('foldEventsToTranscript', () => {
 });
 
 describe('foldTreeToTranscript (join)', () => {
-  it('projects byte-identically to foldEventsToTranscript for a root with no children (D85)', () => {
+  it('projects byte-identically to foldEventsToTranscript for a root with no children', () => {
     const events: PersistedEvent[] = [
       ev(0, { t: 'text', text: 'do it', role: 'user' }),
       ev(1, { t: 'text', text: 'working' }),
@@ -204,7 +204,7 @@ describe('foldTreeToTranscript (join)', () => {
       ev(4, { t: 'text', text: 'done' }),
     ];
     // Compare against the existing function's OWN output, not a hand-written
-    // expectation — the actual D85 assertion (a fresh expectation could drift from
+    // expectation — the actual byte-parity assertion (a fresh expectation could drift from
     // foldEventsToTranscript and never notice).
     expect(foldTreeToTranscript(events, new Map())).toEqual(foldEventsToTranscript(events));
   });

@@ -2,7 +2,7 @@
  * The renderer Content-Security-Policy, applied as a response header (the single
  * source of truth; `index.html` carries no competing meta policy).
  *
- * Production (the packaged app) is strict per spec §10.1 / D128: only same-origin
+ * Production (the packaged app) is strict — only same-origin
  * scripts, no inline/eval, and `connect-src 'none'` (local-first — all data flows
  * over IPC, an anti-exfil control). Dev must additionally allow Vite's HMR: the
  * React Fast Refresh preamble is injected as an inline/eval script and HMR uses a

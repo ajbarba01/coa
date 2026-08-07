@@ -13,7 +13,7 @@ describe('parse', () => {
     const cst = ok(parse({ lang: 'typescript', bytes: 'function add(a: number) { return a; }' }));
     expect(cstSchema.parse(cst)).toBeTruthy();
     expect(cst.lang).toBe('typescript');
-    // The tree survives a JSON round-trip (it crosses the D112 process boundary).
+    // The tree survives a JSON round-trip (it crosses the parser process boundary).
     expect(JSON.parse(JSON.stringify(cst.tree))).toEqual(cst.tree);
   });
 

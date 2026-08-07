@@ -1,7 +1,7 @@
 import type { SymbolRecord } from '@coa/shared';
 
 /**
- * GRF-6 — the SCIP interop export. coa builds its nav/code-intel layer bespoke
+ * The SCIP interop export. coa builds its nav/code-intel layer bespoke
  * but **emits SCIP** (Sourcegraph's protocol; human-readable string symbol IDs)
  * so the index is future-proof and consumable by other tooling. This is a
  * one-way export verb (`coa export-scip`), never an internal dependency. v1

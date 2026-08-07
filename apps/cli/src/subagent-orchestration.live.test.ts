@@ -52,20 +52,20 @@ import {
  * hand-built, adapter-level stand-in that exercises the underlying `RuntimeAdapter`
  * primitives those modules are built on: a `RegisteredTool`-shaped `spawn_agent` that
  * starts a second adapter without awaiting it (the non-blocking contract), each adapter's
- * `onSettle`/`onTurn` callbacks (the exact seam M9 hands M8 in production), and each
+ * `onSettle`/`onTurn` callbacks (the exact seam the backend adapter hands the session core in production), and each
  * adapter's `signal` (the exact seam a session-level interrupt rides in production). A
  * green run here is evidence the primitives behave as the core layer assumes; it is not a
  * live run of `spawn.ts`/`session-handlers.ts` themselves — that can only be proven by
  * driving the real daemon (which the maintainer did once, by hand; see
  * `.superpowers/sdd/2026-08-05-subagent-orchestration/progress.md`, "LIVE END-TO-END PASS").
  *
- * The cost assertion is deliberately narrow for the same reason ADR-0032 records: nothing
+ * The cost assertion is deliberately narrow for a recorded reason — the cost cap bounds fan-out, not a depth counter — and nothing
  * in this arc wires a producer that surfaces the tree cost roll-up over RPC — the ledger's
  * `root` field is real and unit-tested (`packages/core/src/governance/ledger.ts`) but
  * in-process only. This test can only show that `RuntimeUsage.costUsd` is a real, summable
  * number from BOTH backends and that nothing prevents attributing both to one root id — the
  * same arithmetic the ledger's `root` key performs — not that a client can ever read that
- * sum today. See ROADMAP.md and ADR-0032.
+ * sum today. See ROADMAP.md.
  *
  * WHERE A REAL SMOKE BELONGS: `packages/core` already depends on both `@coa/adapter-claude-sdk`
  * and `@coa/adapter-deepseek` (real dependencies, not dev — `packages/core/package.json`), and
@@ -76,8 +76,7 @@ import {
  * `spawn.ts`/`session-handlers.ts`/`live-registry.ts` — no circularity, unlike an
  * adapter-level test. See ROADMAP.md item M.
  *
- * Root/child share one worktree on purpose (not two `mkdtempSync` calls): ADR-0034 records
- * that a child shares its root's worktree rather than getting its own (the worktree manager
+ * Root/child share one worktree on purpose (not two `mkdtempSync` calls): the subagent design records * that a child shares its root's worktree rather than getting its own (the worktree manager
  * is unbuilt, and v1 is attended so every write still passes the `PreToolUse` gate).
  */
 vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
@@ -215,7 +214,7 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
     // (it cannot fail for any value of either number), so this test stops at the two
     // numbers existing and being real; it does NOT assert that anything actually performs
     // the sum. Whether the sum is ever computed and surfaced is exactly the gap named in
-    // the header above and in ADR-0032's "Bad" list — there is no producer to exercise.
+    // the header above — there is no producer to exercise.
     const rootCost = costBySession.get(rootId);
     const childCost = costBySession.get(id);
     expect(rootCost, diagnostic()).toBeGreaterThan(0);
@@ -323,13 +322,13 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
       'the child never emitted a single frame before the abort — nothing to prove was cut off',
     );
 
-    // The session-level interrupt (ADR-0034: abort derives from the SESSION, not the
+    // The session-level interrupt (abort derives from the SESSION, not the
     // in-flight turn — this is the same `signal` a real `interruptSession` call aborts).
     rootController.abort();
     queue.close();
 
     // Neither the root's own query nor the child's must be left hanging. A held-open
-    // query is designed to run headless with zero subscribers (D149) — an abort must be
+    // query is designed to run headless with zero subscribers — an abort must be
     // the one thing that reliably ends that, or a stopped tree leaks a live backend
     // connection forever. `waitForCondition`'s predicate is synchronous, so this polls by
     // hand rather than misusing it with an async predicate (`isPending` itself awaits a

@@ -18,7 +18,7 @@ const rpc = vi.hoisted(() => ({
 vi.mock('../console.js', () => rpc);
 // Same stub-store shape as `hydrate` was (loginStore's `apply` calls it on every finalize),
 // widened to also carry the isolated-browser-session read the pre-step now projects — a
-// minimal double, not the real daemon-backed store (ADR-0018).
+// minimal double, not the real daemon-backed store.
 const authState = vi.hoisted(() => ({
   hydrate: vi.fn().mockResolvedValue(undefined),
   browserSession: { enabled: false, available: false },

@@ -35,7 +35,7 @@ describe('assignConfidence (CF-2)', () => {
   });
 });
 
-describe('assignSeverity (CF-2 + D134)', () => {
+describe('assignSeverity (two-axis severity × confidence)', () => {
   it('a producer cannot self-stamp crit without cross-producer corroboration', () => {
     expect(assignSeverity(flag({ severity: 'crit' }), { corroboration: 1 })).not.toBe('crit');
   });
@@ -50,7 +50,7 @@ describe('assignSeverity (CF-2 + D134)', () => {
     expect(rank(shake)).toBeGreaterThan(rank(bodyOnly));
   });
 
-  it('D134 ratio: a large change relative to node size bumps severity', () => {
+  it('structural-score ratio: a large change relative to node size bumps severity', () => {
     const small = assignSeverity(flag({ severity: 'med' }), { linesChanged: 1, nodeSize: 100 });
     const big = assignSeverity(flag({ severity: 'med' }), { linesChanged: 80, nodeSize: 100 });
     expect(rank(big)).toBeGreaterThan(rank(small));

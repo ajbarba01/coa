@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { reparseSymbols } from './reparse.js';
 
-describe('reparseSymbols (the M1→M2 driving seam)', () => {
-  it('drives M2 and qualifies the byte-local location with the file path', () => {
+describe('reparseSymbols (the kernel→parser driving seam)', () => {
+  it('drives the parser module and qualifies the byte-local location with the file path', () => {
     const symbols = reparseSymbols({
       path: 'src/charge.ts',
       lang: 'typescript',

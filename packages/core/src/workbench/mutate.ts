@@ -6,16 +6,16 @@ import { applyDiff } from './apply-diff.js';
 import { confinePath } from './confine.js';
 
 /**
- * M6 producer ① — the precise-Mutate surface. Every precise write resolves and
+ * Producer ① — the precise-Mutate surface. Every precise write resolves and
  * confines its target (S-1), applies the lenient diff, writes the new bytes, and
  * routes the change through the single chokepoint `emit` so the WAL, graph,
- * flags, and all consumers see it immediately (P7). M6 never writes the graph
+ * flags, and all consumers see it immediately. The workbench never writes the graph
  * independently; the change-event is the only authoritative record. The handler
- * never throws to the agent and never denies (SC-1) — a confinement or diff
+ * never throws to the agent and never denies — a confinement or diff
  * failure comes back as an unapplied result the agent can retry.
  */
 
-/** The narrow port the Mutate handlers need, injected by M8 at session construction (no kernel import). */
+/** The narrow port the Mutate handlers need, injected by the daemon at session construction (no kernel import). */
 export interface WorkbenchDeps {
   /** The session worktree root — a POSIX absolute path (S-1 confinement base). */
   worktreeRoot: string;
@@ -29,13 +29,13 @@ export interface WorkbenchDeps {
   readFile: (absolutePath: string) => string;
   /** Write a file's new bytes by absolute path. */
   writeFile: (absolutePath: string, bytes: string) => void;
-  /** The single M1 append path (P7); returns the authoritative seq. */
+  /** The single kernel append path; returns the authoritative seq. */
   emit: (draft: ChangeEventDraft) => number;
-  /** Refresh M1's derived symbol/graph projections from the new bytes (local, not WAL'd). */
+  /** Refresh the kernel's derived symbol/graph projections from the new bytes (local, not WAL'd). */
   reindex?: (relPath: string, bytes: string) => void;
   /** Register the precise write with producer ② so its disk observation dedups to a confirm. */
   expectPrecise?: (relPath: string) => void;
-  /** Resolve a name-only ref to a worktree-relative path (M1 symbol table). */
+  /** Resolve a name-only ref to a worktree-relative path (the kernel symbol table). */
   resolveFile?: (ref: SymbolRef) => string | undefined;
 }
 
@@ -109,7 +109,7 @@ function mutateFile(rel: string, diff: DiffSpec, deps: WorkbenchDeps): ToolRespo
   };
 }
 
-/** The worktree-relative path a ref names: its `path`, or a name-only ref resolved via M1. */
+/** The worktree-relative path a ref names: its `path`, or a name-only ref resolved via the kernel. */
 function refPath(ref: SymbolRef, deps: WorkbenchDeps): string | undefined {
   if ('path' in ref) return ref.path;
   return deps.resolveFile?.(ref);

@@ -2,11 +2,11 @@ import type { BackendMessage, LoopToolCall } from '@coa/shared';
 import type { RuntimeUsage } from '@coa/spi';
 
 /**
- * The `complete()` primitive (dual-backend spec C1) — the ONE backend-specific
+ * The `complete()` primitive — the ONE backend-specific
  * surface a pure chat-completions API must implement. It is a single model
  * round-trip (no loop, no governance): given the running conversation + the
  * available tools, return the model's text, any tool calls it wants, and the
- * settled usage. All the agentic scaffolding (tool execution, the two SC-1
+ * settled usage. All the agentic scaffolding (tool execution, the two governance
  * blocks, TurnFrame mapping) lives in the coa loop driver, so adding another pure
  * API stays trivial — implement `complete()` and nothing else.
  *
@@ -16,9 +16,9 @@ import type { RuntimeUsage } from '@coa/spi';
  */
 
 /**
- * A message in the driver's running conversation (the neutral M0 chat-transcript
- * record). Re-exported under the driver's local name; it is the same shape the R-7
- * store persists so the transcript round-trips verbatim across turns.
+ * A message in the driver's running conversation (the neutral shared chat-transcript
+ * record). Re-exported under the driver's local name; it is the same shape the
+ * conversation store persists so the transcript round-trips verbatim across turns.
  */
 export type DriverMessage = BackendMessage;
 export type { LoopToolCall };
@@ -45,10 +45,10 @@ export interface CompletionResult {
 }
 
 /**
- * One streaming chunk from a model round-trip (Piece B / G7): an incremental piece of
+ * One streaming chunk from a model round-trip: an incremental piece of
  * answer `text` or of the reasoning ("thinking") channel. Neutral — the driver maps a
  * delta to a `text-delta`/`thinking-delta` TurnFrame; no frame vocabulary crosses this
- * seam. Delivery-only: deltas are pushed to the UI, never persisted (docs/adr/0013).
+ * seam. Delivery-only: deltas are pushed to the UI, never persisted.
  */
 export type CompletionDelta = { kind: 'text'; text: string } | { kind: 'reasoning'; text: string };
 
@@ -56,7 +56,8 @@ export type CompletionDelta = { kind: 'text'; text: string } | { kind: 'reasonin
  * The streaming `complete()` primitive: one model round-trip as an async-iterable of
  * text/reasoning deltas TERMINATING IN the settled {@link CompletionResult} (the
  * generator's return value). A non-streaming backend degrades to yielding nothing and
- * returning the whole result — byte-identical to a single-block turn (D85).
+ * returning the whole result — byte-identical to a single-block turn (a missing
+ * capability degrades, it never breaks the loop).
  */
 export type CompleteFn = (
   messages: readonly DriverMessage[],

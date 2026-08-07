@@ -5,9 +5,10 @@ import { orderedPieceSchema, pieceSchema } from './piece.js';
 import { reminderSchema } from './reminder.js';
 
 /**
- * The backend-NEUTRAL compiled config (M5's output; authoritative here per
- * D-CAT, M5 cross-references). The slot set is unchanged by the TAX-* collapse —
- * the axes are a front-end over these same slots (D105 intact).
+ * The backend-NEUTRAL compiled config (the config compiler's output; the shape
+ * is authoritative here and the compiler cross-references it). The slot set is
+ * unchanged by the content-axes collapse — the axes are a front-end over these
+ * same slots.
  */
 export const neutralConfigSchema = z.object({
   prefixHead: z.array(orderedPieceSchema),

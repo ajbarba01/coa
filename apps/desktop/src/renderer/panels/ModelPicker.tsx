@@ -128,7 +128,7 @@ export function pickableModels(models: ModelDescriptor[]): ModelDescriptor[] {
  *  neither, so it keeps the qualified name.
  *
  *  An emptied/still-loading list degrades honestly: the backend default runs, so the
- *  picker says so rather than opening on nothing (SC-1, D85).
+ *  picker says so rather than opening on nothing (advisory, and absence degrades to a pass-through).
  */
 export function modelPickerOptions(
   models: ModelDescriptor[],

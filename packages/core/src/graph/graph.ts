@@ -3,11 +3,11 @@ import { findCycles, type CycleComponent } from './cycles.js';
 import { computeCoupling, type CouplingFan } from './coupling.js';
 
 /**
- * The in-memory typed dependency graph — M1's central projection (P4), the hot
+ * The in-memory typed dependency graph — the kernel's central projection, the hot
  * read path. The floor keeps the node set and typed edges and answers the
  * dependency reads every consumer needs. Its one structural invariant is the
  * **declared-layer DAG**: an authored (`declared`/`gated`) edge that would close
- * a cycle is rejected. Inferred/convention edges are stored as-is — the GRF-1
+ * a cycle is rejected. Inferred/convention edges are stored as-is — the
  * retained-cycle model and the cycle/coupling/temporal views are a later batch.
  */
 const DECLARED_LAYER: ReadonlySet<EdgeProvenance> = new Set<EdgeProvenance>(['declared', 'gated']);
@@ -81,17 +81,17 @@ export class TypedGraph {
     return [...this.outgoing.values()].flat();
   }
 
-  /** GRF-1 — the retained-cycle view (SCC condensation + back-edges to cut). */
+  /** The retained-cycle view (SCC condensation + back-edges to cut). */
   cycles(): CycleComponent[] {
     return findCycles(this.edges());
   }
 
-  /** GRF-4 — the typed/weighted coupling fan around a node. */
+  /** The typed/weighted coupling fan around a node. */
   coupling(node: string): CouplingFan {
     return computeCoupling(node, this.edges());
   }
 
-  /** GRF-3 — per-provenance edge counts (the honest coverage substrate). */
+  /** Per-provenance edge counts (the honest coverage substrate). */
   provenanceCounts(): Record<EdgeProvenance, number> {
     const counts: Record<EdgeProvenance, number> = {
       declared: 0,

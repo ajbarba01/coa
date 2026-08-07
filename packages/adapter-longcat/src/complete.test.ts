@@ -4,7 +4,7 @@ import type { CompletionDelta, CompletionResult, DriverMessage, ToolDef } from '
 import { makeLongCatComplete, type FetchLike } from './complete.js';
 
 /**
- * Drain a non-streaming `complete()` (D85 degrade: yields nothing, returns the settled
+ * Drain a non-streaming `complete()` (the pass-through degrade: yields nothing, returns the settled
  * result) to its return value, so these tests can assert on the result the way they did
  * before `complete()` became a generator.
  */

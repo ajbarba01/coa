@@ -15,7 +15,7 @@ function piece(name: string, axes: Partial<ContentAxes> = {}, over: Partial<Piec
   };
 }
 
-describe('compile — TAX-3 axis→slot routing', () => {
+describe('compile — axis→slot routing', () => {
   it('North Star: an empty-config (vanilla-skill) Piece routes to onDemandPullable only, no findings', () => {
     const { config, findings } = compile([piece('skill')], EMPTY_FRAME);
 
@@ -62,7 +62,7 @@ describe('compile — TAX-3 axis→slot routing', () => {
     expect(compile([], frame).config.toolIntents).toEqual(frame);
   });
 
-  it('emits a NeutralConfig that validates against the M0 schema and is deterministic', () => {
+  it('emits a NeutralConfig that validates against the shared schema and is deterministic', () => {
     const pieces = [
       piece('a', { delivery: 'push' }),
       piece('b'),
@@ -75,7 +75,7 @@ describe('compile — TAX-3 axis→slot routing', () => {
   });
 });
 
-describe('compile — D105 most-stable-first prefix ordering', () => {
+describe('compile — most-stable-first prefix ordering', () => {
   it('leads the prefix with authored Pieces ahead of derived-from-code (volatility order)', () => {
     const { config } = compile(
       [
@@ -117,7 +117,7 @@ describe('compile — D105 most-stable-first prefix ordering', () => {
   });
 });
 
-describe('compile — TAX-4 normalization + coercion', () => {
+describe('compile — normalization + coercion', () => {
   const deps = (over: Partial<CompileDeps> = {}): CompileDeps => ({
     isRegistered: () => true,
     hasGeneratedFrom: () => true,

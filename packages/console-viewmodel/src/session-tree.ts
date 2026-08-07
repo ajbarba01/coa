@@ -65,7 +65,7 @@ export function groupSessionTree(sessions: readonly SessionSummary[]): SessionTr
     placed.add(header.id);
     const rows: SessionTreeRow[] = [];
     // An explicit stack, not recursion: spawn depth is unbounded by design
-    // (docs/adr/0032 — the cost cap is the only fan-out bound), so a long enough
+    // (the cost cap is the only fan-out bound, not a depth counter), so a long enough
     // linear chain overflows the call stack and takes the whole panel down with
     // an uncaught RangeError. Children are pushed in reverse so popping still
     // yields depth-first pre-order, i.e. the same row order recursion produced.
@@ -155,7 +155,7 @@ export function sessionGroupFor(
  * deliberately has none): an unresolvable or self-referential parent stops
  * the climb (after the root fallback) rather than looping or throwing. A
  * no-op when every ancestor is already present — the ordinary empty-query
- * case, where `matched` already IS the full list (D85).
+ * case, where `matched` already IS the full list.
  */
 export function withAncestors(
   allSessions: readonly SessionSummary[],

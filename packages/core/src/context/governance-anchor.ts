@@ -1,25 +1,25 @@
 import type { FlagRecord, GraphEdge, Producer, ProducerInput } from '@coa/shared';
 
 /**
- * M4 / L-DET — the reactive dangling-`governed-by` detector. A Piece/symbol that
+ * L-DET — the reactive dangling-`governed-by` detector. A Piece/symbol that
  * declares `governed-by: X` is claiming a guarantee is enforced by a real check;
  * if X is not a registered constraint, that guarantee is **unbacked** (the
  * policy-theater failure). This producer raises a Type-2, never-blocking notice
- * per such claim, off the M1 change-event spine, at the earliest moment (SPEC's
+ * per such claim, off the kernel change-event spine, at the earliest moment (the spec's
  * "dangling refs become staleness flags").
  *
- * It is the event-time complement of TAX-4's compile-time `governed-by →
+ * It is the event-time complement of the compiler's compile-time `governed-by →
  * unregistered` check; it shares the `dangling-governance:<referrer>→<constraint>`
  * concern identity so the two surfaces collapse (CF-7) rather than double-report.
  *
  * **Rebuild-to-follow:** on every relevant input it returns the COMPLETE current
- * dangling set (a pure function of the graph × the registry), so the M8
+ * dangling set (a pure function of the graph × the registry), so the daemon
  * reconciling driver can self-heal — a claim that becomes backed again (e.g. the
  * rule is restored, or an undo brings it back) simply drops out of the set and the
  * driver resolves the now-absent flag. The producer holds no state and makes no
- * model call (P1): "dangling" is the mechanical fact `edge.to ∉ registered`.
+ * model call: "dangling" is the mechanical fact `edge.to ∉ registered`.
  * `kind:'deterministic'` in mechanism, but it stamps Type-2 because it cannot prove
- * the referrer is unsafe — so it never gate-blocks (SC-1) and rides the human feed.
+ * the referrer is unsafe — so it never gate-blocks and rides the human feed.
  */
 
 /** The injected reads: the current `governed-by` edges, and whether a constraint id resolves. */

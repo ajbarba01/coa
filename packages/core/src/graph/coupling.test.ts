@@ -10,7 +10,7 @@ const call = (from: string, to: string, weight?: number): GraphEdge => ({
   ...(weight !== undefined ? { weight } : {}),
 });
 
-describe('computeCoupling (GRF-4 typed/weighted fan)', () => {
+describe('computeCoupling (typed/weighted fan)', () => {
   const edges: GraphEdge[] = [
     call('A', 'B', 3),
     call('A', 'C'),

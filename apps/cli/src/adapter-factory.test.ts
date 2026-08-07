@@ -241,7 +241,7 @@ const factories = {
   longcat: createLongCatAdapter,
 } as const;
 
-describe('the M8 → adapter forwarding contract', () => {
+describe('the session-core → adapter forwarding contract', () => {
   for (const backend of ['claude', 'deepseek', 'longcat'] as const) {
     it(`classifies every SessionAdapterInit field for ${backend}`, () => {
       expect([...FORWARDED[backend], ...NOT_FORWARDED[backend]].sort()).toEqual(
@@ -264,7 +264,8 @@ describe('the M8 → adapter forwarding contract', () => {
     it(`forwards drainDeliveries into the ${backend} adapter, so a queued steer can reach the model`, () => {
       // Called out on its own because deleting exactly this line ships the mid-loop
       // delivery path DEAD: the queue fills, the steer is logged and acknowledged
-      // `{ steered: true }`, and nothing ever drains it (docs/adr/0030).
+      // `{ steered: true }`, and nothing ever drains it (delivery is one intent,
+      // realized per backend — the drain hook is how a pure-API backend realizes it).
       const before = captured[backend].length;
       factories[backend](init({ drainDeliveries: FULL_INIT.drainDeliveries }));
       const seen = captured[backend][before] as Record<string, unknown> | undefined;

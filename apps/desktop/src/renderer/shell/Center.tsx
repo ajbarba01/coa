@@ -461,7 +461,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
         </button>
       </Tooltip>
       <div className="min-w-6 flex-1" />
-      {/* D85 indicator: appears only while raw mode is ON (toggled from the palette, or by
+      {/* Raw-mode indicator: appears only while raw mode is ON (toggled from the palette, or by
           the `toggle-raw` chord — alt+r by default) */}
       {rawMode && (
         <span className="self-center px-1 font-mono text-meta tracking-[0.06em] text-warn">

@@ -119,12 +119,12 @@ describe('stage 7 — the Task/Agent rename (arc risk R2)', () => {
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
 
     // What changed is coa's transport POLICY, not the fact above. This probe originally
-    // asserted a granted `Agent` survived the frame; the built-in floor (docs/adr/0029)
+    // asserted a granted `Agent` survived the frame; the built-in floor
     // now demotes delegation deliberately, to be replaced by a governed spawn tool. The
     // vocabulary assertions are what still guard the rename — absence here is intent.
     const granted = resolveToolTransport({ allow: ['Read', 'Agent'], deny: [], coaToolNames: [] });
     expect(granted.tools).toEqual(['Read']);
-    // autoApprove is always empty (docs/adr/0028) — availability lives entirely in
+    // autoApprove is always empty (coa never grants, only denies) — availability lives entirely in
     // `tools`, which KNOWN_BUILTINS and the floor together drive.
     expect(granted.autoApprove).toEqual([]);
   });

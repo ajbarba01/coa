@@ -1,9 +1,9 @@
 import type { TurnFrame } from '@coa/console-viewmodel';
 
 /** A realistic mock conversation covering every frame kind the transcript renders.
- *  Shaped exactly like the future turn-store read (§21.3) so swapping this constant
+ *  Shaped exactly like the future turn-store read so swapping this constant
  *  for the daemon verb is a one-line data-source change. The cost-cap deny frame is a
- *  MOCK that validates the SC-1 DenyNotice surface — the console gates nothing. */
+ *  MOCK that validates the advisory DenyNotice surface — the console gates nothing. */
 export const MOCK_TURNS: TurnFrame[] = [
   {
     id: 'u1',

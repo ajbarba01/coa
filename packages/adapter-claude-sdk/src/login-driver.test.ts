@@ -111,7 +111,7 @@ describe('resolveClaudeCommand', () => {
   });
 
   /** Never throw and never block: an unresolvable binary degrades to the bare name so the
-   *  pipe branch's shell resolution still gets its chance (SC-1 — help, never cage). */
+   *  pipe branch's shell resolution still gets its chance (help, never cage). */
   it('falls back to the bare name when nothing is found', () => {
     expect(resolveClaudeCommand('win32', ['C:\\nowhere'], () => false)).toBe('claude');
     expect(resolveClaudeCommand('linux', ['/nowhere'], () => false)).toBe('claude');

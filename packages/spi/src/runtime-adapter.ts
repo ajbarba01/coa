@@ -12,12 +12,12 @@ import type {
 import type { ZodRawShape } from 'zod';
 
 /**
- * The M9 capability-port contract (D109): the narrow interface the core calls,
+ * The backend capability-port contract: the narrow interface the core calls,
  * implemented once per backend. The core NEVER branches on which backend is
  * active — a backend that lacks a capability returns a **null-fallback** (a
  * defined "degrade gracefully" result; see `./null-fallback.ts`), never a thrown
  * error or a `which-backend` branch. These are **type signatures only**; the
- * concrete Claude-SDK implementation is handed in at runtime by M8 (D121).
+ * concrete Claude-SDK implementation is handed in at runtime by the session host.
  *
  * Payloads owned by a consumer module are typed at the narrowest shape the
  * adapter needs and annotated with their owner; the adapter does not re-decide
@@ -25,8 +25,8 @@ import type { ZodRawShape } from 'zod';
  */
 
 /**
- * The backend-native config `renderNative` produces from M5's neutral output —
- * the **internal D109 port shape** (D126), not the deferred public SPI (D110).
+ * The backend-native config `renderNative` produces from the config compiler's
+ * neutral output — the **internal port shape**, not the deferred public SPI.
  * Carries the static options; the two hooks (`canUseTool` / `Stop`) are
  * wired separately via {@link RuntimeAdapter.interceptTool}/`interceptStop`.
  */
@@ -40,20 +40,21 @@ export interface BackendConfig {
   perAgent: Record<string, { allowedTools: string[]; disallowedTools: string[] }>;
 }
 
-/** The deterministic close-gate decision M3 returns; M9 maps it onto the SDK `Stop` hook. */
+/** The deterministic close-gate decision; the adapter maps it onto the SDK `Stop` hook. */
 export type StopDecision = { allow: true } | { allow: false; message: string };
 
-/** The `Stop`-hook predicate M9 wires (M3.gate, handed in by M8). */
+/** The `Stop`-hook predicate the adapter wires (the close-gate, handed in by the session host). */
 export type StopPredicate = () => StopDecision | Promise<StopDecision>;
 
 /**
- * A neutral turn-level interrupt handle a backend reports UP (see docs/adr/0012).
+ * A neutral turn-level interrupt handle a backend reports UP (interrupts flow
+ * from the backend to the caller, never the reverse).
  * Calling it stops the CURRENTLY-running turn for a user stop, while keeping the
  * backend session ALIVE — distinct from the whole-session user-stop `signal`
  * (`AbortController`) that terminates the loop. Only a streaming/held-open backend
  * (the Claude SDK's `Query.interrupt`) provides one; a per-turn backend never reports
  * it. Nothing routes a barge-in through it any more — that seam was removed; all
- * mid-turn text now travels as a delivery (docs/adr/0031).
+ * mid-turn text now travels as a delivery.
  */
 export type TurnInterrupt = () => Promise<void>;
 
@@ -61,20 +62,21 @@ export type TurnInterrupt = () => Promise<void>;
 export type ToolPermissionDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
 /**
- * The single `canUseTool` predicate M9 wires (assembled by M8 from M7's cost-cap
- * + M3's `perToolDeny`, first-deny-wins, fail-closed). M9 holds no policy.
+ * The single `canUseTool` predicate the adapter wires (assembled by the session
+ * host from the cost-cap + the per-tool deny, first-deny-wins, fail-closed). The
+ * adapter holds no policy.
  */
 export type CanUseTool = (
   call: ToolCall,
 ) => ToolPermissionDecision | Promise<ToolPermissionDecision>;
 
-/** Where in the transcript a reminder lands (D108/D133). */
+/** Where in the transcript a reminder lands. */
 export type ReminderAt = 'session-start' | 'prompt' | 'post-tool';
 
 /**
  * Text waiting to reach a running loop, drained by an adapter at its own soonest
- * boundary. Distinct from `Reminder`, which is M3's `{rule, reason, tier}` authority
- * payload delivered at a position D108 dictates — this carries arbitrary text and a
+ * boundary. Distinct from `Reminder`, which is the governor's `{rule, reason, tier}`
+ * authority payload delivered at a dictated transcript position — this carries arbitrary text and a
  * provenance tag, not a rule.
  */
 export type DeliveryOrigin = 'user' | 'system';
@@ -100,38 +102,38 @@ export interface RuntimeUsage {
   cacheReadTokens?: number;
 }
 
-/** A precise reference location from the LSP port (D144). */
+/** A precise reference location from the LSP port. */
 export interface SymbolReference {
   path: string;
   line: number;
   column: number;
 }
 
-/** The governed tool catalogue M6 registers into the loop — the rich, callable shape. */
+/** The governed tool catalogue registered into the loop — the rich, callable shape. */
 export type ToolCatalogue = readonly RegisteredTool[];
 
-/** Where a registered tool's schema sits in the D100 budget: always-loaded vs pulled on demand. */
+/** Where a registered tool's schema sits in the context-token budget: always-loaded vs pulled on demand. */
 export type ToolPartition = 'kernel' | 'on-demand';
 
 /**
- * One governed M6 tool, ready for M9 to register as an in-process MCP tool. M6
- * (in the core) builds these by wiring its handlers to the live M1/M3/M4/M7 ports
- * and decorating each return with `enrich`; M9 turns each into an SDK
- * `tool(name, description, inputSchema, handler)` inside a `createSdkMcpServer`.
- * The handler dispatch is the boundary at which `enrich` is applied (every return
- * carries gated flags) and at which inputs are Zod-validated before
- * the handler touches shared state (D141(c)). `invoke` never throws and never
- * denies (SC-1): a bad input or a confinement/diff failure comes back as an
- * unapplied result the agent can retry.
+ * One governed tool, ready for the adapter to register as an in-process MCP tool.
+ * The tool layer (in the core) builds these by wiring its handlers to the live
+ * spine/governor/context/cost ports and decorating each return with `enrich`; the
+ * adapter turns each into an SDK `tool(name, description, inputSchema, handler)`
+ * inside a `createSdkMcpServer`. The handler dispatch is the boundary at which
+ * `enrich` is applied (every return carries gated flags) and at which inputs are
+ * Zod-validated before the handler touches shared state. `invoke` never throws
+ * and never denies (advisory only — surface, never cage): a bad input or a
+ * confinement/diff failure comes back as an unapplied result the agent can retry.
  */
 export interface RegisteredTool {
   name: string;
   description: string;
-  /** D100 schema-budget partition — M9 marks the kernel set always-loaded, the rest deferred. */
+  /** Schema-budget partition — the adapter marks the kernel set always-loaded, the rest deferred. */
   partition: ToolPartition;
-  /** The Zod raw shape M9 hands the SDK `tool(...)` as the MCP input schema (D141(c) validate-before-touch). */
+  /** The Zod raw shape handed to the SDK `tool(...)` as the MCP input schema (validate before the handler touches state). */
   inputSchema: ZodRawShape;
-  /** The governed, enriched dispatch: validate args → route to the M6 handler → enrich the return. */
+  /** The governed, enriched dispatch: validate args → route to the tool handler → enrich the return. */
   invoke: (args: unknown) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
   /**
    * Render this tool's structured `result` to human-readable display text — the text a
@@ -152,7 +154,7 @@ export interface RegisteredTool {
   ok?: (result: unknown) => boolean;
 }
 
-/** The golden-corpus eval input/result (D138 mechanism; M8/M7 own the policy). */
+/** The golden-corpus eval input/result (mechanism only; the session host and cost meter own the policy). */
 export interface EvalCorpus {
   readonly cases: readonly unknown[];
 }
@@ -168,30 +170,30 @@ export interface EvalResult {
 export interface RuntimeAdapter {
   /** Drive one rented agent turn-loop for a session. */
   runLoop(sessionConfig: SessionConfig): Promise<void>;
-  /** Register M6's governed tool catalogue (the MCP surface) into the loop. */
+  /** Register the governed tool catalogue (the MCP surface) into the loop. */
   registerTools(catalogue: ToolCatalogue): void;
   /** Disable the built-in tools coa demotes (e.g. built-in `Edit`) — a demotable default. */
   denyBuiltins(): void;
-  /** Wire the SDK `canUseTool` hook. M9 owns the wiring; M8 owns the predicate. */
+  /** Wire the SDK `canUseTool` hook. The adapter owns the wiring; the session host owns the predicate. */
   interceptTool(canUseTool: CanUseTool): void;
   /** Wire the SDK `Stop` hook — the close-gate rides here (there is no "finish" tool). */
   interceptStop(stopPredicate: StopPredicate): void;
-  /** Deliver the reminder M3 decided, at the position D108 dictates. */
+  /** Deliver the reminder the governor decided, at the dictated transcript position. */
   deliverReminder(reminder: Reminder, at: ReminderAt): void;
-  /** Render M5's backend-neutral config into backend-native form. Pure (P1). */
+  /** Render the backend-neutral compiled config into backend-native form. Pure — no model call. */
   renderNative(neutralConfig: NeutralConfig): BackendConfig;
-  /** Deliver an assembled context package at session start (M8 calls; M4 does not). */
+  /** Deliver an assembled context package at session start (the session host calls it, not the context assembler). */
   render_context(pkg: ContextPackage): void;
-  /** Inject scope-selected pieces in-flight (the M9 loop calls; SCO-4 delivery). */
+  /** Inject scope-selected pieces in-flight (the loop calls; delivery of a scope's attached pieces). */
   inject_runtime(slice: readonly Piece[]): void;
   /** Set prompt-cache breakpoints over the stable prefix. */
   cache_control(breakpoints: CacheBreakpoints): void;
-  /** Report settled token/cost usage (M9's settlement step calls `M7.charge`). */
+  /** Report settled token/cost usage (the settlement step charges it to the cost meter). */
   usageTelemetry(): RuntimeUsage;
-  /** Report what this backend supports; null-fallback = the barebones baseline (D62). */
+  /** Report what this backend supports; null-fallback = the barebones baseline. */
   capabilityProfile(): CapabilityProfile;
-  /** Precise references when `tsserver` is available; null → M2 tree-sitter floor (D144). */
+  /** Precise references when `tsserver` is available; null → degrade to the tree-sitter floor. */
   refs(symbol: SymbolRef): SymbolReference[] | null;
-  /** Run the golden-corpus eval (D138 mechanism); M8 orchestrates, M7 guards. */
+  /** Run the golden-corpus eval (mechanism only); the session host orchestrates, the cost cap guards. */
   runEval(corpus: EvalCorpus): Promise<EvalResult>;
 }

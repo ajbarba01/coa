@@ -11,7 +11,7 @@ export type RunTurn = (turn: TurnRequest, session: LiveSession) => Promise<void>
  * running each through `runTurn` and toggling the session back to `idle`
  * afterward. Ends once the session is closed and its queue is drained.
  *
- * SC-1: a throwing `runTurn` is caught and surfaced as an error frame via
+ * a throwing `runTurn` is caught and surfaced as an error frame via
  * `session.emit` rather than propagating — a failed turn never kills the live
  * session, so the loop always continues to the next queued turn.
  */

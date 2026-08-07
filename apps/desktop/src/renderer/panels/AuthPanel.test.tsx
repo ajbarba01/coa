@@ -661,7 +661,7 @@ describe('AuthSurface', () => {
 
 describe('login health on the surface', () => {
   /** The fixture with the ACTIVE claude login flagged by the probe — the headline case:
-   *  flagged, never auto-switched (SC-1). */
+   *  flagged, never auto-switched (advisory). */
   const FLAGGED_VIEW: AuthView = {
     ...FIXTURE_VIEW,
     credentials: FIXTURE_VIEW.credentials.map((c) =>
@@ -793,7 +793,7 @@ describe('removing a login with a browser profile', () => {
   });
 
   /** Keyed by identity, one jar can back several logins — so the option to delete it is not
-   *  this row's to offer, and the prompt says why rather than going quiet (docs/adr/0021). */
+   *  this row's to offer, and the prompt says why rather than going quiet (profiles are keyed by identity, which several accounts can share). */
   it('offers no profile deletion when another login shares the identity', async () => {
     const user = userEvent.setup();
     const remove = vi.fn().mockResolvedValue(undefined);

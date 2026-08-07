@@ -2,17 +2,18 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { TurnFrame } from '@coa/shared';
 
 /**
- * The M9 SDK→neutral mapping: one Claude `SDKMessage` → zero or more M0
+ * The SDK→neutral mapping: one Claude `SDKMessage` → zero or more neutral
  * {@link TurnFrame}s. This is the backend-specific half of the session output
- * seam — only M9 knows the SDK's message/content-block shape, so the translation
- * to coa's own turn vocabulary lives here, not in the core. M8 owns the emission
+ * seam — only this adapter knows the SDK's message/content-block shape, so the
+ * translation to coa's own turn vocabulary lives here, not in the core. The daemon
+ * owns the emission
  * policy (sequencing + wrapping each frame into a `turn` Push); this stays a pure,
  * per-message function so a second adapter (e.g. a from-scratch pure-API backend)
  * implements the same contract against its own wire format.
  *
  * Only the frames the transcript renders are produced; transport/system messages
  * (init, status, retries) map to nothing. Tool-return distillation (the byte-
- * faithful handle/pointer, D57) is M6/M8's job — the floor carries the tool_use id
+ * faithful handle/pointer) is the workbench's and daemon's job — the floor carries the tool_use id
  * as the handle and a short content pointer.
  */
 
@@ -50,10 +51,11 @@ interface StreamEvent {
 }
 
 /**
- * Map a `SDKPartialAssistantMessage` (`includePartialMessages`, Piece B / G7) to a delivery-only
+ * Map a `SDKPartialAssistantMessage` (`includePartialMessages`) to a delivery-only
  * delta frame. Only content-block text/thinking deltas render live; block start/stop, tool-input
  * (`input_json_delta`), and message-level events carry no frame — the settled assistant message
- * still yields the canonical `text`/`thinking` frames, and only those persist (docs/adr/0013).
+ * still yields the canonical `text`/`thinking` frames, and only those persist (deltas
+ * are delivery-only, never written to the record).
  */
 function streamEventFrames(message: SDKMessage): TurnFrame[] {
   const ev = (message as unknown as StreamEvent).event;
@@ -103,7 +105,7 @@ function blockToFrame(block: ContentBlock): TurnFrame | undefined {
   }
 }
 
-/** A short, render-safe pointer to the tool return (the byte-faithful body stays in the daemon, D57). */
+/** A short, render-safe pointer to the tool return (the byte-faithful body stays in the daemon). */
 function pointerOf(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -122,7 +124,8 @@ function resultFrames(message: Extract<SDKMessage, { type: 'result' }>): TurnFra
   // `terminal_reason` is optional on BOTH result shapes and distinguishes 13 endings.
   // Reading only `subtype` made a close-gate block, a turn-cap cutoff and a clean finish
   // indistinguishable. Reported verbatim on the boundary; only coa's own blocks are
-  // reinterpreted as denials (SC-1). See docs/adr/0028.
+  // reinterpreted as denials — the system blocks only through its own two gates, so
+  // anything else must surface untouched.
   const terminal = message.terminal_reason;
   const boundary: TurnFrame = {
     t: 'turn-boundary',

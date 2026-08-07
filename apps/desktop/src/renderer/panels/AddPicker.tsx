@@ -112,7 +112,7 @@ export function AddPicker({
           <TextInput autoFocus value={query} onChange={setQuery} placeholder={placeholder} />
         </div>
         {/* `group`, not `listbox`: a listbox's ARIA contract expects `option` children,
-            but each row here is a real `checkbox` (SetRow's own role, Task 3) — `group`
+            but each row here is a real `checkbox` (SetRow's own role) — `group`
             is the container role that stays valid over arbitrary widget children while
             still giving the row list one announced name, matching what Combobox's
             listbox does for its own (option-shaped) rows. */}

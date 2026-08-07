@@ -89,7 +89,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
 
 /**
  * `coa run` — start a governed session on the daemon and stream its turns to the
- * terminal. A thin client (D112/D113): it opens the pipe, subscribes to the R-12
+ * terminal. A thin client: it opens the pipe, subscribes to the daemon's
  * push stream, calls `createSession`, and renders each turn/status/cost record as
  * it arrives, resolving when the session reaches its terminal status. The session
  * itself lives in the daemon; this process only renders. Exit code follows the
@@ -152,10 +152,10 @@ export interface DaemonOptions {
 }
 
 /**
- * Start the daemon: construct the full session closure (M1–M7 + the M9 adapter
- * factory), then serve both the inspector reads and the session-lifecycle verbs.
- * Handlers are built per connection so each `createSession` streams its turns over
- * the connection that opened it (the R-12 push seam).
+ * Start the daemon: construct the full session closure (the daemon core plus the
+ * backend adapter factory), then serve both the inspector reads and the
+ * session-lifecycle verbs. Handlers are built per connection so each
+ * `createSession` streams its turns over the connection that opened it.
  */
 /**
  * Fetch every provider's models and flatten them into one list. A provider whose
@@ -236,7 +236,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       if (startChild === undefined) {
         // Should be unreachable: `startChild` is bound before any connection can
         // process an RPC call, and no session can exist before that. Loud, never
-        // silent — SC-1 forbids a throw, so this degrades to "spawning unavailable".
+        // silent — governance must never block the loop with a throw, so this degrades to "spawning unavailable".
         options.err('coa: spawn requested before startChild was wired — spawning unavailable');
         return undefined;
       }
@@ -261,18 +261,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     saveAgent: (ref, file, scope) => agentRegistry.save(ref, file, scope),
     deleteAgent: (ref, scope) => agentRegistry.remove(ref, scope),
   });
-  // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
+  // The persistent conversation store lives beside the WAL under the gitignored `.coa/local/`.
   const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
   const conversationHandlers = buildConversationHandlers(store);
-  // The daemon-authoritative home for every conversation's live session (docs/adr/0011),
+  // The daemon-authoritative home for every conversation's live session (the daemon,
+  // not any client, owns a live session across turns),
   // constructed once — same lifetime as `store` — so two connections sharing a
   // conversation id share the one live session rather than each getting their own.
-  // `onClose` is the SINGLE teardown path (live-registry.ts#close): the M1
+  // `onClose` is the SINGLE teardown path (live-registry.ts#close): the change-event-spine
   // checkpoint + worktree release happen exactly once here, on whichever of
   // idle-eviction / the `closeSession` verb / shutdown (`closeAll`) tears a
   // session down — never in `session-handlers.ts` directly (no double-release).
-  // Idle-eviction never fires on a still-`running` session (see FIX #1's
-  // running-aware re-arm), so this only actually releases a live adapter's
+  // Idle-eviction never fires on a still-`running` session (see the  // running-aware re-arm), so this only actually releases a live adapter's
   // worktree on the explicit `closeSession` verb or shutdown — attended-v1-acceptable.
   const registry = new LiveSessionRegistry({
     idleMs: DEFAULT_LIVE_IDLE_MS,

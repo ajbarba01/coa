@@ -80,7 +80,7 @@ describe.skipIf(!live)('the governed gate, live', () => {
    * Kept in its own `it` so a flaky or inconclusive result here never casts doubt on the
    * built-in-tool assertions proven above.
    *
-   * docs/adr/0028: `canUseTool` is never consulted for the native delegation call (`Task`/
+   * Under the earlier two-seam design: `canUseTool` is never consulted for the native delegation call (`Task`/
    * `Agent`), so coa denies it through a second seam — a `PreToolUse` hook that judges ONLY
    * delegation and abstains on everything else (`gateDelegation` in session-options.ts).
    * That deny is verified against TypeScript types only: `sdk.mjs` never reads
@@ -96,7 +96,7 @@ describe.skipIf(!live)('the governed gate, live', () => {
    * apart from "the model never tried" apart from "the deny was NOT honoured".
    */
   // RETIRED BY ITS OWN SUCCESS, 2026-08-03. This probe can no longer run: the built-in
-  // floor (docs/adr/0029) removes delegation from the session, so the model has no
+  // floor removes delegation from the session, so the model has no
   // Task/Agent tool to attempt and the deny path is unreachable. The live run confirmed
   // exactly that — the model reported its tools as "Bash, Edit, Glob, Grep, Read,
   // WebFetch, WebSearch, and Write" and nothing else.
@@ -172,8 +172,8 @@ describe.skipIf(!live)('the governed gate, live', () => {
       );
     }
 
-    // HALF 1 — the PreToolUse seam is consulted for the delegation name (docs/adr/0028;
-    // `canUseTool` itself never sees this call, so this is the only seam that can).
+    // HALF 1 — the PreToolUse seam is consulted for the delegation name
+    // (`canUseTool` itself never sees this call, so this is the only seam that can).
     expect(seenDelegation, diagnostic).not.toHaveLength(0);
 
     // HALF 2 — and the deny actually reached the CLI: no child work ran. A denied
@@ -192,9 +192,9 @@ describe.skipIf(!live)('the governed gate, live', () => {
 });
 
 /**
- * THE TWO PROBES THAT GATE THE ORCHESTRATION SLICE (docs/adr/0029).
+ * THE TWO PROBES THAT GATE THE ORCHESTRATION SLICE.
  *
- * ADR-0029 moved ALL per-tool governance onto `PreToolUse`. That decision is verified
+ * All per-tool governance moved onto `PreToolUse`. That decision is verified
  * against TypeScript types only: `sdk.mjs` never reads `hookSpecificOutput`, the bundled
  * CLI binary does, so types cannot settle whether a type-valid deny is honoured.
  *
@@ -202,10 +202,10 @@ describe.skipIf(!live)('the governed gate, live', () => {
  * from both seams, so "the callback ran" proves nothing about whether the CLI obeyed it —
  * only "the work did not happen" does.
  *
- * If either fails, ADR-0029 loses its governance leg and coa-owned tool implementations
+ * If either fails, the one-seam governance design loses its governance leg and coa-owned tool implementations
  * win by default. Neither is expensive: one capped turn each.
  */
-describe.skipIf(!live)('the gate that ADR-0029 rests on, live', () => {
+describe.skipIf(!live)('the gate that one-seam per-tool governance rests on, live', () => {
   it('honours a PreToolUse deny for a built-in: the read never happens', async () => {
     const worktree = mkdtempSync(join(tmpdir(), 'coa-gate-deny-'));
     const marker = 'COA_DENY_MARKER_9f04';
@@ -245,7 +245,7 @@ describe.skipIf(!live)('the gate that ADR-0029 rests on, live', () => {
 
     // THE DECIDING ASSERTION. The marker reaching the model's output means the read
     // executed despite coa denying it — the deny was NOT honoured, and every per-tool
-    // block in the system (including M7's cost cap) is decorative on this path.
+    // block in the system (including the cost cap) is decorative on this path.
     expect(text, diagnostic).not.toContain(marker);
   });
 

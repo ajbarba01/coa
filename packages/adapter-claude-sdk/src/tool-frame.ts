@@ -12,10 +12,10 @@ import { mcpToolName } from './mcp-tools.js';
  * Key SDK facts this encodes (verified against `sdk.d.ts`): `allowedTools` is an
  * *auto-approve* list, not an availability gate; **availability** of built-ins is
  * the `tools` option, and of coa tools is which MCP tools get registered. Real
- * governance stays on `canUseTool` (the cost-cap + M3 deny) — this only shapes
+ * governance stays on `canUseTool` (the cost-cap + close-gate owner's deny) — this only shapes
  * *which tools exist* for the agent.
  *
- * An EMPTY `allow` set is the D85 pass-through: no `tools` restriction, every coa
+ * An EMPTY `allow` set is the literal pass-through: no `tools` restriction, every coa
  * tool registered — byte-identical to the pre-frame behavior. A frame ref that is
  * neither a coa catalogue tool nor a known built-in (e.g. a not-yet-built
  * coa-control tool) is dropped rather than sent to the SDK.
@@ -94,7 +94,8 @@ export const NOT_MODEL_VISIBLE: ReadonlySet<string> = new Set(['Mcp', 'ShowOnboa
  * as does every name here. coa owns no native tool implementation anywhere, because a
  * trained tool prior covers the whole contract, output shape included: `Read` emits
  * numbered lines that `Edit`'s exact match is calibrated against, so substituting the
- * body while keeping the name breaks the chains built on it. See docs/adr/0029.
+ * body while keeping the name breaks the chains built on it (the tool surface is
+ * bounded and governed at one seam, so a name is a contract).
  */
 export const CLAUDE_BUILTIN_FLOOR: readonly string[] = [
   'Read',
@@ -118,7 +119,7 @@ export interface ToolTransport {
    * here is a tool coa has chosen not to govern. Availability is `tools` (built-ins)
    * and MCP registration (coa tools); routing allow-intent here instead is the defect
    * this field's name now makes unmissable. Kept on the type so a future deliberate
-   * bypass has somewhere honest to live. See docs/adr/0028.
+   * bypass has somewhere honest to live.
    */
   autoApprove: string[];
   /** Removal list — denied built-ins/rules + denied coa tools (mcp names). */

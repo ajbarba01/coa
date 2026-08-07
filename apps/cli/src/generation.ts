@@ -24,7 +24,7 @@ export function nodeGenerationIo(root: string): GenerationIo {
 }
 
 /**
- * Assemble M4's generation producers from the worktree's committed
+ * Assemble the generation producers from the worktree's committed
  * `.coa/generate.yaml`, so the SSOT-constraint producer fires on real declared
  * relations during a session. An absent registry yields no producers (the daemon
  * stays the inert floor). The io port is injectable for testing; it defaults to

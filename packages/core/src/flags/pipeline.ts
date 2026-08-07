@@ -11,13 +11,13 @@ import {
 } from './validator.js';
 
 /**
- * M3's one pluggable flag pipeline (P2). Every check is a producer emitting into
- * this single pipeline against the one M0 schema; there are no per-producer side
+ * The one pluggable flag pipeline. Every check is a producer emitting into
+ * this single pipeline against the one shared flag schema; there are no per-producer side
  * channels. `registerProducer` is the only add-path (gated by CF-6); `ingest` is
  * the only emit-path. On read the pipeline dedups by `concernKey` (CF-7), assigns
- * the two independent axes (CF-2 + D134), and fans out to the two audiences
+ * the two independent axes (two-axis severity × confidence), and fans out to the two audiences
  * (CF-1): the user sees everything (progressive disclosure), the agent gets a
- * gated, grouped injection. No model on any path (P1).
+ * gated, grouped injection. No model on any path.
  */
 
 /** A stored raw emission, before dedup/assignment. */
@@ -30,21 +30,21 @@ interface Stored {
 const HIGH = new Set<Severity>(['crit', 'high']);
 
 export interface FlagPipelineOptions {
-  /** SCO/D32 membership predicate; default = a path-prefix match (the floor, overridable by M8 wiring). */
+  /** Scope-membership predicate; default = a path-prefix match (the floor, overridable by the daemon wiring). */
   membership?: (location: string, scope: string) => boolean;
 }
 
-/** The close-gate verdict. M3 authors the deny `message`; M9 delivers it verbatim. */
+/** The close-gate verdict. The pipeline authors the deny `message`; the backend adapter delivers it verbatim. */
 export type GateResult = { allow: true } | { allow: false; message: string };
 
-/** A per-tool advisory→deny rule M6 declares; M3 holds the policy, M9 only runs it. */
+/** A per-tool advisory→deny rule the workbench declares; the flag pipeline holds the policy, the backend adapter only runs it. */
 export interface ToolDenyRule {
   tool: string;
   matches(input: unknown): boolean;
   message: string;
 }
 
-/** The deny verdict M8 composes into the one `canUseTool` (after the cost-cap check). */
+/** The deny verdict the daemon composes into the one `canUseTool` (after the cost-cap check). */
 export type ToolDenyVerdict = { behavior: 'deny'; message: string };
 
 export class FlagPipeline {
@@ -82,7 +82,7 @@ export class FlagPipeline {
   }
 
   /**
-   * The one emit-path. Idempotent on `fingerprint` (R-14): a re-ingest replaces
+   * The one emit-path. Idempotent on `fingerprint`: a re-ingest replaces
    * the prior emission (most-recent direct ingest wins); cross-path ordering
    * follows `seq`.
    */
@@ -97,13 +97,13 @@ export class FlagPipeline {
     this.resolved.add(fingerprint);
   }
 
-  /** D17 baseline/suppress — exclude a pre-existing violation so only NEW divergence blocks. Stays visible to the user. */
+  /** Baseline/suppress — exclude a pre-existing violation so only NEW divergence blocks. Stays visible to the user. */
   baseline(fingerprint: string): void {
     this.baselined.add(fingerprint);
   }
 
   /**
-   * D131 — the typed-reason triage channel. Records WHY a flag was acted on or
+   * The typed-reason triage channel. Records WHY a flag was acted on or
    * dismissed (seeding later constraint proposals) and applies the deterministic
    * effect: a wrong-guess resolves it, a won't-fix dismissal baselines it, a
    * too-blunt rule keeps it and only seeds a proposal. An optional `note` is
@@ -121,7 +121,7 @@ export class FlagPipeline {
     return [...this.feedbackLog];
   }
 
-  /** Admit an M6-declared per-tool advisory→deny rule. M3 holds the policy; M9 runs it. */
+  /** Admit a workbench-declared per-tool advisory→deny rule. The pipeline holds the policy; the backend adapter runs it. */
   registerToolDeny(rule: ToolDenyRule): void {
     this.toolDenyRules.push(rule);
   }
@@ -131,7 +131,7 @@ export class FlagPipeline {
    * by shared context (the union of each flag's producer envelope), runs the
    * injected judge once per group, and applies each verdict: a refuted flag
    * resolves, a confirmed/uncertain one stays. Type-1 flags are never judged. The
-   * judge is M9's cheap model call — user-invoked and off the critical path (P1).
+   * judge is the backend adapter's cheap model call — user-invoked and off the critical path.
    */
   async runValidator(selection: FlagRecord[], judge: ValidatorJudge): Promise<ValidatorRun> {
     const targets = selection.filter((flag) => flag.type === 2);
@@ -147,8 +147,8 @@ export class FlagPipeline {
   }
 
   /**
-   * The per-tool advisory→deny predicate M8 composes into the one `canUseTool`
-   * (after the cost-cap check). It is policy M3 declares; M9 only runs it. This is
+   * The per-tool advisory→deny predicate the daemon composes into the one `canUseTool`
+   * (after the cost-cap check). It is policy the flag pipeline declares; the backend adapter only runs it. This is
    * NOT one of the two system blocks — it is a demotable per-tool surface, not the
    * close-gate or the cost-cap.
    */
@@ -162,10 +162,10 @@ export class FlagPipeline {
   }
 
   /**
-   * The close-gate (D108 enforcement authority) — the one place coa blocks "done".
+   * The close-gate (the enforcement authority) — the one place coa blocks "done".
    * Blocks ONLY on an unresolved Type-1 ∧ high-severity flag; Type-2 advises but
    * never blocks. Spends zero model tokens (a deterministic projection read), so it
-   * is not a third cost-gated stop. M9 calls this on the SDK `Stop` hook.
+   * is not a third cost-gated stop. The backend adapter calls this on the SDK `Stop` hook.
    */
   gate(): GateResult {
     const blocking = this.assigned(undefined, false).filter(

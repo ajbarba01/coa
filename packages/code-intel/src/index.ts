@@ -1,7 +1,8 @@
 /**
- * @coa/code-intel (M2) — the pure, language-tiered, graph-free byte→structure
- * layer. Every method is a function of bytes / a CST / an M0 type and never
- * reads the graph, which is what lets M2 build before M1.
+ * @coa/code-intel — the pure, language-tiered, graph-free byte→structure
+ * layer. Every method is a function of bytes / a CST / a shared type and never
+ * reads the graph, which is what lets this layer build before the change-event
+ * spine.
  */
 
 export { tierFor, type TierInput } from './tier.js';

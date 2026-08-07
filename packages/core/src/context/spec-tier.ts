@@ -1,7 +1,7 @@
 import type { ToolCall } from '@coa/shared';
 
 /**
- * M4 / L-GND — the SPEC-CONFORMANCE tier (CL-9), the deterministic coverage half.
+ * L-GND — the SPEC-CONFORMANCE tier (CL-9), the deterministic coverage half.
  * It answers one question for a symbol-naming tool call: which **registered**
  * constraints govern it? Coverage comes ONLY from the deterministic `governed-by`
  * edge (G-3: "coverage only from a deterministic edge, never a name-mention
@@ -9,7 +9,7 @@ import type { ToolCall } from '@coa/shared';
  *
  * This resolves coverage and carries the contract on edit; it does not re-implement
  * the conformance check. The verdict is the governing constraint's own — it is a
- * registered M3 producer that runs deterministically and flags through M3's normal
+ * registered flag producer that runs deterministically and flags through the flag pipeline's normal
  * pipeline (e.g. the SSOT staleness constraint). The spec tier just routes a touched
  * symbol to the checks that own it. Governance is resolved at file granularity
  * (the `governed-by` edge's endpoint), so a touched symbol maps through its defining
@@ -24,7 +24,7 @@ export interface GovernanceCoverage {
   readonly governedBy: readonly string[];
 }
 
-/** The read-surface spec-tier coverage needs (composed from M1's graph + symbol table at wiring). */
+/** The read-surface spec-tier coverage needs (composed from the kernel's graph + symbol table at wiring). */
 export interface GovernanceOracle {
   /** The registered constraints governing a node — its outgoing `governed-by` edges. */
   governedBy(node: string): string[];

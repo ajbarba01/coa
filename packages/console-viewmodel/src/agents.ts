@@ -22,7 +22,7 @@ import {
 } from '@coa/shared';
 
 /** The agent-identity vocabulary, the agent wire shapes, and the scope/diagnostic
- *  types are M0's now — the daemon owns the registry (`listAgents`/`saveAgent`/
+ *  types live in the shared wire package now — the daemon owns the registry (`listAgents`/`saveAgent`/
  *  `deleteAgent`), so this re-exports the shared schemas rather than defining a
  *  console-local copy that could drift from them. */
 export {
@@ -112,7 +112,7 @@ export const SessionSummarySchema = z.object({
     })
     .optional(),
   /** The session that spawned this one (mirrors `SessionMeta.parent`); absent ⇒ a
-   *  root session a person started — the overwhelming common case (D85). */
+   *  root session a person started — the overwhelming common case. */
   parent: z.string().optional(),
   /** This session's family-tree root — itself, for a root; the SAME id at every
    *  depth below it (mirrors `SessionMeta.root`). Stored rather than derived, since
@@ -128,7 +128,7 @@ export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 export const SessionListSchema = z.array(SessionSummarySchema);
 
 /** The agent-assembly catalogue the console picker reads — the real `listRoles`/
- *  `listPackages` wire shapes, re-exported from M0 so the edge validates the
+ *  `listPackages` wire shapes, re-exported from the shared wire package so the edge validates the
  *  daemon's payload (not a hand-mirrored copy). Pieces are already dropped upstream. */
 export { roleSummarySchema, packageSummarySchema, type RoleSummary, type PackageSummary };
 export const RoleSummaryListSchema = z.array(roleSummarySchema);

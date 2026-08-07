@@ -63,7 +63,7 @@ describe('buildModelHandlers', () => {
     expect(view.lists['claude']?.some((m) => m.id === 'claude-opus-4-1')).toBe(true);
   });
 
-  it('rejects malformed params (M0-validated at the edge)', async () => {
+  it('rejects malformed params (schema-validated at the edge)', async () => {
     await expect(call('addCustomModel', { providerId: 'claude' })).rejects.toThrow();
   });
 });

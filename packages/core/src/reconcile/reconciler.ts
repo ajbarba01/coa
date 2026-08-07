@@ -6,7 +6,7 @@ import type { ChangeEventDraft } from '../event.js';
 import { classifyObservation, type Observation, type PathState, type PreciseOp } from './dedup.js';
 
 /**
- * Producer ② — the git-centric reconciler (D123). Truth resolution is
+ * Producer ② — the git-centric reconciler. Truth resolution is
  * git-centric: a scoped `git status` scopes dirty paths, content-hashing dedups,
  * and the causal-dedup decision turns each real transition into a change-event.
  * It is provenance-blind and **respects `.gitignore` by default** (engine

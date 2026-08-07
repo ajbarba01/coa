@@ -39,7 +39,7 @@ describe('useGlobalKeys', () => {
     expect(useShell.getState().surface).toBe('chat');
   });
 
-  it('Escape with no open layer stops the running turn (SC-1 advisory)', () => {
+  it('Escape with no open layer stops the running turn (advisory)', () => {
     const interruptSession = vi.fn();
     publishConsoleState(
       makeState({

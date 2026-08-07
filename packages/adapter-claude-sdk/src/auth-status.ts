@@ -5,7 +5,8 @@ import { z } from 'zod';
  * The login-health probe — `claude auth status --json` against a config dir.
  * Purpose-built, non-interactive, honors CLAUDE_CONFIG_DIR (an empty dir reports
  * loggedIn:false). This is all coa ever learns about a login: CLI output, never
- * the token file (credential-blind, see the ADR added with this feature). One
+ * the token file (credential-blind: login health is probe-derived, never read from
+ * stored credentials). One
  * probe feeds three consumers: health, the identity line, and the declared-email
  * backfill for manually-added accounts.
  */
