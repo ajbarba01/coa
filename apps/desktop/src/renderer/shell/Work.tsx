@@ -9,7 +9,7 @@ import { AppWindowControls } from './windowControls.js';
 
 /** Right column: the active session's working state, honestly floored — the
  *  root agent row (real title + real run status) and, when the session has
- *  emitted one, its plan checklist are real; subagents/changes/worktree/record
+ *  emitted one, its plan checklist are real; subagents/changes/worktree
  *  have no backing data yet and render one quiet "not tracked yet" line each
  *  instead of fake chrome. Cost is real once anything in the active tab's
  *  family tree carries a recorded spend (the tree-wide roll-up, not just this
@@ -106,7 +106,6 @@ export function Work(): React.JSX.Element {
           <FloorSection title="Subagents" />
           <FloorSection title="Changes" />
           <FloorSection title="Worktree" />
-          <FloorSection title="Record" />
           {treeCostUsd === undefined ? (
             <FloorSection title="Cost" />
           ) : (
