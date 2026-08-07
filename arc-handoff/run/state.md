@@ -79,7 +79,8 @@ on the old machine.
 1. ~~Gate the WIP adapter package~~ DONE 2026-08-07 (gated + landed, see journal).
 2. ~~C2 part 2 completion~~ DONE 2026-08-07 (0c8c444 pushed — tree is in the unified
    state; old packages deleted; arc/architecture tip 0c8c444).
-3. Execute knife ruling R1 per the Q1 archive-anyway ruling (IN FLIGHT as a
+3. ~~Execute knife ruling R1~~ DONE 2026-08-07 (4848ff4..0be23fb pushed, ADR 0035,
+   both verifiers addressed — see journal). Was: (as a
    workflow: executor + KEEP-seam and completeness verifiers): needs a SUPERSEDING ADR
    (0032 fan-out-bound + 0009 exactly-two-blocks are immutable) and a raw-SDK-option
    escape hatch for the live suites' maxBudgetUsd real-money guard. Full inventory in

@@ -257,3 +257,24 @@ items, screenshots (UI stages). This file is the maintainer's morning audit.
     spec/M9.md title+87 still name the deleted packages.
 - R1 execution launched as a workflow (executor + 2 refute-framed verifiers:
   KEEP-seam spend accounting, removal completeness). Superseding ADR slot: 0035.
+- **R1 EXECUTED AND VERIFIED (4848ff4 · dbfd33c · d0ea447 + follow-up 0be23fb, all
+  pushed).** The cost-cap hard-cap/deny path is archived; the spend counter, ledger,
+  onSettle→charge+recordSpend (incl. root attribution), capState verb/CLI/Inspect
+  readers all byte-intact (KEEP-seam verifier: could not refute; ledger.ts zero hunks;
+  solo-ran ~300 tests across the seam). ADR 0035 "the close gate is the only block"
+  supersedes 0032 and narrows 0009; the ADR README index gained its missing 0030–0035
+  rows. denyKind is now z.enum(['close-gate']) — the 'cost-cap' member and its whole
+  reader chain pruned; persisted logs with old cost-cap deny frames degrade via
+  safeParse+skip. Live-suite real-money guard preserved as
+  ClaudeSdkAdapterInit.sdkOptions passthrough (merge + cwd precedence pinned by a
+  unit test); the SDK budget throw is now a plain loud error, not a governed deny.
+  Gates green before each commit (final: 2848 passed).
+  - Completeness verifier REFUTED on two undeclared prose survivors —
+    packages/core/README.md "(the only two blocks)" and AGENTS.md SC-1/"hard cost
+    cap" — fixed by the orchestrator in 0be23fb (docs-check 60 OK; remaining
+    "two blocks" hits are all dated research/plans/archive = historical by design).
+  - **New find (Q8, queued):** packages/console-ui/dist/ is TRACKED but gitignored
+    build output, stale since the kit got dist exports — no gate keeps committed
+    dist fresh. Needs a ruling: rebuild-on-commit gate, or stop committing dist.
+- C2 part 3 (OpenAI + OpenRouter ProviderSpecs + backend-import lockdown rule)
+  launched as a workflow: builder + refute-framed verifier.

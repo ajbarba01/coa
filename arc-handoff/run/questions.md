@@ -133,5 +133,17 @@ recorded here as final unless the maintainer objects.
 Environment deltas for the resumed run: Windows machine (POSIX setup notes in
 MACHINE-SETUP.md mostly moot — Node 22.20 already present, native modules already
 build here), bypass permissions ON (the settings.local.json allowlist and
-scratch-inside-repo workaround are obsolete), Fable 5 CLI session, no `Workflow`
-tool in this harness — workflow scripts are used as subagent prompt sources instead.
+scratch-inside-repo workaround are obsolete), Fable 5 CLI session; ultracode/dynamic
+workflows were enabled mid-session, so the Workflow runner IS available after all.
+
+## Q8 — Committed dist/ is stale and ungated (found 2026-08-07 during R1 verify)
+**Context:** packages/console-ui/dist/ (and possibly sibling kit packages) is tracked
+in git but ALSO matched by the ignore rules — committed once when the kit gained dist
+exports, never rebuilt since. Source has moved (de-slop sweep, R1's DenyNotice edit),
+so the committed dist carries stale code/comments and nothing in the gate suite
+detects the drift.
+**Needed:** a ruling — (a) add a freshness gate (build + diff check) so committed dist
+can't drift, (b) stop committing dist and build on install/publish, or (c) accept the
+drift as harmless (dev resolves source via the development exports condition; dist
+only matters to a consumer installing the package raw).
+**Done instead:** nothing changed; queued for the maintainer / Stage 4.
