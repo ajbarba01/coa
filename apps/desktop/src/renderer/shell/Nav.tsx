@@ -29,7 +29,6 @@ import { useShell } from './store.js';
 
 export const SURFACES = [
   { id: 'chat', glyph: '❯', label: 'Chat' },
-  { id: 'graph', glyph: '◉', label: 'Graph' },
   { id: 'flags', glyph: '⚑', label: 'Flags' },
   { id: 'timeline', glyph: '◷', label: 'Timeline' },
   // Credentials and money are two questions, so they are two surfaces: `auth` answers "what
