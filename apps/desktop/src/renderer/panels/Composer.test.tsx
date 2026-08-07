@@ -90,9 +90,9 @@ describe('Composer — resting', () => {
     expect(titled.map((el) => el.getAttribute('title'))).toEqual([]);
   });
 
-  it('names its three model-and-turn controls through the kit tooltip', async () => {
+  it('names its model-and-turn controls through the kit tooltip', async () => {
     render(<Composer {...baseProps()} />);
-    for (const name of ['Permission mode', 'Model', 'Reasoning']) {
+    for (const name of ['Model', 'Reasoning']) {
       await userEvent.hover(screen.getByRole(name === 'Model' ? 'combobox' : 'button', { name }));
       expect(await screen.findByRole('tooltip')).toBeInTheDocument();
       await userEvent.unhover(screen.getByRole(name === 'Model' ? 'combobox' : 'button', { name }));

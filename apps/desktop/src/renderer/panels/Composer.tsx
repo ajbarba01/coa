@@ -81,8 +81,6 @@ export interface ComposerProps {
  *  / deny / or type to redirect) · no-session (everything rests). Queued
  *  messages pin above the shell, removable, released FIFO.
  *
- *  Permission mode is a presentational placeholder only (local state) — a
- *  future M3 permission gate owns real enforcement (SC-1: surfacing only).
  *  The mic is a permanently-disabled coming-soon affordance. */
 export function Composer({
   running,
@@ -108,7 +106,6 @@ export function Composer({
   onNoticeAction,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
-  const [perm, setPerm] = useState<string>('ask edits');
   const [attachments, setAttachments] = useState<string[]>([]);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -338,7 +335,6 @@ export function Composer({
           />
           <MicButton disabled={disabled} />
           <div className="flex-1" />
-          <PermissionChip value={perm} onPick={setPerm} disabled={disabled} />
           {/* The two axes of a turn, side by side and each its own control: WHICH model,
               then how hard it thinks. Burying the second inside the first's popup made the
               more frequent of the two the harder to reach. */}
@@ -403,24 +399,8 @@ export function Composer({
 }
 
 /* ------------------------------------------------------------------ */
-/* chips (search-field skin; disabled states included)                  */
+/* shelf controls (search-field skin; disabled states included)         */
 /* ------------------------------------------------------------------ */
-
-// The glyph is an autonomy meter — the circle fills as the agent's leash lengthens.
-// Presentational only (SC-1): a future M3 permission gate owns real enforcement.
-// `id` is the VALUE and travels; `label` is what a person reads. Keeping them
-// separate is what lets copy change without moving the mode a session is in.
-const PERMISSIONS = [
-  { id: 'read only', label: 'Read only', glyph: '○', desc: 'Nothing is written' },
-  { id: 'ask edits', label: 'Ask edits', glyph: '◔', desc: 'Writes are held for approval' },
-  {
-    id: 'auto edits',
-    label: 'Auto edits',
-    glyph: '◑',
-    desc: 'Writes land; commands still need approval',
-  },
-  { id: 'full auto', label: 'Full auto', glyph: '●', desc: 'Only the cost cap can block' },
-] as const;
 
 function AttachButton({
   onAttach,
@@ -501,106 +481,3 @@ function MicButton({ disabled = false }: { disabled?: boolean }): React.JSX.Elem
   );
 }
 
-/** A composer chip that grows a floating card above itself. */
-function ChipMenu({
-  chip,
-  label,
-  hint,
-  open,
-  setOpen,
-  disabled = false,
-  children,
-}: {
-  chip: string;
-  /** The control's accessible name — the chip's own text is a VALUE, not a name. */
-  label: string;
-  /** What the control does, on hover. The kit's tooltip, never a native `title`: that one
-   *  is drawn by the OS outside the page, so no CSS can give it the console's skin. */
-  hint: string;
-  open: boolean;
-  setOpen: (o: boolean) => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <PopoverCard
-      open={open}
-      onOpenChange={(o) => {
-        if (!disabled) setOpen(o);
-      }}
-      tooltip={{ label: hint, side: 'top' }}
-      trigger={
-        <button
-          type="button"
-          aria-label={label}
-          disabled={disabled}
-          className={cx(
-            'rounded-r2 px-2 py-1 font-mono text-meta',
-            disabled
-              ? 'cursor-default text-s6'
-              : cx(
-                  'slip cursor-pointer',
-                  open ? 'bg-s4 text-s11' : 'text-s9 hover:bg-s4 hover:text-s11',
-                ),
-          )}
-        >
-          {chip}
-        </button>
-      }
-    >
-      {children}
-    </PopoverCard>
-  );
-}
-
-function PermissionChip({
-  value,
-  onPick,
-  disabled = false,
-}: {
-  value: string;
-  onPick: (v: string) => void;
-  disabled?: boolean;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const current = PERMISSIONS.find((p) => p.id === value);
-  return (
-    <ChipMenu
-      chip={`${current?.glyph ?? ''} ${current?.label ?? value}`}
-      label="Permission mode"
-      hint="Permission mode"
-      open={open}
-      setOpen={setOpen}
-      disabled={disabled}
-    >
-      <div className="w-60">
-        {PERMISSIONS.map((p) => (
-          <MenuItem
-            key={p.id}
-            selected={p.id === value}
-            className="items-start"
-            onClick={() => {
-              onPick(p.id);
-              setOpen(false);
-            }}
-          >
-            <span
-              className={cx(
-                'w-4 pt-px text-center font-mono text-[12px]',
-                p.id === value ? 'text-s11' : 'text-s8',
-              )}
-            >
-              {p.glyph}
-            </span>
-            <span className="flex flex-col gap-px">
-              <span className={cx('text-[12px]', p.id === value ? 'text-s12' : 'text-s10')}>
-                {p.label}
-              </span>
-              <span className="text-meta text-s7">{p.desc}</span>
-            </span>
-          </MenuItem>
-        ))}
-      </div>
-    </ChipMenu>
-  );
-}
