@@ -208,6 +208,28 @@ describe('createSession', () => {
     expect(spend).toEqual([{ costUsd: 0.5, tokensIn: 1, tokensOut: 2, account: 'work' }]);
   });
 
+  it('records settled spend attributed to the request-supplied family-tree root', async () => {
+    const spend: unknown[] = [];
+    const h = harness({
+      activeAccount: () => ({ label: 'work' }),
+      recordSpend: (record) => spend.push(record),
+    });
+    await createSession({ role: 'dev', scope: 'src', input: 'go', root: 'root-1' }, h.deps);
+    expect(spend).toEqual([
+      { costUsd: 0.5, tokensIn: 1, tokensOut: 2, account: 'work', root: 'root-1' },
+    ]);
+  });
+
+  it('omits root from settled spend for a session with no lineage — byte-identical to before root existed (D85)', async () => {
+    const spend: unknown[] = [];
+    const h = harness({
+      activeAccount: () => ({ label: 'work' }),
+      recordSpend: (record) => spend.push(record),
+    });
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect(spend).toEqual([{ costUsd: 0.5, tokensIn: 1, tokensOut: 2, account: 'work' }]);
+  });
+
   it('registers the base catalogue for a non-claude provider and the plain one for claude', async () => {
     const registered: Record<string, string[]> = {};
     const makeAdapter =
@@ -239,6 +261,73 @@ describe('createSession', () => {
 
     expect(registered['deepseek']).toContain('Read');
     expect(registered['claude']).not.toContain('Read');
+  });
+
+  it('prefers the session-scoped catalogue (catalogueFor) over the shared one, resolving spawn with the real sessionId', async () => {
+    const registered: Record<string, string[]> = {};
+    const makeAdapter =
+      (label: string) =>
+      (init: SessionAdapterInit): RuntimeAdapter => {
+        const adapter = new FakeAdapter(init);
+        adapter.registerTools = (cat) => {
+          registered[label] = cat.map((t) => t.name);
+        };
+        return adapter;
+      };
+    const catalogueForCalls: Array<{ sessionId: string; spawn: unknown }> = [];
+    const baseCatalogueForCalls: Array<{ sessionId: string; spawn: unknown }> = [];
+    const h = harness({
+      catalogue: [{ name: 'edit_symbol' } as RegisteredTool],
+      baseCatalogue: [{ name: 'Read' } as RegisteredTool],
+      catalogueFor: (sessionId, spawn) => {
+        catalogueForCalls.push({ sessionId, spawn });
+        return [{ name: 'spawn_agent' } as RegisteredTool];
+      },
+      baseCatalogueFor: (sessionId, spawn) => {
+        baseCatalogueForCalls.push({ sessionId, spawn });
+        return [{ name: 'spawn_agent' } as RegisteredTool, { name: 'Read' } as RegisteredTool];
+      },
+      resolveSpawn: () => ({ listAgents: () => [], startChild: () => ({ sessionId: 'kid' }) }),
+    });
+
+    await createSession(
+      { role: 'coder', scope: '.', input: 'x', model: { provider: 'claude' } },
+      { ...h.deps, createAdapter: makeAdapter('claude') },
+    );
+    await createSession(
+      { role: 'coder', scope: '.', input: 'x', model: { provider: 'deepseek' } },
+      { ...h.deps, createAdapter: makeAdapter('deepseek') },
+    );
+
+    // Both catalogues went through the session-scoped path, not the plain arrays.
+    expect(registered['claude']).toEqual(['spawn_agent']);
+    expect(registered['deepseek']).toEqual(['spawn_agent', 'Read']);
+    expect(catalogueForCalls).toHaveLength(1);
+    expect(catalogueForCalls[0]?.sessionId).toBe('sess-1');
+    expect(catalogueForCalls[0]?.spawn).toBeDefined();
+    expect(baseCatalogueForCalls).toHaveLength(1);
+    expect(baseCatalogueForCalls[0]?.sessionId).toBe('sess-1');
+  });
+
+  it('falls back to the shared catalogue/baseCatalogue unchanged when catalogueFor/resolveSpawn are absent (D85)', async () => {
+    const registered: Record<string, string[]> = {};
+    const makeAdapter =
+      (label: string) =>
+      (init: SessionAdapterInit): RuntimeAdapter => {
+        const adapter = new FakeAdapter(init);
+        adapter.registerTools = (cat) => {
+          registered[label] = cat.map((t) => t.name);
+        };
+        return adapter;
+      };
+    const h = harness({ catalogue: [{ name: 'edit_symbol' } as RegisteredTool] });
+
+    await createSession(
+      { role: 'coder', scope: '.', input: 'x' },
+      { ...h.deps, createAdapter: makeAdapter('claude') },
+    );
+
+    expect(registered['claude']).toEqual(['edit_symbol']);
   });
 });
 

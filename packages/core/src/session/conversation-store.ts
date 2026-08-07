@@ -92,6 +92,11 @@ const metaSchema = z.object({
   agentRef: z.string(),
   title: z.string(),
   scope: z.string(),
+  /** The session that spawned this one; absent ⇒ a root session a person started. */
+  parent: z.string().optional(),
+  /** The root of this session's family tree — itself, for a root. Stored rather than
+   *  walked: a parent chain can cycle, and a stored root is constant-time and cannot. */
+  root: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   backendSessionId: z.string().optional(),
@@ -125,7 +130,14 @@ const persistedEventSchema = z.object({
 
 export interface ConversationStore {
   /** Start a session: write its initial metadata (createdAt = updatedAt = now). */
-  create(init: { id: string; agentRef: string; title: string; scope: string }): SessionMeta;
+  create(init: {
+    id: string;
+    agentRef: string;
+    title: string;
+    scope: string;
+    parent?: string;
+    root?: string;
+  }): SessionMeta;
   /** Every session, most-recently-active first. Corrupt entries are skipped. */
   list(): SessionMeta[];
   /** One session's metadata, or undefined if it does not exist / is corrupt. */
@@ -219,9 +231,18 @@ export function createConversationStore(
   };
 
   return {
-    create({ id, agentRef, title, scope }) {
+    create({ id, agentRef, title, scope, parent, root }) {
       const ts = now();
-      const meta: SessionMeta = { id, agentRef, title, scope, createdAt: ts, updatedAt: ts };
+      const meta: SessionMeta = {
+        id,
+        agentRef,
+        title,
+        scope,
+        createdAt: ts,
+        updatedAt: ts,
+        ...(parent !== undefined ? { parent } : {}),
+        ...(root !== undefined ? { root } : {}),
+      };
       writeMeta(meta);
       return meta;
     },

@@ -40,6 +40,35 @@ describe('conversation store (R-7)', () => {
     expect(store.list().map((m) => m.id)).toEqual(['c1']);
   });
 
+  it('persists parent and root links and reloads them', () => {
+    store.create({ id: 'root-1', agentRef: 'general-purpose', title: 'Root', scope: 'repo' });
+    store.create({
+      id: 'kid-a',
+      agentRef: 'explorer',
+      title: 'A',
+      scope: 'repo',
+      parent: 'root-1',
+      root: 'root-1',
+    });
+    store.create({
+      id: 'kid-b',
+      agentRef: 'explorer',
+      title: 'B',
+      scope: 'repo',
+      parent: 'root-1',
+      root: 'root-1',
+    });
+    expect(store.getMeta('root-1')?.parent).toBeUndefined();
+    expect(store.getMeta('kid-b')?.parent).toBe('root-1');
+    expect(store.getMeta('kid-b')?.root).toBe('root-1');
+    expect(store.list().filter((m) => m.root === 'root-1')).toHaveLength(2);
+  });
+
+  it('still parses a meta written before lineage existed', () => {
+    store.create({ id: 'legacy', agentRef: 'general-purpose', title: 'Old', scope: 'repo' });
+    expect(store.getMeta('legacy')?.root).toBeUndefined();
+  });
+
   it('persists and reloads the turn sequence, honoring toSeq', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
     store.append('c1', [

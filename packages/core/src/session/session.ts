@@ -17,6 +17,7 @@ import type {
   ToolCatalogue,
   TurnInterrupt,
 } from '@coa/spi';
+import type { SpawnDeps } from '../workbench/spawn.js';
 import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
 
 /**
@@ -73,33 +74,21 @@ export interface SessionAdapterInit {
    */
   signal?: AbortSignal;
   /**
-   * A synchronous drain of user turns queued while the session was mid-round-trip
-   * (steering). Only the pure-API backends (`adapter-deepseek`/`adapter-longcat`)
-   * consult this today — the Claude SDK path has its own steering seam, a
-   * follow-up. Absent ⇒ current behavior byte-identical (D85).
-   */
-  drainSteer?: () => readonly string[];
-  /**
-   * A synchronous drain of `queue`-mode steers — user turns that should run AFTER the
-   * current turn's work, not at the next round-trip boundary. Only the pure-API
-   * backends consult this today, mirroring {@link drainSteer}'s reach. Absent ⇒
-   * current behavior byte-identical (D85).
-   */
-  drainQueuedSteer?: () => readonly string[];
-  /**
    * A synchronous drain of the session's pending mid-loop deliveries — text that should
    * reach the model INSIDE the turn already running (a user steer, a system notice).
-   * Unlike {@link drainSteer}, this is not a turn: every backend realizes it at the
-   * soonest point its own turn model allows (the pure-API loop's next round trip, the
-   * SDK's post-tool hook), so no plane above M9 branches on backend. Absent ⇒ nothing is
-   * ever delivered, byte-identical to today (D85).
+   * Not a turn: every backend realizes it at the soonest point its own turn model
+   * allows (the pure-API loop's next round trip, the SDK's post-tool hook), so no
+   * plane above M9 branches on backend. Absent ⇒ nothing is ever delivered,
+   * byte-identical to today (D85).
    */
   drainDeliveries?: DrainDeliveries;
   /**
    * A backend that can stop its current turn while keeping the session alive reports
    * its turn-interrupt handle here (the Claude SDK's held-open `query.interrupt`). M8
-   * routes a `barge-in` steer through it. Absent ⇒ the backend has no mid-turn
-   * interrupt (per-turn backends); byte-identical to today (D85). See docs/adr/0012.
+   * routes a user Stop (`interruptSession` → `setInterruptClosure`) through it — distinct
+   * from the whole-session abort `signal`, which ends the loop rather than just the turn.
+   * Absent ⇒ the backend has no mid-turn interrupt (per-turn backends); byte-identical to
+   * today (D85). See docs/adr/0012.
    */
   onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
 }
@@ -174,6 +163,10 @@ export interface SessionDeps {
     tokensIn: number;
     tokensOut: number;
     account?: string;
+    /** The family-tree root this spend belongs to — what makes a whole run's cost
+     *  answerable, not just an account's; absent for a session with no lineage
+     *  (D85 — byte-identical to before this field existed). */
+    root?: string;
   }) => void;
   /** M3.perToolDeny — the per-tool deny-rule check. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
@@ -183,6 +176,15 @@ export interface SessionDeps {
   catalogue: ToolCatalogue;
   /** The pure-API tool catalogue (governance + base tools); used for non-claude providers. */
   baseCatalogue: ToolCatalogue;
+  /**
+   * Build THIS session's own copy of `catalogue`, with `spawn_agent` bound to the given
+   * session id as parent. Preferred over the shared `catalogue` when present (`createSession`
+   * calls it with `resolveSpawn`'s result); absent ⇒ falls back to `catalogue` unchanged —
+   * a session that never spawns behaves byte-identically to before this seam existed (D85).
+   */
+  catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers). */
+  baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
   /** M1 checkpoint at the session boundary. */
   checkpoint: () => void;
   /**
@@ -206,6 +208,14 @@ export interface SessionDeps {
    * drive; M8 consumes the abstract verdict and never learns the backend.
    */
   sessionStrategy?: (provider: string) => SessionStrategy;
+  /**
+   * Resolve THIS session's subagent-dispatch port (bound to `sessionId` as the parent a
+   * spawn writes into the child's lineage) — read once, right before `registerTools`, so
+   * the binding is never an ambient "current session" guess that could race across
+   * concurrently-live sessions (a parent and its already-running child, this feature's
+   * own central case). Absent ⇒ spawning stays unavailable (D85).
+   */
+  resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
 }
 
 /** Start a session: bind, compile, render, wire both SC-1 hooks, and run the loop. */
@@ -215,6 +225,12 @@ export async function createSession(
     /** The chosen roles (assembly selection); preferred over `role` when present. */
     roles?: string[];
     scope: string;
+    /** This session's family-tree root (a spawned child's top-of-tree ancestor id); the
+     *  caller — the one place that knows a session's lineage — supplies it, absent for a
+     *  session with no lineage, the overwhelming common case (D85). Reaches the settled
+     *  ledger record alongside `account` so a whole spawned run's cost is answerable, not
+     *  just an account's. */
+    root?: string;
     input: string | AsyncIterable<string>;
     model?: ModelSelection;
     /** Opt-in packages the user added beyond the role's (assembly selection). */
@@ -236,10 +252,6 @@ export async function createSession(
     deliverHistoryAsPreamble?: boolean;
     /** M8's per-session user-stop, forwarded to the adapter (see {@link SessionAdapterInit.signal}). */
     signal?: AbortSignal;
-    /** M8's per-session steer drain, forwarded to the adapter (see {@link SessionAdapterInit.drainSteer}). */
-    drainSteer?: () => readonly string[];
-    /** M8's per-session queued-steer drain, forwarded to the adapter (see {@link SessionAdapterInit.drainQueuedSteer}). */
-    drainQueuedSteer?: () => readonly string[];
     /** M8's per-session delivery drain, forwarded to the adapter (see {@link SessionAdapterInit.drainDeliveries}). */
     drainDeliveries?: DrainDeliveries;
     /** M8's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
@@ -294,6 +306,7 @@ export async function createSession(
       tokensIn: usage.tokensIn,
       tokensOut: usage.tokensOut,
       ...(account ? { account: account.label } : {}),
+      ...(req.root !== undefined ? { root: req.root } : {}),
     });
   };
 
@@ -314,15 +327,28 @@ export async function createSession(
       ? { deliverHistoryAsPreamble: req.deliverHistoryAsPreamble }
       : {}),
     ...(req.signal !== undefined ? { signal: req.signal } : {}),
-    ...(req.drainSteer !== undefined ? { drainSteer: req.drainSteer } : {}),
-    ...(req.drainQueuedSteer !== undefined ? { drainQueuedSteer: req.drainQueuedSteer } : {}),
     ...(req.drainDeliveries !== undefined ? { drainDeliveries: req.drainDeliveries } : {}),
     ...(req.onTurnInterrupt !== undefined ? { onTurnInterrupt: req.onTurnInterrupt } : {}),
   });
 
   adapter.renderNative(neutral);
   adapter.denyBuiltins();
-  adapter.registerTools(provider === 'claude' ? deps.catalogue : deps.baseCatalogue);
+  // The session-scoped catalogue is preferred whenever the composition root wired one:
+  // `spawn_agent` on the SHARED daemon-wide catalogue would have no way to learn which
+  // live session is calling it, and a naive shared "current session" ambient would race
+  // across concurrently-live sessions (a parent and its already-running child — this
+  // feature's own central case). `resolveSpawn` reads the real `sessionId` right here,
+  // not from anywhere it could go stale. Neither seam present ⇒ the original static
+  // catalogue, byte-identical to before this existed (D85).
+  const spawn = deps.resolveSpawn?.(sessionId);
+  const catalogueFor = provider === 'claude' ? deps.catalogueFor : deps.baseCatalogueFor;
+  const catalogue =
+    catalogueFor !== undefined
+      ? catalogueFor(sessionId, spawn)
+      : provider === 'claude'
+        ? deps.catalogue
+        : deps.baseCatalogue;
+  adapter.registerTools(catalogue);
   adapter.interceptTool(
     buildCanUseTool({ capState: deps.capState, perToolDeny: deps.perToolDeny }),
   );

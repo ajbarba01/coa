@@ -1,4 +1,5 @@
 import { LiveSession } from './live-session.js';
+import { descendantsOf } from './lineage.js';
 
 /** A cancellable handle returned by `setTimer`. */
 interface TimerHandle {
@@ -53,11 +54,16 @@ export class LiveSessionRegistry {
     this.#onClose = options.onClose;
   }
 
-  /** Look up an existing session, or create and register a new one. */
-  getOrCreate(id: string): { session: LiveSession; created: boolean } {
+  /** Look up an existing session, or create and register a new one. `lineage`
+   *  is forwarded to the {@link LiveSession} constructor unchanged; a session
+   *  created with no lineage is a root, matching prior behavior exactly. */
+  getOrCreate(
+    id: string,
+    lineage?: { parent?: string; root?: string },
+  ): { session: LiveSession; created: boolean } {
     const existing = this.#entries.get(id);
     if (existing) return { session: existing.session, created: false };
-    const session = new LiveSession(id);
+    const session = new LiveSession(id, lineage);
     this.#entries.set(id, { session, timer: undefined });
     this.#arm(id);
     return { session, created: true };
@@ -81,6 +87,37 @@ export class LiveSessionRegistry {
    * per docs/adr/0011).
    */
   close(id: string): void {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    // Seal the WHOLE subtree before tearing any of it down: a descendant emits
+    // its own completion notice as it closes, and an unsealed ancestor queue
+    // would let that late notice wake a tree the user deliberately stopped.
+    // Sealing every queue up front — before any teardown starts running — means
+    // there is no window in which a descendant mid-teardown can still land a
+    // push on another queue in the subtree; by the time #closeOne begins doing
+    // anything observable, every queue in the subtree already rejects writes.
+    //
+    // descendantsOf walks DOWN from `id` via each session's `parent` link, so
+    // this cascade only reaches a child whose `parent` was actually set at
+    // creation (getOrCreate's `lineage` argument) — whatever spawns a child
+    // session must pass that lineage, or the child silently falls outside every
+    // cascade run against its ancestors.
+    const descendants = descendantsOf(
+      id,
+      [...this.#entries.values()].map((e) => e.session),
+    );
+    for (const descendantId of descendants)
+      this.#entries.get(descendantId)?.session.deliveries.seal();
+    entry.session.deliveries.seal();
+    for (const descendantId of descendants) this.#closeOne(descendantId);
+    this.#closeOne(id);
+  }
+
+  /** The actual per-session teardown: idle-timer clear, SC-1-safe abort,
+   *  `onClose`, channel close, and map removal. Cascading only decides WHICH
+   *  ids this runs for and seals every queue first — this logic itself is
+   *  unchanged from before cascading existed. */
+  #closeOne(id: string): void {
     const entry = this.#entries.get(id);
     if (!entry) return;
     entry.timer?.clear();

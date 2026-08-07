@@ -11,6 +11,7 @@ import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
 import { Reconciler } from '../reconcile/reconciler.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
+import type { SpawnDeps } from '../workbench/spawn.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
 import { makeDeepSeekComplete } from '@coa/adapter-deepseek';
@@ -143,6 +144,12 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
     baseCatalogue: buildBaseCatalogue(kernel, governance, flags, options),
+    catalogueFor: (sessionId, spawn) =>
+      buildGovernedTools(
+        governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),
+      ),
+    baseCatalogueFor: (sessionId, spawn) =>
+      buildBaseCatalogue(kernel, governance, flags, options, sessionId, spawn),
   };
 
   return { core, kernel, flags, governance };
@@ -308,16 +315,24 @@ function resolvePieceSafely(kernel: ChangeKernel, ref: PieceRef) {
  * the reconciler's precise-write expectation. The worktree is the configured root
  * (the per-session worktree manager is later); confinement runs in POSIX path
  * space, so the root is normalized to forward slashes.
+ *
+ * `sessionId`/`spawn` default to the pre-existing daemon-wide floor (a constant
+ * `'daemon'` stamp, no spawn port) so the ONE shared catalogue built at daemon
+ * startup is unchanged; `catalogueFor`/`baseCatalogueFor` (composition.ts) pass the
+ * real per-session values when a session-scoped catalogue is being derived.
  */
 function governedToolDeps(
   kernel: ChangeKernel,
   governance: Governance,
   flags: FlagPipeline,
   root: string,
+  sessionId = 'daemon',
+  spawn?: SpawnDeps,
 ): GovernedToolDeps {
   const worktreeRoot = root.replace(/\\/g, '/');
   return {
-    sessionId: 'daemon',
+    sessionId,
+    ...(spawn !== undefined ? { spawn } : {}),
     retrieve: {
       worktreeRoot,
       lookupSymbol: (name) => kernel.lookup(name),
@@ -430,6 +445,8 @@ function buildBaseCatalogue(
   governance: Governance,
   flags: FlagPipeline,
   options: DaemonCoreOptions,
+  sessionId = 'daemon',
+  spawn?: SpawnDeps,
 ) {
   const summarizer = options.web ? buildFetchSummarizer(options.web, governance) : undefined;
   const web = options.web
@@ -437,7 +454,7 @@ function buildBaseCatalogue(
     : undefined;
   return buildGovernedTools(
     {
-      ...governedToolDeps(kernel, governance, flags, options.root ?? '.'),
+      ...governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),
       base: baseToolDeps(kernel, options.root ?? '.'),
       ...(web ? { web } : {}),
     },

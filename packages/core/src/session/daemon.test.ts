@@ -169,6 +169,70 @@ describe('createDaemonCore', () => {
     expect(handle.core.compile([], { allow: [], deny: [] }).prefixHead).toEqual([]);
   });
 
+  it('binds spawn_agent to a session-scoped SpawnDeps on BOTH catalogueFor and baseCatalogueFor', async () => {
+    // The trap this guards against: wiring spawn into only ONE of the two catalogues
+    // would ship it dead on whichever provider reads the other (baseCatalogue is what
+    // every non-claude provider gets), behind a green typecheck and a green suite.
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    expect(handle.core.catalogueFor).toBeDefined();
+    expect(handle.core.baseCatalogueFor).toBeDefined();
+
+    const calls: Array<{ sessionId: string; agent: string }> = [];
+    const spawn = {
+      listAgents: () => [
+        {
+          ref: 'explorer',
+          scope: 'builtin' as const,
+          name: 'Explorer',
+          description: 'x',
+          icon: 'bot' as const,
+          color: 'slate' as const,
+        },
+      ],
+      startChild: (req: { agentRef: string; description: string; prompt: string }) => {
+        calls.push({ sessionId: 'sess-a', agent: req.agentRef });
+        return { sessionId: 'child-1' };
+      },
+    };
+
+    const claudeCatalogue = handle.core.catalogueFor!('sess-a', spawn);
+    const baseCatalogue = handle.core.baseCatalogueFor!('sess-a', spawn);
+    const claudeTool = claudeCatalogue.find((t) => t.name === 'spawn_agent');
+    const baseTool = baseCatalogue.find((t) => t.name === 'spawn_agent');
+    expect(claudeTool).toBeDefined();
+    expect(baseTool).toBeDefined();
+
+    await claudeTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
+    await baseTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
+
+    expect(calls).toEqual([
+      { sessionId: 'sess-a', agent: 'explorer' },
+      { sessionId: 'sess-a', agent: 'explorer' },
+    ]);
+  });
+
+  it('catalogueFor/baseCatalogueFor degrade to the unavailable branch with no spawn wired (D85)', async () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    const claudeTool = handle
+      .core.catalogueFor!('sess-a', undefined)
+      .find((t) => t.name === 'spawn_agent');
+    const baseTool = handle
+      .core.baseCatalogueFor!('sess-a', undefined)
+      .find((t) => t.name === 'spawn_agent');
+    const claudeResult = await claudeTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
+    const baseResult = await baseTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
+    expect(JSON.stringify(claudeResult)).toContain('unavailable');
+    expect(JSON.stringify(baseResult)).toContain('unavailable');
+  });
+
+  it('the shared catalogue/baseCatalogue are unaffected — same tool count, same names (D85)', () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
+    const sessionScoped = handle.core.catalogueFor!('sess-a', undefined);
+    expect(sessionScoped.map((t) => t.name).sort()).toEqual(
+      handle.core.catalogue.map((t) => t.name).sort(),
+    );
+  });
+
   it('runs registered producers off the kernel feed so a change surfaces a flag (R-3)', () => {
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
