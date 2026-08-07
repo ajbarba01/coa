@@ -89,9 +89,13 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   starts: nine stages rated, **no stage `Opaque`**, and **six of nine standing assumptions falsified**
   — including the arc's "the tool name `Agent` is unavailable to coa" and the premise that the
   harness's own subagents are ungovernable. The fork question is closed (**do not fork**: 26.8 upstream
-  releases a month, signed and checksummed binaries, no redistribution grant). 197 offline probes live
-  in `packages/adapter-claude-sdk/src/control/` and are version-stamped, so an SDK bump names the
-  verdict that expired. Ledger + the P1 delta:
+  releases a month, signed and checksummed binaries, no redistribution grant). The suite has since been
+  pruned to its load-bearing probes — the ones guarding behavior shipped code relies on (the permission
+  seam, hook registration, the bounded tool surface, session lifecycle) — which live in
+  `packages/adapter-claude-sdk/src/control/` and are version-stamped, so an SDK bump names the verdict
+  that expired; the exploratory rest (tool aliasing, the native subagent plane, compaction control, SDK
+  session stores, inference-URL redirection, binary scans) is parked under `archive/sdk-probes/`.
+  Ledger + the P1 delta:
   [`docs/design/research/2026-08-02-claude-sdk-control-ledger.md`](docs/design/research/2026-08-02-claude-sdk-control-ledger.md);
   binary findings alongside it. **Live pass complete bar two probes:** the CLI **honours `toolAliases`
   at dispatch** (a model-emitted `Read` ran coa's MCP handler), killing the arc's naming limit — but an
