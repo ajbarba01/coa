@@ -150,22 +150,28 @@ describe('stage 8 — inference routing', () => {
     }
   });
 
-  it('FOOTGUN: on win32, Node/the OS still inject a fixed set of system vars even when omitted from options.env entirely', async () => {
-    // No PATH included at all — a genuine "replaces" semantics would leave the
-    // child with exactly { ONLY_THIS, COA_PROBE_CAPTURE } and nothing else.
-    const capture = await captureRawEnv({ settingSources: [] }, { ONLY_THIS: '1' });
-    expect(capture).toBeDefined();
-    expect(capture?.env['ONLY_THIS']).toBe('1');
-    // Observed reality (verified against plain node:child_process.spawn too, so
-    // this is a Node/Windows floor, not an SDK behaviour): CreateProcess/libuv
-    // re-populate a handful of Windows-critical vars regardless of what the
-    // caller passed. PATH is the load-bearing one for coa's auth wiring — a
-    // caller who believes `env` is a bare, fully-specified environment is
-    // wrong on win32; a few system vars survive no matter what.
-    expect(capture?.env['PATH']).toBeDefined();
-    expect(capture?.env['SYSTEMROOT']).toBeDefined();
-    expect(capture?.env['USERPROFILE']).toBeDefined();
-  });
+  // Only runnable on Windows: on POSIX a PATH-less env means `node` cannot be
+  // resolved at all, so the child never spawns and there is nothing to observe —
+  // the injection this documents is a Windows-only floor.
+  it.skipIf(process.platform !== 'win32')(
+    'FOOTGUN: on win32, Node/the OS still inject a fixed set of system vars even when omitted from options.env entirely',
+    async () => {
+      // No PATH included at all — a genuine "replaces" semantics would leave the
+      // child with exactly { ONLY_THIS, COA_PROBE_CAPTURE } and nothing else.
+      const capture = await captureRawEnv({ settingSources: [] }, { ONLY_THIS: '1' });
+      expect(capture).toBeDefined();
+      expect(capture?.env['ONLY_THIS']).toBe('1');
+      // Observed reality (verified against plain node:child_process.spawn too, so
+      // this is a Node/Windows floor, not an SDK behaviour): CreateProcess/libuv
+      // re-populate a handful of Windows-critical vars regardless of what the
+      // caller passed. PATH is the load-bearing one for coa's auth wiring — a
+      // caller who believes `env` is a bare, fully-specified environment is
+      // wrong on win32; a few system vars survive no matter what.
+      expect(capture?.env['PATH']).toBeDefined();
+      expect(capture?.env['SYSTEMROOT']).toBeDefined();
+      expect(capture?.env['USERPROFILE']).toBeDefined();
+    },
+  );
 
   it('maxBudgetUsd reaches the CLI as an argv flag (--max-budget-usd)', async () => {
     const capture = await captureSpawn({ settingSources: [], maxBudgetUsd: 2.5 });
