@@ -42,11 +42,34 @@ module.exports = {
       name: 'core-consumer-rings-no-sideways',
       severity: 'error',
       comment:
-        'Inside core, only the spine is shared mutable substrate. Consumer rings (flags = M3, governance = M7, …) import the spine + shared, never sideways from each other. The workbench (M6) is a producer that MAY read flags/context/governance per its SPEC deps, but no consumer ring imports it back (REPO_LAYOUT intra-core rule).',
-      from: { path: '^packages/core/src/(flags|governance|compiler|context)/' },
+        'Inside core, only the spine (the root-level kernel/event/projection/checkpoint/idle files plus graph/, reconcile/, scope/ and wal/) is shared mutable substrate. Every other ring imports the spine + shared, never a sibling ring sideways (REPO_LAYOUT intra-core rule). Two deliberate exemptions, not listed in `from`: session/ (M8 composition — it wires the rings into a daemon) and rpc/ (M8 transport — it exposes them over JSON-RPC) are hubs that legitimately reach into many rings. workbench/ has its own narrower rule below. A genuinely new sanctioned edge changes the SPEC map AND an explicit allowance here in the same commit.',
+      from: {
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|graph|models|reconcile|scope|wal)/',
+      },
       to: {
-        path: '^packages/core/src/(flags|governance|compiler|context|workbench)/',
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|models|rpc|session|workbench)/',
         pathNot: '^packages/core/src/$1/',
+      },
+    },
+    {
+      name: 'core-workbench-only-sanctioned-reads',
+      severity: 'error',
+      comment:
+        'The workbench (M6) is a producer: it writes via the spine and MAY read flags/context/governance — the reads its SPEC dependencies sanction (REPO_LAYOUT intra-core rule). Everything else in core is off limits to it, and no consumer ring imports the workbench back (covered by core-consumer-rings-no-sideways).',
+      from: { path: '^packages/core/src/workbench/' },
+      to: { path: '^packages/core/src/(auth|compiler|console|models|rpc|session)/' },
+    },
+    {
+      name: 'core-spine-imports-no-rings',
+      severity: 'error',
+      comment:
+        'The spine files at the root of core/src (kernel, event, projection, checkpoint, idle) are the substrate everything else points AT — they must not know any ring above them, or producers→spine←consumers collapses into a tangle. index.ts is the package barrel and re-exports everything by design.',
+      from: {
+        path: '^packages/core/src/[^/]+\\.ts$',
+        pathNot: '^packages/core/src/index\\.ts$',
+      },
+      to: {
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|models|rpc|session|workbench)/',
       },
     },
     {

@@ -75,13 +75,19 @@ not by package splits.
 
 ```
 core/src/
-  spine/         M1 — emit/subscribe, WAL writer, in-mem graph, symbol table, fuzzy index, piece-resolver,
-                      reconciler (producer ②), checkpoint timeline, idle scheduler
+  *.ts           M1 — the spine, at the root: kernel (emit/subscribe + in-mem graph host), event,
+                      projection, checkpoint timeline, idle scheduler; index.ts is the package barrel
+  graph/         M1 — in-mem graph, symbol table, fuzzy index, import/piece resolution
+  wal/           M1 — the single-writer WAL
+  reconcile/     M1 — the reconciler (producer ②)
+  scope/         M1 — scope config/resolution/linting, glob machinery
   flags/         M3 — the one pipeline (registerProducer/ingest), dedup, the two audiences, the close-gate
   context/       M4 — generation, assembly, detection/staleness services
   compiler/      M5 — compile(pieces) -> NeutralConfig (its own service boundary)
-  workbench/     M6 — the Mutate producer + mcp/ tool surface
+  workbench/     M6 — the Mutate producer + the outer-ring tool surface
   governance/    M7 — cost ledger, provenance, decision log, policy
+  models/        model catalog + effective-model resolution
+  console/       console state store
   session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
     agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store
     builtin-agents.ts the two code-shipped definitions (general-purpose, explorer)
@@ -89,9 +95,11 @@ core/src/
   auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
 ```
 
-**The intra-`core` rule** (mechanically enforced): only `spine/` is shared mutable substrate. `flags/`,
-`context/`, `governance/`, etc. import **from `spine/` and `@coa/shared`**, never from each other. `compiler/`
-reads `context/`'s output but not vice versa. `workbench/` is a producer (writes via `spine/.emit`) and reads
+**The intra-`core` rule** (mechanically enforced): only the spine (the root-level files plus `graph/`,
+`wal/`, `reconcile/`, `scope/`) is shared mutable substrate. Every other ring imports **from the spine and
+`@coa/shared`**, never from a sibling ring sideways. Two hubs are exempt: `session/` (M8 composition — it
+wires the rings into a daemon) and `rpc/` (M8 transport — it exposes them over JSON-RPC). `compiler/` reads
+`context/`'s output but not vice versa. `workbench/` is a producer (writes via the spine) and reads
 `flags/`/`context/`/`governance/` only as the SPEC's M6 dependency allows.
 
 ## Dependency rules (enforced by `dependency-cruiser` in CI)
