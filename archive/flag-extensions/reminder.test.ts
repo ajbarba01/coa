@@ -1,3 +1,4 @@
+// Archived from packages/core/src/flags/reminder.test.ts
 import { describe, expect, it } from 'vitest';
 import { type AuthorityRule, ReminderPolicy } from './reminder.js';
 

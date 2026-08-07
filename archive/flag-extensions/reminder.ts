@@ -1,3 +1,4 @@
+// Archived from packages/core/src/flags/reminder.ts
 import type { EscapeEvent, Reminder } from '@coa/shared';
 
 /**

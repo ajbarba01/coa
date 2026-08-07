@@ -1,3 +1,4 @@
+// Archived from packages/core/src/flags/autopatch.ts
 import type { FlagRecord, Patch } from '@coa/shared';
 import type { Producer } from './producer.js';
 

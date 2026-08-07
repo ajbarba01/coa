@@ -1,3 +1,4 @@
+// Archived from packages/core/src/flags/autopatch.test.ts
 import { describe, expect, it } from 'vitest';
 import type { FlagRecord, Patch } from '@coa/shared';
 import { AutoPatcher } from './autopatch.js';

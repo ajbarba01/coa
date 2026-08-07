@@ -71,7 +71,6 @@ export {
   type FeedbackRecord,
   type FeedbackResolution,
 } from './flags/feedback.js';
-export { ReminderPolicy, type AuthorityRule } from './flags/reminder.js';
 export {
   groupSelection,
   contextKeyOf,
@@ -81,7 +80,6 @@ export {
   type ValidatorVerdict,
   type ValidatorRun,
 } from './flags/validator.js';
-export { AutoPatcher, type AutoPatchPlan } from './flags/autopatch.js';
 export { Governance, type GovernanceOptions } from './governance/governance.js';
 export { CostCap, type CapState, type CostCapOptions } from './governance/cost-cap.js';
 export { Ledger, redactLedgerEvent, type LedgerRecord } from './governance/ledger.js';
