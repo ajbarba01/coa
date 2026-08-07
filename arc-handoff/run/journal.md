@@ -308,3 +308,45 @@ items, screenshots (UI stages). This file is the maintainer's morning audit.
   the remaining Fable promo credit (second account) is RESERVED for the UX stages**
   (Stage 3 mockup-driven features, C4's console rewrite, mockup-conformance gates).
   All backend/mechanical work (flakes, orphans, C3, C5, Stage 4 docs) runs on Opus.
+
+## Q7 cleanups — DONE (a28bd30 · 852922c · c06b0a3 · aae26b5 · 658fbd8, pushed)
+
+Workflow: flake-fixer → archiver → adversarial verifier (top lens: gate-cheating audit).
+
+- **Flakes root-caused, not papered over.** No timeout raised, nothing skipped or
+  deleted, no assertion weakened (verifier audited the whole branch diff: 2 removed
+  `expect(` lines, both accounted for; zero `.skip/.only/todo`; zero try/catch added).
+  Causes were real and measured with the JSON reporter: AuthPanel drove a 25-char key
+  through `user.type` one keystroke at a time (~380ms of 884ms solo) → `user.paste`;
+  23 daemon tests defaulted `root` to '.' so each sha256'd all 859 tracked repo files
+  (142ms vs 29ms rooted at a temp dir) → pinned to their own temp dirs; the Combobox
+  focus assertion sampled before Base UI's `requestAnimationFrame` committed focus →
+  `waitFor`. Suite: 5 consecutive green full runs, wall time 121.6s → ~96s.
+  HONEST CAVEAT (agent's own): only AuthPanel reproduced on this machine; Combobox and
+  daemon were fixed by measurement + library source reading, not observed failures.
+- **Four orphans archived** to archive/{spec-conformance,code-health,capability-profile}/
+  per the 2afa808 convention (git-mv, `// Archived from <path>` headers, README rows
+  with revival paths). Note the green bar legitimately dropped 23 assertions — archived
+  code is excluded from the gates by design.
+- **Verifier returned passed=false and was right.** Two findings actioned by the
+  orchestrator in aae26b5/658fbd8:
+  - The flake agent had shipped a PRODUCT change (fence-tag→grammar resolution) with
+    ZERO tests — reverting it left the suite green. It also created a SECOND
+    tag→grammar table that had already diverged from pathLanguage.ts's (one carried
+    `console`/`shell`, the other did not). Folded both into one `dense/grammar.ts`
+    owning the whole vocabulary; `syntaxTheme.tsx` now types its registration map as
+    `Record<Grammar, …>`, so a grammar added in one place and not the other is a
+    COMPILE ERROR. Added the missing behavioural pins and MUTATION-TESTED them:
+    reverting the resolution reds 2 tests, adding a shadowing alias reds another.
+  - The daemon `root` fix had a side effect nobody disclosed: ~40 `fatal: not a git
+    repository` lines per suite run, which would mask a genuine git failure. That
+    probe failing is an EXPECTED, handled outcome on a non-git project, so its stderr
+    is now captured rather than inherited. Verified 0 occurrences per run.
+  - Also renamed a daemon test whose name claimed it "drives producer 2" when it only
+    asserted a function exists (the real drive is the neighbouring real-repo test).
+  - Verifier findings NOT actioned (recorded, not silently dropped): its point that the
+    grammar fix is narrowed-not-closed (unlisted tags still take the guess path) is
+    accurate and now documented in the module comment; its stale-doc list additions
+    (M4.md:35, M4.md:405, M8.md:293 still document `health()` as live) go to Stage 4.
+- **New question queued: Q9** — health-profile.ts orphaned by health.ts's archival.
+- Gate at 658fbd8: 2858 passed / 30 skipped, depcruise clean (406 modules), docs 60.

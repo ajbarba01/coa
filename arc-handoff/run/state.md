@@ -89,10 +89,9 @@ on the old machine.
 4. ~~C2 part 3~~ DONE 2026-08-07 (c5281b7 · 14044ce pushed, verifier passed — C2
    fully delivered; arc/architecture tip 14044ce). Follow-up queued for Stage 3: the
    desktop add-provider GUI flow lacks openai/openrouter rows (CLI/daemon complete).
-5. Q7 cleanups (NEXT, on Opus per the model-allocation decision below): fix the THREE
-   load-flakes (Combobox focus, daemon watcher, AuthPanel replace-secret — all pass
-   solo) with deterministic waits; archive the orphaned context modules +
-   capabilityProfileSchema.
+5. ~~Q7 cleanups~~ DONE 2026-08-07 (a28bd30..658fbd8 pushed; arc/architecture tip
+   658fbd8). Flakes root-caused (suite also ~20% faster), four orphans archived,
+   verifier findings actioned. New question Q9 raised (health-profile.ts).
 6. Stage 4 docs (mandatory before any closeout) — absorbs the codename-consistency
    pass and the ADR-0032/D150/ROADMAP prose reconciliation R1 makes stale.
 7. Stage 5 closeout: write questions for every parked charter/feature, push all
@@ -104,8 +103,10 @@ on the old machine.
   processes and falsely time out in a sandboxed shell (5 fake failures).
 - Gate command: `pnpm check && pnpm docs:check` (typecheck · lint · format · vitest ·
   depcruise, then the docs router check).
-- Known intermittent: `Combobox.test.tsx` focus assertion and one `daemon.test.ts`
-  watcher-timing case flake under full-suite load; both pass solo.
+- ~~Known intermittent flakes~~ FIXED 2026-08-07 at the cause (Combobox focus, daemon
+  watcher, AuthPanel replace-secret, Markdown fence). The suite should now be green
+  every run — a failure is a real failure, not load. Treat any new intermittent as a
+  bug to root-cause, not a known-flake to rerun.
 - Commits: subject-only Conventional Commits, no body, no trailers, no internal
   codenames, stage files BY NAME, human-sized batches.
 - Never push `main`; never force-push anything on origin except the arc's own branches.

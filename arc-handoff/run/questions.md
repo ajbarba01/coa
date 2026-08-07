@@ -147,3 +147,15 @@ can't drift, (b) stop committing dist and build on install/publish, or (c) accep
 drift as harmless (dev resolves source via the development exports condition; dist
 only matters to a consumer installing the package raw).
 **Done instead:** nothing changed; queued for the maintainer / Stage 4.
+
+## Q9 — health-profile.ts orphaned by the Q7 archival (found 2026-08-07)
+**Context:** packages/core/src/context/health-profile.ts (`composeProfile`,
+`WorstPredicate`) had exactly one non-test consumer: health.ts. health.ts is now parked
+in archive/code-health/, so health-profile.ts + health-profile.test.ts meet the same
+caller-less condition the other four were archived for. The archiving agent
+deliberately did NOT move it (the ruling named four surfaces; over-archiving is the
+more expensive mistake) and recorded the fact in the archive README row and ROADMAP so
+it cannot be silently forgotten. Verified not to cascade further: `MetricSample` is
+still live via packages/code-intel/src/extract-metrics.ts.
+**Needed:** one line — park it alongside health.ts, or keep it.
+**Done instead:** left in place; harmless (all gates pass); documented in two places.
