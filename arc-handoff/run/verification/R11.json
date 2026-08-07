@@ -1,0 +1,87 @@
+{
+ "ruling": "R11",
+ "verdict": "VERIFIED",
+ "evidence": "(1) Zero imports: `rg \"from ['\\\"]@parcel|require\\(['\\\"]@parcel|import\\(['\\\"]@parcel\"` across the whole repo (packages/, apps/, hidden files, node_modules excluded) returns zero hits. A plain-string `rg '@parcel/watcher'` finds only 5 non-lockfile sites, all non-callers: packages/core/package.json:32 (dependency declaration), pnpm-workspace.yaml:16 (allowBuilds entry), packages/core/src/reconcile/reconciler.ts:15 (JSDoc comment explicitly stating \"The file-watcher trigger (`@parcel/watcher`) is a later wire; the floor reconciles on demand\" \u2014 documentation, not a caller), docs/REPO_LAYOUT.md:144 and docs/design/handoff/IMPL-SPEC-BRIEF.md:160 (prose listing native-addon allowlist examples). Plus pnpm-lock.yaml resolution entries (@parcel/watcher@2.5.6 + 13 platform-variant optional packages). (2) Sole declaring package.json: /Users/abarba/dev/coa/packages/core/package.json:32 `\"@parcel/watcher\": \"^2.5.6\"` under dependencies. (3) pnpm-workspace.yaml:16 `'@parcel/watcher': true` sits inside the `allowBuilds:` block (lines 14\u201324), exactly as the ruling states; that line goes with the dep. (4) All R11 KEEP items exist and are untangled from the removal: packages/code-intel/src (canonicalize/cst/extract-metrics/extract-symbols/languages/parser-process), packages/core/src/graph/ (graph.ts, symbol-table.ts, scip.ts, cycles.ts, coupling.ts, temporal.ts, etc.), packages/core/src/scope/ (scope-linter.ts, scope-resolver.ts, scopes-config.ts, glob.ts), health scoring at packages/core/src/context/health-profile.ts + health.test.ts, idle-chores at packages/core/src/idle.ts, lazy tool-loading partition in packages/core/src/workbench/ (catalogue.ts, base-tools.ts, governed-tools.ts, web-tools.ts). None of them import @parcel/watcher, so the dep removal has no seam with any KEEP item.",
+ "recentCommitInteractions": "Ran `git log -6 -p | grep -i parcel` \u2192 zero hits: none of the 5 plan-postdating commits (faf5e09, 0fd8083, dabc77c, f2936ec, d97c118) nor the even-newer HEAD commit added any @parcel/watcher caller or reader. Caution for execution: HEAD is now 3536c28 \"fix: allow node-pty install scripts so fresh installs succeed\" (Aug 7, newer than the 5 commits the task named) \u2014 it edited the very same `allowBuilds:` block in pnpm-workspace.yaml, adding `node-pty: true` at line 24 with a two-line comment (lines 22\u201323). The @parcel/watcher line itself is untouched, but the removal edit of line 16 must preserve the new node-pty entry and comment. The earlier gitStatus snapshot showing pnpm-workspace.yaml as modified referred to this node-pty change, since committed; pnpm-workspace.yaml is now clean in the working tree.",
+ "inventory": [
+  {
+   "path": "packages/core/package.json",
+   "action": "edit",
+   "symbols": "dependencies entry \"@parcel/watcher\": \"^2.5.6\" (line 32)",
+   "notes": "Sole declaration in the workspace; delete this one line."
+  },
+  {
+   "path": "pnpm-workspace.yaml",
+   "action": "edit",
+   "symbols": "allowBuilds entry '@parcel/watcher': true (line 16)",
+   "notes": "Goes with the dep, per the ruling. Preserve the neighboring node-pty: true entry (line 24) added by HEAD commit 3536c28."
+  },
+  {
+   "path": "pnpm-lock.yaml",
+   "action": "edit",
+   "symbols": "@parcel/watcher@2.5.6 + 13 @parcel/watcher-<platform>@2.5.6 optional packages",
+   "notes": "Regenerate via `pnpm install` after the package.json edit; do not hand-edit."
+  },
+  {
+   "path": "docs/REPO_LAYOUT.md",
+   "action": "edit",
+   "symbols": "line 144: native-addon allowlist prose naming `@parcel/watcher`",
+   "notes": "Same-commit doc rule (AGENTS.md): drop it from the example list `(better-sqlite3, @parcel/watcher, the tree-sitter binding)` when the dep is removed."
+  },
+  {
+   "path": "docs/design/handoff/IMPL-SPEC-BRIEF.md",
+   "action": "keep",
+   "symbols": "line 160: D142 supply-chain-hygiene prose naming `@parcel/watcher`",
+   "notes": "Handoff docs are the authoritative final-form spec and the dep is to be re-added when the watcher wire lands; leave unless the maintainer wants final-form docs to track current deps."
+  },
+  {
+   "path": "packages/core/src/reconcile/reconciler.ts",
+   "action": "keep",
+   "symbols": "JSDoc comment, line 15",
+   "notes": "Comment already labels the watcher as \"a later wire\" \u2014 it is the dormant label, not a caller. No code change."
+  },
+  {
+   "path": "packages/code-intel/",
+   "action": "keep",
+   "symbols": "whole package",
+   "notes": "R11 KEEP item; dormant-labeling is a later docs task, not inventoried per instructions."
+  },
+  {
+   "path": "packages/core/src/graph/",
+   "action": "keep",
+   "symbols": "whole directory",
+   "notes": "R11 KEEP item."
+  },
+  {
+   "path": "packages/core/src/scope/",
+   "action": "keep",
+   "symbols": "whole directory",
+   "notes": "R11 KEEP item."
+  },
+  {
+   "path": "packages/core/src/context/health-profile.ts",
+   "action": "keep",
+   "symbols": "health scoring (with health.test.ts)",
+   "notes": "R11 KEEP item."
+  },
+  {
+   "path": "packages/core/src/idle.ts",
+   "action": "keep",
+   "symbols": "idle-chores queue",
+   "notes": "R11 KEEP item."
+  },
+  {
+   "path": "packages/core/src/workbench/catalogue.ts",
+   "action": "keep",
+   "symbols": "lazy tool-loading partition (with base-tools.ts, governed-tools.ts, web-tools.ts)",
+   "notes": "R11 KEEP item."
+  }
+ ],
+ "testsAffected": [],
+ "sharedFiles": [
+  "pnpm-workspace.yaml",
+  "packages/core/package.json",
+  "pnpm-lock.yaml",
+  "docs/REPO_LAYOUT.md"
+ ]
+}

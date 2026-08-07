@@ -1,0 +1,127 @@
+{
+ "ruling": "R13",
+ "verdict": "VERIFIED",
+ "evidence": "Suite located at packages/adapter-claude-sdk/src/control/ (15 files, ~5.7k lines + stub-cli.mjs). Zero non-test callers: `rg \"control/\"` across packages/ and apps/ (excluding the dir) hits only docs (ROADMAP.md:92-93, docs/adr/0026:65, docs/superpowers plan/spec corpora); `rg \"probe-kit|stub-cli\"` hits only files inside control/; the package barrel (src/index.ts) exports nothing from control/; vitest.config.ts includes it only via the generic `packages/*/src/**/*.test.ts` glob. Shipped-code reliance mapped symbol-by-symbol: permission seam = toSdkPermission/canUseTool + updatedInput echo (sdk-options.ts:45-52, session-options.ts:187-190, 200); hooks = exactly Stop+PreToolUse+PostToolUse registered (session-options.ts:116-118) and close-gate {decision:'block',reason} (sdk-options.ts:64-66); bounded tool surface = tools/allowedTools/disallowedTools/settingSources:[]/strictMcpConfig/skills:[] (sdk-options.ts:103-126), KNOWN_BUILTINS/CLAUDE_BUILTIN_FLOOR/NOT_MODEL_VISIBLE/resolveToolTransport (tool-frame.ts:30-131, claude-sdk-adapter.ts:250-255); session lifecycle = resume (session-options.ts:214), session_id capture (claude-sdk-adapter.ts:326-334), interrupt (claude-sdk-adapter.ts:322-325), terminal_reason read by turn-frames.ts:122-126, auth seam env-replacement (auth-env.ts:34, claude-sdk-adapter.ts:260-262), maxBudgetUsd cost cap (session-options.ts:212). render-native.ts:39-45 explicitly ships on the stage-5 mid-session-channel verdicts (role:system transmitted-not-obeyed; shouldQuery:false lands at the cost of a turn). Not used anywhere in shipped code (rg over non-test src): toolAliases, agents map, forwardSubagentText, taskBudget, appendSubagentSystemPrompt, maxTurns, sessionStore/persistSession/forkSession/enableFileCheckpointing, compaction settings/hooks, ANTHROPIC_BASE_URL, managedSettings, plugins, extraArgs/executableArgs/betas/fallbackModel/Transport. ROADMAP item L records the native-delegation deny probe as \"retired-by-success: the floor removes the tool\" \u2014 the maintainer's own on-record retirement of the stage-7 native path; the shipped floor's live guard lives outside control/ in src/governed-gate.live.test.ts (three probes: canUseTool consulted + executes, PreToolUse deny of built-in honoured, deny of coa's own MCP tool honoured).",
+ "recentCommitInteractions": "None of the five commits (faf5e09, 0fd8083, dabc77c, f2936ec, d97c118) touched packages/adapter-claude-sdk/src/control/ or added a reader of it (git show --stat on each). dabc77c added packages/adapter-claude-sdk/src/subagent-orchestration.live.test.ts, but its imports are shipped modules only (claude-sdk-adapter.js, mcp-tools; verified lines 1-10) \u2014 not control/. One intervening commit, 2537f59 (2026-08-06, post-plan), edited control/stage-3-4-turn-control.live.test.ts:361 \u2014 a comment-only rename (barge-in-smoke \u2192 turn-interrupt-smoke), no semantic reader. Semantically the recent arc STRENGTHENS the ruling: subagents shipped as coa sessions via a spawn tool in packages/core/src/session/session-handlers.ts (faf5e09/8e58550), and spend roll-up is coa's own ledger keyed by root (packages/core/src/governance/ledger.ts, 0fd8083) \u2014 NOT the SDK-native delegation, SubagentStart/Stop, forwardSubagentText, or SDK root-result spend attribution that the stage-7 probes measure. Those probes answered the arc's design question and the answer is now built the other way.",
+ "inventory": [
+  {
+   "path": "packages/adapter-claude-sdk/src/control/probe-kit.ts",
+   "action": "keep",
+   "symbols": "captureSpawn, SpawnCapture",
+   "notes": "Load-bearing infrastructure: the argv/env capture harness every kept offline probe imports (assumptions, stage-1-2, stage-3-4, stage-5-6, stage-7, stage-8-9)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stub-cli.mjs",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "probe-kit's stub executable (probe-kit.ts:25); never spawned by product code."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/probe-kit.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Load-bearing: proves the harness itself (flag/inline-empty/absent distinctions the D108 settingSources probe depends on)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/tool-catalogue-drift.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Load-bearing (bounded tool surface): tripwire that every SDK tool schema is classified in KNOWN_BUILTINS/NOT_MODEL_VISIBLE (tool-frame.ts:39,87) \u2014 a missing name silently drops a granted tool from the shipped transport (commit 55199f1)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-3-4-turn-control.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Load-bearing (permission seam + hooks + lifecycle): pins the 30-event hook inventory against session-options.ts:116-118's three registrations; canUseTool's --permission-prompt-tool marker; toSdkPermission allow-echo/deny mapping; toStopHookOutput close-gate shape (SC-1 Type-1 block); PreToolUse cannot substitute a result (bounds ADR-0029's one-seam design); TerminalReason union + turn-frames.ts terminal_reason read. Only the two maxTurns argv probes (lines 288-298) are a non-shipped lever \u2014 kept as the boundary documentation the Stop-gate precedence question needs."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-3-4-turn-control.live.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Load-bearing live halves of the same seams: canUseTool fires for built-in AND MCP calls; allowedTools suppresses canUseTool (the finding fix e60bd7f ships on); PreToolUse updatedInput rewrites the call; Stop-hook block re-verifies sdk-options.ts:44-56; maxTurns-vs-Stop precedence; terminal_reason for coa-initiated interrupt vs natural completion (shipped interrupt seam claude-sdk-adapter.ts:322-325)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-1-2-session-construction.test.ts",
+   "action": "edit",
+   "symbols": "keep: captureInitialize local harness + stage-1 systemPrompt/settingSources/model probes (lines 151-267) + tools empty-vs-omitted (358-385) + skills argv folding/initialize forwarding (406-434) + strictMcpConfig (455-464); archive: toolAliases probes (301-357), agents map (386-405), plugins (435-454), --agent + managedSettings (269-297), toolAliases falsification block (467-496)",
+   "notes": "MIXED. Keep-half guards sdk-options.ts:98-127 (preset+append wire split, settingSources:[] inline-empty vs omission, --model, bounded tools, skills:[] semantics, strictMcpConfig). Archive-half is the toolAliases/agents/plugins exploration \u2014 no shipped user; P1c may resurrect toolAliases but OPEN-scope rules say build none of it now. Seam: the kept systemPrompt probes ride the local captureInitialize harness (systemPrompt travels stdio, not argv), so the harness (approx lines 40-149) must survive the prune."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-1-2-session-construction.live.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Exploratory: all three probes test toolAliases dispatch honouring (aliased Read runs coa's MCP handler; alias visibility; bad-alias crash). No shipped toolAliases; verdicts recorded in ROADMAP:96-100 and the control ledger doc. The bare-allow/updatedInput finding it documents is already codified in shipped toSdkPermission and guarded by stage-3-4."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-5-6-lifecycle.test.ts",
+   "action": "edit",
+   "symbols": "keep: version pin (127-140), mid-session-system-channel describe (350-441), persistence argv map probe (444-470, carries the --resume mapping shipped resume rides) + captureStdin/readSdkTypings helpers; archive: all stage-5 compaction probes (142-348) and remaining stage-6 state-ownership probes (471-655: sessionId/resume exclusivity, checkpointing env, sessionStore mode/preload/config-dir-redirect/only-writer/append-mirror/opaque-blob/out-of-band tools)",
+   "notes": "MIXED. The mid-session-channel block is the verdict render-native.ts:39-45 explicitly ships on (role:system transmitted-not-obeyed; shouldQuery:false lands at a turn's cost; no additionalContext on PreCompact). Compaction and SDK sessionStore/checkpointing have zero shipped users \u2014 coa uses only `resume` (session-options.ts:214) and its own append-only log."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-5-6-lifecycle.live.test.ts",
+   "action": "edit",
+   "symbols": "keep: the two mid-session-channel live probes ('reports what the CLI does with a streamed role:system message', 326-379; 'reports whether a shouldQuery:false message lands in context without a turn', 381-427) + BASE/collect helpers; archive: compaction drives (126-324) and all stage-6 store probes (429-608) incl. seededConfigDir/recordingStore helpers",
+   "notes": "MIXED. Kept pair is the live half of the render-native.ts:39-45 verdicts. Archived probes exercise SDK sessionStore reconstruction, synthesised transcripts, persistSession:false, file checkpointing, and the resume-materialisation credential copy \u2014 none shipped. Also removes the suite's single most expensive probe (forcing an auto-compaction: several dollars per run per its own header)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-7-delegation.test.ts",
+   "action": "edit",
+   "symbols": "keep: 'the Task/Agent rename (arc risk R2)' describe (467-535) and 'which lever actually removes the delegation tool' describe (536-597) + sdkTypes/declBlock/unwrapDoc/backend/sandbox helpers; archive: agents declaration plane (262-318), child-model plane (319-377), governance seam over native subagent (378-429), taskBudget/spend (430-454), forwardSubagentText (455-466)",
+   "notes": "MIXED. Kept blocks guard shipped demotion semantics: KNOWN_BUILTINS carries both spellings while resolveToolTransport's floor drops them (tool-frame.ts:30-131, ADR-0029), and the tools-not-allowedTools availability semantics buildBaseOptions ships on. Seam detail: the kept lever block reads the shared `bare` handshake fixture and the kept rename block's last probe ('offers toolAliases as the escape', 526-535) reads `full` \u2014 that probe is toolAliases-exploratory and should go with the archive list, after which the captureHandshake harness (157-260) and the full/bare beforeAll can leave too IF `bare.hasFlag('--tools')` at 566 is inlined as a fresh captureSpawn; otherwise keep captureHandshake."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-7-delegation.live.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Exploratory: every probe drives the NATIVE delegation path (advertised spelling, native spawn on a child model, SubagentStart/Stop, PreToolUse deny of a spawn, SDK root-spend attribution, forwardSubagentText). Shipped floor removes Task/Agent from every governed session (ROADMAP item L: 'the delegation deny probe is retired-by-success... the path is unreachable until P1c'); shipped subagents are coa sessions guarded by src/subagent-orchestration.live.test.ts and core tests. All 16 verdicts recorded in ROADMAP:100-104 + the control ledger doc."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-8-9-process.test.ts",
+   "action": "edit",
+   "symbols": "keep: captureRawEnv local harness + stage-8 env probes (105-168: captureSpawn env-discard constraint, ANTHROPIC_BASE_URL passthrough as the env-passthrough exemplar, replace-not-merge, win32 footgun), maxBudgetUsd argv flag (170-175), and the 'cross-check \u2014 auth-env.ts against reality' describe (339-379); archive: fallbackModel (176-186), stage-9 describe (187-338: extraArgs, executableArgs, betas, arbitrary pathToClaudeCodeExecutable, Transport smuggling)",
+   "notes": "MIXED. Kept half guards the shipped auth seam (auth-env.ts full-replacement overlay; DEFAULT_CLEAR_VARS genuinely absent from the child process) and the M7 cost-cap flag (session-options.ts:212 \u2014 one of SC-1's two blocks). Archived half probes levers with no shipped user; probe-kit self-checks its own stub-path premise at runtime (probe-kit.ts:79-84)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-8-9-process.live.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Exploratory: proves the real CLI redirects inference to ANTHROPIC_BASE_URL \u2014 the arc's P5 gateway PREMISE, with no shipped user (DeepSeek/LongCat adapters use their own fetch-based endpoints, not the Claude CLI: packages/adapter-deepseek/src/complete.ts:59, adapter-longcat/src/complete.ts:55). Verdict recorded in ROADMAP:103."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/assumptions.test.ts",
+   "action": "edit",
+   "symbols": "keep: captureInit/sdkTypes/unwrapDoc/neutral/emptyBackend helpers + assumption 2 (230-335: settingSources isolation honest accounting, strictMcpConfig, skills-leak CLOSED, re-anchor file GONE \u2014 guards sdk-options.ts:106-125 + renderNative), assumption 3 (337-401: claude_code preset layering \u2014 sdk-options.ts:91-102), assumption 4 (402-431: version-aware demote set), assumption 5 (432-489: allowedTools/tools/disallowedTools lever semantics incl. resolveToolTransport floor + adapter wiring assertion), 'stage 7: the Task/Agent rename' (740-781: KNOWN_BUILTINS both spellings, floor demotion, full-catalogue coverage), sibling stage-6 sessionStore block (783-817: CLAUDE_CONFIG_DIR redirect owned by shipped sessionAuthEnv + env-REPLACES semantics); archive: assumption 1 (193-229, toolAliases/Agent reachability), assumption 6 (490-543, toolAliases substitution), assumption 7 (544-624, native-subagent governance levers), assumption 8 (625-675, per-tool lever inventory survey), assumption 9 (676-739, mid-session role:system \u2014 duplicates the canonical stage-5-6 guard render-native cites), sibling taskBudget (819-846)",
+   "notes": "MIXED \u2014 this file is the densest entanglement. Its kept describes are the regression guards for shipped fixes (skills leak f2f69e6/7877449, re-anchor removal b591db1, bounded floor 7aace74) and import the shipped symbols directly (buildBaseOptions, renderNative, sessionAuthEnv, resolveToolTransport, KNOWN_BUILTINS, CLAUDE_BUILTIN_FLOOR). The archived describes adversarially audit arc claims about levers coa never shipped. captureInit is needed by the kept assumption-2 skills probe (285-307)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/binary.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Exploratory: structural marker scans inside the compiled CLI binary (compaction markers, subagent naming churn, taskBudget/forwardSubagentText, alias-table value) + per-platform checksum manifest. Self-declared 'LOWER-CONFIDENCE... where this track and an argv probe disagree, the probe wins'. Nothing shipped reads the binary; durable findings live in docs/design/research/2026-08-02-claude-cli-binary-findings.md. Borderline block if the executor wants one survivor: the manifest/checksum describe (169-190) is a pure version tripwire, but version pins already exist in every kept stage file."
+  },
+  {
+   "path": "ROADMAP.md",
+   "action": "edit",
+   "symbols": "lines 92-93 ('197 offline probes live in packages/adapter-claude-sdk/src/control/')",
+   "notes": "Same-commit doc rule: the probe count and the 'nine stages' framing change when the exploratory set is archived. docs/adr/0026:65 also cites the suite as the no-fork mitigation \u2014 ADRs are immutable, so no edit there, but the kept set must retain the version-tripwire function (it does: version pins + tool-catalogue-drift + hook-inventory satisfies-clause)."
+  }
+ ],
+ "testsAffected": [
+  "packages/adapter-claude-sdk/src/control/stage-1-2-session-construction.live.test.ts (archived whole)",
+  "packages/adapter-claude-sdk/src/control/stage-7-delegation.live.test.ts (archived whole)",
+  "packages/adapter-claude-sdk/src/control/stage-8-9-process.live.test.ts (archived whole)",
+  "packages/adapter-claude-sdk/src/control/binary.test.ts (archived whole)",
+  "packages/adapter-claude-sdk/src/control/assumptions.test.ts (pruned)",
+  "packages/adapter-claude-sdk/src/control/stage-1-2-session-construction.test.ts (pruned)",
+  "packages/adapter-claude-sdk/src/control/stage-5-6-lifecycle.test.ts (pruned)",
+  "packages/adapter-claude-sdk/src/control/stage-5-6-lifecycle.live.test.ts (pruned)",
+  "packages/adapter-claude-sdk/src/control/stage-7-delegation.test.ts (pruned)",
+  "packages/adapter-claude-sdk/src/control/stage-8-9-process.test.ts (pruned)"
+ ],
+ "sharedFiles": [
+  "ROADMAP.md (probe-suite workstream entry lines 87-110 \u2014 other rulings touching the survey/spike record will edit the same block)",
+  "packages/adapter-claude-sdk/src/control/probe-kit.ts (shared harness \u2014 any ruling archiving MORE control files changes whether it survives; today the kept files still need it)",
+  "docs/adr/0026-coa-borrows-the-harness-it-does-not-fork-it.md (cites the suite as mitigation; immutable, read-only dependency other rulings should also respect)"
+ ]
+}

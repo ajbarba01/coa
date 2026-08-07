@@ -1,0 +1,240 @@
+{
+ "ruling": "R1",
+ "verdict": "CONTRADICTED",
+ "evidence": "Searched ceilingUsd, capState, charge, record/recordSpend, maxBudgetUsd, perSessionCeiling, sessionBudget, COST_CAP_DENY, denyKind 'cost-cap', toCapViewModel, ledgerEntries across packages/ and apps/ (rg), plus git log -p on the 5 post-plan commits. Mechanical claims that HOLD: (1) ceilingUsd is never set by any non-test caller \u2014 the only production construction path is apps/cli/src/cli.ts:237 buildSessionDeps({walPath, root, resolveSpawn}) with no ceilingUsd; apps/desktop constructs no daemon core (pure RPC proxy, apps/desktop/src/main/index.ts:364); all other setters are tests (apps/cli/src/session-deps.test.ts:34, packages/core/src/session/daemon.test.ts:106, composition.test.ts:20, cost-cap.test.ts). (2) The self-documenting comment exists (packages/core/src/governance/cost-cap.ts:2-10: under subscription `capHit` is always false). (3) perSessionCeiling is likewise test-only, so maxBudgetUsd (session.ts:293) is always undefined in production. (4) record/charge (KEEP) are live on every settled result: session.ts:302-311 onSettle -> deps.charge + deps.recordSpend -> composition.ts:114-115 -> daemon.ts:138-139 -> Governance.charge/record. Claims that FAIL: see contradictions. The deny predicate is not \"never wired\" \u2014 buildCanUseTool including the capState().capHit consult (permission.ts:36) executes on every tool call of every session (session.ts:352-354; pure-API loop-driver driver.ts:223); it is wired-but-unable-to-fire. ledgerEntries() has zero non-test readers (the kept history surface is indeed future-facing, matching ROADMAP \"in-process only\").",
+ "contradictions": "Two contradictions. (A) The plan's core premise \u2014 \"the system's two blocks becomes one: the close gate\" \u2014 is contradicted by the post-plan subagent arc (all commits 2026-08-06, plan 2026-08-05). Commit d97c118 committed docs/adr/0032-the-cost-cap-bounds-fan-out.md (status: accepted), which rules \"The cost cap is the only fan-out bound. No depth limit exists, and none is added\" (adr/0032:62) and explicitly names the daemon-global CostCap wired through buildCanUseTool as the chosen option (adr/0032:56-58); spec M8 D150 (\"cost-cap-bounded... locked\"), OPEN.md (D122 struck through: \"the fan-out bound is the daemon-global cost cap, not a depth counter\"), and ROADMAP.md were updated to match in the same commit. Code committed in the same arc depends on it in prose: packages/core/src/session/lineage.ts:9-11 (\"the depth cap was deliberately dropped and the cost cap is the only fan-out bound\"). Since faf5e09/8e58550 shipped spawn_agent with unbounded depth/width, archiving the deny path removes the sole documented bound on a now-live runaway-fan-out risk and directly contradicts an accepted ADR (immutable per AGENTS.md) authored the day after the plan. (B) KEEP-rationale mismatch: \"the nav HUD reads the former [capState/charge]\" is false at HEAD. The nav Usage HUD reads mock data (apps/desktop/src/renderer/shell/Nav.tsx:22,444-449 imports accountUsage/spend from panels/mockUsage.ts \u2014 a mock file). capState IS polled by the console every 2s (apps/desktop/src/renderer/console.ts:311-325 into state.data.cap) but no component renders state.data.cap (only writer console.ts:319-325; panels/state.ts:33 declares it), and toCapViewModel (packages/console-viewmodel/src/cap.ts:16) has zero non-test callers. capState's real live readers are the CLI `coa cap` verb (apps/cli/src/cli.ts:55), the governed Inspect tool (packages/core/src/workbench/inspect.ts:42, wired daemon.ts:361), and the unrendered console poll. The KEEP verdict for capState still stands on those readers, but not for the reason the ruling gives. Execution should not proceed until the maintainer reconciles R1 with ADR 0032/D150.",
+ "recentCommitInteractions": "Yes \u2014 the 5 post-plan commits interact heavily. d97c118 (docs) added ADR 0032 + spec M8 D150 + OPEN.md/ROADMAP rewrites that make the deny/cap path R1 archives the SOLE fan-out bound for the just-shipped subagent feature \u2014 a direct design-level reader of the removal target. faf5e09 added root threading into the KEEP recordSpend path (session-handlers.ts:717-721,1036-1039 pass root:session.root into createSession -> onSettle -> recordSpend). 0fd8083 extended the KEEP ledger record path (ledger.ts: LedgerRecord.root added to the allow-list + flattenPathSafe hardening) \u2014 touches only KEEP symbols, no cap/deny symbols. dabc77c's transcript-projection.ts renders 'deny' frames generically (deniedNotice reads frame.denyKind, which includes 'cost-cap' \u2014 the kind only claude-sdk-adapter.ts:357 ever emits, off maxBudgetUsd). f2936ec's session-tree.ts costUsd roll-up reads a per-session costUsd that no producer populates yet (ROADMAP: deferred RPC producer over ledger.entries()) \u2014 a future reader of the KEEP history path, not the cap. No recent commit added a code caller that sets ceilingUsd or perSessionCeiling; the mechanical dead-config claims survive at HEAD (31c87b7).",
+ "inventory": [
+  {
+   "path": "packages/core/src/governance/cost-cap.ts",
+   "action": "edit",
+   "symbols": "CostCapOptions.ceilingUsd (23-26), private ceilingUsd (29,32-34), ceiling branch of capState (38-40)",
+   "notes": "KEEP class CostCap, capState/charge signatures, totalUsd counter. After edit capState degrades to constant {remaining:null,capHit:false} unless reshaped to expose spend. Repo convention: git history is the archive (REPO_LAYOUT.md:183), so archive = delete in place. BLOCKED on ADR 0032 re-adjudication."
+  },
+  {
+   "path": "packages/core/src/governance/cost-cap.test.ts",
+   "action": "edit",
+   "symbols": "whole file",
+   "notes": "Every case constructs with ceilingUsd (7-37); rewrite around a bare spend counter or delete."
+  },
+  {
+   "path": "packages/core/src/governance/governance.ts",
+   "action": "edit",
+   "symbols": "GovernanceOptions.ceilingUsd (23-24), constructor spread (36-38)",
+   "notes": "KEEP capState/charge wrappers (46-53), record (57-59), ledgerEntries (61-63)."
+  },
+  {
+   "path": "packages/core/src/governance/governance.test.ts",
+   "action": "edit",
+   "symbols": "charge/capState expectations (25-26)",
+   "notes": "Adjust to the ceilingless capState shape."
+  },
+  {
+   "path": "packages/core/src/session/permission.ts",
+   "action": "edit",
+   "symbols": "COST_CAP_DENY (18-21), PermissionDeps.capState (12-13), capHit consult in buildCanUseTool (36); DELETE sessionBudget (50-63)",
+   "notes": "Exact seam: buildCanUseTool KEEPS perToolDeny + FAIL_CLOSED_DENY (the other canUseTool rider is M3's, not the cap); only the capState dep and first-consult line go. Header comment (4-7, 'the ONLY two blocks') must be rewritten. sessionBudget is not named verbatim by R1 but is cap plumbing in the permission-predicate file; its only caller is session.ts:293 and it always returns undefined in production."
+  },
+  {
+   "path": "packages/core/src/session/permission.test.ts",
+   "action": "edit",
+   "symbols": "cap-hit cases (13, 26-46), sessionBudget describe (71-87)",
+   "notes": "Fail-closed test (50ff) keeps its shape but must throw from perToolDeny instead of capState."
+  },
+  {
+   "path": "packages/core/src/session/session.ts",
+   "action": "edit",
+   "symbols": "SessionDeps.capState (156-157), SessionDeps.perSessionCeiling (198-199), SessionAdapterInit.maxBudgetUsd (42-43), sessionBudget call (293), maxBudgetUsd spread (320), capState arg at interceptTool (353)",
+   "notes": "KEEP-seam in the same function: onSettle (302-311, charge + recordSpend incl. root) and SessionDeps.charge/recordSpend (158-170) stay byte-identical; the removals are lines 293/320/353 around it."
+  },
+  {
+   "path": "packages/core/src/session/session.test.ts",
+   "action": "edit",
+   "symbols": "capHit-blocks test (164-171), perSessionCeiling/maxBudgetUsd test (173-175), harness capState stub (103)",
+   "notes": ""
+  },
+  {
+   "path": "packages/core/src/session/composition.ts",
+   "action": "edit",
+   "symbols": "SessionWiring.perSessionCeiling (85, 124-126), SessionDeps capState mapping (113)",
+   "notes": "KEEP DaemonCore.capState (39) \u2014 still feeds the console RPC verb and Inspect tool; KEEP charge (41,114) and record/recordSpend (43,115)."
+  },
+  {
+   "path": "packages/core/src/session/composition.test.ts",
+   "action": "edit",
+   "symbols": "realCore(ceilingUsd) (18-28), cap-hit tests (77-99)",
+   "notes": "Spend-settle assertions on charge/record stay."
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "edit",
+   "symbols": "DaemonCoreOptions.ceilingUsd (56-57), Governance construction spread (85)",
+   "notes": "KEEP core.capState (132/137), console handler capState (239), inspect capState (361), record wiring (139) and summarizer recordCost (489). Shared composition root \u2014 other rulings will touch this file."
+  },
+  {
+   "path": "packages/core/src/session/daemon.test.ts",
+   "action": "edit",
+   "symbols": "ceilingUsd/capHit block (106-109)",
+   "notes": "Line 156 ({remaining:null,capHit:false}) stays valid."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "sessionBudget export (227), CostCapOptions type export (86)",
+   "notes": "KEEP CostCap/CapState (86), buildCanUseTool/buildStopGate (225-226), Ledger exports (87). Shared barrel."
+  },
+  {
+   "path": "apps/cli/src/session-deps.ts",
+   "action": "edit",
+   "symbols": "DaemonSessionOptions.ceilingUsd (39-40), spread (72)",
+   "notes": "apps/cli/src/index.ts:9 re-exports DaemonSessionOptions \u2014 type shrinks, export stays."
+  },
+  {
+   "path": "apps/cli/src/session-deps.test.ts",
+   "action": "edit",
+   "symbols": "cap-hit test (33-36)",
+   "notes": ""
+  },
+  {
+   "path": "apps/cli/src/adapter-factory.ts",
+   "action": "edit",
+   "symbols": "maxBudgetUsd spreads (98, 114, 131)",
+   "notes": "One per backend (claude/deepseek/longcat)."
+  },
+  {
+   "path": "apps/cli/src/adapter-factory.test.ts",
+   "action": "edit",
+   "symbols": "maxBudgetUsd fixture + passthrough assertions (141, 171, 186, 198)",
+   "notes": ""
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/claude-sdk-adapter.ts",
+   "action": "edit",
+   "symbols": "init.maxBudgetUsd (64-65), isCostCapStop (128-140), catch consult (349), 'cost-cap' deny-frame emission (357)",
+   "notes": "The ONLY emitter of denyKind 'cost-cap' anywhere; removing it makes the enum member dead across 6 shared files (below)."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/session-options.ts",
+   "action": "edit",
+   "symbols": "maxBudgetUsd (151, 178, 212 \u2014 the --max-budget-usd SDK option)",
+   "notes": ""
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/session-options.test.ts",
+   "action": "edit",
+   "symbols": "maxBudgetUsd passthrough (83-85)",
+   "notes": ""
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/claude-sdk-adapter.test.ts",
+   "action": "edit",
+   "symbols": "cost-cap stop tests (253-269)",
+   "notes": ""
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/control/stage-8-9-process.test.ts",
+   "action": "edit",
+   "symbols": "argv-flag test (170-171), header (27)",
+   "notes": ""
+  },
+  {
+   "path": "packages/adapter-deepseek/src/adapter.ts",
+   "action": "edit",
+   "symbols": "maxBudgetUsd parity field + comment (70-76)",
+   "notes": "Self-documents as unenforced ('enforced through the per-tool canUseTool predicate') \u2014 that comment also dies with the deny path."
+  },
+  {
+   "path": "packages/adapter-longcat/src/adapter.ts",
+   "action": "edit",
+   "symbols": "maxBudgetUsd parity field (69)",
+   "notes": ""
+  },
+  {
+   "path": "packages/console-viewmodel/src/cap.ts",
+   "action": "keep",
+   "symbols": "CapStateSchema (KEEP \u2014 parsed by apps/desktop/src/shared/methods.ts:212); toCapViewModel (ORPHAN \u2014 zero non-test callers)",
+   "notes": "toCapViewModel + its 'Cap reached' branch are already dead at HEAD; deleting it belongs with whichever ruling owns console-viewmodel cleanup."
+  },
+  {
+   "path": "packages/core/src/session/lineage.ts",
+   "action": "edit",
+   "symbols": "header comment (9-11)",
+   "notes": "States the cost cap is the only fan-out bound \u2014 must be rewritten if R1 executes (the cycle guard itself stays)."
+  },
+  {
+   "path": "docs/adr/0032-the-cost-cap-bounds-fan-out.md",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Accepted ADR contradicting R1; ADRs are immutable \u2014 executing R1 requires a superseding ADR, not deletion. Same for D150 in docs/design/handoff/spec/M8.md, OPEN.md's struck-through D122 rows, ROADMAP.md item M, and docs/adr/0009 (exactly-two-blocks)."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/Composer.tsx",
+   "action": "edit",
+   "symbols": "'Only the cost cap can block' label (422)",
+   "notes": "UI copy reader of the invariant R1 changes."
+  },
+  {
+   "path": "packages/core/src/governance/ledger.ts",
+   "action": "keep",
+   "symbols": "whole file (Ledger.record/entries, redactLedgerEvent, LedgerRecord.root)",
+   "notes": "KEEP path, extended by post-plan commit 0fd8083; live-written on every settled result; no non-test reader of entries() yet (future Usage surface, per ROADMAP)."
+  },
+  {
+   "path": "packages/core/src/session/session-handlers.ts",
+   "action": "keep",
+   "symbols": "root threading into createSession req (717-721, 1036-1039)",
+   "notes": "KEEP recordSpend feeder added by faf5e09."
+  },
+  {
+   "path": "packages/core/src/rpc/console-handlers.ts",
+   "action": "keep",
+   "symbols": "capState verb (32, 52)",
+   "notes": "KEEP \u2014 live RPC readers: CLI `coa cap` (apps/cli/src/cli.ts:55), desktop proxy chain."
+  },
+  {
+   "path": "packages/shared/src/push.ts",
+   "action": "keep",
+   "symbols": "denyKind enum 'cost-cap' member (60)",
+   "notes": "Becomes a dead enum member if claude-sdk emission (357) is removed; shared with 'close-gate' (KEEP). Same member in packages/console-viewmodel/src/reads.ts:97, packages/console-transcript/src/DenyNotice.tsx:4,19, packages/console-transcript/src/dense/frames.ts:67, apps/desktop/src/renderer/panels/mockConversation.ts:54, ShowcasePanel.tsx:84-85 \u2014 prune together or leave as schema history."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/governance/cost-cap.test.ts",
+  "packages/core/src/governance/governance.test.ts",
+  "packages/core/src/session/permission.test.ts",
+  "packages/core/src/session/session.test.ts",
+  "packages/core/src/session/composition.test.ts",
+  "packages/core/src/session/daemon.test.ts",
+  "apps/cli/src/session-deps.test.ts",
+  "apps/cli/src/adapter-factory.test.ts",
+  "packages/adapter-claude-sdk/src/session-options.test.ts",
+  "packages/adapter-claude-sdk/src/claude-sdk-adapter.test.ts",
+  "packages/adapter-claude-sdk/src/control/stage-8-9-process.test.ts",
+  "packages/adapter-claude-sdk/src/control/stage-7-delegation.test.ts (246)",
+  "packages/adapter-claude-sdk/src/control/assumptions.test.ts (824)",
+  "packages/adapter-claude-sdk/src/control/stage-7-delegation.live.test.ts, subagent-orchestration.live.test.ts, governed-gate.live.test.ts \u2014 CAUTION: these pass maxBudgetUsd as the real-money guard on COA_LIVE runs; removing the init field strips the live suites' spend protection unless they get a raw SDK-option escape hatch",
+  "UNAFFECTED KEEP-side: packages/core/src/rpc/console-handlers.test.ts, apps/desktop/src/shared/methods.test.ts, packages/core/src/governance/ledger.test.ts, packages/core/src/session/session-handlers.test.ts (capState stubs already return capHit:false)"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts",
+  "packages/core/src/session/daemon.ts",
+  "packages/core/src/session/composition.ts",
+  "packages/core/src/session/session.ts",
+  "packages/core/src/session/session-handlers.ts",
+  "apps/cli/src/session-deps.ts",
+  "apps/cli/src/cli.ts",
+  "apps/cli/src/index.ts",
+  "apps/cli/src/adapter-factory.ts",
+  "apps/desktop/src/shared/methods.ts",
+  "apps/desktop/src/main/index.ts",
+  "apps/desktop/src/preload/index.ts (+ api.d.ts)",
+  "apps/desktop/src/renderer/console.ts",
+  "apps/desktop/src/renderer/panels/state.ts",
+  "packages/console-viewmodel/src/index.ts",
+  "packages/shared/src/push.ts",
+  "packages/shared/src/governance.ts (capRecordPayloadSchema 'cap-record' \u2014 schematized, never emitted; adjacent dead surface other rulings may claim)",
+  "ROADMAP.md",
+  "docs/design/handoff/OPEN.md",
+  "docs/design/handoff/spec/M8.md"
+ ]
+}

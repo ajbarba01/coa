@@ -1,0 +1,73 @@
+{
+ "ruling": "R6",
+ "verdict": "VERIFIED",
+ "evidence": "Repo-wide rg for `SignalBus|SignalEvent|signal-bus|signalsView|signalOf|coa\\.change` across packages/ and apps/ (node_modules/.git excluded) found exactly these hits: (1) definition \u2014 packages/core/src/signal-bus.ts (class SignalBus at :15, interface SignalEvent at :8); (2) test \u2014 packages/core/src/signal-bus.test.ts (unit-tests the bus in isolation, 3 cases); (3) barrel export \u2014 packages/core/src/index.ts:294 `export { SignalBus, type SignalEvent } from './signal-bus.js';` with zero importers of either symbol anywhere outside core; (4) kernel wiring \u2014 packages/core/src/kernel.ts:40 (import), :75 (`private readonly signals = new SignalBus();`), :377 (`this.signals.record(signalOf(frame));` \u2014 the per-frame write, the unconditional last statement of the private `applyFrame`, after the switch so it fires for every frame kind), :313-315 (`signalsView(predicate?)` \u2014 the read view: ZERO callers repo-wide, not even a test), :431-441 (module-private `signalOf` helper, single caller = line 377). The bus is write-only in production exactly as ruled: the only `this.signals` reads are the record call and the uncalled `signalsView`. Kernel tests (kernel.test.ts, kernel-graph.test.ts, kernel-scope.test.ts) contain zero 'signal' matches, so removing the write breaks no kernel assertion. Docs mentioning it: docs/design/handoff/SPEC.md:111, docs/design/handoff/spec/M1.md:360 (the D75/D83 'LOCKED, kept minimal' entry the reset plan supersedes), docs/REPO_LAYOUT.md:77, docs/ENGINEERING.md:128, docs/design/handoff/OPEN.md:55+:58 (already classifies the OTel-shaped bus as deferred), plus the index.ts header comment at :5. Unrelated naming collision noted and excluded: packages/core/src/flags/severity.ts and flags/pipeline.ts use a local `signals` (FlagSignals) that has nothing to do with the bus.",
+ "recentCommitInteractions": "No interaction. `git log -p -5 | grep -iE 'SignalBus|signal-bus|signalsView|SignalEvent|signalOf'` returns nothing (the many 'signal' hits in those diffs are AbortSignal/health-signal prose, verified by inspection). `git log -5 --name-only`: only dabc77c (packages/core/src/session/transcript-projection.{ts,test.ts}) and 0fd8083 (packages/core/src/governance/ledger.{ts,test.ts}) touched packages/core \u2014 neither file references the bus. signal-bus.ts, signal-bus.test.ts, kernel.ts, and index.ts were last touched six-plus commits ago (most recent touching commit: 8e58550, before the plan-postdating window). The 5 recent commits added no callers or readers to anything this ruling removes.",
+ "inventory": [
+  {
+   "path": "packages/core/src/signal-bus.ts",
+   "action": "archive",
+   "symbols": "whole file (SignalBus class, SignalEvent interface)",
+   "notes": "Sole definition site; 31 lines; no other module imports it directly except kernel.ts and the barrel."
+  },
+  {
+   "path": "packages/core/src/signal-bus.test.ts",
+   "action": "delete",
+   "symbols": "whole file",
+   "notes": "Tests only the bus in isolation; goes with the archived code (archive alongside if the plan archives tests)."
+  },
+  {
+   "path": "packages/core/src/kernel.ts",
+   "action": "edit",
+   "symbols": "import (line 40), `signals` field (line 75), `signalsView` method (lines 313-315), per-frame write (line 377), `signalOf` helper (lines 431-441), section comment (line 303)",
+   "notes": "LIVE FILE \u2014 precise seam: `applyFrame` (lines 355-378) is KEEP; only its final statement `this.signals.record(signalOf(frame));` at :377 is REMOVE. The write sits AFTER the switch, unconditionally on every frame kind (including 'governance' and edge/symbol frames), so deletion is a clean single-statement removal leaving the switch as the whole body \u2014 no branch surgery needed. `signalsView` (:313-315) deletes cleanly (zero callers). Removing both also orphans the `SignalEvent` type usage, so the whole import at :40 goes. Update the section comment at :303 `// --- idle / signals / timeline ---` to drop 'signals'."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "line 294 `export { SignalBus, type SignalEvent } from './signal-bus.js';`; header comment line 5",
+   "notes": "Barrel export with zero external importers. Header doc-comment (:5) lists 'signal bus' in the kernel floor \u2014 edit in the same commit."
+  },
+  {
+   "path": "docs/design/handoff/SPEC.md",
+   "action": "edit",
+   "symbols": "line 111: kernel floor list includes 'signal-bus'",
+   "notes": "Same-commit doc rule; the reset plan supersedes this line of the handoff spec."
+  },
+  {
+   "path": "docs/design/handoff/spec/M1.md",
+   "action": "edit",
+   "symbols": "line 360: 'The minimal signal bus (D75 / D83) \u2014 LOCKED, kept minimal' entry",
+   "notes": "This is the decision record the reset plan overturns; needs edit/annotation per whatever convention the reset uses for reversed LOCKED items."
+  },
+  {
+   "path": "docs/REPO_LAYOUT.md",
+   "action": "edit",
+   "symbols": "line 77: kernel package description lists 'signal bus'",
+   "notes": "Same-commit doc rule."
+  },
+  {
+   "path": "docs/ENGINEERING.md",
+   "action": "edit",
+   "symbols": "line 128: cites 'the signal bus' as an example of the WAL-fed subscription model",
+   "notes": "Drop the example; the principle sentence stays."
+  },
+  {
+   "path": "docs/design/handoff/OPEN.md",
+   "action": "keep",
+   "symbols": "lines 55, 58",
+   "notes": "Already lists the OTel-shaped signal-bus (and the D63 miner that would read it) as deferred scope \u2014 consistent with the archive; verify wording still reads correctly once the code is gone."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/signal-bus.test.ts (whole file \u2014 deleted/archived with the bus)",
+  "No other tests: kernel.test.ts, kernel-graph.test.ts, kernel-scope.test.ts contain zero 'signal' references, so the kernel edits break no existing assertion"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts (the @coa/core barrel \u2014 every core-package removal ruling edits it; R6 removes line 294 and touches the header comment at line 5)",
+  "packages/core/src/kernel.ts (the kernel itself \u2014 sibling rulings on the idle scheduler and timeline/checkpoint will edit the same file; the section comment at :303 groups 'idle / signals / timeline', so comment edits may collide)",
+  "docs/design/handoff/SPEC.md and docs/design/handoff/spec/M1.md (module lists other rulings will also re-edit)",
+  "docs/REPO_LAYOUT.md and docs/ENGINEERING.md (package-map / principles docs that enumerate kernel internals)",
+  "docs/design/handoff/OPEN.md (deferred-scope registry other rulings may append to)"
+ ]
+}

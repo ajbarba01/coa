@@ -1,0 +1,127 @@
+{
+ "ruling": "R10 \u2014 Empty-reading agent tools: unregister get_symbol, find_references, outline from session registration; keep the implementations dormant with the symbol layer. UNWIRE ONLY.",
+ "verdict": "VERIFIED",
+ "evidence": "All three tools exist and are registered into every session, and all three read permanently-empty substrates in production. (1) Registration chain: TOOL_CATALOGUE kernel entries at packages/core/src/workbench/catalogue.ts:23-25 \u2192 buildGovernedTools maps every entry via SPECS (packages/core/src/workbench/governed-tools.ts:92-98, 172, 182-199) \u2192 DaemonCore catalogue/catalogueFor/baseCatalogue/baseCatalogueFor (packages/core/src/session/daemon.ts:150-157) \u2192 session picks a catalogue and calls adapter.registerTools (packages/core/src/session/session.ts:344-351) \u2192 Claude path registers them as in-process MCP tools with alwaysLoad for kernel partition (packages/adapter-claude-sdk/src/claude-sdk-adapter.ts:251-258, mcp-tools.ts:42); pure-API path exposes the whole catalogue as tool defs (packages/loop-driver/src/driver.ts:130-131). A second entry surface is the agent allow-frame: core package toolRefs name all three (packages/core/src/session/agent-registry.ts:43-45), research names find_references (:110), and the coa-orientation prose tells agents to use get_symbol/find_references (:61); assemble-agent flattens toolRefs straight into frame.allow (packages/core/src/session/assemble-agent.ts:91,107), which resolveToolTransport uses to decide registerCoaTools (packages/adapter-claude-sdk/src/tool-frame.ts:134-156). (2) Permanently-empty: outline and find_references are hard-wired to `() => []` in the daemon composition root (daemon.ts:346-347). get_symbol reads kernel.lookup (daemon.ts:345) over the M1 symbol table, which has ZERO production writers: kernel.indexFile has no non-test caller (rg 'indexFile' \u2192 only kernel.ts internals + symbol-table.ts + tests); kernel.declareSymbols' only non-test caller is publishGenerationSeam (context/generation-seam.ts:89), which itself is only exported (core/src/index.ts:152) and never called outside tests; WAL replay (kernel.ts:363-364) can only replay declare-symbols events nothing ever emits. daemon.test.ts:369-375 proves the wiring only by calling kernel.declareSymbols manually. So in a real session get_symbol always returns {found:false} \u2014 'dormant symbol layer' is accurate. (3) All other rg hits for the three names classify as: definitions/dormant implementations (retrieve.ts:34-63, governed-tools.ts SPECS, render-result.ts:58,66,103), transcript display metadata for historical sessions (console-transcript toolRegistry.ts:163-165, ToolCard.tsx:33,44,57), a shared schema literal (packages/shared/src/tool.ts:35), a comment (spi/src/null-fallback.ts:11), and test fixtures using the names as arbitrary strings (loop-driver, adapter-deepseek/longcat/claude-sdk tests, compile.test.ts:58, grounding.test.ts:6, enrich.test.ts). Apps hits are all the unrelated Button variant='outline'. Zero live non-test callers of the tool handlers outside the registration chain above.",
+ "recentCommitInteractions": "None. `git log -p faf5e09~1..3536c28 | rg 'get_symbol|find_references|outline-as-tool'` \u2192 zero hits for the three tool names in any recent diff. `git log --stat` shows the 5 commits (+ a 6th pnpm-workspace fix at HEAD) touched session-handlers.ts/notify.ts (spawn as linked child), governance/ledger.ts (spend attribution), session/transcript-projection.ts, console-viewmodel + desktop shell (nesting), and docs/ADRs \u2014 none of catalogue.ts, governed-tools.ts, retrieve.ts, agent-registry.ts, or the daemon's retrieve-dep block. The subagent work rides the same catalogueFor/registerTools path R10's unwire edits feed, but it only consumes spawn_agent (not part of R10); removing the three catalogue entries does not disturb it.",
+ "inventory": [
+  {
+   "path": "packages/core/src/workbench/catalogue.ts",
+   "action": "unwire",
+   "symbols": "TOOL_CATALOGUE entries 'get_symbol' (line 23), 'outline' (line 24), 'find_references' (line 25)",
+   "notes": "THE registration site. buildGovernedTools maps catalogue entries, so deleting these three entries stops registration on both the MCP path and the pure-API path, and removes them from kernelTools/findTools/loadTool. Safe direction: the throw in governed-tools.ts:184 only fires for an entry WITHOUT a spec, never for a spec without an entry."
+  },
+  {
+   "path": "packages/core/src/session/agent-registry.ts",
+   "action": "unwire",
+   "symbols": "STARTER_PACKAGES core.toolRefs 'get_symbol','outline','find_references' (lines 43-45); research.toolRefs 'find_references' (line 110)",
+   "notes": "Second entry surface: these flow into frame.allow (assemble-agent.ts:91,107). If left stale after catalogue removal, resolveToolTransport (adapter-claude-sdk/src/tool-frame.ts:136-156) treats the names as backend built-ins and leaks them into the SDK availability set \u2014 clean unregistration removes them."
+  },
+  {
+   "path": "packages/core/src/session/agent-registry.ts",
+   "action": "edit",
+   "symbols": "coa-orientation behaviorPiece body (line 61)",
+   "notes": "KEEP/REMOVE seam in one string: the prose names 'get_symbol, find_references, edit_symbol'. edit_symbol stays registered (not in R10), so reword the sentence to mention only edit_symbol / governed editing; do not delete the piece."
+  },
+  {
+   "path": "packages/core/src/workbench/governed-tools.ts",
+   "action": "keep",
+   "symbols": "SPECS.get_symbol (92-96), SPECS.outline (97), SPECS.find_references (98) + the retrieve.js imports",
+   "notes": "Strictly UNWIRE-ONLY: these become unreachable dormant dispatch once the catalogue entries are gone; keeping them matches 'the code stays'. (Optionally deletable, but then the getSymbol/outline/findReferences imports must be pruned to just getPiece.)"
+  },
+  {
+   "path": "packages/core/src/workbench/retrieve.ts",
+   "action": "keep",
+   "symbols": "getSymbol, findReferences, outline, RetrieveDeps.lookupSymbol/outline/references",
+   "notes": "The dormant symbol-layer implementations the ruling explicitly keeps. RetrieveDeps must stay whole \u2014 get_piece (kept, on-demand) shares the same deps object."
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "keep",
+   "symbols": "governedToolDeps retrieve block (lines 343-349: lookupSymbol/outline:()=>[]/references:()=>[])",
+   "notes": "No edit: the retrieve deps still back the kept get_piece tool, and RetrieveDeps requires all ports. The ()=>[] stubs are the mechanical proof of 'permanently empty'."
+  },
+  {
+   "path": "packages/core/src/workbench/render-result.ts",
+   "action": "keep",
+   "symbols": "get_symbol/find_references/outline renderers (58, 66) and ok-gate (103)",
+   "notes": "Dormant display code keyed by tool name; unreachable once unregistered, harmless."
+  },
+  {
+   "path": "packages/shared/src/tool.ts",
+   "action": "keep",
+   "symbols": "toolCall schema literal 'get_symbol' (line 35)",
+   "notes": "Shared M0 schema shape; stays with the dormant layer."
+  },
+  {
+   "path": "packages/console-transcript/src/dense/toolRegistry.ts",
+   "action": "keep",
+   "symbols": "get_symbol/outline/find_references display entries (163-165, 271)",
+   "notes": "Renders historical transcripts that may contain these tool calls; keep."
+  },
+  {
+   "path": "packages/console-transcript/src/dense/ToolCard.tsx",
+   "action": "keep",
+   "symbols": "get_symbol preview/glyph handling (33, 44, 52, 57)",
+   "notes": "Same historical-transcript rendering; keep with its tests."
+  },
+  {
+   "path": "packages/core/src/workbench/catalogue.test.ts",
+   "action": "edit",
+   "symbols": "kernelTools assertion (line 15) and findTools('symbol') assertion (line 33)",
+   "notes": "Line 15 fails once get_symbol leaves the kernel set \u2014 retarget to a kept kernel tool (edit_symbol is already asserted at line 14); line 33 becomes vacuous, keep or drop."
+  },
+  {
+   "path": "packages/core/src/workbench/governed-tools.test.ts",
+   "action": "edit",
+   "symbols": "get_symbol dispatch/invalid-args/grounding tests (49-67, 97-101); the exact v1-catalogue name list (105-120, incl. 110/114/115)",
+   "notes": "Drop the three names from the exact list; retarget the dispatch-path tests to a kept tool (e.g. get_piece/edit_symbol) or move the coverage to retrieve.test.ts which already exists."
+  },
+  {
+   "path": "packages/core/src/session/daemon.test.ts",
+   "action": "edit",
+   "symbols": "'wires the catalogue to the real kernel: get_symbol resolves a declared symbol' (369-380)",
+   "notes": "Fails once get_symbol is out of core.catalogue; rework against a kept catalogue tool or delete \u2014 it is the only test exercising the kernel-lookup wiring being made dormant."
+  },
+  {
+   "path": "packages/core/src/session/assemble-agent.test.ts",
+   "action": "edit",
+   "symbols": "frame.allow assertions on 'get_symbol' (30, 46, 243, 280)",
+   "notes": "Core toolRefs assertions; retarget to a surviving core toolRef (e.g. 'why' or 'Read') in the same commit as the agent-registry edit."
+  },
+  {
+   "path": "packages/core/src/workbench/retrieve.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Tests of the kept dormant implementations \u2014 they stay with the code."
+  },
+  {
+   "path": "packages/core/src/workbench/render-result.test.ts",
+   "action": "keep",
+   "symbols": "outline/find_references/get_symbol renderer cases",
+   "notes": "Dormant renderer tests stay with the kept renderers."
+  },
+  {
+   "path": "docs/design/handoff/spec/M6.md",
+   "action": "edit",
+   "symbols": "kernel catalogue listing (lines 22-25)",
+   "notes": "Same-commit doc rule: M6's public surface listing names all three as registered kernel tools. Mentions also at M1.md:241 and M4.md:272 (narrative, plan-owner's call)."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/workbench/catalogue.test.ts (15, 33)",
+  "packages/core/src/workbench/governed-tools.test.ts (49-67, 97-101, 105-120)",
+  "packages/core/src/session/daemon.test.ts (369-380)",
+  "packages/core/src/session/assemble-agent.test.ts (30, 46, 243, 280)",
+  "UNAFFECTED fixture-only uses (no change): packages/core/src/compiler/compile.test.ts:58, packages/core/src/context/grounding.test.ts, packages/core/src/workbench/enrich.test.ts, packages/adapter-claude-sdk/src/{tool-frame,session-options,sdk-options,render-native,mcp-tools}.test.ts, packages/loop-driver/src/driver.test.ts, packages/adapter-deepseek/src/complete.test.ts, packages/adapter-longcat/src/complete.test.ts, packages/console-transcript/src/dense/{toolRegistry,ToolCard}.test.ts(x), packages/core/src/workbench/{retrieve,render-result}.test.ts (stay with kept code)"
+ ],
+ "sharedFiles": [
+  "packages/core/src/workbench/catalogue.ts (TOOL_CATALOGUE \u2014 every tool-level ruling edits this list)",
+  "packages/core/src/workbench/governed-tools.ts (SPECS dispatch table)",
+  "packages/core/src/workbench/governed-tools.test.ts (exact-catalogue name-list test re-touched by any catalogue change)",
+  "packages/core/src/session/daemon.ts (composition root: governedToolDeps / catalogue construction)",
+  "packages/core/src/session/agent-registry.ts (starter-package toolRefs + prompt prose)",
+  "packages/core/src/index.ts (core barrel: exports kernelTools/findTools/loadTool/buildGovernedTools/publishGenerationSeam)",
+  "packages/core/src/session/session.ts + composition.ts (catalogue\u2192adapter.registerTools plumbing)",
+  "docs/design/handoff/spec/M6.md (catalogue spec listing)"
+ ]
+}

@@ -1,0 +1,66 @@
+{
+ "ruling": "R9",
+ "verdict": "VERIFIED",
+ "evidence": "rg for \"projectionPath\" across packages/ and apps/ (excluding dist/node_modules) yields exactly 4 hits, all definitions/forwards, zero passers: packages/core/src/kernel.ts:49 (ChangeKernelOptions field), kernel.ts:93 (consumed as `options.projectionPath ?? ':memory:'`), packages/core/src/session/daemon.ts:55 (DaemonCoreOptions field), daemon.ts:82 (conditional forward into ChangeKernel). Every call site of `createDaemonCore` (production: apps/cli/src/session-deps.ts:67; tests: apps/cli/src/cli.test.ts:28, apps/cli/src/run.test.ts:78, packages/core/src/session/daemon.test.ts ~30 sites, daemon-console.test.ts:14) and every `new ChangeKernel` site (all tests: kernel.test.ts:12, kernel-scope.test.ts:12, kernel-graph.test.ts:12, governance/governance.test.ts:15, governance/governance-log.test.ts:12) omits projectionPath \u2014 so the mirror ALWAYS runs at ':memory:' and is rebuilt on every start by the kernel constructor's WAL replay (kernel.ts:96-99 -> applyFrame -> projection.applyEvent at kernel.ts:371). The versioning scaffolding (ProjectionDb constructor's projectorVersion param, meta table, drop-on-bump at projection.ts:27-41, storedVersion :75-80, setVersion :82-88, PROJECTOR_VERSION=1 at kernel.ts:43) is exercised ONLY by its own unit test projection.test.ts:54-62. Live use of ProjectionDb is construct/applyEvent/close only (kernel.ts:93, 371, 350); `fileState()` and `rebuild()` have zero non-test callers (rg hits only projection.test.ts:42,50,60,67-69) \u2014 the SQLite projection is a write-only sink in production. Barrel export core/src/index.ts:292 (`ProjectionDb`, `FileState`) has no importer outside packages/core (rg for both symbols across all packages/apps: hits only in core src + dist artifacts). Disambiguation confirmed: packages/core/src/session/transcript-projection.ts (recent commits) is a pure fold over TurnFrames from '@coa/shared'; rg shows it never imports projection.js/ProjectionDb \u2014 a distinct, live subsystem, untouched by this ruling. One doc references the machinery: docs/design/handoff/spec/M1.md:99 (D116 bullet documents the projector-schema version + drop-and-replay rebuild rule).",
+ "recentCommitInteractions": "No interaction. `git diff faf5e09~1..HEAD --stat -- packages/core/src/projection.ts packages/core/src/kernel.ts packages/core/src/session/daemon.ts packages/core/src/index.ts` is empty; projection.ts/projection.test.ts were last touched in 59b46be (the original kernel commit). The 6 commits at HEAD (3536c28, d97c118, f2936ec, dabc77c, 0fd8083, faf5e09) touched session/transcript-projection.{ts,test.ts}, console/session code, spend attribution, and docs \u2014 dabc77c's \"transcript projection\" is the NEW session-transcript fold in core/src/session/, which imports only '@coa/shared' types and never references ProjectionDb, projectionPath, or projection.js. No new callers or readers of anything R9 removes.",
+ "inventory": [
+  {
+   "path": "packages/core/src/projection.ts",
+   "action": "edit",
+   "symbols": "ProjectionDb constructor (path + projectorVersion params, lines 27-41), meta table, storedVersion (75-80), setVersion (82-88), FileStateRow docblock versioning text (lines 4-11)",
+   "notes": "Remove the persistence/versioning scaffolding: drop the projectorVersion param, the meta table, storedVersion/setVersion, and the drop-on-bump block; hardcode ':memory:' (the path param exists only to enable the never-used on-disk mode). Update the docblock. ENTANGLEMENT NOTE: fileState() (line 54) and rebuild() (line 63) also have zero live callers (test-only) \u2014 in production the projection is written (applyEvent) and never read. The ruling keeps the honest in-memory form; whether fileState/rebuild survive as the mirror's read API or go with the scaffolding is a maintainer seam \u2014 they are cleanly separable methods."
+  },
+  {
+   "path": "packages/core/src/kernel.ts",
+   "action": "edit",
+   "symbols": "PROJECTOR_VERSION (line 43), ChangeKernelOptions.projectionPath (line 49), constructor line 93",
+   "notes": "Delete the constant and the option; line 93 becomes a bare in-memory ProjectionDb construction. Lines 350 (close) and 371 (applyEvent) are the KEEP side \u2014 do not touch."
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "edit",
+   "symbols": "DaemonCoreOptions.projectionPath (lines 54-55) and its forward (line 82)",
+   "notes": "Remove the option field, its doc comment, and the conditional spread into ChangeKernel."
+  },
+  {
+   "path": "packages/core/src/projection.test.ts",
+   "action": "edit",
+   "symbols": "version-bump test (lines 54-62); dbPath fixture (lines 29-35); version arg in every `new ProjectionDb(dbPath, N)` (lines 39, 47, 55, 59, 65)",
+   "notes": "Delete the 'drops and rebuilds on a projector-version bump' test outright (it IS the scaffolding's only exerciser). Remaining tests construct on a temp-file path with a version arg \u2014 rewrite to the new in-memory signature. The rebuild() test (64-71) goes iff rebuild() is deleted."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "line 292: export { ProjectionDb, type FileState } from './projection.js'",
+   "notes": "No external importer of either symbol exists anywhere in packages/ or apps/. If ProjectionDb survives in its honest in-memory form the export may stay; if it is internalized, remove this line. FileState is only referenced by projection.ts itself and its test."
+  },
+  {
+   "path": "docs/design/handoff/spec/M1.md",
+   "action": "edit",
+   "symbols": "D116 bullet, line ~99 (projector-schema version + rebuild rule sentence)",
+   "notes": "The LOCKED D116 bullet documents the projector-version drop-and-replay rule and the on-disk WAL-file co-location constraint for the projection DB \u2014 must be updated in the same commit per the repo's same-commit doc rule. This is the reset plan overriding a LOCKED spec detail; flag to the maintainer."
+  },
+  {
+   "path": "packages/core/src/session/transcript-projection.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "NEW live code from the recent commits (session-tree transcript fold). Shares only the word 'projection'; no import relationship with projection.ts. Do not touch."
+  },
+  {
+   "path": "packages/core/dist/**",
+   "action": "keep",
+   "symbols": "projection.js/.d.ts build artifacts",
+   "notes": "Regenerated on build; not part of the removal inventory."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/projection.test.ts (delete the version-bump test at lines 54-62; rewrite the remaining three tests to the in-memory constructor signature; the rebuild() test at 64-71 deletes iff rebuild() is removed)"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts (the core barrel \u2014 nearly every removal ruling will edit it; R9's line is 292)",
+  "packages/core/src/kernel.ts (ChangeKernelOptions and the kernel constructor are a shared seam for any kernel-adjacent removal)",
+  "packages/core/src/session/daemon.ts (the M8 composition root / DaemonCoreOptions \u2014 daemon wiring surface other rulings will also touch)",
+  "docs/design/handoff/spec/M1.md (D116/D123 spec bullets \u2014 other M1-area rulings will edit the same doc)"
+ ],
+ "evidence_note": ""
+}

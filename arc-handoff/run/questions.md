@@ -1,0 +1,94 @@
+# Question queue — batched for the maintainer
+
+Entry format:
+`## Q<N> — <one-line question> [<stage/feature>]`
+Context (what was being done) · Diagnostics (verbatim errors/evidence) · What's needed
+(the exact decision) · What was done instead (independent work completed).
+
+(empty)
+
+## Q1 — R1 (cost cap) contradicted by ADR 0032: PARKED, not executed
+**Context:** The reset plan (2026-08-05) rules the hard-cap/deny path + ceilingUsd plumbing
+archived, keeping only the spend counter. One day later the subagent-orchestration arc
+landed (5 commits, 2026-08-06): ADR 0032 (accepted, committed in d97c118) rules "the cost
+cap is the only fan-out bound — no depth limit exists and none is added" and names the
+daemon-global CostCap through buildCanUseTool as the chosen mechanism; spec D150 and
+OPEN.md/ROADMAP were updated to match; lineage.ts prose depends on it. spawn_agent is live
+with unbounded depth/width.
+**Diagnostics:** verification/R1.json (full inventory + evidence). Mechanical claims mostly
+hold (ceilingUsd never set in production; deny can't fire under subscription accounts) —
+but the removal target is the sole DOCUMENTED bound on a live feature, and the KEEP
+rationale ("nav HUD reads capState") is false at HEAD (HUD reads mockUsage.ts; capState's
+real readers: `coa cap` CLI verb, Inspect tool, an unrendered console poll).
+**Needed from maintainer:** reconcile R1 with ADR 0032/D150 — archive anyway (accepting an
+unbounded fan-out), keep the cap as the fan-out bound (strike R1), or replace with a
+different bound first.
+**Done instead:** nothing removed; R1 untouched. All other rulings proceed.
+
+## Q2 — R2 (ledger reads + redaction) contradicted: PARKED, not executed
+**Context:** Ruling claims ledgerEntries, redactLedgerEvent, SECRETS_GLOB, DENY_READ_GLOBS
+are test-only. At HEAD: redactLedgerEvent is the ledger WRITE path's allow-list enforcement
+(ledger.ts:67) and was extended by 0fd8083 (root attribution + flattenPathSafe hardening +
+new attack-fixture tests); SECRETS_GLOB/DENY_READ_GLOBS are spread into the live capability
+set (sandbox.ts) landing in SDK disallowedTools. Only ledgerEntries is dead — and it is the
+roadmap's named read seam for the new session-tree costUsd UI (f2936ec).
+**Diagnostics:** verification/R2.json.
+**Needed from maintainer:** strike R2, or re-scope it to exactly ledgerEntries (and even
+that fights the tree-spend roadmap).
+**Done instead:** nothing removed.
+
+## Q3 — R12f Cost floor became live post-plan: executed Record-only
+**Context:** Ruling deletes the work dock Record AND Cost floors. f2936ec rewired the Cost
+section to render the active session's family-tree spend (Work.tsx:42-45,110-118 via
+session-tree.ts + ledger root attribution), with two pinning tests. The Cost section is now
+the D85 degraded state of a live feature, not a dead floor.
+**Diagnostics:** verification/R12-console.json.
+**Needed from maintainer:** confirm keeping the Cost section (recommended — it is live), or
+rule its removal explicitly.
+**Done instead:** Record floor removed as ruled; Cost section kept; other R12 bullets
+executed as verified.
+
+---
+
+# Added at the interrupted handoff (2026-08-07 ~07:20)
+
+## Q4 — Spend ceiling was never enforced; what is the budget for the resumed run?
+**Context:** the plan's $250 ceiling was to be checked between stages. No spend meter
+was available in-session; token counts were tracked instead and never converted to
+dollars or acted on, so the run ended by hitting the account's individual spend limit
+mid-workflow rather than winding down on plan. ~4.4M subagent tokens over ~45 agents.
+**Needed:** a budget for the resumed run, and permission to enforce it mechanically
+(hard token target per workflow that throws when exhausted) rather than by judgment.
+**Done instead:** everything pushed; nothing lost; this file records the failure.
+
+## Q5 — The unified adapter package exists but is UNGATED
+**Context:** the adapter-unification agent wrote ~1,721 lines of
+packages/adapter-openai-compat (provider-spec, complete, sse, wire, render,
+credentials, models, pricing, adapter + deepseek/longcat specs + 4 test files) and was
+killed before it could run a single gate or commit. Preserved verbatim on branch
+`arc/wip-adapter-unify` (ac267ad).
+**Needed:** decide gate-and-keep vs discard-and-redo. It has never been typechecked,
+linted, or tested, and the two original adapter packages are still present and live —
+so the tree is currently NOT in the unified state, it merely has a candidate sitting
+beside it.
+**Done instead:** isolated on its own branch, never merged into the gated work.
+
+## Q6 — Three architecture charters parked unstarted (time, not judgment)
+C3 (session service extraction — fixes the verified non-founding-connection turn bug
+and the crash-wedged 'running' session), C4 (console store rewrite — the instant-nav
+acceptance criterion), C5 (composition root + error honesty). All three remain fully
+specified in `architecture-audit.md` with verbatim fix sketches; nothing about them was
+invalidated by the work that landed. C3 is the prerequisite for C4.
+**Needed:** nothing — they resume as written. Flagged so the morning review knows the
+architecture workstream is ~40% delivered, not complete.
+
+## Q7 — Small leftovers worth a decision
+- Three orphaned context modules (`spec-tier.ts`, `health.ts`, `generation-seam.ts`)
+  survived the barrel prune: feature-shaped, no consumers. Delete, archive, or re-wire?
+- Verb-family codenames (CF-*, HLT-*, CHAT-*, CON-CAT, L-* layer names, Type-1/2,
+  Tier-0) were swept in some packages and deliberately kept in others — the sweep's
+  ban list did not enumerate them. Harmless but inconsistent; a consistency pass is cheap.
+- `Combobox.test.tsx` focus assertion + one `daemon.test.ts` watcher case flake under
+  full-suite load (both pass solo) — candidates for deterministic waits.
+- `capabilityProfileSchema` in packages/shared lost its last consumer in the port
+  shrink; left in place deliberately (out of that charter's scope).

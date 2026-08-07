@@ -1,0 +1,73 @@
+{
+ "ruling": "R4",
+ "verdict": "VERIFIED",
+ "evidence": "rg for 'AutoPatcher|AutoPatchPlan|ReminderPolicy|AuthorityRule|flags/autopatch|flags/reminder' across packages/ and apps/ returned hits in exactly 5 files: the two definitions (packages/core/src/flags/autopatch.ts, packages/core/src/flags/reminder.ts), their two colocated tests (autopatch.test.ts, reminder.test.ts), and two barrel-export lines in packages/core/src/index.ts (line 74: ReminderPolicy/AuthorityRule; line 84: AutoPatcher/AutoPatchPlan). Zero live callers. The one FlagPipeline wiring site (packages/core/src/session/daemon.ts:88, 'new FlagPipeline()') never constructs or registers either class. git log on the four files shows a single commit ever touched them (41d9d7b 'feat: add close-gate, flag validator, reminders, feedback, and auto-patch planning'). The live pipeline the ruling protects is disjoint: FlagPipeline.gate() close gate (packages/core/src/flags/pipeline.ts:170), flagsForUser user feed (:184), flagsForAgent (:195), perToolDeny (:155) / registerToolDeny (:125) \u2014 pipeline.ts imports nothing from autopatch.ts or reminder.ts. Seam checks: Producer.fix (packages/shared/src/producer.ts:40) has AutoPatcher.plan (autopatch.ts:31,35) as its ONLY consumer, though it stays supplied by the live SSOT producer (packages/core/src/context/ssot-constraint.ts:108) and FlagRecord.fix readers (flags/dedup.ts:28, ssot-constraint.ts:178) are live and independent. reminder.ts's shared inputs split: reminderSchema/Reminder (packages/shared/src/reminder.ts:4-10) are LIVE via compile.ts:84 (systemReminders), render-native.ts:45, adapter-deepseek/render.ts:20, adapter-longcat/render.ts:19, and the deliverReminder port member (packages/spi/src/runtime-adapter.ts:180, adapters implement it as no-ops, no live caller \u2014 ROADMAP.md line ~243 lists 'light up deliverReminder' as future M9 work); escapeEventSchema/EscapeEvent (shared/src/reminder.ts:13-18) have flags/reminder.ts as their ONLY reader and become orphans after the archive.",
+ "recentCommitInteractions": "No interaction. The 5 commits the plan predates (faf5e09, 0fd8083, dabc77c, f2936ec, d97c118) touched only packages/core/src/session/* (notify, session-handlers, transcript-projection), packages/core/src/governance/ledger.*, packages/console-viewmodel/*, apps/desktop renderer, packages/adapter-claude-sdk tests, and docs/ROADMAP \u2014 verified via git log --name-only; none touched flags/, the two barrel lines, or added any reference to AutoPatcher/ReminderPolicy/AuthorityRule/AutoPatchPlan. The one commit among/adjacent to them that edited packages/core/src/index.ts (8e58550, the spawn-tool commit) only changed the './session/session-handlers.js' export block (verified via git show 8e58550 -- packages/core/src/index.ts). A 6th newer commit (3536c28) touched only pnpm-workspace.yaml. git log on the four R4 files confirms their last (and only) commit remains 41d9d7b.",
+ "inventory": [
+  {
+   "path": "packages/core/src/flags/autopatch.ts",
+   "action": "archive",
+   "symbols": "whole file (AutoPatcher, AutoPatchPlan, FLAP_THRESHOLD, fileOf)",
+   "notes": "CF-3/CF-4 auto-patch planner; imports only types (@coa/shared FlagRecord/Patch, ./producer.js Producer); no side effects; safe to move"
+  },
+  {
+   "path": "packages/core/src/flags/autopatch.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "sole test importer of autopatch.js; moves with the code"
+  },
+  {
+   "path": "packages/core/src/flags/reminder.ts",
+   "action": "archive",
+   "symbols": "whole file (ReminderPolicy, AuthorityRule, triggerMatch)",
+   "notes": "D107/D133 reminder DECISION half; imports only types (Reminder, EscapeEvent from @coa/shared); the DELIVERY half (deliverReminder port + Reminder schema) is untouched and stays"
+  },
+  {
+   "path": "packages/core/src/flags/reminder.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "sole test importer of reminder.js; moves with the code"
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "line 74: export { ReminderPolicy, type AuthorityRule } from './flags/reminder.js'; line 84: export { AutoPatcher, type AutoPatchPlan } from './flags/autopatch.js'",
+   "notes": "the ONLY unwiring anywhere; delete both lines; no other barrel, registry, daemon, or app site references these symbols"
+  },
+  {
+   "path": "packages/core/src/flags/pipeline.ts",
+   "action": "keep",
+   "symbols": "FlagPipeline (gate :170, flagsForUser :184, flagsForAgent :195, perToolDeny :155, registerToolDeny :125)",
+   "notes": "the live pipeline the ruling protects \u2014 verified it imports nothing from autopatch.ts/reminder.ts"
+  },
+  {
+   "path": "packages/shared/src/reminder.ts",
+   "action": "keep",
+   "symbols": "reminderSchema/Reminder (KEEP-live); escapeEventSchema/EscapeEvent (lines 13-18, orphaned after archive)",
+   "notes": "SEAM: one shared file holds both halves. Reminder is live (compile.ts:84, render-native.ts:45, both alt-adapter renders, spi runtime-adapter.ts:180). EscapeEvent's only reader is the archived flags/reminder.ts \u2014 ruling does not order its removal; leave or prune as a deliberate follow-up, do NOT delete reminderSchema"
+  },
+  {
+   "path": "packages/shared/src/producer.ts",
+   "action": "keep",
+   "symbols": "Producer.fix?(flag): Patch (line 40)",
+   "notes": "SEAM: AutoPatcher.plan is its only consumer; the live SSOT producer still supplies it (context/ssot-constraint.ts:108) and FlagRecord.fix readers (flags/dedup.ts:28, ssot-constraint.ts:178) are live. After archive, Producer.fix is supplied-but-unconsumed; not ordered removed"
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "keep",
+   "symbols": "new FlagPipeline() at :88",
+   "notes": "confirmation-only: the wiring site never enabled AutoPatcher/ReminderPolicy, so R4 needs no daemon edit"
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/flags/autopatch.test.ts",
+  "packages/core/src/flags/reminder.test.ts"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts",
+  "packages/core/src/session/daemon.ts",
+  "packages/shared/src/index.ts",
+  "packages/shared/src/reminder.ts",
+  "packages/shared/src/producer.ts"
+ ]
+}

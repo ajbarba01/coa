@@ -1,0 +1,66 @@
+{
+ "ruling": "R2 \u2014 \"Ledger reads + redaction -> archive. ledgerEntries, redactLedgerEvent, SECRETS_GLOB, DENY_READ_GLOBS (test-only consumers).\"",
+ "verdict": "CONTRADICTED",
+ "evidence": "Searched `rg \"ledgerEntries|redactLedgerEvent|SECRETS_GLOB|DENY_READ_GLOBS\"` across the repo, then re-ran with `--binary` after discovering packages/core/src/governance/ledger.test.ts contains a literal NUL byte (a redaction test fixture) and is silently skipped by plain rg \u2014 any earlier audit using plain rg under-counted consumers of this exact file. Classified every hit and traced transitive call chains. (1) ledgerEntries: defined governance.ts:61-63; sole consumer governance.test.ts:32 \u2014 test-only, this quarter of the claim HOLDS. (2) redactLedgerEvent: defined ledger.ts:44; LIVE caller ledger.ts:67 inside Ledger.record \u2014 the write side the ruling itself declares in-scope-to-KEEP calls the function the ruling deletes. Full live chain: apps/cli/src/cli.ts:237 buildSessionDeps \u2192 apps/cli/src/session-deps.ts:79 composeSessionDeps \u2192 packages/core/src/session/composition.ts:115 (recordSpend: core.record) \u2192 session.ts:302-310 onSettle \u2192 daemon.ts:139 (governance.record) \u2192 governance.ts:58 \u2192 ledger.ts:67 redactLedgerEvent; second live producer daemon.ts:489 (web_fetch_summarizer recordCost). (3+4) SECRETS_GLOB/DENY_READ_GLOBS: defined sandbox.ts:15/22; LIVE consumer sandbox.ts:53 inside sandboxPolicy (SECRETS_GLOB is DENY_READ_GLOBS[0] at sandbox.ts:23); live chain governance.ts:90 \u2192 daemon.ts:140 \u2192 composition.ts:112 \u2192 session.ts:292 \u2192 adapter init \u2192 packages/adapter-claude-sdk/src/sdk-options.ts:87 which maps sandbox.denyRead into `Read(<glob>)` disallowedTools handed to the SDK \u2014 this is the running secrets-confinement security control, not a test fixture. Barrel exports at packages/core/src/index.ts:87 and :96-102 are the only other non-test references. Desktop UsagePanel reads mockUsage.ts, not the real ledger, so no hidden read-side consumer exists.",
+ "contradictions": "Three of the four symbols have live non-test consumers at HEAD. (a) redactLedgerEvent is read by the KEEP item itself: Ledger.record at packages/core/src/governance/ledger.ts:67 \u2014 \"reads vs writes\" is not a real seam here; the redaction function IS the write path's allow-list enforcement (D135). (b) DENY_READ_GLOBS is spread into the live capability set at packages/core/src/governance/sandbox.ts:53 and lands in the SDK's disallowedTools at packages/adapter-claude-sdk/src/sdk-options.ts:87. (c) SECRETS_GLOB is element 0 of that live array (sandbox.ts:23). Worse, the plan is stale against its own repo: a same-day plan (docs/superpowers/plans/2026-08-05-subagent-orchestration.md:771-818, \"Task 7: Attribute cost to the root\") explicitly MODIFIES redactLedgerEvent, and that plan was executed in the 5 recent commits \u2014 the ruling and the executed roadmap directly conflict. Only the ledgerEntries quarter of the claim survives.",
+ "recentCommitInteractions": "Yes \u2014 two of the five commits directly extended and exercised code this ruling removes. 0fd8083 \"feat: attribute recorded spend to a session tree's root\" modified ONLY packages/core/src/governance/ledger.ts (+71 lines: `root` added to LedgerRecord at :34, `copyPathSafeString(event,'root',out)` in redactLedgerEvent at :53, new flattenPathSafe/looksAbsolute hardening at :112-161) and grew ledger.test.ts from 2,483 to 10,459 bytes (git shows it as Bin \u2014 it now contains NUL-byte attack fixtures). faf5e09 \"feat: start a subagent as a linked child session\" rewrote session-handlers.ts and added the live producers of root-tagged spend at session-handlers.ts:721 and :1039 (`...(session.parent !== undefined ? { root: session.root } : {})` into createSession \u2192 recordSpend), i.e. new runtime traffic flowing through redactLedgerEvent. Confirmed via `git log --oneline -- ledger.ts sandbox.ts governance.ts` (0fd8083 is the latest touch on ledger.ts) and `git show 0fd8083 --stat`. The other three commits (dabc77c, f2936ec, d97c118) touch transcript projection, console UI, and docs \u2014 no interaction with these four symbols.",
+ "inventory": [
+  {
+   "path": "packages/core/src/governance/ledger.ts",
+   "action": "keep",
+   "symbols": "redactLedgerEvent (:44-60), LedgerRecord (:16-35), plus its private helpers copyNumber/flattenPathSafe/looksAbsolute/copyPathSafeString (:77-161)",
+   "notes": "LIVE \u2014 called at :67 by Ledger.record (the in-scope-to-KEEP write side) and extended by recent commit 0fd8083. Cannot be archived without deleting the D135 allow-list enforcement. Ledger.entries() (:72-74) is read-side but is the observation window for the recently-added root-attribution tests (ledger.test.ts:204,218,228,234) and for governance.ts:62; removing it breaks fresh tests."
+  },
+  {
+   "path": "packages/core/src/governance/sandbox.ts",
+   "action": "keep",
+   "symbols": "SECRETS_GLOB (:15), DENY_READ_GLOBS (:22-31)",
+   "notes": "LIVE \u2014 consumed by sandboxPolicy (:53) in the same file, which is wired through daemon.ts:140 / composition.ts:112 / session.ts:292 into adapter-claude-sdk/src/sdk-options.ts:87. This is the running secrets-read denial (D141c); archiving it removes a security control."
+  },
+  {
+   "path": "packages/core/src/governance/governance.ts",
+   "action": "edit",
+   "symbols": "ledgerEntries (:61-63)",
+   "notes": "ONLY defensible removal in R2: sole consumer is governance.test.ts:32. Seam: the enclosing test (governance.test.ts:30-33) uses ledgerEntries to OBSERVE the kept write side's DT-5 field-dropping; deleting the method deletes the ledger's only read window on Governance, leaving Ledger a write-only sink \u2014 flag to the maintainer before executing even this."
+  },
+  {
+   "path": "packages/core/src/governance/governance.test.ts",
+   "action": "edit",
+   "symbols": "the ledgerEntries assertion at :32 (rewrite the record/DT-5 test to observe via a Ledger instance directly, or drop the assertion)",
+   "notes": "Goes with the ledgerEntries removal if it proceeds. Lines 45-47 (sandboxPolicy/denyRead) must stay."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "keep",
+   "symbols": ":87 (Ledger, redactLedgerEvent, LedgerRecord), :96-102 (sandboxPolicy, DENY_READ_GLOBS, SECRETS_GLOB, SessionTrustCtx, SandboxOptions)",
+   "notes": "Barrel exports of the contradicted symbols stay. No unwiring needed for ledgerEntries \u2014 it is a class method, never barrel-exported."
+  },
+  {
+   "path": "packages/core/src/governance/ledger.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Tests the KEPT redaction + write side; expanded by recent commit 0fd8083; contains a NUL-byte fixture so it is invisible to plain rg \u2014 use rg --binary or grep -a when auditing it."
+  },
+  {
+   "path": "packages/core/src/governance/sandbox.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "Tests the kept live sandbox constants/policy."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/governance/governance.test.ts (line 32 \u2014 only test consumer of ledgerEntries; the enclosing test also verifies the kept write side's DT-5 dropping)",
+  "packages/core/src/governance/ledger.test.ts (whole file \u2014 exercises redactLedgerEvent and Ledger.entries(); expanded 2.5KB->10.5KB by recent commit 0fd8083; binary-flagged, invisible to plain rg)",
+  "packages/core/src/governance/sandbox.test.ts (imports DENY_READ_GLOBS + SECRETS_GLOB at line 2 \u2014 would break if archived)",
+  "packages/core/src/session/composition.test.ts (lines 29-30 route record/sandboxPolicy through a real Governance)",
+  "packages/core/src/session/session.test.ts and session-handlers.test.ts (recordSpend/root-attribution paths added by faf5e09)",
+  "packages/adapter-claude-sdk/src/sdk-options.test.ts (lines 80-83 \u2014 asserts denyRead globs union into disallowedTools)"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts (the core barrel \u2014 every ruling touching core symbols edits it; R2's symbols live at :85-102)",
+  "packages/core/src/session/daemon.ts (DaemonCore wiring :130-160 binds record/sandboxPolicy/capState/charge; :489 web-summarizer recordCost; RPC handlers at buildDaemonConsoleHandlers :170)",
+  "packages/core/src/session/composition.ts (composeSessionDeps :105-133 \u2014 the M8 composition seam every session-facing removal crosses)",
+  "apps/cli/src/session-deps.ts (the live app-side composition root, :60-79)",
+  "packages/core/src/governance/governance.ts (the M7 facade \u2014 other governance rulings will edit the same class)"
+ ]
+}

@@ -1,0 +1,150 @@
+{
+ "ruling": "R12-console",
+ "verdict": "PARTIAL",
+ "evidence": "(a) Graph: SURFACES entry at apps/desktop/src/renderer/shell/Nav.tsx:32; no 'graph' case in SurfaceHost (Center.tsx:66-85) so it falls to EmptySurface \"graph is not designed yet\" (Center.tsx:51-57); the palette \"Go to\" entries are DERIVED from SURFACES (Palette.tsx:95-100), so there is no separate palette entry to delete \u2014 one array edit unwires both. rg 'graph' across apps+packages: only Nav.tsx:32, Workbench.test.tsx:57-65 (fallback tests), prose in ShowcasePanel.tsx:111 and mockAgents.ts tool names. (b) Showcase: SURFACES entry Nav.tsx:42, host wiring Center.tsx:9 + 81-82; no dev-gating exists anywhere in the renderer (rg for import.meta.env/isDev in renderer: zero hits; main uses process.env['ELECTRON_RENDERER_URL'] at main/index.ts:577). Persisted layout restores a raw surface string (layoutPersistence.ts:10,58,82), so gating the nav row alone leaves showcase reachable in prod via a persisted layout. (c) Permission chip: entirely local to Composer.tsx \u2014 perm state :111, render :341, PERMISSIONS :413-423, PermissionChip :556-606; comments confirm \"presentational placeholder only\" (:84-86, :410). Zero non-test callers elsewhere; entangled echo: ChatPanel.tsx EmptyConversation hardcodes \"\u00b7 ask edits\" (:458, docstring :437-439 \"matching the composer's own default\"). (d) Themes: packages/console-kit/src/themes/ contains ONLY sand-dark.css; tokens.css:11 imports only it; Settings UI pins theme read-only \"Sand dark\" (Settings.tsx:158-165) and nothing in the app ever writes theme (console.ts setSettings patches never include theme). Dead branches: renderer/theme.ts:3-16,20,31-39 (light/system + osDark listener), shared/settings.ts:5 (enum ['system','dark','light']), main/index.ts:32-34,52-56,490-493,503-509,586-590 (themePref/resolveChromeTheme/nativeTheme listener), main/titlebar.ts:9,15-16 (ResolvedTheme + light background '#f6f1e9'). (e) Work dock: all five floors at Work.tsx:106-118 \u2014 Subagents:106, Changes:107, Worktree:108, Record:109 (pure floor, removable), Cost:110-118 which is NO LONGER a floor: Work.tsx:42-45 reads sessionGroupFor(groupSessionTree(sessions), activeId)?.costUsd and renders usd(treeCostUsd), guarded by tests Work.test.tsx:114-143 and 145-164. (f) Usage: UsageSurface at UsagePanel.tsx:206, mock-fed via mockUsage.ts (design-note header :5-21); no \"mock by design / roadmap\" comment at the entry point yet \u2014 the one-comment action is real and small.",
+ "contradictions": "Bullet (e), Cost half only: the ruling calls Cost a dead presentational floor to remove, but at HEAD it is the D85 degraded state of a LIVE feature. Commit f2936ec (post-plan, one of the 5 recent) rewired Work.tsx so the Cost section renders the active session's whole family-tree spend \u2014 apps/desktop/src/renderer/shell/Work.tsx:42-45 (sessionGroupFor(groupSessionTree(sessions), activeId)?.costUsd) and :110-118 (renders usd(treeCostUsd), FloorSection only when undefined) \u2014 fed by the new packages/console-viewmodel/src/session-tree.ts (exported via index.ts:5) and the ledger spend attribution from 0fd8083. Two live tests pin the behavior: Work.test.tsx:114-143 (tree roll-up $16.00) and :145-164 (same family total from a child tab). Removing the Cost section deletes a live reader of a feature shipped after the plan was authored. The Record floor (Work.tsx:109) remains a pure floor and is removable exactly as ruled. All other five bullets hold; inventory below executes (e) as Record-only.",
+ "inventory": [
+  {
+   "path": "apps/desktop/src/renderer/shell/Nav.tsx",
+   "action": "edit",
+   "symbols": "SURFACES entries { id: 'graph' } (line 32) and { id: 'showcase' } (line 42)",
+   "notes": "Delete the graph entry; dev-gate the showcase entry (no renderer dev-check pattern exists yet \u2014 electron-vite exposes import.meta.env.DEV). This one array is the single unwiring site: Palette 'Go to' (Palette.tsx:95-100) and Center's name-strip label (Center.tsx:208) both derive from SURFACES."
+  },
+  {
+   "path": "apps/desktop/src/renderer/shell/Center.tsx",
+   "action": "edit",
+   "symbols": "case 'showcase' (81-82) + ShowcaseSurface import (9)",
+   "notes": "Dev-gate the host case too: layoutPersistence.ts persists/restores surface as a raw string (lines 10,58,82), so a persisted surface:'showcase' would still render in a prod build if only the nav entry is gated. A persisted 'graph' harmlessly falls to EmptySurface \u2014 no change needed for graph here."
+  },
+  {
+   "path": "apps/desktop/src/renderer/shell/Workbench.test.tsx",
+   "action": "edit",
+   "symbols": "tests at 55-66 using setSurface('graph')",
+   "notes": "Still pass after removal (setSurface takes any string; the EmptySurface fallback remains) \u2014 optional wording change only, e.g. use a nonsense surface id."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/Composer.tsx",
+   "action": "edit",
+   "symbols": "perm/setPerm state (111), <PermissionChip/> render (341), PERMISSIONS const (409-423), PermissionChip function (556-606), docstring lines 84-86",
+   "notes": "Chip is fully self-contained local state; perm is never sent anywhere. ChipMenu/ModelPicker/ReasoningChip share the shelf \u2014 remove only the permission pieces."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/Composer.test.tsx",
+   "action": "edit",
+   "symbols": "tooltip loop over ['Permission mode','Model','Reasoning'] (93-100)",
+   "notes": "Drop 'Permission mode' from the loop."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/ChatPanel.tsx",
+   "action": "edit",
+   "symbols": "EmptyConversation '\u00b7 ask edits' literal (458) + docstring 437-439",
+   "notes": "Entangled seam: the empty-state teaching line claims to match 'the composer's own default'. With the chip gone that clause is false \u2014 drop '\u00b7 ask edits' (or the whole permission mention) in the same commit."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/ChatPanel.test.tsx",
+   "action": "edit",
+   "symbols": "assertion /sonnet.*ask edits/ (568) in test at 560-573",
+   "notes": "Update alongside the EmptyConversation edit."
+  },
+  {
+   "path": "apps/desktop/src/renderer/theme.ts",
+   "action": "edit",
+   "symbols": "ResolvedTheme 'light' arm (3), osDark (7-10), resolveTheme (13-16), osListener + system branch of applySettings (20, 31-39)",
+   "notes": "File reduces to: set colorScheme 'dark' + the motion flag. applySettings signature keeps taking ConsoleSettings."
+  },
+  {
+   "path": "apps/desktop/src/renderer/theme.test.ts",
+   "action": "edit",
+   "symbols": "whole file (types only)",
+   "notes": "All cases already pass theme:'dark'; only the param shape may narrow. Likely zero assertion changes."
+  },
+  {
+   "path": "apps/desktop/src/shared/settings.ts",
+   "action": "edit",
+   "symbols": "ConsoleSettingsSchema.theme enum (5)",
+   "notes": "Narrow z.enum(['system','dark','light']) to 'dark' (or z.literal). Caveat: an on-disk settings.json carrying theme:'light' will fail the whole safeParse and parseSettings falls back to FULL defaults (31-34) \u2014 acceptable, but it resets other prefs; add .catch('dark') if that matters."
+  },
+  {
+   "path": "apps/desktop/src/shared/settings.test.ts",
+   "action": "edit",
+   "symbols": "theme:'light' cases (6, 25-27)",
+   "notes": "Rewrite to assert the invalid-theme fallback instead."
+  },
+  {
+   "path": "apps/desktop/src/main/index.ts",
+   "action": "edit",
+   "symbols": "themePref (32-34), resolveChromeTheme (52-56), saveSettings recolor (490-493), applyChromeTheme (503-509), nativeTheme.on('updated') (586-590), nativeTheme import (5), ResolvedTheme type import (8)",
+   "notes": "Window background becomes the constant windowBackground('dark') / '#111110' at createWindow (61,68). This file is the IPC method registry \u2014 coordinate with any other ruling touching daemon/RPC wiring."
+  },
+  {
+   "path": "apps/desktop/src/main/titlebar.ts",
+   "action": "edit",
+   "symbols": "ResolvedTheme type (9), windowBackground light branch (15-16)",
+   "notes": "windowBackground collapses to the sand s1 constant; keep the function or inline it."
+  },
+  {
+   "path": "apps/desktop/src/main/titlebar.test.ts",
+   "action": "edit",
+   "symbols": "windowBackground('light') assertion (32)",
+   "notes": "Delete or repoint at the dark constant."
+  },
+  {
+   "path": "apps/desktop/src/renderer/shell/Work.tsx",
+   "action": "edit",
+   "symbols": "<FloorSection title=\"Record\" /> (109) + docstring mentions of record (12) and FloorSection doc (178-181)",
+   "notes": "Remove Record ONLY. KEEP the Cost section (42-45, 110-118) \u2014 it is a live reader of session-tree spend added by f2936ec/0fd8083 after the plan. Also keep Subagents/Changes/Worktree floors (106-108) per the ruling."
+  },
+  {
+   "path": "apps/desktop/src/renderer/shell/Work.test.tsx",
+   "action": "keep",
+   "symbols": "cost roll-up tests (114-143, 145-164), floors test (109-112)",
+   "notes": "Must keep passing \u2014 they guard the kept Cost feature. The floors test uses getAllByText(/not tracked yet/i).length>0 and survives Record's removal."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/UsagePanel.tsx",
+   "action": "edit",
+   "symbols": "UsageSurface (206)",
+   "notes": "KEEP the surface; add the one ruled comment at its entry point: mock by design (data from mockUsage.ts), wiring is roadmap work. Center.tsx:73-74 already carries a shorter version of this note."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/ShowcasePanel.tsx",
+   "action": "keep",
+   "symbols": "ShowcaseSurface + panels/showcase/* (KitSpecimens.tsx, Specimen.tsx) and their tests",
+   "notes": "Component survives; it just becomes dev-only reachable. ShowcasePanel.test.tsx / KitSpecimens.test.tsx stay."
+  },
+  {
+   "path": "apps/desktop/src/renderer/shell/Settings.tsx",
+   "action": "keep",
+   "symbols": "appearance theme row (158-165)",
+   "notes": "Already pins theme read-only to 'Sand dark' \u2014 no change; Settings.test.tsx:39-44 already asserts it."
+  },
+  {
+   "path": "packages/console-kit/src/themes/sand-dark.css",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "The only theme file in themes/; tokens.css:11 imports only it \u2014 the mechanical proof for bullet (d)."
+  }
+ ],
+ "testsAffected": [
+  "apps/desktop/src/renderer/panels/Composer.test.tsx (drop 'Permission mode' from the chip tooltip loop, 93-100)",
+  "apps/desktop/src/renderer/panels/ChatPanel.test.tsx (empty-state assertion /sonnet.*ask edits/, 560-573)",
+  "apps/desktop/src/shared/settings.test.ts (theme:'light' round-trips, 6 and 25-27)",
+  "apps/desktop/src/main/titlebar.test.ts (windowBackground('light'), 32)",
+  "apps/desktop/src/renderer/theme.test.ts (types only; assertions already all-dark)",
+  "apps/desktop/src/renderer/shell/Workbench.test.tsx (55-66 use 'graph' as the unhosted-surface example; still pass, optional reword)",
+  "apps/desktop/src/renderer/shell/Work.test.tsx (KEEP passing: cost roll-up 114-164 guards the kept Cost section; floors test 109-112 survives Record removal)",
+  "apps/desktop/src/renderer/panels/ShowcasePanel.test.tsx and panels/showcase/KitSpecimens.test.tsx (keep \u2014 component remains, dev-gated)",
+  "apps/desktop/src/renderer/shell/Settings.test.tsx (keep \u2014 already asserts the pinned theme, 39-44)"
+ ],
+ "sharedFiles": [
+  "apps/desktop/src/renderer/shell/Nav.tsx (SURFACES array \u2014 single registry for nav rows, palette 'Go to', and Center's label lookup; also imports mockUsage/mockAuth for the HUD)",
+  "apps/desktop/src/renderer/shell/Center.tsx (SurfaceHost switch \u2014 every surface add/remove ruling touches it)",
+  "apps/desktop/src/renderer/shell/Palette.tsx (derives entries from SURFACES)",
+  "apps/desktop/src/renderer/shell/layoutPersistence.ts (persists the raw surface id \u2014 restore-sanitization concerns any surface removal)",
+  "apps/desktop/src/shared/settings.ts (the one settings schema \u2014 any settings-shape ruling collides)",
+  "apps/desktop/src/main/index.ts (IPC method registry + window boot \u2014 theme removal edits saveSettings; RPC rulings edit the same switch)",
+  "apps/desktop/src/renderer/panels/mockUsage.ts (imported by Nav.tsx, Work.tsx (usd for the kept Cost), UsagePanel.tsx, surfaceUi.ts \u2014 any mock-data ruling must not strand the Cost formatter)",
+  "packages/console-viewmodel/src/index.ts (barrel exporting session-tree.js consumed by the kept Cost section and Browser.tsx)"
+ ],
+ "recentCommitInteractions": "Yes \u2014 one direct collision. f2936ec 'feat: nest subagent sessions under their parent in the console' (post-plan) modified Work.tsx (+38) and Work.test.tsx (+74): it converted the Cost floor into a live reader of tree-rolled spend (Work.tsx:42-45, 110-118, via new packages/console-viewmodel/src/session-tree.ts exported at index.ts:5) and added the two guarding tests (Work.test.tsx:114-164); 0fd8083 'feat: attribute recorded spend to a session tree's root' is its daemon-side producer (packages/core/src/governance/ledger.ts). This contradicts the ruling's 'remove the Cost floor'. The same commit also made the Work root row lineage-aware (Root/Subagent badge, Work.tsx:64-66) \u2014 untouched by this ruling. For every other R12 target, git log faf5e09~1..HEAD over Nav.tsx, Palette.tsx, Center.tsx, Composer.tsx, ShowcasePanel.tsx, theme.ts, shared/settings.ts, main/titlebar.ts, UsagePanel.tsx, mockUsage.ts returns empty \u2014 the 5 recent commits added no callers or readers to anything else this ruling removes."
+}

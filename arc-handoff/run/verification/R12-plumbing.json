@@ -1,0 +1,89 @@
+{
+ "ruling": "R12-plumbing \u2014 Console trims (plumbing side): (a) delete the Composer's fake attach plumbing (hardcoded 'screenshot.png' chip that never sends), keeping mic + attach as visibly disabled design intent; (b) delete the rename-session plumbing end-to-end (daemon verb -> IPC method -> preload), which no UI ever calls.",
+ "verdict": "VERIFIED",
+ "evidence": "(a) Attach: rg for onAttach/AttachButton/attachments/screenshot.png across packages/ and apps/ hits only apps/desktop/src/renderer/panels/Composer.tsx and its test. Composer.tsx: attachments state (line 112), cleared-not-sent in take() (line 137 \u2014 send() at 141-146 passes only text to onSend/onRedirect, attachments never leave component state), chip row with remove button (272-291), shelf usage (335-338), module-private AttachButton (425-474) whose PopoverCard MenuItem hardcodes onAttach('screenshot.png') at line 465. So the \"never sends anything\" claim is mechanically true. Mic (KEEP) is already the disabled-affordance pattern at 476-502. One test walks the fake path: Composer.test.tsx:240-247. Note: the attach button is currently LIVE (clickable popover), not visibly disabled \u2014 the ruling's \"keep as visibly disabled design intent\" is the target state, so Composer.tsx is an edit, not a pure delete. (b) renameSession: rg across packages/+apps/ finds exactly 7 hits \u2014 definition packages/core/src/session/conversation-handlers.ts:37-40 (+ renameParams line 17, doc comment line 9); registry apps/desktop/src/shared/methods.ts:176 (MethodName union) and 264-267 (METHODS entry); main dispatch apps/desktop/src/main/index.ts:414-415; preload type apps/desktop/src/preload/api.d.ts:77; test conversation-handlers.test.ts:66. The preload implementation is generated generically from METHODS (preload/index.ts:19-21), so no per-method preload code exists. Renderer: zero callers \u2014 console.ts's SessionsBridge (lines 83-86) declares only listSessions/newSession/reloadConversation/deleteSession; rg for window.coa[ dynamic invocation found nothing; no renderer/CLI/docs reference (rg over docs/ and ROADMAP.md: no hits). Daemon registration is via buildConversationHandlers spread at apps/cli/src/cli.ts:272 \u2014 removing the key from the handler map unwires the verb with no cli.ts edit. SEAM: ConversationStore.rename (conversation-store.ts:146/263) is NOT part of the removal \u2014 session-handlers.ts:541-545 live-calls cs.rename(id, deriveTitle(turn.input)) to auto-title a session's first turn. The ruling's wording (\"daemon verb -> IPC method -> preload\") correctly scopes to the RPC chain only; the executor must not delete store.rename or its test (conversation-store.test.ts:95-97).",
+ "recentCommitInteractions": "No interaction. `git show faf5e09 f2936ec dabc77c 0fd8083 d97c118 3536c28 | rg -i \"renameSession|onAttach|AttachButton|screenshot\"` returns zero hits. Name-only file lists confirm none of the 6 commits touched Composer.tsx, Composer.test.tsx, conversation-handlers.ts, shared/methods.ts, main/index.ts, preload/api.d.ts, or renderer/console.ts. faf5e09 did touch session-handlers.ts, but `git log -1 -S 'cs.rename' -- packages/core/src/session/session-handlers.ts` shows the last commit changing cs.rename occurrences is 37c5d8c (the older persist-conversations commit) \u2014 the auto-title caller predates the plan and is a store-level KEEP, not the RPC verb. The console-nesting commit (f2936ec) reads session titles only through listSessions summaries (KEEP surface); it added no renameSession caller. methods.test.ts's lineage test (lines 39-54) exercises listSessions only.",
+ "inventory": [
+  {
+   "path": "apps/desktop/src/renderer/panels/Composer.tsx",
+   "action": "edit",
+   "symbols": "attachments state (L112), setAttachments([]) in take() (L137), attachment chip row (L272-291), AttachButton usage + onAttach wiring (L335-338), AttachButton component's PopoverCard/MenuItem fake 'screenshot.png' path (L425-474, hardcode at L465)",
+   "notes": "Delete the fake plumbing; convert AttachButton to a visibly-disabled affordance mirroring MicButton (L479-502). KEEP MicButton unchanged."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/Composer.test.tsx",
+   "action": "edit",
+   "symbols": "test 'draws the attachment removal mark rather than typing one' (L240-247) + its comment (L237-239)",
+   "notes": "Delete or replace with a disabled-attach test mirroring the mic block (L182-196, KEEP)."
+  },
+  {
+   "path": "packages/core/src/session/conversation-handlers.ts",
+   "action": "edit",
+   "symbols": "renameSession rpcMethod (L37-40), renameParams (L17), 'rename' in the doc comment verb list (L9)",
+   "notes": "Removing the key from the returned RpcHandlers map is the daemon-side unwire; registration at apps/cli/src/cli.ts:272 spreads the whole map and needs no edit."
+  },
+  {
+   "path": "packages/core/src/session/conversation-handlers.test.ts",
+   "action": "edit",
+   "symbols": "'renames and deletes a session' (L64-70): drop the rename half (L66-67)",
+   "notes": "deleteSession assertions (L68-69) are KEEP \u2014 do not delete the whole test file."
+  },
+  {
+   "path": "apps/desktop/src/shared/methods.ts",
+   "action": "edit",
+   "symbols": "'renameSession' in MethodName union (L176) and METHODS entry (L264-267)",
+   "notes": "OkResultSchema (L43) stays \u2014 shared by deleteSession (L268) and saveAgent (L346). Removing the METHODS entry auto-removes the preload bridge method (preload/index.ts:19-21 generates from this registry)."
+  },
+  {
+   "path": "apps/desktop/src/main/index.ts",
+   "action": "edit",
+   "symbols": "case 'renameSession' in runMethod switch (L414-415)",
+   "notes": "Required for the MethodName union to stay exhaustive after the registry edit."
+  },
+  {
+   "path": "apps/desktop/src/preload/api.d.ts",
+   "action": "edit",
+   "symbols": "renameSession declaration (L77)",
+   "notes": "Type-only surface of window.coa."
+  },
+  {
+   "path": "packages/core/src/session/conversation-store.ts",
+   "action": "keep",
+   "symbols": "ConversationStore.rename (L146 interface, L263 impl)",
+   "notes": "LIVE caller: session-handlers.ts:541-545 auto-titles a session's first turn via cs.rename(id, deriveTitle(turn.input)). Not part of the RPC-chain removal."
+  },
+  {
+   "path": "packages/core/src/session/conversation-store.test.ts",
+   "action": "keep",
+   "symbols": "'renames a session and records the backend session id...' (L95-97)",
+   "notes": "Tests the kept store method."
+  },
+  {
+   "path": "apps/desktop/src/shared/methods.test.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "References renameCredential only (L63, L87) \u2014 no renameSession assertions exist; no edit needed."
+  },
+  {
+   "path": "apps/cli/src/cli.ts",
+   "action": "keep",
+   "symbols": "buildConversationHandlers registration (L272)",
+   "notes": "Registers the whole handler map; unwiring happens inside conversation-handlers.ts."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/session/conversation-handlers.test.ts (edit L64-70: remove rename assertions, keep deleteSession half)",
+  "apps/desktop/src/renderer/panels/Composer.test.tsx (delete/replace fake-attach-path test L240-247; mic test L182-196 is KEEP)",
+  "KEEP untouched: packages/core/src/session/conversation-store.test.ts L95-97 (store.rename has a live auto-title caller)",
+  "KEEP untouched: apps/desktop/src/shared/methods.test.ts (no renameSession references)"
+ ],
+ "sharedFiles": [
+  "apps/desktop/src/shared/methods.ts (MethodName union + METHODS registry \u2014 every IPC-verb removal edits it)",
+  "apps/desktop/src/main/index.ts (runMethod dispatch switch \u2014 every IPC-verb removal edits it)",
+  "apps/desktop/src/preload/api.d.ts (window.coa type surface \u2014 every IPC-verb removal edits it)",
+  "packages/core/src/session/conversation-handlers.ts (session-record verb map \u2014 other session-verb rulings may edit it)",
+  "apps/cli/src/cli.ts (daemon handler assembly \u2014 other daemon-verb rulings may edit it; this one does not)",
+  "packages/core/src/index.ts (core barrel; exports buildConversationHandlers at L278 \u2014 export stays, but the barrel is a shared surface)"
+ ],
+ "contradictions": ""
+}

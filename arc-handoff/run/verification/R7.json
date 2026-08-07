@@ -1,0 +1,123 @@
+{
+ "ruling": "R7",
+ "verdict": "VERIFIED",
+ "evidence": "Subsystem lives in packages/core/src/checkpoint.ts (Timeline class + rewindPathspec) with a delegating facade in packages/core/src/kernel.ts:317-341. rg for every symbol across packages/ and apps/ (excluding node_modules), each hit classified: (1) REMOVE side \u2014 Timeline.pin/unpin (checkpoint.ts:36-42) + private setPinned (:57-60): only callers are Kernel.pin/unpin (kernel.ts:325-331) and checkpoint.test.ts:22,35-36; Kernel.pin/unpin themselves have ZERO callers anywhere, tests included. Timeline.retentionFloor (checkpoint.ts:49-55): only callers are Kernel.retentionFloor (kernel.ts:339-341, zero callers) and checkpoint.test.ts:23,29,37; no WAL-compaction code reads it (rg -i 'compact|retention' in packages/core/src non-test hits only these definitions plus an unrelated signal-bus comment). rewindPathspec (checkpoint.ts:64-66): callers are Kernel.rewind (kernel.ts:334-336, zero callers) and checkpoint.test.ts:56; barrel-exported at packages/core/src/index.ts:295 with zero external importers (rg \"from '@coa/core'\" cross-referenced with timeline/rewind/checkpoint: no hits). The 'rewindFiles' string in packages/adapter-claude-sdk/src/control/stage-5-6-lifecycle.live.test.ts:560 is the Claude SDK's own file-checkpointing probe, unrelated. No RPC verb, CLI command, desktop method, preload bridge, or daemon port exists for pin/unpin/rewind/retentionFloor (rg over apps/desktop/src/shared/methods.ts, apps/desktop/src/main/index.ts, apps/desktop/src/preload, packages/core/src/rpc/console-handlers.ts, apps/cli/src/cli.ts \u2014 nothing; the many 'pin'/'pinned' hits in the desktop renderer are two unrelated concepts: the session model/provider pin and the transcript scroll-pin). (2) KEEP side verified live \u2014 Kernel.checkpoint (kernel.ts:317-319): called at daemon.ts:130-133 (DaemonCore.checkpoint), session.ts:363-365 (closeSession), cli.ts:285-288 (LiveSessionRegistry onClose). Kernel.listTimeline (kernel.ts:321-323): wired daemon.ts:236 into buildConsoleHandlers \u2192 RPC method 'listTimeline' (console-handlers.ts:40,56) \u2192 desktop main proxy (apps/desktop/src/main/index.ts:368-369) \u2192 method schema (apps/desktop/src/shared/methods.ts:153,214, result TimelineSchema from @coa/console-viewmodel reads.ts:20) \u2192 preload bridge (api.d.ts:30) \u2192 renderer fetch (console.ts:51,311-325 into state.data.timeline; state.ts:35,160) \u2192 TimelinePanel.tsx:11-13,38-40 rendered via shell Center.tsx:72 (nav item Nav.tsx:34); also the `coa timeline` CLI read (cli.ts:62). The console Timeline panel demonstrably reads listTimeline. Seam nuance (does not contradict the ruling): Checkpoint.pinned (checkpoint.ts:18) is read live by TimelinePanel.tsx:30 ({c.pinned && <StatusDot/>}) and is a REQUIRED field of CheckpointSchema (console-viewmodel reads.ts:16) \u2014 once pin/unpin go, it is permanently false; removing the field from core without simultaneously editing reads.ts:16 would make TimelineSchema.parse reject every RPC result.",
+ "contradictions": "",
+ "recentCommitInteractions": "No interaction. git log -5 --name-only from d97c118: d97c118 is docs-only; f2936ec touched packages/console-viewmodel/src/reads.ts but the diff (git show f2936ec -- reads.ts) only added TextRoleSchema for the text-frame role \u2014 CheckpointSchema/TimelineSchema untouched; faf5e09's session-handlers.ts diff grep for checkpoint|pin|rewind|retention shows only the unrelated model-selection pin and steer-pin comments; 0fd8083 touched only governance/ledger.*; dabc77c touched only transcript-projection.* and an adapter live test. None added callers or readers of pin/unpin/rewind/retentionFloor/rewindPathspec; the KEEP-side listTimeline path was also not modified by these commits.",
+ "inventory": [
+  {
+   "path": "packages/core/src/checkpoint.ts",
+   "action": "edit",
+   "symbols": "Timeline.pin (:36-38), Timeline.unpin (:40-42), private Timeline.setPinned (:57-60), Timeline.retentionFloor (:49-55), rewindPathspec (:64-66) \u2014 archive these; KEEP Checkpoint interface (:13-19), Timeline.checkpoint (:25-29), Timeline.listTimeline (:31-33)",
+   "notes": "Seam file: KEEP and REMOVE live in one class. Decide Checkpoint.pinned (:18): either keep it as an always-false vestige (zero other edits needed) or remove it and edit the three desktop/viewmodel sites listed below in the same change. Doc comment (:5-11) must be rewritten \u2014 it describes pin/rewind semantics being removed."
+  },
+  {
+   "path": "packages/core/src/kernel.ts",
+   "action": "edit",
+   "symbols": "Kernel.pin (:325-327), Kernel.unpin (:329-331), Kernel.rewind (:333-336), Kernel.retentionFloor (:338-341); import at :41 drops rewindPathspec",
+   "notes": "KEEP Kernel.checkpoint (:317-319) and Kernel.listTimeline (:321-323). All four removed methods have zero callers including tests."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "line 295: drop rewindPathspec from the barrel export; Timeline can also drop to internal (zero external importers) \u2014 keep `type Checkpoint`",
+   "notes": "console-handlers.ts:11 imports Checkpoint from '../checkpoint.js' directly, not via the barrel, so the type export is belt-and-braces only."
+  },
+  {
+   "path": "packages/core/src/checkpoint.test.ts",
+   "action": "edit",
+   "symbols": "delete the pin/floor test (:18-24), the empty-floor test (:26-30), the unpin-release test (:32-38), and the whole describe('rewindPathspec') block (:41-57) with its git fixture imports; KEEP the ordered-listing test (:9-14)",
+   "notes": "Partial file: this is the only test file that exercises the removed symbols."
+  },
+  {
+   "path": "packages/console-viewmodel/src/reads.ts",
+   "action": "edit",
+   "symbols": "CheckpointSchema.pinned (:16)",
+   "notes": "ONLY if Checkpoint.pinned is removed from core \u2014 the field is z.boolean() (required), so a core response without it fails TimelineSchema.parse. If pinned is kept vestigial, no change."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/TimelinePanel.tsx",
+   "action": "edit",
+   "symbols": "pinned StatusDot marker (:30)",
+   "notes": "ONLY if pinned is removed; otherwise it remains dead UI (a marker no code path can ever set). KEEP the rest \u2014 this panel is the live listTimeline reader the ruling names."
+  },
+  {
+   "path": "packages/console-viewmodel/src/reads.test.ts",
+   "action": "edit",
+   "symbols": "checkpoint fixture (:20-22)",
+   "notes": "ONLY if pinned is removed from CheckpointSchema."
+  },
+  {
+   "path": "apps/desktop/src/renderer/panels/TimelinePanel.test.tsx",
+   "action": "edit",
+   "symbols": "pinned-marker test (:22-27) and fixtures (:24-25)",
+   "notes": "ONLY if pinned is removed."
+  },
+  {
+   "path": "apps/desktop/src/renderer/console.test.tsx",
+   "action": "edit",
+   "symbols": "checkpoint fixture field pinned (:177)",
+   "notes": "ONLY if pinned is removed."
+  },
+  {
+   "path": "packages/core/src/rpc/console-handlers.ts",
+   "action": "keep",
+   "symbols": "listTimeline port (:39-40) + handler (:56); Checkpoint import (:11)",
+   "notes": "KEEP side, live. The doc comment at :39 says 'the checkpoints behind the rewind/undo view (D98)' \u2014 optionally reword since the rewind verb is gone."
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "keep",
+   "symbols": "DaemonCore.checkpoint (:130-133), listTimeline wiring (:236)",
+   "notes": "Live KEEP wiring \u2014 no change."
+  },
+  {
+   "path": "packages/core/src/session/session.ts",
+   "action": "keep",
+   "symbols": "closeSession \u2192 deps.checkpoint() (:363-365)",
+   "notes": "Live KEEP caller."
+  },
+  {
+   "path": "apps/cli/src/cli.ts",
+   "action": "keep",
+   "symbols": "timeline read (:62), onClose deps.checkpoint() (:286)",
+   "notes": "Live KEEP callers; no pin/unpin/rewind CLI commands exist to remove."
+  },
+  {
+   "path": "apps/desktop/src/main/index.ts",
+   "action": "keep",
+   "symbols": "listTimeline proxy (:368-369)",
+   "notes": "Live KEEP wiring."
+  },
+  {
+   "path": "apps/desktop/src/shared/methods.ts",
+   "action": "keep",
+   "symbols": "'listTimeline' (:153, :214)",
+   "notes": "Live KEEP wiring; no pin/rewind methods registered."
+  },
+  {
+   "path": "apps/desktop/src/renderer/console.ts",
+   "action": "keep",
+   "symbols": "bridge.listTimeline (:51, :314)",
+   "notes": "Live KEEP reader feeding state.data.timeline."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/checkpoint.test.ts (delete lines 18-38 pin/unpin/retentionFloor tests and 41-57 rewindPathspec block; keep the listing test 9-14)",
+  "packages/console-viewmodel/src/reads.test.ts:20-22 (only if the pinned field is removed from CheckpointSchema)",
+  "apps/desktop/src/renderer/panels/TimelinePanel.test.tsx:22-27 (only if pinned is removed)",
+  "apps/desktop/src/renderer/console.test.tsx:177 (only if pinned is removed)",
+  "KEEP-side coverage that must stay green untouched: packages/core/src/kernel.test.ts:117-122, packages/core/src/session/daemon.test.ts:158-163, packages/core/src/rpc/console-handlers.test.ts:121-137, apps/desktop/src/shared/methods.test.ts:23-24, apps/desktop/src/renderer/shell/App.test.tsx:18"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts (the @coa/core barrel \u2014 every core removal edits it)",
+  "packages/core/src/kernel.ts (kernel facade \u2014 other rulings removing kernel surfaces touch the same class)",
+  "packages/core/src/session/daemon.ts (DaemonCore + buildDaemonConsoleHandlers wiring)",
+  "packages/core/src/rpc/console-handlers.ts (RPC handler registry)",
+  "apps/desktop/src/shared/methods.ts (desktop RPC method registry)",
+  "apps/desktop/src/main/index.ts (main-process proxy switch)",
+  "apps/desktop/src/preload/api.d.ts (preload bridge types)",
+  "apps/cli/src/cli.ts (CLI READS map + daemon composition)",
+  "packages/console-viewmodel/src/reads.ts (renderer edge schemas \u2014 touched by console-facing rulings)"
+ ]
+}

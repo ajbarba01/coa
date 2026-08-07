@@ -1,0 +1,59 @@
+{
+ "ruling": "R5: Bundle importer + version gate -> archive. compiler/import-bundle.ts + compiler/version-gate.ts; no verb or UI ever calls them.",
+ "verdict": "VERIFIED",
+ "evidence": "Files exist and match the description: packages/core/src/compiler/import-bundle.ts (exports `importBundle`, an M5 SKILL.md->Piece wrap) and packages/core/src/compiler/version-gate.ts (exports `versionGate`, `SemverBump`, `VersionGateDeps`, `VersionGateResult`, plus private `diffLinks`/`diffHashes`). rg for `importBundle|import-bundle` across packages/ and apps/ (excluding dist, node_modules) hits ONLY: the definition file, its co-located test (packages/core/src/compiler/import-bundle.test.ts, 13 call sites), and one barrel export at packages/core/src/index.ts:110. rg for `versionGate|version-gate|VersionGate|SemverBump` hits ONLY: the definition file, its test (packages/core/src/compiler/version-gate.test.ts), and one barrel export block at packages/core/src/index.ts:131-136. Zero hits in apps/cli, apps/desktop, or packages/core/src/rpc \u2014 no CLI verb, RPC handler, or UI path reaches either symbol (rg over apps/ and core rpc/ for both symbols: exit 1). All case-insensitive \"bundle\" hits in apps/ are unrelated (Vite bundler comments in vite-env.d.ts, \"bundled logo/mark\" UI strings in KitSpecimens.tsx and harness.ts). No deep-path imports (`compiler/import-bundle` / `compiler/version-gate` strings appear nowhere outside core src). The KEEP neighbor packages/core/src/compiler/compile.ts has zero references to either file (rg exit 1) \u2014 no seam. Entanglement note: `BundleManifest`/`bundleManifestSchema` (packages/shared/src/bundle.ts:5,18, barrel-exported at packages/shared/src/index.ts:22) are consumed ONLY by version-gate.ts:1 and version-gate.test.ts:1 \u2014 after R5 executes, shared/src/bundle.ts is fully orphaned. pieceSchema's `bundle` field (packages/shared/src/piece.ts:36) is a plain z.string().optional() and does NOT depend on bundle.ts, so the Piece type stays intact.",
+ "recentCommitInteractions": "None. The 5 recent commits (faf5e09, 0fd8083, dabc77c, f2936ec, d97c118; plus HEAD 3536c28, a pnpm-workspace.yaml fix) touched packages/core/src/session/*, packages/core/src/governance/ledger.*, packages/console-viewmodel/*, apps/desktop/src/renderer/*, packages/adapter-claude-sdk/*, docs/ADRs, and ROADMAP.md \u2014 verified via `git log -5 --name-only` and `git show --name-only faf5e09`. None touched packages/core/src/compiler/* or the two barrel-export lines in packages/core/src/index.ts (`git log -6 --stat -- <the 5 files>` shows the last index.ts touches were older commits 8e58550/132ee04/etc., and the last commits touching the compiler files or shared/src/bundle.ts are b6e4926 and 0aa479d, both predating the plan). No new callers or readers were added.",
+ "inventory": [
+  {
+   "path": "packages/core/src/compiler/import-bundle.ts",
+   "action": "archive",
+   "symbols": "whole file (importBundle, FRONT_MATTER, RESERVED, frontMatterSchema, toSalience)",
+   "notes": "Pure function; only consumers are its own test and the core barrel export."
+  },
+  {
+   "path": "packages/core/src/compiler/import-bundle.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Tests only importBundle via relative import './import-bundle.js'; goes with the code."
+  },
+  {
+   "path": "packages/core/src/compiler/version-gate.ts",
+   "action": "archive",
+   "symbols": "whole file (versionGate, SemverBump, VersionGateDeps, VersionGateResult, diffLinks, diffHashes)",
+   "notes": "Only consumers are its own test and the core barrel export. Sole repo-wide consumer of BundleManifest."
+  },
+  {
+   "path": "packages/core/src/compiler/version-gate.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Imports versionGate relatively and BundleManifest from @coa/shared; goes with the code."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "line 110: export { importBundle } from './compiler/import-bundle.js'; lines 131-136: export { versionGate, type SemverBump, type VersionGateDeps, type VersionGateResult } from './compiler/version-gate.js'",
+   "notes": "Two export statements to delete. Line 109 (export { compile } from './compiler/compile.js') is a KEEP item \u2014 do not touch."
+  },
+  {
+   "path": "packages/shared/src/bundle.ts",
+   "action": "keep",
+   "symbols": "bundleManifestSchema, BundleManifest",
+   "notes": "NOT named by R5, but becomes fully orphaned once version-gate is archived (version-gate.ts/.test.ts are its only consumers; pieceSchema.bundle at piece.ts:36 is an independent z.string()). If no other ruling claims it, delete it plus its barrel line packages/shared/src/index.ts:22 in a follow-up; doc-comment references remain in shared/src/agent.ts:18 and shared/src/piece.ts:8."
+  },
+  {
+   "path": "ROADMAP.md",
+   "action": "edit",
+   "symbols": "line 19, M5 Config Compiler row",
+   "notes": "Lists 'compile, versionGate, importBundle' as the completed M5 public interface \u2014 must be updated in the same commit per the same-commit doc rule. Handoff spec docs (docs/design/handoff/spec/M5.md, M1.md, M6.md, SPEC.md, IMPL-SPEC-BRIEF.md) also name both symbols; they are the final-form product spec, so whether they change is a plan-level call, not mechanical."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/compiler/import-bundle.test.ts",
+  "packages/core/src/compiler/version-gate.test.ts"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts",
+  "packages/shared/src/index.ts",
+  "ROADMAP.md"
+ ]
+}

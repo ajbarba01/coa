@@ -1,0 +1,92 @@
+{
+ "ruling": "R8 \u2014 Grounding producer -> archive. It can only query the permanently-empty symbol index.",
+ "verdict": "VERIFIED",
+ "evidence": "Producer found: packages/core/src/context/grounding.ts (ground(), SymbolOracle, STALE_THRESHOLD; barrel-exported at packages/core/src/index.ts:137). Data-source claim proven: ground() reads only the injected SymbolOracle (grounding.ts:40-55); the sole production oracle is wired in governedToolDeps at packages/core/src/session/daemon.ts:365-372 to kernel.lookup/fuzzyMatch/walPosition, i.e. ChangeKernel's SymbolTable+FuzzyIndex (packages/core/src/kernel.ts:70-71,280-292). Emptiness proven: the only population paths are ChangeKernel.indexFile (kernel.ts:192) and declare-symbols frames (kernel.ts:151,363-365); rg across packages/ and apps/ shows every caller of .indexFile(/.declareSymbols( is a test (kernel.test.ts, kernel-scope.test.ts, kernel-graph.test.ts, symbol-table.test.ts, daemon.test.ts:375). The one non-test path that could emit declare-symbols, publishGenerationSeam (packages/core/src/context/generation-seam.ts:55, calls publisher.declareSymbols at :89), itself has zero non-test callers (only generation-seam.test.ts + barrel export index.ts:152-157; apps/cli/src/generation.ts wires assembleProducers \u2014 packages/core/src/context/producers.ts:19 \u2014 which builds M3 flag producers and never touches the index). Therefore in production oracle.lookup always misses and fuzzyMatch returns [] (fuzzy built from empty table, kernel.ts:380-383) so ground() returns undefined on every call (grounding.ts:45-46). Caller classification for ground: definition grounding.ts:40; barrel export index.ts:137 (wiring); live-but-inert invocation enrich.ts:28 via invokeSpec (governed-tools.ts:152), serialized to the model at adapter-claude-sdk/src/mcp-tools.ts:39-40; tests grounding.test.ts, enrich.test.ts:27-50,78, governed-tools.test.ts:88-100. Note: the producer is wired (runs silently on every governed tool return), not literally never-wired \u2014 the ruling's stated reason (permanently-empty data source) is exactly what holds, and its check-section anticipated inventorying the pipeline registration; archive therefore requires unwiring three live seams, all inventoried.",
+ "inventory": [
+  {
+   "path": "packages/core/src/context/grounding.ts",
+   "action": "archive",
+   "symbols": "whole file (ground, SymbolOracle, STALE_THRESHOLD, namedSymbol, suggestionFrom)",
+   "notes": "The R8 producer. No other module imports it except enrich.ts and the barrel."
+  },
+  {
+   "path": "packages/core/src/context/grounding.test.ts",
+   "action": "archive",
+   "symbols": "whole file",
+   "notes": "Tests only ground(); goes with the producer."
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "line 137: export { ground, type SymbolOracle } from './context/grounding.js'",
+   "notes": "Barrel export removal. Shared surface \u2014 other rulings also edit this file."
+  },
+  {
+   "path": "packages/core/src/workbench/enrich.ts",
+   "action": "edit",
+   "symbols": "line 2 import { ground, SymbolOracle }; EnrichDeps.oracle (lines 16-17); const grounding = ground(call, deps.oracle) (line 28); ...(grounding ? { grounding } : {}) spread (line 33); doc comment lines 5-14",
+   "notes": "ENTANGLED SEAM: enrich() also carries the live M3 flags half (flagsForAgent, lines 19,29-30,34) which is a KEEP. Remove only the grounding half; enrich becomes a flags-only decorator."
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "edit",
+   "symbols": "governedToolDeps: the enrich.oracle block (lines 366-370: lookup/fuzzyMatch/walPosition over kernel)",
+   "notes": "Keep flagsForAgent (line 371). Do NOT touch retrieve.lookupSymbol (line 345) or mutate.resolveFile (lines 356-357) \u2014 those read kernel.lookup for get_symbol/edit_symbol (retrieve/mutate, other rulings' territory)."
+  },
+  {
+   "path": "packages/core/src/workbench/governed-tools.ts",
+   "action": "edit",
+   "symbols": "doc comments only (lines 32 'grounding + gated flags', 50 'M4.ground + M3.flagsForAgent')",
+   "notes": "No code change: GovernedToolDeps.enrich keeps carrying the (shrunk) EnrichDeps type."
+  },
+  {
+   "path": "packages/core/src/workbench/enrich.test.ts",
+   "action": "edit",
+   "symbols": "cleanOracle fixture (line 6), near-miss grounding test (lines 27-50), 'grounding' in out assertion (line 78), oracle fixtures",
+   "notes": "Keep the flags-half tests; remove only grounding cases."
+  },
+  {
+   "path": "packages/core/src/workbench/governed-tools.test.ts",
+   "action": "edit",
+   "symbols": "the 'symbol near-miss attaches an advisory grounding block (F6/L-GND)' test (lines 88-100) + its fake-oracle fixture in the shared enrich deps",
+   "notes": "File remains \u2014 it tests the whole dispatch surface."
+  },
+  {
+   "path": "packages/shared/src/tool.ts",
+   "action": "edit",
+   "symbols": "groundingBlockSchema (lines 45-59), GroundingBlock (line 60), ToolResponse.grounding field (line 68)",
+   "notes": "Zero producers and zero readers remain after the archive (rg found no UI/adapter reading .grounding by name; the field only rode the serialized ToolResponse). Safe to drop, but this file is the shared ToolResponse surface \u2014 coordinate with other rulings."
+  },
+  {
+   "path": "packages/core/src/kernel.ts",
+   "action": "keep",
+   "symbols": "fuzzyMatch (lines 289-292), rebuildFuzzy/fuzzyDirty (lines 87,380-383), idle fuzzy rebuild (lines 198-199)",
+   "notes": "FOLLOW-ON, out of R8 scope: daemon.ts:368 was the last non-test caller of kernel.fuzzyMatch; after unwiring, fuzzyMatch/FuzzyIndex (graph/fuzzy-index.ts, barrel index.ts:15) and the idle fuzzy-rebuild become caller-less M1 surface. Flag for a kernel-side ruling; do not remove under R8."
+  },
+  {
+   "path": "packages/core/src/context/generation-seam.ts",
+   "action": "keep",
+   "symbols": "publishGenerationSeam, SeamPublisher",
+   "notes": "Context only: the sole would-be populator of the index, itself unwired (zero non-test callers). Presumably owned by a separate L-GEN ruling \u2014 its fate does not change R8's proof at HEAD."
+  },
+  {
+   "path": "packages/core/src/session/daemon.test.ts",
+   "action": "keep",
+   "symbols": "get_symbol test using kernel.declareSymbols (lines 372-379)",
+   "notes": "Tests the retrieve path (get_symbol), not grounding \u2014 unaffected by R8."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/context/grounding.test.ts (archive whole file)",
+  "packages/core/src/workbench/enrich.test.ts (edit: drop grounding cases at lines 6, 27-50, 78)",
+  "packages/core/src/workbench/governed-tools.test.ts (edit: drop the F6/L-GND near-miss test at lines 88-100 and its fake-oracle fixture)"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts (core barrel \u2014 every core removal edits it)",
+  "packages/core/src/session/daemon.ts (governedToolDeps wires retrieve/mutate/inspect/enrich in one function \u2014 other tool-surface rulings touch it)",
+  "packages/core/src/workbench/governed-tools.ts (dispatch table + enrich seam)",
+  "packages/shared/src/tool.ts (shared ToolResponse/GroundingBlock shape)",
+  "packages/core/src/kernel.ts (M1 symbol/fuzzy surface \u2014 kernel-side rulings)"
+ ],
+ "recentCommitInteractions": "None. git log --name-only faf5e09..d97c118 (+3536c28, pnpm-workspace.yaml only) touched session-handlers.ts, notify.ts, ledger.ts, transcript-projection.ts, console-viewmodel/*, desktop shell/panels, and docs \u2014 not grounding.ts, enrich.ts, governed-tools.ts, daemon.ts, kernel.ts, or generation-seam.ts. A diff grep of those commits' core files for grounding|oracle|fuzzy|indexFile|declareSymbols|SymbolOracle returned zero hits. Indirect interaction only: faf5e09's spawn-as-linked-child gives subagent sessions per-session catalogues (composition.ts catalogueFor -> governedToolDeps), so more tool calls flow through the inert enrich->ground path \u2014 no new populator of the symbol index and no new reader of grounding output, so the ruling is unaffected."
+}

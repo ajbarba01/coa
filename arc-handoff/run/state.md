@@ -1,0 +1,103 @@
+# Arc run state — REWRITE THIS FILE after every stage and ~every 30 min
+
+> **RUN INTERRUPTED 2026-08-07 ~07:20 — individual spend limit hit mid-C2.**
+> Everything is on GitHub. This file is written for a FRESH SESSION ON A NEW MACHINE.
+
+## Resume protocol (new machine, from zero)
+
+1. `git clone https://github.com/ajbarba01/coa.git ~/dev/coa`
+2. Restore the arc steering files outside the repo:
+   `git -C ~/dev/coa fetch origin arc/handoff && git -C ~/dev/coa worktree add /tmp/arc-handoff arc/handoff`
+   then `cp -R /tmp/arc-handoff/arc-handoff ~/dev/coa-arc` (or just read them in place).
+   The arc folder is NEVER merged into main — it is a transport artifact.
+3. Read `~/dev/coa-arc/coa-arc-plan.md` fully, then this file, then `journal.md`
+   (what happened), `questions.md` (what needs the maintainer), `ledger.md` (what the
+   knife did).
+4. Do the machine setup in `arc-handoff/MACHINE-SETUP.md` (Node 22, the node-gyp
+   python workaround, the gitignored files, the two skills). **`pnpm install` will fail
+   on Node 24 / Python 3.14 without it.**
+5. `git checkout arc/architecture` — that is the live work branch.
+6. Continue from "Next action" below.
+
+## Where the work lives (all pushed to origin)
+
+| Branch | Tip | State |
+|---|---|---|
+| `main` | d97c118 | untouched, as the arc found it |
+| `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
+| `arc/architecture` | 0fe96d1 | Stage 2 partial (C1, de-slop, C2 part 1), all gates green |
+| `arc/wip-adapter-unify` | ac267ad | **UNGATED** partial C2 part 2 — verify before trusting |
+| `arc/handoff` | — | this arc folder (transport only, never merge) |
+| tag `pre-reset` | 3536c28 | the pre-knife baseline |
+
+The 5 Stage-0 baseline commits that were on the old machine's local `main` (tip
+a13e46d) are reachable in `arc/reset-knife`'s ancestry — recreate with
+`git branch -f main a13e46d` if you want that local main back. Nothing exists only
+on the old machine.
+
+## Stage status
+
+- **Stage 0 (baseline)** — COMPLETE. Found the pre-flight "green suite" was a no-op
+  (`pnpm -r test` runs nothing); the real root suite had 27 pre-existing failures, all
+  fixed. Also fixed a real workbench import cycle and lint/format debt.
+- **Stage 1 (the knife)** — COMPLETE. 12/12 verified rulings executed, 19 commits,
+  draft PR #1. R1 + R2 + the Cost floor half of R12f PARKED as contradicted (Q1–Q3).
+- **Stage 2 (architecture)** — PARTIAL:
+  - C1 tooling honesty — DONE (3 commits). Dependency rules actually fire now
+    (source-resolved cross-package edges, node_modules matchable, apps/cli cruised)
+    and a canary test makes silent inertness impossible. Ring rule extended to all of
+    core. Two real CLI cycles fixed.
+  - de-slop — DONE (4 commits). Codename sweep across 312 files; mockAuth→authStore
+    and the mock/live boundary untangled; barrels narrowed (core 272→48 exports);
+    knife leftovers archived/deleted.
+  - C2 backend seam — part 1 DONE (2 commits: port shrink 14→6; core imports no
+    adapter, capability ports injected from the CLI, new enforced cruiser rule).
+    **Part 2 (adapter unification) killed by the spend limit — ungated work on
+    `arc/wip-adapter-unify`. Part 3 (OpenAI + OpenRouter specs) never started.**
+  - C3 (session service extraction), C4 (console store rewrite), C5 (composition
+    root + error honesty) — PARKED, never started.
+- **Stage 3 (features)** — NOT STARTED. F6 was riding C2 (so it is half-done via the
+  WIP branch). F1–F5, F7–F10 untouched.
+- **Stage 4 (docs)** — NOT STARTED, but fully prepped: both harvests are complete in
+  `run/harvest/` (27 live ADR rationales distilled + ~40 tiered roadmap candidates +
+  ~25 verified-SDK-behavior bullets), and the whole workflow is pre-written at
+  `arc-handoff/workflow-scripts/stage4-docs.js` — launch it with
+  `Workflow({scriptPath: '<that file>'})` after copying it somewhere writable.
+- **Stage 5 (closeout)** — NOT STARTED.
+
+## Next action (in order)
+
+1. Gate the WIP adapter package: `git checkout arc/wip-adapter-unify`, run the full
+   gate suite, fix what fails, then either rebase/merge it onto `arc/architecture`
+   or redo it via `arc-handoff/workflow-scripts/c2-backend-seam-*.js` (its part-2 and
+   part-3 prompts are intact and reusable).
+2. Finish C2 part 3: OpenAI + OpenRouter provider specs + the adapter fan-out cruiser
+   rule (prompt already written in the same script).
+3. Stage 4 docs (mandatory before any closeout) — launch the pre-written workflow.
+4. Stage 5 closeout: write questions for every parked charter/feature, push all
+   branches, open draft PRs per workstream, final morning report in the journal.
+
+## Standing operational facts (do not rediscover)
+
+- **Run the test suite UNSANDBOXED.** The claude-sdk control probes spawn child
+  processes and falsely time out in a sandboxed shell (5 fake failures).
+- Gate command: `pnpm check && pnpm docs:check` (typecheck · lint · format · vitest ·
+  depcruise, then the docs router check).
+- Known intermittent: `Combobox.test.tsx` focus assertion and one `daemon.test.ts`
+  watcher-timing case flake under full-suite load; both pass solo.
+- Commits: subject-only Conventional Commits, no body, no trailers, no internal
+  codenames, stage files BY NAME, human-sized batches.
+- Never push `main`; never force-push anything on origin except the arc's own branches.
+
+## Spend / cost discipline (READ THIS — the run died here)
+
+The plan set a **$250 ceiling checked between stages, and it was never enforced**: no
+spend meter was available in-session, and subagent token counts (~4.4M across ~45
+agents) were tracked instead without being converted to dollars or acted on. The run
+ended by hitting the account's individual spend limit mid-workflow, not by the planned
+wind-down. On resume: set a hard token budget on every workflow (the budget mechanism
+throws when exhausted), run fewer agents per phase, use cheaper tiers for mechanical
+passes, and check actual account spend between stages.
+
+## Open questions: 3 parked (Q1–Q3 in questions.md) + every parked charter/feature
+## Approximate cost so far: ~4.4M subagent tokens over ~6h wall-clock

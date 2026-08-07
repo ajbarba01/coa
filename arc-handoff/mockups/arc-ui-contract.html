@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>coa arc — UI placement contract (mid-fidelity)</title>
+<style>
+  /* ============ coa sand-dark tokens, verbatim from console-kit ============ */
+  :root {
+    --s1:#111110; --s2:#191918; --s3:#222221; --s4:#2a2a28; --s5:#31312e; --s6:#3b3a37;
+    --s7:#5d5c55; --s8:#76746c; --s9:#878477; --s10:#99968b; --s11:#ceccc4; --s12:#f9f9f7;
+    --run:#5b7fd0; --ok:#5a9367; --warn:#d8a03d; --crit:#c65a54;
+    --agent-teal:#45b48e; --agent-violet:#ab93e0; --agent-coral:#e28f68; --agent-sky:#6ec3f0;
+    --diff-add:#8fb896; --diff-del:#c68f8b;
+    --shadow-float: 0 12px 32px rgba(0,0,0,0.55);
+    --shadow-composer: 0 8px 28px rgba(0,0,0,0.45);
+    --r1: 3px; --r2: 6px; --r4: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--s1); color: var(--s11);
+    font: 14px/1.55 -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+    padding: 48px 24px 96px;
+  }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  main { max-width: 1180px; margin: 0 auto; }
+
+  /* document chrome */
+  h1 { font-size: 22px; font-weight: 650; color: var(--s12); letter-spacing: -0.01em; }
+  .doc-sub { color: var(--s9); margin-top: 6px; max-width: 72ch; }
+  .doc-sub b { color: var(--s10); font-weight: 600; }
+  .screen { margin-top: 72px; }
+  .screen > h2 {
+    font-size: 15px; font-weight: 650; color: var(--s12);
+    padding-bottom: 10px; border-bottom: 1px solid var(--s4); margin-bottom: 6px;
+  }
+  .screen > h2 .sc { color: var(--s7); font-weight: 500; margin-right: 10px; font-variant-numeric: tabular-nums; }
+  .rules { color: var(--s9); font-size: 13px; max-width: 78ch; margin-bottom: 20px; }
+  .rules b { color: var(--s10); font-weight: 600; }
+
+  /* the console frame */
+  .frame {
+    position: relative; background: var(--s1); border: 1px solid var(--s5);
+    border-radius: var(--r4); overflow: hidden; display: flex;
+    box-shadow: var(--shadow-float);
+  }
+  .frame + .legend { margin-top: 16px; }
+  .nav { width: 172px; flex: none; background: var(--s2); border-right: 1px solid var(--s4); padding: 12px 8px; }
+  .nav-row { display: flex; align-items: center; gap: 9px; padding: 5px 9px; border-radius: var(--r2); color: var(--s9); font-size: 12.5px; }
+  .nav-row .g { width: 14px; text-align: center; color: var(--s8); font-size: 12px; }
+  .nav-row.on { background: var(--s4); color: var(--s11); }
+  .nav-row.new { outline: 1px dashed var(--run); outline-offset: -1px; }
+  .center { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+  .dock { width: 208px; flex: none; background: var(--s2); border-left: 1px solid var(--s4); padding: 10px; }
+
+  /* dock floors */
+  .floor-t { font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s7); margin: 14px 2px 6px; }
+  .floor-t:first-child { margin-top: 2px; }
+  .drow { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: var(--r1); font-size: 12px; color: var(--s10); }
+  .drow:hover { background: var(--s3); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .drow .meta { margin-left: auto; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: var(--s7); }
+  .muted { color: var(--s7); font-size: 11.5px; padding: 2px 6px; }
+
+  /* greeked content */
+  .gk { height: 8px; border-radius: 2px; background: var(--s4); }
+  .gk.l { width: 82%; } .gk.m { width: 60%; } .gk.s { width: 38%; }
+  .gkrow { display: flex; flex-direction: column; gap: 7px; }
+
+  /* chips / pills */
+  .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: var(--r1); padding: 2px 7px; font-family: ui-monospace, Menlo, monospace; font-size: 10px; border: 1px solid var(--s5); color: var(--s9); background: var(--s3); }
+  .pill .dot { width: 6px; height: 6px; }
+
+  /* transcript blocks */
+  .tblock { border: 1px solid var(--s4); background: var(--s2); border-radius: var(--r2); padding: 9px 11px; font-size: 12.5px; }
+  .tblock .hd { display: flex; align-items: center; gap: 8px; }
+  .tblock .hd .t { color: var(--s11); font-weight: 550; }
+  .tblock .hd .k { font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--s7); }
+  .tblock .bd { margin-top: 7px; color: var(--s9); }
+  .tblock .acts { display: flex; gap: 12px; margin-top: 8px; }
+  .tblock .acts a { color: var(--s9); font-size: 11.5px; text-decoration: none; border-bottom: 1px solid var(--s5); cursor: pointer; }
+  .tblock .acts a:hover { color: var(--s11); }
+
+  /* composer */
+  .composer { border: 1px solid var(--s5); background: var(--s2); border-radius: var(--r4); box-shadow: var(--shadow-composer); }
+  .composer .input { padding: 12px 14px 30px; color: var(--s7); font-size: 13px; }
+  .composer .row { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--s4); padding: 6px 8px; }
+  .cbtn { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: var(--r1); color: var(--s8); font-size: 12px; }
+  .cbtn:hover { background: var(--s3); color: var(--s10); }
+  .cbtn.disabled { color: var(--s6); }
+  .spacer { flex: 1; }
+
+  /* annotations */
+  .ann { position: absolute; z-index: 5; width: 18px; height: 18px; border-radius: 50%; background: var(--run); color: var(--s12); font-size: 11px; font-weight: 650; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 8px 28px; }
+  .legend div { display: flex; gap: 9px; font-size: 12.5px; color: var(--s10); }
+  .legend b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--run); color: var(--s12); font-size: 11px; font-weight: 650; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .legend span b2 { color: var(--s11); }
+
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; color: var(--s10); background: var(--s3); padding: 1px 5px; border-radius: 3px; }
+  .approve { margin-top: 64px; border: 1px solid var(--s5); border-radius: var(--r2); padding: 18px 20px; background: var(--s2); }
+  .approve h2 { font-size: 14px; color: var(--s12); margin-bottom: 8px; }
+  .approve li { margin-left: 18px; color: var(--s10); font-size: 13px; padding: 2px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>coa arc — UI placement contract</h1>
+  <p class="doc-sub"><b>Mid-fidelity by ruling:</b> these mockups fix <b>where surfaces live and their general shape</b> — placement, structure, block anatomy, affordances. Visual detail (exact indicator styling, spacing, motion) is the in-arc Fable model's job under impeccable + the kit. Everything here composes the existing sand-dark world: the 12-step scale, the state vocabulary (blue running · green done · amber needs-you · red critical), the agent identity palette, kit radii and shadows. Greeked bars = content, not design.</p>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S1</span>Composer — mode chip, context health, attach, skill invocation</h2>
+    <p class="rules">The composer stays the floating centered element it is today. Additions live in the existing bottom control row and a new popover. <b>The mode chip is the loudest new element and rides the risk color ramp; the context ring is quiet until it isn't.</b></p>
+    <div class="frame" style="min-height:360px">
+      <div class="center" style="background:var(--s1)">
+        <div style="flex:1; padding: 24px 64px;">
+          <!-- skill popover -->
+          <div style="position:absolute; left:50%; transform:translateX(-50%); bottom:150px; width:420px; border:1px solid var(--s5); background:var(--s2); border-radius:var(--r2); box-shadow:var(--shadow-float); padding:6px; z-index:3">
+            <div class="ann" style="top:-9px; right:-9px">4</div>
+            <div style="padding:4px 8px 6px; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:var(--s7)">/ SKILLS — matching “de”</div>
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; background:var(--s4); border-radius:var(--r1)">
+              <span style="color:var(--s11); font-size:12.5px">/design-review</span>
+              <span class="pill">project</span>
+              <span style="margin-left:auto; font-size:11px; color:var(--s8)">auto-inject</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 8px">
+              <span style="color:var(--s10); font-size:12.5px">/deslop</span>
+              <span class="pill">personal</span>
+              <span style="margin-left:auto; font-size:11px; color:var(--s7)">on demand</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 8px">
+              <span style="color:var(--s10); font-size:12.5px">/debug-systematic</span>
+              <span class="pill">personal · linked</span>
+              <span style="margin-left:auto; font-size:11px; color:var(--s7)">on demand</span>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 0 64px 20px;">
+          <div class="composer" style="max-width:656px; margin:0 auto; position:relative">
+            <div class="ann" style="bottom:8px; left:-9px">1</div>
+            <div class="ann" style="bottom:8px; right:118px">2</div>
+            <div class="ann" style="bottom:8px; right:64px">3</div>
+            <div class="input">/de</div>
+            <div class="row">
+              <span class="cbtn" title="attach">＋</span>
+              <span class="cbtn disabled" title="mic (design intent)">🎙︎</span>
+              <span class="pill" style="border-color:color-mix(in srgb, var(--crit) 45%, transparent); color:var(--crit); background:color-mix(in srgb, var(--crit) 8%, var(--s3))"><span class="dot" style="background:var(--crit)"></span>BYPASS</span>
+              <div class="spacer"></div>
+              <span class="mono" style="font-size:10.5px; color:var(--s8)">fable-5 · high</span>
+              <!-- context ring -->
+              <svg width="16" height="16" viewBox="0 0 16 16" style="flex:none">
+                <circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--s5)" stroke-width="2.5"/>
+                <circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--warn)" stroke-width="2.5" stroke-dasharray="28 41" stroke-linecap="round" transform="rotate(-90 8 8)"/>
+              </svg>
+              <span class="cbtn" style="background:var(--s4); color:var(--s11)">↑</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <div><b>1</b><span><span style="color:var(--s11)">Mode chip</span>, left group of the control row. Four modes, risk-colored: <span style="color:var(--run)">plan</span> (read-only, running-blue) · <span style="color:var(--s10)">manual</span> (neutral s-scale) · <span style="color:var(--warn)">edits</span> (amber) · <span style="color:var(--crit)">bypass</span> (red, filled tint — unmistakable at a glance, no entry gate). Click or shortcut cycles; per-agent default from the registry; effect next tool call.</span></div>
+      <div><b>2</b><span><span style="color:var(--s11)">Context health ring</span> beside the model readout — always visible, fill + state color escalate (green→amber→red); hover reveals exact tokens / window / breakdown. Exact rendering is swappable; the <i>position</i> (right group, beside model) is the contract.</span></div>
+      <div><b>3</b><span><span style="color:var(--s11)">Attach</span> (＋) goes live: images + text files; paste/drag/pick. Disabled with honest tooltip when the active model lacks the capability. Mic stays visible-disabled design intent.</span></div>
+      <div><b>4</b><span><span style="color:var(--s11)">Skill invocation popover</span> on <code>/</code> — Claude-Code-style. Each row: skill name, scope badge (personal / project / linked), injection mode (auto-inject vs on-demand). Composer-anchored, keyboard-first.</span></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S2</span>Model hover card — per-model metadata</h2>
+    <p class="rules">No badges inside the picker rows (ruled). Hovering a model row raises a <b>quiet overview card</b>; the same data drives the composer's live capability state. Source: models.dev catalog + OpenRouter live for OR models.</p>
+    <div class="frame" style="min-height:230px; max-width:640px">
+      <div class="center" style="padding:18px">
+        <div style="width:260px">
+          <div style="display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:var(--r1); color:var(--s10); font-size:12.5px">deepseek-v3.2</div>
+          <div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:var(--s3); border-radius:var(--r1); color:var(--s11); font-size:12.5px">fable-5 <span style="margin-left:auto; color:var(--s7); font-size:10px">hovered</span></div>
+          <div style="display:flex; align-items:center; gap:8px; padding:7px 10px; color:var(--s10); font-size:12.5px">glm-4.7</div>
+        </div>
+        <div style="position:absolute; left:300px; top:34px; width:270px; border:1px solid var(--s5); background:var(--s2); border-radius:var(--r2); box-shadow:var(--shadow-float); padding:12px 14px">
+          <div class="ann" style="top:-9px; right:-9px">1</div>
+          <div style="display:flex; align-items:baseline; gap:8px"><span style="color:var(--s12); font-weight:600; font-size:13px">fable-5</span><span class="mono" style="font-size:10px; color:var(--s7)">anthropic</span></div>
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin-top:10px; font-size:12px">
+            <span style="color:var(--s8)">context</span><span class="mono" style="color:var(--s11)">200k <span style="color:var(--s7)">· 64k out</span></span>
+            <span style="color:var(--s8)">modality</span><span style="color:var(--s11)">text · vision <span style="color:var(--s6)">· no docs</span></span>
+            <span style="color:var(--s8)">pricing</span><span class="mono" style="color:var(--s11)">$3 / $15 <span style="color:var(--s7)">per MTok</span></span>
+            <span style="color:var(--s8)">reasoning</span><span style="color:var(--s11)">effort low–max</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <div><b>1</b><span>One card, one shape, every provider. Fields: context window (+ max output), modalities (drives S1's attach state), pricing, reasoning support. Absent metadata renders as absent (<span style="color:var(--s6)">quiet</span>), never guessed.</span></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S3</span>Transcript blocks — spawn, completion, agent-to-agent</h2>
+    <p class="rules">Three new first-class blocks in the transcript, replacing today's quiet system line. All three are <b>compact cards in the tool-block register</b> — agent identity color on the left glyph, state color on the status, kit radii/borders. They render from the <code>subagent</code> TurnFrame seam that already exists.</p>
+    <div class="frame" style="max-width:760px">
+      <div class="center" style="padding:20px 28px; display:flex; flex-direction:column; gap:12px">
+        <div class="tblock" style="position:relative">
+          <div class="ann" style="top:-9px; left:-9px">1</div>
+          <div class="hd"><span style="color:var(--agent-teal)">◇</span><span class="t">researcher</span><span class="k">spawned</span><span class="pill" style="margin-left:auto"><span class="dot" style="background:var(--run)"></span>running</span></div>
+          <div class="bd">“Survey the adapter seams and report divergence” — <span class="mono" style="font-size:10.5px; color:var(--s7)">worktree wt/researcher-01</span></div>
+          <div class="acts"><a>Open agent →</a></div>
+        </div>
+        <div class="tblock" style="position:relative">
+          <div class="ann" style="top:-9px; left:-9px">2</div>
+          <div class="hd"><span style="color:var(--agent-teal)">◇</span><span class="t">researcher</span><span class="k">finished</span><span class="pill" style="margin-left:auto"><span class="dot" style="background:var(--ok)"></span>completed</span></div>
+          <div class="bd" style="border-left:1px solid var(--s5); padding-left:10px">
+            <div class="gkrow"><div class="gk l"></div><div class="gk m"></div></div>
+            <div style="margin-top:6px; font-size:11px; color:var(--s7)">result delivered to this agent's context · 2.1k tokens</div>
+          </div>
+          <div class="acts"><a>Open agent →</a><a>Expand output</a></div>
+        </div>
+        <div class="tblock" style="position:relative">
+          <div class="ann" style="top:-9px; left:-9px">3</div>
+          <div class="hd"><span style="color:var(--agent-violet)">◇</span><span class="t">planner</span><span class="k">→ researcher · message</span></div>
+          <div class="bd"><div class="gkrow"><div class="gk m"></div></div></div>
+          <div class="acts"><a>Open thread →</a><a>Open agent →</a></div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <div><b>1</b><span><span style="color:var(--s11)">Spawn block</span>: agent identity color + name, the spawn description verbatim, live status pill (state colors), worktree binding when isolated (ties to S4), jump-to-child.</span></div>
+      <div><b>2</b><span><span style="color:var(--s11)">Completion block</span>: the child's result <i>is delivered</i> — capped preview inline, full output expandable via the existing overlay, and the parent model receives the text (no more “read its transcript”). Errored/stopped variants use warn/crit.</span></div>
+      <div><b>3</b><span><span style="color:var(--s11)">A2A message block</span>: from→to in agent colors, preview, jump to thread or agent. Same block both directions.</span></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S4</span>Work dock — live Subagents + Worktree floors</h2>
+    <p class="rules">The right dock keeps its floor anatomy (mono uppercase floor titles, quiet rows). Two stubs go live. <b>Shape only — rows are the contract, exact metadata per row is the arc's call.</b></p>
+    <div class="frame" style="max-width:420px; min-height:300px">
+      <div class="dock" style="width:100%; border-left:none">
+        <div class="floor-t">Subagents</div>
+        <div style="position:relative">
+          <div class="ann" style="top:-4px; right:-4px">1</div>
+          <div class="drow"><span class="dot" style="background:var(--agent-teal)"></span>researcher<span class="pill" style="padding:1px 5px"><span class="dot" style="background:var(--run)"></span></span><span class="meta">$0.42</span></div>
+          <div class="drow" style="padding-left:20px"><span class="dot" style="background:var(--agent-sky)"></span>reader-1<span class="meta">done</span></div>
+          <div class="drow"><span class="dot" style="background:var(--agent-violet)"></span>planner<span class="meta">$0.11</span></div>
+        </div>
+        <div class="floor-t">Worktree</div>
+        <div style="position:relative">
+          <div class="ann" style="top:-4px; right:-4px">2</div>
+          <div class="drow mono" style="font-size:10.5px">wt/researcher-01<span class="meta">+3 −1</span></div>
+          <div class="drow mono" style="font-size:10.5px; color:var(--s8)">main (shared)<span class="meta">2 agents</span></div>
+        </div>
+        <div class="floor-t">Changes</div>
+        <div class="muted">…existing floor, unchanged…</div>
+      </div>
+    </div>
+    <div class="legend">
+      <div><b>1</b><span><span style="color:var(--s11)">Subagents floor goes live</span>: this session's children, nested by depth, agent color + status + tree-rooted spend (if the cost roll-up lands). Click jumps to the child. This is the “right sidebar” home for subagents.</span></div>
+      <div><b>2</b><span><span style="color:var(--s11)">Worktree floor goes live</span>: which tree each agent is bound to — isolated worktrees vs the shared root (the ADR-0034 hazard made visible). Diffstat per worktree.</span></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S5</span>Library — the skills &amp; MCP manager surface <span class="mono" style="font-size:10px; color:var(--warn)">· revised</span></h2>
+    <p class="rules">Redrawn task-first (the VS Code extensions-view shape: <b>search + one list + detail pane</b>). Opening Library answers “what does my agent have right now?” — so active items lead, with their scope as a badge, and <b>Discovered</b> is a quiet trailing group, not a peer section. Everything actionable lives in the detail pane; rows stay scannable.</p>
+    <div class="frame" style="min-height:420px">
+      <div class="nav">
+        <div class="nav-row"><span class="g">❯</span>Chat</div>
+        <div class="nav-row"><span class="g">⚑</span>Flags</div>
+        <div class="nav-row"><span class="g">◷</span>Timeline</div>
+        <div class="nav-row on new" style="position:relative"><span class="g">⧉</span>Library<div class="ann" style="top:2px; right:-8px">1</div></div>
+        <div class="nav-row"><span class="g">◇</span>Agents</div>
+        <div class="nav-row"><span class="g">⬡</span>Auth</div>
+        <div class="nav-row"><span class="g">$</span>Usage</div>
+      </div>
+      <div class="center" style="display:flex; flex-direction:row">
+        <div style="width:295px; flex:none; border-right:1px solid var(--s4); padding:12px 10px; position:relative">
+          <div class="ann" style="top:10px; right:6px">2</div>
+          <div style="display:flex; gap:10px; font-size:12px; margin-bottom:8px; padding:0 2px">
+            <span style="color:var(--s12); font-weight:600">Skills</span>
+            <span style="color:var(--s8)">MCP servers</span>
+          </div>
+          <div style="border:1px solid var(--s5); background:var(--s1); border-radius:var(--r1); padding:5px 8px; font-size:12px; color:var(--s7); margin-bottom:10px">⌕ search skills…</div>
+          <div class="drow" style="background:var(--s3)"><span style="color:var(--s11)">design-review</span><span class="dot" style="background:var(--warn); margin-left:4px" title="drifted"></span><span class="meta">project</span></div>
+          <div class="drow"><span style="color:var(--s11)">deslop</span><span class="meta">personal</span></div>
+          <div class="drow"><span style="color:var(--s11)">impeccable</span><span class="meta">personal</span></div>
+          <div class="floor-t" style="position:relative">Discovered · 2<div class="ann" style="top:-3px; right:0">3</div></div>
+          <div class="drow" style="color:var(--s9)">systematic-debugging<span class="meta">~/.claude</span></div>
+          <div class="drow" style="color:var(--s9)">tdd<span class="meta">~/.codex</span></div>
+        </div>
+        <div style="flex:1; padding:16px 20px; position:relative">
+          <div class="ann" style="top:12px; right:12px">4</div>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span style="color:var(--s12); font-weight:650; font-size:15px">design-review</span>
+            <span class="pill">project · copied</span>
+            <span class="pill" style="color:var(--warn); border-color:color-mix(in srgb, var(--warn) 40%, transparent)">drifted from source</span>
+          </div>
+          <div class="mono" style="font-size:10.5px; color:var(--s7); margin-top:5px">copied from ~/.claude/skills/design-review · hash 8f2c… ≠ source</div>
+          <div class="gkrow" style="max-width:56ch; margin-top:14px"><div class="gk l"></div><div class="gk m"></div></div>
+          <div style="display:flex; gap:10px; margin-top:16px; font-size:12px">
+            <span style="border:1px solid var(--s5); border-radius:var(--r1); padding:4px 10px; color:var(--s11); background:var(--s3); cursor:pointer">Re-sync from source</span>
+            <span style="border:1px solid var(--s5); border-radius:var(--r1); padding:4px 10px; color:var(--s9); cursor:pointer">Unlink</span>
+          </div>
+          <div class="floor-t" style="margin-top:22px">Injection</div>
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:5px 16px; font-size:12px; max-width:380px">
+            <span style="color:var(--s8)">default</span><span style="color:var(--s11)">on demand (progressive disclosure)</span>
+            <span style="color:var(--s8)">reviewer agent</span><span style="color:var(--s11)">auto-inject</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <div><b>1</b><span><span style="color:var(--s11)">New app-scoped nav row.</span> One surface owns skills + MCP; the Skills/MCP toggle sits atop the list column. MCP rows swap the drift dot for a health dot (state colors) + enable toggle; same list+detail shape.</span></div>
+      <div><b>2</b><span><span style="color:var(--s11)">One searchable list</span> — active items first (scope as trailing badge: personal / project), selected row highlighted. No stacked scope sections to scan past.</span></div>
+      <div><b>3</b><span><span style="color:var(--s11)">Discovered</span> is a quiet trailing group (scanner results from <code>~/.claude</code>, <code>.claude/</code>, <code>~/.codex</code>, <code>.mcp.json</code>…). Selecting one shows the same detail pane with <b>Link to personal / Copy to project</b> as the primary actions.</span></div>
+      <div><b>4</b><span><span style="color:var(--s11)">Detail pane owns all action</span>: provenance line (source + hash) with re-sync for copied items, unlink, and the injection table — default mode plus per-agent overrides (auto-inject vs on-demand), editable here AND reflected in the agent's editor on the Agents surface.</span></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S6</span>Viewer — read-only tabs, VS-Code-style <span class="mono" style="font-size:10px; color:var(--warn)">· revised</span></h2>
+    <p class="rules">Redrawn per ruling: <b>not session-scoped, and tabbed like an editor.</b> The Viewer is where every “look at this” affordance in coa lands: click a file path, a truncated tool card's “view more”, or a session's “view system prompt” → it opens as a tab here and the console switches to it. Tabs stay materialized (the instant-navigation rule). Read-only always; “open in editor” is the escape hatch.</p>
+    <div class="frame" style="min-height:320px">
+      <div class="nav">
+        <div class="nav-row"><span class="g">❯</span>Chat</div>
+        <div class="nav-row on new" style="position:relative"><span class="g">≣</span>Viewer<div class="ann" style="top:2px; right:-8px">1</div></div>
+        <div class="nav-row"><span class="g">⚑</span>Flags</div>
+        <div class="nav-row"><span class="g">◷</span>Timeline</div>
+      </div>
+      <div class="center">
+        <div style="display:flex; align-items:stretch; border-bottom:1px solid var(--s4); position:relative">
+          <div class="ann" style="top:8px; right:12px">2</div>
+          <div style="display:flex; align-items:center; gap:7px; padding:8px 14px; background:var(--s3); border-right:1px solid var(--s4); font-size:12px; color:var(--s11)">system prompt <span style="color:var(--agent-teal)">◇</span><span class="mono" style="font-size:9.5px; color:var(--s7)">researcher</span><span style="color:var(--s7); margin-left:2px">×</span></div>
+          <div style="display:flex; align-items:center; gap:7px; padding:8px 14px; border-right:1px solid var(--s4); font-size:12px; color:var(--s9)" class="mono">session.ts<span style="color:var(--s6); margin-left:2px">×</span></div>
+          <div style="display:flex; align-items:center; gap:7px; padding:8px 14px; border-right:1px solid var(--s4); font-size:12px; color:var(--s9)">tool output · Bash<span style="color:var(--s6); margin-left:2px">×</span></div>
+        </div>
+        <div style="flex:1; padding:14px 18px; position:relative">
+          <div class="ann" style="top:12px; right:12px">3</div>
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
+            <span class="mono" style="font-size:10.5px; color:var(--s7)">compiled 14:32 · prompt v7 · includes 2 injected skills</span>
+            <span class="pill" style="color:var(--warn); border-color:color-mix(in srgb, var(--warn) 40%, transparent)">drifted since compile</span>
+            <span style="margin-left:auto"><a style="color:var(--s9); font-size:11.5px; border-bottom:1px solid var(--s5); cursor:pointer">Open in editor</a></span>
+          </div>
+          <div class="gkrow" style="max-width:60ch"><div class="gk l"></div><div class="gk l"></div><div class="gk m"></div><div class="gk l"></div><div class="gk s"></div><div class="gk l"></div><div class="gk m"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <div><b>1</b><span><span style="color:var(--s11)">App-scoped nav row, mirrors Chat's anatomy.</span> Not tied to one agent — tabs can hold items from any session or none.</span></div>
+      <div><b>2</b><span><span style="color:var(--s11)">Editor-style tab strip</span>: files (mono), system prompts (with agent identity), tool outputs. Every open tab stays materialized; close with ×. All transcript “view” affordances route here and switch surface.</span></div>
+      <div><b>3</b><span><span style="color:var(--s11)">Read-only pane</span> on the transcript's code renderer. Prompt tabs carry compile time, version, injected-skills count, and the existing drift signal; file tabs get syntax highlighting via the confinement path.</span></div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <section class="screen">
+    <h2><span class="sc">S7</span>Light theme — direction strip (not a mockup)</h2>
+    <p class="rules">Per the kit's own contract a theme is a whole file at equal quality, so there is nothing placement-shaped to mock. This strip fixes only the <b>identity direction</b>: “sand light, the re-tailored brass identity” — warm paper-sand grounds, the same state vocabulary re-tuned for light, brass as the recovered accent identity. The arc authors the full 12-step scale + shadows + scrim and verifies every primitive in both themes.</p>
+    <div style="display:flex; gap:0; border-radius:var(--r2); overflow:hidden; border:1px solid var(--s5); max-width:760px">
+      <div style="flex:1; background:#f4f2ec; padding:18px">
+        <div style="font-size:12px; color:#63604f; font-family:ui-monospace,Menlo,monospace">sand-light (direction)</div>
+        <div style="margin-top:10px; background:#fbfaf7; border:1px solid #dedbd0; border-radius:6px; padding:10px 12px; box-shadow:0 8px 24px rgba(90,80,50,0.10)">
+          <div style="color:#21201c; font-size:13px; font-weight:600">Card on paper ground</div>
+          <div style="color:#6f6b5c; font-size:12px; margin-top:3px">secondary ink · warm neutrals, brass accent</div>
+          <div style="margin-top:8px; display:flex; gap:6px">
+            <span style="width:14px;height:14px;border-radius:50%;background:#4a6cbe" title="run"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#3f7d4e" title="ok"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#b07d1e" title="warn"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#b23f38" title="crit"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:#9a7b2f; margin-left:10px" title="brass"></span>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1; background:var(--s1); padding:18px">
+        <div style="font-size:12px; color:var(--s7); font-family:ui-monospace,Menlo,monospace">sand-dark (incumbent)</div>
+        <div style="margin-top:10px; background:var(--s2); border:1px solid var(--s5); border-radius:6px; padding:10px 12px">
+          <div style="color:var(--s12); font-size:13px; font-weight:600">Same card, same anatomy</div>
+          <div style="color:var(--s9); font-size:12px; margin-top:3px">the pair must feel like one product</div>
+          <div style="margin-top:8px; display:flex; gap:6px">
+            <span style="width:14px;height:14px;border-radius:50%;background:var(--run)"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:var(--ok)"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:var(--warn)"></span>
+            <span style="width:14px;height:14px;border-radius:50%;background:var(--crit)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================================================================== -->
+  <div class="approve">
+    <h2>APPROVED 2026-08-07 — as guidance, not contract</h2>
+    <p style="color:var(--s10); font-size:13px; margin-bottom:10px">Maintainer ruling: the in-arc frontend agent has <b style="color:var(--s11)">maximum design freedom</b>. Only the FUNCTIONALITY below is binding — what exists, what each affordance does. The placements and shapes drawn above are the planning session's suggested defaults; the arc's Fable agent may re-derive any of them with better design judgment (journaling the rationale when it deviates materially).</p>
+    <h2 style="font-size:13px">Binding functionality</h2>
+    <li>A visible per-session mode control; four modes; risk-coded so bypass is unmistakable at a glance.</li>
+    <li>An always-available context-health readout reflecting the active model's real window; detail on demand.</li>
+    <li>Spawn / completion / A2A rendered as first-class transcript elements with jump-to-agent/thread affordances; completion delivers the child's result into the parent (inline preview + expandable, parent model receives it).</li>
+    <li>Subagents visible live in the right dock (children, status, jump); worktree bindings visible.</li>
+    <li>A skills+MCP management surface: search/discover/link-or-copy (copy carries provenance + drift + re-sync), per-agent injection config, per-server MCP health+enable, <code>/</code> invocation from the composer.</li>
+    <li>A read-only viewer holding multiple opened items (files, system prompts, tool outputs — any session), all “view” affordances route to it, opened items stay materialized.</li>
+    <li>Light theme = full re-tailored sand-light scale in the S7 identity direction; every primitive works in both themes.</li>
+    <li>All placement, layout, spacing, motion, iconography, copy: the in-arc Fable model's craft under impeccable + docs/UI.md + the kit, with the screens above as suggested defaults.</li>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,208 @@
+{
+ "ruling": "R3 \u2014 Decision log / provenance system: archive GovernanceLog, vouch/vouchOf, subtractiveFeed/surfaceSubtractiveChange, the self-mod passthrough, the readDecision/decisionsByTarget/why/getDecision RPC verbs, the `coa why` / `coa decision` CLI verbs, and the workbench why/get_decision agent tools. Claim: write side never ran; every read returns empty forever.",
+ "verdict": "VERIFIED",
+ "evidence": "All named symbols exist and are dead as described. (1) Definitions: GovernanceLog + vouch/vouchOf/surfaceSubtractiveChange/subtractiveFeed/decisionLog at packages/core/src/governance/governance-log.ts:41-121; facade passthroughs at packages/core/src/governance/governance.ts:66-95 (incl. the self-mod passthrough, governance.ts:93-95, delegating to selfModGuard in governance/selfmod.ts:23 \u2014 the whole selfmod.ts module is dead, not just the passthrough). (2) Write side never runs: rg for `decisionLog.append`, `.vouch(`, `.surfaceSubtractiveChange(`, `selfModGuard(` across packages/ and apps/ excluding *.test.ts finds ONLY the facade's own passthroughs and the definitions \u2014 zero live callers. The only producer of `governance` WAL frames is governance-log.ts itself (rg `.appendGovernance(` \u2192 3 hits, all in governance-log.ts); kernel.appendGovernance (kernel.ts:163) has no other caller, and kernel.applyFrame treats kind 'governance' as a no-op (kernel.ts:367). Therefore decisionLog.read \u2192 undefined, findByTarget \u2192 [], vouchOf \u2192 undefined, subtractiveFeed \u2192 [] forever at runtime \u2014 the \"every read returns empty\" claim is mechanically true. (3) Read-side wiring (all part of the removal set): RPC verbs `getDecision`/`why` at packages/core/src/rpc/console-handlers.ts:54-55 fed by ports readDecision/decisionsByTarget (console-handlers.ts:36-38; note: readDecision/decisionsByTarget are the injected port names, not RPC verbs \u2014 the wire verbs are getDecision/why; naming imprecision only, same dead surface); daemon wiring at packages/core/src/session/daemon.ts:241-242 (console) and 362-363 (workbench inspect deps). CLI verbs `why`/`decision` at apps/cli/src/cli.ts:60-61 (+ usage string line 68, comment line 43). Workbench tools `why`/`getDecision` at packages/core/src/workbench/inspect.ts:46-60, dispatch specs at governed-tools.ts:112,114, catalogue entries at catalogue.ts:47,49, renderers/predicates at render-result.ts:64-65,106,232-244, starter-package registration at session/agent-registry.ts:46-47 ('Core' toolRefs), console descriptors at packages/console-transcript/src/dense/toolRegistry.ts:171,173-179 (Info/Gavel icons, lines 11,13, become unused). Barrel exports at packages/core/src/index.ts:88-95 (GovernanceLog block), 103-108 (selfmod block), 206-207+211-212 (why/getDecision/WhyResult/GetDecisionResult). Shared schema packages/shared/src/governance.ts (decision/vouch/subtractive-change/cap-record payloads \u2014 cap-record also has zero writers) re-exported via shared/src/index.ts:13 and referenced by shared/src/change-event.ts:79-80; toolRequestSchema's 'why' variant at shared/src/tool.ts:40 (toolRequestSchema has no live consumer at all). No desktop/console-viewmodel/console-kit/adapter code calls any of these verbs (single rg over all other packages: only test-fixture name coincidences in adapter-claude-sdk tests, which fabricate a tool named 'why').",
+ "contradictions": "",
+ "recentCommitInteractions": "No interaction. Full file list of the 6 commits since the plan (3536c28, d97c118, f2936ec, dabc77c, 0fd8083, faf5e09) touches the R3 surface nowhere: 3536c28 = pnpm-workspace.yaml only; d97c118 = docs only; f2936ec = desktop shell + console-viewmodel (no getDecision/why/decisionLog references \u2014 verified by rg over those packages); dabc77c = transcript-projection + adapter live test; faf5e09 = notify/session-handlers. The one governance-directory touch is 0fd8083 on packages/core/src/governance/ledger.ts + ledger.test.ts \u2014 that is the D135 audit Ledger (a KEEP surface, not named by R3; it gained a `root` spend-attribution field). A `git log -p faf5e09~1..HEAD | grep '^+'` for readDecision|decisionsByTarget|getDecision|get_decision|why|vouch|subtractive|GovernanceLog|selfMod yields only one incidental comment (\"record why\") in transcript-projection.ts. No new callers or readers were added to anything R3 removes.",
+ "inventory": [
+  {
+   "path": "packages/core/src/governance/governance-log.ts",
+   "action": "archive",
+   "symbols": "whole file (GovernanceLog, GovernanceSpine, DecisionEntry, VouchEntry, SubtractiveEntry, Principal)",
+   "notes": "The core removal. DecisionEntry type is imported by console-handlers.ts and inspect.ts \u2014 both imports go with their removed members."
+  },
+  {
+   "path": "packages/core/src/governance/governance-log.test.ts",
+   "action": "delete",
+   "symbols": "whole file"
+  },
+  {
+   "path": "packages/core/src/governance/selfmod.ts",
+   "action": "archive",
+   "symbols": "whole file (selfModGuard, SelfModVerdict, Promotion, EvalResult)",
+   "notes": "Ruling names only 'the self-mod passthrough' but the entire module is dead: sole non-test callers are the Governance passthrough and the index barrel. NOTE: adapters use a DIFFERENT EvalResult from @coa/spi (runtime-adapter.ts:159) \u2014 unaffected."
+  },
+  {
+   "path": "packages/core/src/governance/selfmod.test.ts",
+   "action": "delete",
+   "symbols": "whole file"
+  },
+  {
+   "path": "packages/core/src/governance/governance.ts",
+   "action": "edit",
+   "symbols": "decisionLog getter (66-68), surfaceSubtractiveChange (71-73), subtractiveFeed (75-77), vouch (80-82), vouchOf (84-86), selfModGuard (93-95), imports of governance-log.js (4-10) and selfmod.js (12), the `log` field (32,39)",
+   "notes": "SEAM FILE \u2014 KEEP capState/charge (cost cap), record/ledgerEntries (D135 ledger, just extended by 0fd8083), sandboxPolicy. Only the GovernanceLog/selfmod members leave."
+  },
+  {
+   "path": "packages/core/src/governance/governance.test.ts",
+   "action": "edit",
+   "symbols": "tests at 35-41 (decision log + visibility floor) and 53-56 (vouch); the selfModGuard assertion at 48-50 inside the sandbox test (keep the sandbox half of that test)"
+  },
+  {
+   "path": "packages/core/src/workbench/inspect.ts",
+   "action": "edit",
+   "symbols": "why (46-49), getDecision (52-60), WhyResult (29), GetDecisionResult (30), InspectDeps.decisionsByTarget/readDecision (21,23), DecisionEntry import (3)",
+   "notes": "SEAM FILE \u2014 KEEP runChecks, contextStatus, getSpec and the rest of InspectDeps."
+  },
+  {
+   "path": "packages/core/src/workbench/inspect.test.ts",
+   "action": "edit",
+   "symbols": "why/getDecision describes (44-60), the decision fixture (16-) and deps stubs (25-26), imports (4,7,10)"
+  },
+  {
+   "path": "packages/core/src/workbench/governed-tools.ts",
+   "action": "edit",
+   "symbols": "SPECS entries why (112) and get_decision (114); getDecision/why imports (20,23)"
+  },
+  {
+   "path": "packages/core/src/workbench/governed-tools.test.ts",
+   "action": "edit",
+   "symbols": "deps stubs decisionsByTarget/readDecision (29-30); catalogue expectations 'get_decision' (111), 'why' (118,122)"
+  },
+  {
+   "path": "packages/core/src/workbench/catalogue.ts",
+   "action": "edit",
+   "symbols": "TOOL_CATALOGUE entries why (47) and get_decision (49)"
+  },
+  {
+   "path": "packages/core/src/workbench/catalogue.test.ts",
+   "action": "edit",
+   "symbols": "assertions at 20-21, 27-28, 39"
+  },
+  {
+   "path": "packages/core/src/workbench/render-result.ts",
+   "action": "edit",
+   "symbols": "RENDERERS why/get_decision (64-65), OK_PREDICATES get_decision (106), renderWhy (232-238), renderDecision (240-244), WhyResult/GetDecisionResult imports (8)"
+  },
+  {
+   "path": "packages/core/src/workbench/render-result.test.ts",
+   "action": "edit",
+   "symbols": "why/get_decision render tests (228-256) and the get_decision half of the ok-gate test (339-342)"
+  },
+  {
+   "path": "packages/core/src/rpc/console-handlers.ts",
+   "action": "edit",
+   "symbols": "getDecision/why verbs (54-55), ConsoleReadPorts.readDecision/decisionsByTarget (36-38), idParams/targetParams (45-46), DecisionEntry import (13), doc-comment mention (24-25)",
+   "notes": "SEAM FILE \u2014 KEEP capState/flagsForUser/listTimeline verbs, buildRegistryHandlers, buildAgentRegistryHandlers."
+  },
+  {
+   "path": "packages/core/src/rpc/console-handlers.test.ts",
+   "action": "edit",
+   "symbols": "ports stubs (27-28), getDecision/why tests (88-124), catalogue-list entries 'getDecision'/'why' (143,145), DecisionEntry import (12)"
+  },
+  {
+   "path": "packages/core/src/session/daemon.ts",
+   "action": "unwire",
+   "symbols": "readDecision/decisionsByTarget console ports (241-242) and inspect ports (362-363); doc-comment mentions (44, 167, ~319)",
+   "notes": "SEAM FILE \u2014 capState/charge/record/sandboxPolicy wiring (137-140, 239, 361, 489) stays."
+  },
+  {
+   "path": "packages/core/src/session/daemon-console.test.ts",
+   "action": "edit",
+   "symbols": "the seeded-decision test (20-35)",
+   "notes": "capState/flagsForUser tests stay."
+  },
+  {
+   "path": "packages/core/src/session/agent-registry.ts",
+   "action": "edit",
+   "symbols": "'why','get_decision' in the Core starter package toolRefs (46-47)"
+  },
+  {
+   "path": "apps/cli/src/cli.ts",
+   "action": "edit",
+   "symbols": "READS.why (60), READS.decision (61), usage string (68), doc comment (43)"
+  },
+  {
+   "path": "apps/cli/src/cli.test.ts",
+   "action": "edit",
+   "symbols": "decisionLog.append seed (29), 'why prints...' test (51-), 'decision prints null...' test (61-)"
+  },
+  {
+   "path": "packages/console-transcript/src/dense/toolRegistry.ts",
+   "action": "edit",
+   "symbols": "why descriptor (171), get_decision descriptor (173-179), now-unused Info (13) and Gavel (11) icon imports"
+  },
+  {
+   "path": "packages/console-transcript/src/dense/toolRegistry.test.ts",
+   "action": "edit",
+   "symbols": "get_decision/why describe tests (62-69)"
+  },
+  {
+   "path": "packages/core/src/index.ts",
+   "action": "unwire",
+   "symbols": "governance-log export block (88-95), selfmod export block (103-108), why/getDecision/WhyResult/GetDecisionResult from the inspect export block (206-207, 211-212)"
+  },
+  {
+   "path": "packages/shared/src/governance.ts",
+   "action": "archive",
+   "symbols": "whole file (decision/vouch/cap-record/subtractive-change payload schemas, governancePayloadSchema, GovernancePayload)",
+   "notes": "NOT named by the ruling but entangled: its only consumers are governance-log.ts, kernel.appendGovernance, and change-event.ts's 'governance' event kind. cap-record also has zero writers. If archived, also remove shared/src/index.ts:13 re-export, the governance member of changeEvent union at shared/src/change-event.ts:78-81, kernel.appendGovernance (kernel.ts:163-172) and applyFrame case 'governance' (kernel.ts:367). Alternative: leave the spine schema in place as inert \u2014 then keep this file and its test."
+  },
+  {
+   "path": "packages/shared/src/governance.test.ts",
+   "action": "delete",
+   "symbols": "whole file",
+   "notes": "Goes iff shared/src/governance.ts is archived."
+  },
+  {
+   "path": "packages/shared/src/tool.ts",
+   "action": "edit",
+   "symbols": "the 'why' variant of toolRequestSchema (40)",
+   "notes": "toolRequestSchema has no live consumers anywhere; the variant is dead either way."
+  },
+  {
+   "path": "packages/core/src/governance/ledger.ts",
+   "action": "keep",
+   "symbols": "whole file",
+   "notes": "KEEP \u2014 D135 ledger; extended by recent commit 0fd8083 (spend-to-root attribution). Its line-10 doc comment mentions 'the D73 Decision-log entry text'; optional comment touch-up only."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/tool-frame.test.ts",
+   "action": "keep",
+   "symbols": "'why' at line 9",
+   "notes": "Name coincidence \u2014 a fabricated tool name in a fixture; unaffected by the removal."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/mcp-tools.test.ts",
+   "action": "keep",
+   "symbols": "'why' at 29,34",
+   "notes": "Same \u2014 fabricated RegisteredTool fixture."
+  },
+  {
+   "path": "packages/adapter-claude-sdk/src/render-native.test.ts",
+   "action": "keep",
+   "symbols": "'why' at 69,75",
+   "notes": "Same \u2014 arbitrary allow-list fixture value."
+  }
+ ],
+ "testsAffected": [
+  "packages/core/src/governance/governance-log.test.ts (delete whole file)",
+  "packages/core/src/governance/selfmod.test.ts (delete whole file)",
+  "packages/shared/src/governance.test.ts (delete whole file if the shared schema is archived)",
+  "packages/core/src/governance/governance.test.ts (edit: tests 35-41, 48-50 partial, 53-56)",
+  "packages/core/src/workbench/inspect.test.ts (edit: 44-60 + fixture/deps 16-26)",
+  "packages/core/src/workbench/governed-tools.test.ts (edit: 29-30, 111, 118, 122)",
+  "packages/core/src/workbench/catalogue.test.ts (edit: 20-21, 27-28, 39)",
+  "packages/core/src/workbench/render-result.test.ts (edit: 228-256, 339-342)",
+  "packages/core/src/rpc/console-handlers.test.ts (edit: 12, 27-28, 88-124, 143, 145)",
+  "packages/core/src/session/daemon-console.test.ts (edit: test 20-35)",
+  "packages/console-transcript/src/dense/toolRegistry.test.ts (edit: 62-69)",
+  "apps/cli/src/cli.test.ts (edit: 29, 51-62)"
+ ],
+ "sharedFiles": [
+  "packages/core/src/index.ts",
+  "packages/shared/src/index.ts",
+  "packages/core/src/session/daemon.ts",
+  "packages/core/src/rpc/console-handlers.ts",
+  "apps/cli/src/cli.ts",
+  "packages/core/src/workbench/governed-tools.ts",
+  "packages/core/src/workbench/catalogue.ts",
+  "packages/core/src/workbench/render-result.ts",
+  "packages/core/src/session/agent-registry.ts",
+  "packages/console-transcript/src/dense/toolRegistry.ts",
+  "packages/core/src/governance/governance.ts",
+  "packages/shared/src/change-event.ts",
+  "packages/core/src/kernel.ts",
+  "packages/shared/src/tool.ts"
+ ]
+}
