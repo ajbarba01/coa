@@ -1975,7 +1975,7 @@ function depsHeldOpen(
  * result (here, an `error` + boundary) for the ABANDONED turn — before letting the loop
  * resume waiting on the same open feed. Used to prove the user-Stop path (`interruptSession`)
  * actually uses the reported turn-level handle rather than falling back to a whole-query
- * abort, and that `query.stopped` alone drops that residual result.
+ * abort, and that the turn's `stopped` phase alone drops that residual result.
  */
 class TurnInterruptAdapter implements RuntimeAdapter {
   readonly consumed: string[] = [];
@@ -1994,7 +1994,7 @@ class TurnInterruptAdapter implements RuntimeAdapter {
     this.init.onTurnInterrupt?.(async () => {
       this.interruptCalls += 1;
       // The abandoned turn's residual terminal result — a real SDK turn-level interrupt can
-      // still surface one. `query.stopped` is already true by the time this runs, so it must
+      // still surface one. The turn is already `stopped` by the time this runs, so it must
       // never reach the session sink or the transcript.
       this.init.onTurn?.({ t: 'error', message: 'interrupted mid-flight', origin: 'loop' });
       this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
@@ -2226,11 +2226,54 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     // The abandoned turn's residual result never surfaces: no error frame, no error status.
     expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(false);
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
-    // Nothing renders below the `interrupted` marker — `query.stopped` is the sole guard
+    // Nothing renders below the `interrupted` marker — the `stopped` phase is the sole guard
     // for this never-an-error guarantee.
     const interruptedAt = pushes.findIndex((p) => p.kind === 'turn' && p.frame.t === 'interrupted');
     expect(interruptedAt).toBeGreaterThan(-1);
     expect(pushes.slice(interruptedAt + 1).some((p) => p.kind === 'turn')).toBe(false);
+  });
+
+  it('re-arms the surviving query on the next send, so the turn AFTER a stop renders instead of staying inert', async () => {
+    // The other half of the turn-level stop: the previous test proves the abandoned turn
+    // goes quiet, this one proves the quiet ends. A query that stayed inert would swallow
+    // every later turn silently — the user sends, the model answers, and nothing appears.
+    const adapters: TurnInterruptAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new TurnInterruptAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush();
+    await handlers['interruptSession']!.handle({ id: sessionId });
+    await flush();
+    await flush();
+    const beforeNextSend = pushesOf(conn.pushes).length;
+
+    await handlers['createSession']!.handle({ input: 'again', conversationId: 'h1' });
+    await flush();
+    await flush();
+
+    // ONE adapter still: a turn-level stop closes the turn, never the held-open query.
+    expect(adapters.length).toBe(1);
+    expect(adapters[0]?.consumed).toEqual(['go', 'again']);
+    // …and the new turn's frames reach the connection, so the inert window ended with the
+    // turn it belonged to.
+    expect(
+      pushesOf(conn.pushes)
+        .slice(beforeNextSend)
+        .some((p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text === 'partial'),
+    ).toBe(true);
   });
 
   it('re-establishes after an interrupt so the next turn runs instead of hanging on the dead query (a user stop, never an error)', async () => {
