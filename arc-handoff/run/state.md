@@ -34,7 +34,7 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | 77e6dd4 | Stage 2 COMPLETE except C4: C1, de-slop, C2 (all 3 parts, adapter unification landed), the cost-cap archive (R1), the Q7 cleanups, C3 built+verified (including the turn-lifecycle state machine, fa437a1..77e6dd4), Q9 archival, C5 complete+verified (the data-loss fix f59bdc3, the honesty fixes incl. 7852763, a real hermeticity defect fixed at 7c379ad). All gates green (2928 tests, depcruise 418 modules, docs 60 — pre-Stage-4-retirement count). **STILL OWED: two small turn-lifecycle leftovers (ITEM 5a/5b), running now as wf_9086e1f2-f2b.** C4 unbuilt, unblocked, parked on Fable/UX allocation |
+| `arc/architecture` | 5c232df | Stage 2 COMPLETE except C4: C1, de-slop, C2, the cost-cap archive (R1), the Q7 cleanups, C3 built+verified (the turn-lifecycle state machine, fa437a1..77e6dd4), Q9 archival, C5 complete+verified, **and the two turn-lifecycle leftovers (5a/5b) — CLOSED at 5c232df, and this one turned out to be a real, provable bug, not a hygiene nit** (see journal: a straggler frame could land below the `interrupted` marker via the everyday Stop button, no exotic backend needed). `packages/core/src/session` isolated: 354/354 green. C4 unbuilt, unblocked, parked on Fable/UX allocation |
 | `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |

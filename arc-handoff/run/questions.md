@@ -212,6 +212,25 @@ already on record here rather than the daemon-root defect's shape (which was a r
 looked like a flake). Recorded as one more instance for whoever eventually sizes the deterministic-
 waits pass Q10 recommends; still not chased on its own.
 
+### Q10 ESCALATION (2026-08-08, later still) — the scale jumped an order of magnitude, twice, independently
+Two SEPARATE full-suite runs, on two different machines' worth of state (mine, and an independent
+verifier's, minutes apart, no shared cause other than both running on this same physical machine)
+each threw 37-50 failures — not 3, not 10. Both concentrated entirely in apps/desktop/renderer,
+console-kit, and console-transcript; both include the exact same EPIPE source
+(packages/adapter-claude-sdk/src/stage-7-delegation.test.ts's stdout write racing test teardown).
+Neither run touched anything the two full runs' failing files import (confirmed by package-isolated
+reruns going 100% green both times). The failing SET of tests differs between the two runs — a
+different subset each time — which is itself evidence for load/timing rather than a deterministic
+bug (a real regression fails the same tests every time). This is no longer "a handful of panel tests
+occasionally time out": it is a large, escalating fraction of the desktop/jsdom suite becoming
+unreliable under whatever load this machine now carries after a full day of workflow runs.
+**Recommendation upgraded from "not chased" to "size this soon."** Two candidate causes worth
+checking before assuming it is pure load: (a) accumulated file-handle/socket exhaustion from many
+sequential vitest child-process spawns this session (the EPIPE is a literal broken-pipe write, which
+fits), (b) memory pressure from the day's several 1M-token workflow runs never fully released. If
+either holds, the fix is process hygiene (restart the shell / node between big workflow runs), not a
+test-code change — worth ruling out before sizing a deterministic-waits pass across dozens of files.
+
 ## Q11 — ambient paths defeat the daemon's `root` seam; auth key paths bypass their own deps (2026-08-08)
 **Context:** raised by the C5 compose agent when asked to report (not fix) composition entry
 points that bake in a working directory or home directory. 7c379ad added a `root` override to

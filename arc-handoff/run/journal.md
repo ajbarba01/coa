@@ -1214,3 +1214,68 @@ body rewritten to describe the finding and fix and drop the "verification owed" 
 now fully landed and verified, no longer a draft blocked on anything.
 
 Next: launch the prepared `c3-lifecycle-leftovers.js` now that Stage 4 has released the main tree.
+
+## The two lifecycle leftovers (5a/5b) — the executor died, but the verifier proved a real bug
+
+Launched `c3-lifecycle-leftovers.js` in the main tree once it was free. The executor died on a
+server error 4 seconds in (`API Error: Server error mid-response`), before writing a single line —
+`exec: null`, nothing committed, tree byte-identical to 77e6dd4 afterward (confirmed). The verifier
+ran anyway (its prompt degrades gracefully when `exec` is null) and, working entirely off the
+UNFIXED code, did something better than diagnose: it built two WORKING REPRODUCTIONS.
+
+**This changes the severity of item 5(b).** State.md's own characterization — "latent, only a
+future held-open backend without turn-level interrupt would trigger it" — is WRONG, or at least
+incomplete. The verifier proved a straggler frame lands literally BELOW the `interrupted` marker
+using the *normal* `interruptSession` verb, the everyday Stop button, no exotic backend required —
+because `settle()` moves the phase off `stopped` and the old `inert` getter never recognized
+`settled`. It also proved a second, independent hole: `live-registry.ts`'s `#closeOne` (the
+registry cascade) only ever called `requestStop()`, never `closeStop()`, so the phase never even
+reached `stopped` on that path — a straggler an abort provokes was recorded regardless of the
+settle timing. Both reproductions directly falsified code comments that claimed this couldn't
+happen. Full repro detail (adapters, exact push sequences) is in the workflow's own output —
+worth reading in full if this class of bug recurs.
+
+**Fixed by hand (5c232df), then mutation-probed properly — each half independently, not just the
+combination.** Two production changes: `TurnLifecycle.inert` now covers `settled` as well as
+`stopped` (reasoned: nothing legitimate is lost, because settlement's own genuine-failure write
+already bypasses this gate via `writeFrame`, not the gated `record()`); `#closeOne` now calls
+`requestStop(); closeStop();` before aborting, both returns deliberately unchecked because the pair
+together always leaves the phase at `stopped` or `settled` regardless of which phase it started
+from — verified that claim by reading the transition table, not asserting it. Wrote three
+regression tests (a direct unit assertion on `TurnLifecycle` itself, plus two integration tests in
+session-handlers.test.ts via a new `AbortStragglerAdapter` fixture — one through `interruptSession`,
+one through `closeSession`/the cascade) and updated one pre-existing test in live-registry.test.ts
+that had been PINNING the old buggy behavior (`expect(phase).toBe('stop-requested')` after a
+cascade close — now `'stopped'`).
+
+**Mutation-probed each fix in isolation**, reverting one at a time (temporary edits, restored
+immediately after, `git diff HEAD` empty throughout — no `git stash` involved anywhere):
+reverting the `inert` change alone reds the unit test AND both integration tests (the cascade path
+needs BOTH fixes together to close fully — reverting `inert` alone still leaks the late straggler
+even with `closeStop()` in place); reverting the `closeStop()` change alone reds the cascade test
+and the pre-existing live-registry.test.ts assertion, leaving the interruptSession test green
+(expected — that path never touches `#closeOne`). Caught and fixed two bugs in my OWN test
+assertions along the way before trusting them: both new integration tests originally asserted "no
+text frame exists," which is wrong — the legitimate `partial` frame IS a text frame and made the
+assertion pass for the wrong reason regardless of whether the fix worked. Narrowed both to check
+for the specific straggler text instead, then re-ran the mutation probes to confirm they still
+red/green correctly with the corrected assertions.
+
+**Gate:** `packages/core/src/session` in isolation: 25 files / 354 tests, 100% green (checked three
+separate times across the mutation-probe cycle). typecheck/lint/format/depcruise (419 modules)/
+docs-check (60 docs, pre-Stage-4-retirement count on this branch) all clean. Pushed; arc/architecture
+tip 5c232df.
+
+**A full `pnpm check`/`pnpm test` run threw 37-50 failures, twice, entirely OUTSIDE the files this
+fix touches** (apps/desktop/renderer, console-kit, console-transcript — none import
+packages/core/src/session). This is the SAME shape as the Q10 family, but a full order of magnitude
+larger than any previous sighting (3 → 10 → 37-50) and, notably, the verifier's OWN independent gate
+run hit an almost identical count (49 failures, same EPIPE source file) completely separately from
+mine. Recorded in questions.md as an escalation, not just another data point — two independent full
+runs hitting the same order of magnitude of unrelated failures is a different kind of evidence than
+one machine having a bad five minutes.
+
+Launched a fresh, independent, read-only adversarial verifier against this fix (single agent, not
+a full workflow — this is a single well-scoped check, not a multi-stage charter) specifically
+because I designed both the fix AND its own tests, which is exactly the shape of confirmation bias
+this arc's history warns about. Its result is still pending as this entry is written.
