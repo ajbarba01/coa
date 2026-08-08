@@ -975,3 +975,39 @@ language. If the UX stage adds a dock, this should move to it.
   verification debt stated in the body rather than glossed.
 - The three PRs now stack: #1 knife <- #2 architecture <- #3 docs.
 - All branches pushed.
+
+## Stage 4 lens-1 verification, done by hand against the docs branch (partial)
+
+Read arc/docs out of git rather than checking it out, so the state-machine agent could keep
+the working tree. Sampled concrete claims and checked each against the tree:
+
+- **"The close gate is the only block, issued through a single seam" — TRUE.** Source-only
+  search for a deny decision finds exactly ONE production construction site
+  (adapter-claude-sdk/src/sdk-options.ts:52, translating a core decision into the SDK's shape)
+  plus the two type declarations in spi/src/runtime-adapter.ts. Everything else is tests. My
+  first search looked worse than it was because it swept packages/core/dist — build artifacts,
+  not source.
+- **"shared owns the Zod schemas" — TRUE.** My first measurement (one "Schema" hit in
+  shared/src/index.ts) was my own error: the barrel is all `export *`. Schema definitions are
+  spread across ~20 modules in that package. The doc was right and the check was wrong.
+- **Raw mode exists and is a UI-state reprojection — TRUE** (console.ts:399, ChatPanel:290+).
+- **Cost/governance claims — TRUE** (checked earlier: cap archived, close gate the only block,
+  fan-out bound carried as an open roadmap item).
+- **The known-debt section is honest and specific, and it independently corroborates Q11.** It
+  names the daemon root override not being honored by its own startup path, with the exact
+  symptom I found by hand (a checkout accumulating a .coa directory), and the auth handlers
+  computing key paths from the home directory at nine sites. It also describes the interrupt/
+  steer flag machine precisely as I verified it — "correctness rests on every path setting and
+  clearing the right fields in the right order rather than on a structure that makes the wrong
+  order unrepresentable". Nothing in that section is aspirational.
+
+**Still not verified by anyone:** the "Verified SDK behavior the Claude adapter relies on"
+subsection (~110 lines of empirical claims about the SDK's behaviour). Those came from the
+earlier probe harvest and cannot be checked by reading the tree — they need the probe suite or
+a live run. Flagged rather than waved through.
+
+**CONSEQUENCE TO NOT FORGET:** the turn-lifecycle charter now running will CLOSE the
+"Interrupt and steer are a hand-rolled flag machine" debt item. If it lands, that paragraph in
+docs/ARCHITECTURE.md on arc/docs goes stale and must be rewritten — the same-commit doc rule
+cannot catch it because the doc lives on a different branch. Whoever lands the state machine
+owns that edit.
