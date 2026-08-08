@@ -612,3 +612,60 @@ escaping collapsed), and the relaunch was rejected outright for control characte
 Python text-mode writes had converted the whole script LF→CRLF on Windows. Both were
 cheap to fix and both would have been expensive to debug as a mid-run failure. Syntax-check
 generated scripts before launching, and write them as binary.
+
+## Compose half-landed (a29908a) + a REAL pre-existing defect found chasing its gate (7c379ad)
+
+**The second C5 run died the same way the first did, for a different reason.** wf_17a541d4-d5a
+ran the compose agent from 00:29 to 00:39 and then the Claude Code process itself exited,
+taking the workflow with it. No completion record, no notification. The agent had gotten
+typecheck green, format written, lint fixed and green, and died *inside* `pnpm test` (exit
+code 4 — a killed child). **All of its work was uncommitted in the working tree.** That is
+now two agents in a row losing finished work by batching commits to the end, so the script's
+hygiene block gained a COMMIT-AS-YOU-GO rule: gate and commit each unit the moment it is
+green, never hold finished work while continuing.
+
+Recovered rather than re-run: daemon.ts 483 -> 392 lines, six new files under
+packages/core/src/workbench/ (file-listing, ripgrep, exec + tests), REPO_LAYOUT.md updated
+per the same-commit rule. Note this is only the FIRST half of the compose charter — the
+summarizer and login-driver moves to apps/cli were never started.
+
+### The gate failure, and why it took three hypotheses to get right
+
+`apps/cli/src/cli.test.ts > serves the inspector reads over the bound endpoint` timed out at
+11254ms against a 5s budget. Per the standing rule it was treated as a real failure. It
+took three rounds because the first two hypotheses were WRONG and the experiments said so:
+
+1. **"Marginal load."** Refuted: it failed again at 7883ms on a re-run that was more than
+   twice as fast overall (82.9s vs 186.6s, warm cache). Reproducible, not marginal.
+2. **"The three new workbench test files spawn real processes and steal CPU."** Genuinely
+   plausible — exec.test.ts runs real `spawnSync` shells, which block their worker, and the
+   test under a wall-clock budget is exactly what that would hurt. Refuted by running the
+   full suite with those three files excluded: still failed, 7442ms.
+3. **"The compose change itself."** Refuted by the controlled comparison. Backed the work up
+   to a scratch dir (NOT a stash — it is denied here), reverted the tree to f59bdc3, ran the
+   full suite: **it failed there too, at 5721ms.** The change did not cause it. The earlier
+   green run at f59bdc3 was the lucky one.
+
+**Root cause, and it is a real defect rather than a flaky test.** `startDaemon` hardcoded
+`root: process.cwd()` (apps/cli/src/cli.ts:231). The test passed no root — the sibling
+describe block passes `root: dir`, this one did not — so it booted a daemon over the ENTIRE
+CHECKOUT, and the reconciler walks and hashes its root at startup. This is the same
+sha256-the-whole-repo pathology the 2026-08-07 session root-caused elsewhere. The cost grows
+with the repo, which is why it sat just under the line for months and crossed it today.
+
+The fix is hermeticity, not a bigger budget: `DaemonOptions` gained an optional `root`
+(defaulting to `process.cwd()`, so `coa serve` is unchanged — bin.ts is the only production
+caller), documented as overridable *because* the reconciler walks it; the test passes
+`root: dir`. Test time fell from 1.26s to 553ms solo. Raising the timeout instead would have
+left a unit test scanning the developer's working tree and called it fixed.
+
+**Gate after both commits, verbatim:** `Test Files 279 passed | 11 skipped (290)` /
+`Tests 2873 passed | 30 skipped (2903)`, depcruise clean 414 modules, docs-check 60.
+Landed 7c379ad (the root fix, kept separate as its own concern) and a29908a (the
+extraction); both pushed.
+
+**Method note worth keeping.** The thing that produced the right answer was reverting to the
+parent commit and re-running, not reading the diff harder — the diff looked innocent because
+it *was* innocent. When a gate fails after a change, the controlled comparison is cheap
+(~90s here) and it is the only step that distinguishes "my change did this" from "my change
+revealed this." Both earlier hypotheses were defensible and both were wrong.

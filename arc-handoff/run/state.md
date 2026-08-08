@@ -34,7 +34,7 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | f59bdc3 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**. All gates green (2859 tests, depcruise 411 modules, docs 60). Remaining: C4 (needs Fable/UX), C5 phases 2-5 (running) |
+| `arc/architecture` | a29908a | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |

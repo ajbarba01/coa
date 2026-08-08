@@ -187,3 +187,17 @@ same technique likely applies. What must NOT happen is the rule quietly eroding 
 "panel tests are flaky, rerun them"; that is how the pre-arc suite got where it was.
 **Done instead:** recorded with the verbatim test names so the next observer can tell a
 recurrence from a first sighting.
+
+### Q10 UPDATE (2026-08-08) — one of the "flakes" was a real defect, and it is fixed
+Chasing an unrelated gate failure turned up the mechanism for at least part of this family.
+`apps/cli/src/cli.test.ts > serves the inspector reads over the bound endpoint` was failing
+because `startDaemon` hardcoded `root: process.cwd()`, so the test booted a daemon over the
+whole checkout and the reconciler hashed the entire repo at startup. Fixed at 7c379ad by
+making the root overridable and passing a temp dir; 1.26s -> 553ms solo.
+**Two things this changes about Q10.** First, it is evidence FOR the standing rule: the
+failure looked exactly like a load flake — passed solo, failed under parallel load, timing
+shaped — and it was a real defect whose cost grows with the repo. Treating it as a flake
+would have hidden it indefinitely. Second, it means the three panel-suite sightings above
+deserve the same treatment rather than a timeout bump: look for a test doing real work
+against the real tree before concluding anything about timing.
+Q10 stays OPEN for the three panel suites, which are untouched by this fix.
