@@ -517,3 +517,38 @@ what caught it was checking the commit's own output against what was expected.
   scripted respectively). It also predates the cost-cap archive. Left untouched — a PR
   description is outward-facing and Stage 5 owns PR bodies; flagged so the rewrite is
   not forgotten. PR #1 (the knife) is unaffected.
+
+## C5 launched — the data-loss fix hoisted out of phase 3 (2026-08-07 late evening)
+
+New orchestrator context, resumed from SESSION-HANDOFF.md. Environment checked before
+launching: no electron and no node processes running, so the suite can run without
+tripping the pnpm relink hazard that cost a gate cycle earlier today.
+
+**The C5 script was REVISED before launch: the data-loss bug now has its own leading
+phase.** As written, the agent-file destruction fix was item 2 inside phase 3 of 4 —
+so any session death before phase 3 (and this arc has already lost two full agent
+rounds to session limits) would have left the arc's only data-loss bug unfixed while
+the two cosmetic-by-comparison charters landed. The maintainer's instruction was that
+it goes first; buried-in-phase-3 is not first. Changes:
+- New phase 1 "Data loss" owning that item alone, one commit, gate, stop.
+- Phase 3 renumbered to three items and told explicitly that the fix already landed,
+  with the first agent's commits and deviations passed in, so it extends rather than
+  re-litigates it.
+- The verifier's data-loss lens now also has to check that the new test would FAIL
+  against the old delete-then-save order — a test that passes either way proves
+  nothing — and to confirm the duplicate-detection claim in the listing path rather
+  than accept it as an assumption (the fix's whole safety argument rests on a
+  duplicate being recoverable AND visible).
+- The verify preamble now says an ABORTED or missing agent did not land and the tree
+  is the authority, so a dead executor cannot be silently verified as done.
+
+**Bug confirmed present before launching, not taken on faith:** console.ts updateAgent
+builds `bridge.deleteAgent({ref, scope: prevScope}).then(() => bridge.saveAgent(...))`
+and the chain ends in `void written.then(() => refreshAgents())` — no catch anywhere,
+so a failed save both destroys the file and rejects unhandled while the optimistic row
+still renders as saved. createAgent and deleteAgent have the same uncaught shape. The
+comment directly above that chain argues FOR delete-first; the fix has to rewrite it,
+which is why the prompt calls that out. 43 empty-catch sites across apps/desktop at
+launch, the baseline for the verifier's count.
+
+Workflow run wf_fa68791c-a0a, 5 phases, 6 agents.

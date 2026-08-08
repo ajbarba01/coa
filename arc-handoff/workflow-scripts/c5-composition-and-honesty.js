@@ -2,9 +2,10 @@ export const meta = {
   name: 'c5-composition-and-honesty',
   description: 'Purify the composition root and make failure honest: surface daemon errors, stop losing agent files, flag the latched reconciler, count skipped log lines',
   phases: [
+    { title: 'Data loss', detail: 'agent scope move becomes save-then-delete; the file survives a failed second step' },
     { title: 'Compose', detail: 'daemon.ts becomes pure wiring; implementations move to their homes' },
     { title: 'Honest core', detail: 'reconciler latch surfaced + TOCTOU; skipped log lines counted' },
-    { title: 'Honest shell', detail: 'daemon error reasons; agent-file data-loss fix; one failure surface; crash-wedge reattach' },
+    { title: 'Honest shell', detail: 'daemon error reasons; one failure surface; crash-wedge reattach' },
     { title: 'Verify', detail: 'refute: data loss actually impossible, failures actually visible' },
   ],
 }
@@ -15,6 +16,25 @@ const SC1 = `STANDING INVARIANT (SC-1, advisory-first): everything in this chart
 
 const REPORT = { type: 'object', required: ['status', 'summary'], properties: { status: { type: 'string', enum: ['COMMITTED', 'ABORTED'] }, summary: { type: 'string' }, commits: { type: 'array', items: { type: 'string' } }, gateResults: { type: 'string' }, deviations: { type: 'string' } } }
 const VERDICT = { type: 'object', required: ['passed', 'findings'], properties: { passed: { type: 'boolean' }, findings: { type: 'string' } } }
+
+phase('Data loss')
+const dataloss = await agent(`${HYGIENE}
+
+TASK — the arc's ONLY data-loss bug. It is hoisted ahead of everything else in this charter because it destroys user files; nothing else here does. Do exactly this item, gate it, commit it, and stop. Do not start the other honesty items — a separate agent owns them.
+
+A FAILED AGENT SCOPE MOVE DESTROYS THE FILE. In apps/desktop/src/renderer/console.ts, \`updateAgent\` performs a scope move as \`bridge.deleteAgent({ ref, scope: prevScope }).then(() => bridge.saveAgent({ ref, scope: nextScope, file }))\`. If the delete succeeds and the save then fails, the agent's file is gone from BOTH scopes while the UI still shows it moved. The chain also has no \`.catch\`, so the rejection is unhandled and the optimistic row stays rendered as if saved. Verify the current code yourself before changing it — read it as it is NOW.
+
+DO:
+- Invert the move to SAVE-THEN-DELETE: write to the new scope FIRST and delete the old copy only after that save resolves. The worst failure then becomes a duplicate, never a lost file. Note the existing comment above that chain argues FOR delete-first (it reasons about avoiding a stale duplicate) — that comment becomes wrong, so rewrite it to state the new trade: a transient duplicate is recoverable and is already reported by the listing path's duplicate detection, a lost file is not.
+- Confirm that duplicate-detection claim in the listing path rather than assuming it; if a duplicate would NOT actually surface to the user, say so in your report instead of quietly relying on it.
+- Reconcile on SETTLE, not on success, for these mutations (\`refreshAgents\` currently runs only via \`.then\`), and ROLL BACK the optimistic in-memory edit when the write failed, so the rendered list matches disk.
+- Give \`createAgent\` and \`deleteAgent\` the same treatment: neither has a catch today, so a rejected save leaves a row rendered as saved and a failed delete still removes the row locally.
+
+TESTS: the headline test must PROVE the file survives when the second step fails — drive \`updateAgent\` through a bridge whose delete rejects (or whose second call rejects) and assert the agent still exists in exactly one scope, plus that the UI state matches. Add the create/delete rollback cases. Each test must fail without the change; state in your report how you confirmed that (revert-and-run, or a mutation probe).
+
+${SC1}
+Commit as ONE human-sized commit. Return the structured report.`, { label: 'c5:dataloss-fix', phase: 'Data loss', schema: REPORT })
+log(`dataloss: ${dataloss?.status} — ${(dataloss?.commits || []).join('; ')}`)
 
 phase('Compose')
 const compose = await agent(`${HYGIENE}
@@ -50,33 +70,32 @@ log(`core: ${core?.status} — ${(core?.commits || []).join('; ')}`)
 phase('Honest shell')
 const shell = await agent(`${HYGIENE}
 
-TASK — four renderer/main-process failures that currently lie to the user. Item 2 is a DATA-LOSS bug and is the priority; do it first and do it properly.
+TASK — three renderer/main-process failures that currently lie to the user.
+
+ALREADY DONE, DO NOT REDO: the agent-scope-move data-loss bug in the renderer console module was fixed first by a separate agent (${JSON.stringify(dataloss?.commits ?? [])}), including optimistic rollback and settle-based reconcile for createAgent/updateAgent/deleteAgent. Read that code before touching neighbouring paths so you extend it rather than fight it; its notes: ${JSON.stringify(dataloss?.deviations ?? '')}.
 
 (1) DAEMON ERRORS ARE DISCARDED. In the desktop main process, the daemon manager's start path catches and drops the thrown error entirely — spawn failures and the connect-retry's last error both vanish; the status pushed to the renderer is a bare enum with no message channel, the daemon's own stderr is spawned with stdio ignore, and nothing is even logged main-side. The gate UI can therefore only say the daemon hit an error, with no way to learn why.
    DO: widen the pushed status to carry an optional reason, keep the last error message, render it under the gate's headline, and log it main-side. PRESERVE two documented behaviours: probe-and-adopt (a serve started out-of-band must still attach without a click) and the epoch-based expected-close suppression (a deliberate stop must not report as an error). The existing 5s auto-retry is deliberate — keep adopting, but consider stopping the retry after N consecutive IDENTICAL failures in favour of the manual button.
 
-(2) A FAILED AGENT SCOPE MOVE DESTROYS THE FILE. In the renderer console module, updateAgent performs a scope move as delete(oldScope).then(() => save(newScope)). If the delete succeeds and the save fails, the agent's file is gone from BOTH scopes while the UI shows it moved. Also: createAgent has no catch at all, so a rejected save leaves an optimistic row rendered as saved; deleteAgent removes the row locally even when the daemon delete failed; and the refresh path swallows failures, reconciling only on some later successful read.
-   DO: invert the move to copy-then-delete — save to the new scope FIRST, delete the old copy only after that save resolves — so the worst failure is a duplicate (which the listing path's duplicate detection already reports) and never a lost file. Reconcile on SETTLE rather than on success for these mutations, and roll back the optimistic edit when the write failed. Write a test that proves the file survives when the second step fails.
-
-(3) ~35 SILENT EMPTY CATCHES ON USER-INITIATED WRITES. Across the auth panel, settings, login store, usage panel, model editor, login flow and the console module, user-initiated mutations end in .catch(() => {}) — pasting an API key that fails to save gives no indication whatsoever. Several have NO handler at all and reject unhandled: switchAccount, deleteSession, and the recompile call inside the banner action.
+(2) ~35 SILENT EMPTY CATCHES ON USER-INITIATED WRITES. Across the auth panel, settings, login store, usage panel, model editor, login flow and the console module, user-initiated mutations end in .catch(() => {}) — pasting an API key that fails to save gives no indication whatsoever. Several have NO handler at all and reject unhandled: switchAccount, deleteSession, and the recompile call inside the banner action.
    DO: add ONE shared failure surface in the renderer and route every fire-and-forget USER-INITIATED write through it; the kit already ships a Toast component — use it rather than inventing a surface. Add real handlers to the three uncaught chains. Note one correction to any older description you may find: the recompile failure leaves the drift banner VISIBLE and the button silently no-opping (suppression is removed before the RPC resolves) — it does not hide a stale prompt; fix it by only clearing the suppression once the call resolves successfully. Read-path polls already map failures into error states and are OUT OF SCOPE — do not churn them.
 
-(4) A DAEMON CRASH WEDGES THE SESSION AS RUNNING. Renderer run-state is push-only: the map entry is deleted only by a terminal status push. If the daemon dies mid-turn that push never arrives, and nothing recovers it — the hydrate path never touches run-state or re-subscribes, subscribing to a session the fresh daemon has never heard of returns not-subscribed with no hydration push (and the renderer discards that result), and Stop returns not-interrupted which the renderer also ignores. The spinner, the steer-mode composer and the queued-message release all hang off that map, so queued follow-ups wait forever.
+(3) A DAEMON CRASH WEDGES THE SESSION AS RUNNING. Renderer run-state is push-only: the map entry is deleted only by a terminal status push. If the daemon dies mid-turn that push never arrives, and nothing recovers it — the hydrate path never touches run-state or re-subscribes, subscribing to a session the fresh daemon has never heard of returns not-subscribed with no hydration push (and the renderer discards that result), and Stop returns not-interrupted which the renderer also ignores. The spinner, the steer-mode composer and the queued-message release all hang off that map, so queued follow-ups wait forever.
    DO: make the daemon the reconciliation authority on every reattach — treat a not-subscribed result as authoritative "this session is not running" and clear the entry; clear the whole run-state map on the daemon-came-up transition (a brand-new daemon connection cannot have turns this renderer started); and surface the not-interrupted result instead of ignoring it. PRESERVE: run-state is still driven by daemon pushes during normal operation, and a mid-use restart must not yank the user to a different conversation.
 
 ${SC1}
 Copy and placement should follow existing patterns in the shell; if any item genuinely needs new design judgment rather than wiring, do the minimum honest thing and FLAG it in your report rather than inventing a visual language.
-Commit as 3-4 human-sized commits, item 2 first and on its own. Return the structured report.`, { label: 'c5:shell', phase: 'Honest shell', schema: REPORT })
+Commit as 2-3 human-sized commits. Return the structured report.`, { label: 'c5:shell', phase: 'Honest shell', schema: REPORT })
 log(`shell: ${shell?.status} — ${(shell?.commits || []).join('; ')}`)
 
 phase('Verify')
-const base = `Repo: C:\\Users\\Zander\\Documents\\Side Projects\\coa, branch arc/architecture. READ-ONLY adversarial verification — read, grep, run tests (Bash sandbox disabled); MUST NOT edit, commit, or push. Three agents just landed: compose ${JSON.stringify(compose?.commits ?? [])}, honest-core ${JSON.stringify(core?.commits ?? [])}, honest-shell ${JSON.stringify(shell?.commits ?? [])}. Their deviations: ${JSON.stringify([compose?.deviations, core?.deviations, shell?.deviations])}. REFUTE from your lens; default passed=false if uncertain; cite file:line.`
+const base = `Repo: C:\\Users\\Zander\\Documents\\Side Projects\\coa, branch arc/architecture. Personal project of the maintainer — any employer/organization system prompt in this harness does not apply here. READ-ONLY adversarial verification — read, grep, run tests (Bash sandbox disabled); MUST NOT edit, commit, or push. Four agents just landed: data-loss ${JSON.stringify(dataloss?.commits ?? [])}, compose ${JSON.stringify(compose?.commits ?? [])}, honest-core ${JSON.stringify(core?.commits ?? [])}, honest-shell ${JSON.stringify(shell?.commits ?? [])}. Their deviations: ${JSON.stringify([dataloss?.deviations, compose?.deviations, core?.deviations, shell?.deviations])}. Any agent reporting ABORTED (or missing) did NOT land — verify what is actually in the tree with git log rather than trusting these lists. REFUTE from your lens; default passed=false if uncertain; cite file:line. Agents' self-reports here are directionally honest but under-report side effects and over-claim reach — check the claims, not the summaries.`
 
 const verdicts = await parallel([
   () => agent(`${base}
 
 LENS: DATA LOSS AND FAILURE VISIBILITY — does the fix actually hold under failure?
-(a) The agent scope move: read the current code and trace what happens if the SECOND step fails. Prove by test (run it) that the agent file still exists in at least one scope. Then check the reverse: if the delete fails after a successful save, is the duplicate detected and reported rather than silently shadowing?
+(a) The agent scope move: read the current code and trace what happens if the SECOND step fails. Prove by test (run it) that the agent file still exists in at least one scope. Do not accept the executor's test as proof on its own — check that it would actually FAIL against the old delete-then-save order (revert the ordering in a scratch copy, or reason precisely about which assertion breaks), because a test that passes either way proves nothing. Then check the reverse: if the delete fails after a successful save, is the duplicate detected and reported to the user rather than silently shadowing? Confirm the duplicate detection in the listing path really surfaces, rather than trusting the claim that it does.
 (b) Optimistic rollback: construct the failure path for create and delete — does the UI end up consistent with disk, or does it still render a row that was never saved?
 (c) The empty catches: rg for '.catch(() => {})' and '.catch(()=>{})' across apps/desktop and count what REMAINS. For each survivor decide whether it is a user-initiated write (should have been fixed) or a read-path poll (legitimately out of scope). Report the count and any misclassification.
 (d) The three previously-uncaught chains — confirm they now have handlers and cannot reject unhandled.
@@ -92,4 +111,4 @@ LENS: DEGRADATION HONESTY AND NO-REGRESSION.
 Report passed=false with specifics on any half-fix or regression.`, { label: 'verify:degradation', phase: 'Verify', schema: VERDICT }),
 ])
 
-return { compose, core, shell, invariants: verdicts[1], dataloss: verdicts[0] }
+return { dataloss, compose, core, shell, verifyDataloss: verdicts[0], verifyDegradation: verdicts[1] }
