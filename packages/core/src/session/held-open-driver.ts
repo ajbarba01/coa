@@ -472,8 +472,11 @@ function settleHeldQuery(
   const started = startedRef.current;
   if (started !== undefined) {
     const message = describeLoopFailure(err);
-    // Written, not `record`ed: the recorder's per-frame path is gated by the query's own
-    // inert flag, and a settlement error must land whatever the abandoned turn's state is.
+    // Written, not `record`ed: `record` is gated on the inert phase, and a settlement error
+    // has to land whatever state the abandoned turn was left in. Note the gate is already
+    // open again by the time this line runs — settling moved the phase past stopped — so
+    // this is deliberate belt-and-braces, not a live workaround: routing it through `record`
+    // would make a genuine failure's visibility depend on the phase it happened to end in.
     query.recorder.writeFrame({ t: 'error', message, origin: 'loop' });
     ctx.emitStatus(session, started.worktree, 'error', message);
   }

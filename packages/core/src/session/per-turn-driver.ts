@@ -68,8 +68,16 @@ export async function runPerTurn(
           // A user stop settles whatever the model streamed (so it persists and a reload reads
           // the same transcript), records the interrupt marker, THEN aborts the loop. Settling
           // before the abort is what keeps the partial from being lost — deltas are never
-          // persisted, so only this settled frame reaches the durable log. The lifecycle is
-          // closed in that same settle-first order, so both strategies close a stop alike.
+          // persisted, so only this settled frame reaches the durable log.
+          //
+          // The lifecycle is closed here too, but be honest about what that does and does not
+          // buy: unlike the held-open strategy, NOTHING observable depends on this ordering
+          // today. Held-open hands the recorder an inert gate keyed to the stopped phase, so
+          // closing before settling there would drop the interrupt marker itself; this driver
+          // supplies no such gate, because aborting unwinds the loop and leaves no query
+          // behind to emit stragglers into — that survival is exactly what held-open has and
+          // this does not. So the close keeps the phase honest for anything that later reads
+          // it, and no test can pin the order until something observable depends on it.
           session.setInterruptClosure(() => {
             recorder.settleInterrupt();
             lifecycle.closeStop();
