@@ -90,6 +90,11 @@ core/src/
   session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
     agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store
     builtin-agents.ts the two code-shipped definitions (general-purpose, explorer)
+    frame-recorder.ts the one writer of a turn's frames — push + durable append, the
+                      delta/persist rule and the delivery-legality gate; parameterized by
+                      the seq cursor + start handle so every drive strategy shares it
+    turn-persistence.ts the per-turn conversation prelude (create/title/memory hand-off/
+                      selection pin/user-prompt append) and the session-call hooks it feeds
   rpc/           M8 — JSON-RPC server plumbing
   auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
 ```

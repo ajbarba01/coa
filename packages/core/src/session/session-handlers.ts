@@ -1,19 +1,10 @@
 import { z } from 'zod';
-import {
-  modelSelectionSchema,
-  type AgentSummary,
-  type BackendMessage,
-  type CapabilityFrame,
-  type NeutralConfig,
-  type RpcNotification,
-  type TurnFrame,
-} from '@coa/shared';
-import type { Delivery, TurnInterrupt } from '@coa/spi';
+import { modelSelectionSchema, type AgentSummary, type RpcNotification } from '@coa/shared';
+import type { TurnInterrupt } from '@coa/spi';
 import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import { createSession, type SessionDeps } from './session.js';
 import type { ConversationStore } from './conversation-store.js';
-import { planMemory, type MemoryPlan } from './memory-plan.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { renderChildEnded, type SessionEndReason } from './notify.js';
 import type { LiveSession, Sink, TurnRequest } from './live-session.js';
@@ -21,14 +12,14 @@ import type { LiveSessionRegistry } from './live-registry.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
 import { InputChannel } from './input-channel.js';
 import {
-  configHashOf,
-  frozenModelMatches,
-  modelPromptKeyOf,
-  promptVersionOf,
-  type FrozenCompilation,
-  type ModelPromptKey,
-  type PromptConfig,
-} from './prompt-freeze.js';
+  createFrameRecorder,
+  type FrameRecorder,
+  type PersistIn,
+  type SeqBox,
+  type StartedHandle,
+  type StartedRef,
+} from './frame-recorder.js';
+import { buildPersistenceHooks, deriveTitle, prepareTurnPersistence } from './turn-persistence.js';
 
 /**
  * The session-lifecycle RPC surface (CON-CAT `createSession`/`closeSession`/
@@ -121,14 +112,7 @@ interface TurnMeta {
   /** Set only for the FOUNDING turn (a brand-new `LiveSession`) — resolves the
    *  RPC response with the worktree once `onStart` fires, mirroring today's
    *  early, non-blocking `ready` resolution. */
-  onReady?: (started: { id: string; worktree: string }) => void;
-}
-
-/** A session's rail label from its opening prompt (single line, bounded) — the VSCode-style auto-title. */
-export function deriveTitle(input: string): string {
-  const oneLine = input.replace(/\s+/g, ' ').trim();
-  if (oneLine === '') return 'new session';
-  return oneLine.length <= 60 ? oneLine : `${oneLine.slice(0, 57)}…`;
+  onReady?: (started: StartedHandle) => void;
 }
 
 /** Build the per-turn queue payload from a `createSession` request (the fields
@@ -143,38 +127,6 @@ function turnRequestFromParams(params: CreateParams): TurnRequest {
     ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
     ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
   };
-}
-
-/** The persistence target for a turn: the conversation id + its store, or `undefined`
- *  for an ephemeral session (no `conversationId`). */
-interface PersistIn {
-  convId: string;
-  store: ConversationStore;
-}
-
-/** The per-turn facts the persistence prelude computes and the `createSession` hooks
- *  consume — shared verbatim by the `per-turn` and `held-open` establishment paths. */
-interface PreparedTurn {
-  persistIn: PersistIn | undefined;
-  role: string;
-  provider: string;
-  model: string | undefined;
-  modelKey: ModelPromptKey;
-  currentConfig: PromptConfig;
-  plan: MemoryPlan;
-  frozen: FrozenCompilation | undefined;
-  promptVersion: string | undefined;
-}
-
-/** The subset of a `createSession` request that carries memory + persistence — spread
- *  into the call by both drive strategies (built by `buildPersistenceHooks`). */
-interface PersistenceHooks {
-  resume?: string;
-  history?: readonly BackendMessage[];
-  deliverHistoryAsPreamble?: true;
-  frozen?: { neutral: NeutralConfig; frame: CapabilityFrame };
-  onCompile?: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }) => void;
-  onBackendSession?: (id: string) => void;
 }
 
 /**
@@ -202,11 +154,11 @@ interface HeldQuery {
   stopped: boolean;
   terminated: boolean;
   close: () => void;
-  /** This query's `DeliveryRecorder.flushAtBoundary` — `settleHeldQuery` is a top-level
-   *  function with no closure over the recorder, so it reaches the flush through the query
-   *  it already receives, the same way `close` does (a steer is recorded when the model receives it: a mid-turn throw must
-   *  flush a parked line exactly like a turn boundary or an interrupt already does). */
-  flushDeliveries: () => void;
+  /** This query's frame recorder. `settleHeldQuery` is a top-level function with no closure
+   *  over it, so it reaches the recorder through the query it already receives, the same way
+   *  `close` does — a mid-turn throw must flush a parked delivery line exactly like a turn
+   *  boundary or an interrupt already does (docs/adr/0031). */
+  recorder: FrameRecorder;
   done: Promise<void>;
 }
 
@@ -223,136 +175,6 @@ function deferred(): Deferred {
     resolve = r;
   });
   return { promise, resolve };
-}
-
-/**
- * Tracks the in-flight turn's streamed-but-unsettled blocks, so the daemon can (a) stamp a
- * settled `thinking` frame with the wall-clock the model spent reasoning (first→last delta) and
- * (b) SETTLE a partial block itself when a turn is interrupted.
- *
- * Both exist because streaming deltas are delivery-only: only settled frames are
- * persisted. An interrupted turn never emits its settled frame, so without (b) the partial would
- * render live but vanish on reload, and its reasoning block would stream forever. Doing this in
- * the session layer — not per backend — keeps the closure backend-agnostic (the backend-blind-core rule): every adapter
- * already streams the same delta frames. The token count the reveal shows is derived from the
- * frame text, so it needs no stamping. One per turn / held query; resets after each settled block.
- */
-interface StreamAccumulator {
-  /** Observe every frame before it is emitted: accumulate deltas, clear a channel the backend settles. */
-  observe: (frame: TurnFrame) => void;
-  /** Stamp a settled `thinking` frame with its reasoning wall-clock. */
-  stamp: (frame: TurnFrame) => TurnFrame;
-  /** Take the still-open partial blocks as settled frames (thinking first, then text), clearing them. */
-  drainPartials: () => TurnFrame[];
-}
-
-function makeStreamAccumulator(): StreamAccumulator {
-  let thinking = '';
-  let text = '';
-  let startMs: number | undefined;
-  let endMs: number | undefined;
-  const resetClock = (): void => {
-    startMs = undefined;
-    endMs = undefined;
-  };
-  return {
-    observe: (frame) => {
-      if (frame.t === 'thinking-delta') {
-        const now = Date.now();
-        startMs ??= now;
-        endMs = now;
-        thinking += frame.text;
-      } else if (frame.t === 'text-delta') {
-        text += frame.text;
-      } else if (frame.t === 'thinking') {
-        thinking = ''; // the backend settled this block itself
-      } else if (frame.t === 'text') {
-        text = '';
-      }
-    },
-    stamp: (frame) => {
-      if (frame.t !== 'thinking' || frame.durationMs !== undefined || startMs === undefined)
-        return frame;
-      const durationMs = (endMs ?? startMs) - startMs;
-      resetClock();
-      return { ...frame, durationMs };
-    },
-    drainPartials: () => {
-      const out: TurnFrame[] = [];
-      if (thinking !== '') {
-        const durationMs = startMs !== undefined ? (endMs ?? startMs) - startMs : undefined;
-        out.push({
-          t: 'thinking',
-          text: thinking,
-          ...(durationMs !== undefined ? { durationMs } : {}),
-        });
-        thinking = '';
-      }
-      if (text !== '') {
-        out.push({ t: 'text', text });
-        text = '';
-      }
-      resetClock();
-      return out;
-    },
-  };
-}
-
-/**
- * The delivery-legality gate, and its single writer: a delivery drained
- * while a tool call is open cannot be written until that call's result lands, or the line
- * falls between a `tool_use` and its `tool_result` — the one interleaving the Messages API
- * forbids. The held-open and per-turn closures share this rule so it exists in exactly one
- * place; only how a frame is EMITTED (which `started` handle, which `seqBox`, which
- * persistence target) differs between them, so that part alone is injected as `writeFrame`.
- *
- * The open-tool count is a COUNT, not a set of handles: a mapped `tool_use` can fall back to
- * an empty handle, so a set of them would collide on two concurrent calls.
- */
-interface DeliveryRecorder {
-  /** Drain the queue via the caller-supplied `drain`, writing each entry immediately or
-   *  parking it behind an open tool call. Returns what was drained, so a caller that also
-   *  feeds the text to the model sees every entry regardless of whether it was written or
-   *  parked. */
-  takeDeliveries: (drain: () => readonly Delivery[]) => readonly Delivery[];
-  /** Observe every settled frame: tracks `tool_use`/`tool_result` to keep the open-tool
-   *  count current, flushing whatever is parked the moment it returns to zero. */
-  noteFrame: (frame: TurnFrame) => void;
-  /** Force the gate open and flush. A turn boundary, an interrupt, or the loop ending can
-   *  all leave a tool call open forever, and a delivery already handed to the model must
-   *  never be lost because nothing else was left to close it. */
-  flushAtBoundary: () => void;
-}
-
-function createDeliveryRecorder(writeFrame: (delivery: Delivery) => void): DeliveryRecorder {
-  let openTools = 0;
-  const held: Delivery[] = [];
-
-  function flush(): void {
-    for (const delivery of held.splice(0, held.length)) writeFrame(delivery);
-  }
-
-  return {
-    takeDeliveries: (drain) => {
-      const pending = drain();
-      for (const delivery of pending) {
-        if (openTools > 0) held.push(delivery);
-        else writeFrame(delivery);
-      }
-      return pending;
-    },
-    noteFrame: (frame) => {
-      if (frame.t === 'tool_use') openTools += 1;
-      else if (frame.t === 'tool_result') {
-        openTools = Math.max(0, openTools - 1);
-        if (openTools === 0) flush();
-      }
-    },
-    flushAtBoundary: () => {
-      openTools = 0;
-      flush();
-    },
-  };
 }
 
 /**
@@ -480,150 +302,6 @@ export function buildSessionHandlers(
   });
 
   /**
-   * The per-turn persistence prelude shared by BOTH drive strategies: create
-   * the conversation if new, decide the memory hand-off (resume/replay/preamble),
-   * pin the effective selection, auto-title, and append this turn's user prompt —
-   * advancing `seqBox` past it. The `seqBox` is a shared cursor: for a `per-turn`
-   * turn it is fresh; for the `held-open` strategy it is the query-scoped cursor the
-   * long-lived record closure keeps incrementing, so a later turn's user prompt
-   * never collides with the prior turn's streamed frames. Ephemeral (no-store) turns
-   * carry no memory and start at `seq` 0.
-   */
-  function prepareTurnPersistence(
-    turn: TurnRequest,
-    session: LiveSession,
-    persistentStore: ConversationStore | undefined,
-    seqBox: { value: number },
-  ): PreparedTurn {
-    const meta = turnMeta.get(turn);
-    const role = meta?.role ?? '';
-    const persistIn: PersistIn | undefined =
-      persistentStore !== undefined ? { convId: session.id, store: persistentStore } : undefined;
-    const provider = turn.model?.provider ?? 'claude';
-    const model = turn.model?.model;
-    const modelKey = modelPromptKeyOf(turn.model);
-    const currentConfig: PromptConfig = {
-      role,
-      ...(turn.roles !== undefined ? { roles: [...turn.roles].sort() } : {}),
-      ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
-      ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
-    };
-    let plan: MemoryPlan = { history: [], deliverHistoryAsPreamble: false };
-    let frozen: FrozenCompilation | undefined;
-    let promptVersion: string | undefined;
-    seqBox.value = 0;
-
-    if (persistIn !== undefined) {
-      const { convId: id, store: cs } = persistIn;
-      if (cs.getMeta(id) === undefined) {
-        cs.create({
-          // Known mock coupling: `agentRef` stands in for a real agent reference;
-          // prefer the first selected role when present.
-          id,
-          agentRef: turn.roles?.[0] ?? role,
-          title: deriveTitle(turn.input),
-          scope: turn.scope ?? '',
-        });
-      }
-      const prior = cs.reload(id);
-      const transcript = cs.loadBackendMessages(id);
-      const storedFrozen = cs.getCompilation(id);
-      // Reuse the frozen prompt only when the send's model matches the one it was
-      // compiled with; a model switch drops it here (undefined ⇒ recompile), so the
-      // `## Model` line is re-authored — silently, WITHOUT touching drift.
-      frozen =
-        storedFrozen !== undefined && frozenModelMatches(storedFrozen, modelKey)
-          ? storedFrozen
-          : undefined;
-      promptVersion = frozen?.promptVersion;
-      const priorMeta = cs.getMeta(id);
-      seqBox.value = prior.length === 0 ? 0 : prior[prior.length - 1]!.seq + 1;
-      if (prior.length === 0) {
-        const title = cs.getMeta(id)?.title;
-        if (title === undefined || title === '' || title === 'new session') {
-          cs.rename(id, deriveTitle(turn.input));
-        }
-      }
-      // Decide the memory hand-off BEFORE re-pinning the selection (the plan reads the
-      // PRIOR turn's resume stamp), then pin what this turn runs on so a restart/next
-      // turn routes to the same backend the memory lives in.
-      plan = planMemory({
-        provider,
-        ...(model !== undefined ? { model } : {}),
-        ...(promptVersion !== undefined ? { promptVersion } : {}),
-        meta: priorMeta,
-        transcript,
-      });
-      cs.setSelection(id, {
-        provider,
-        ...(model !== undefined ? { model } : {}),
-        ...(turn.model?.reasoning !== undefined ? { reasoning: turn.model.reasoning } : {}),
-      });
-      // Persist (but never push — the console already showed it optimistically) the user turn.
-      cs.append(id, [{ seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } }]);
-      seqBox.value += 1;
-    }
-
-    return {
-      persistIn,
-      role,
-      provider,
-      model,
-      modelKey,
-      currentConfig,
-      plan,
-      frozen,
-      promptVersion,
-    };
-  }
-
-  /**
-   * Build the `createSession` persistence hooks from a prepared turn — the memory
-   * hand-off (`resume`/`history`/preamble), the frozen-prompt reuse or fresh-compile
-   * capture, and the backend-session/transcript persistence. Owns the mutable
-   * `promptVersion` the compile capture writes and the session/transcript stamps read.
-   */
-  function buildPersistenceHooks(prep: PreparedTurn): PersistenceHooks {
-    const { persistIn, plan, frozen, currentConfig, modelKey, provider, model } = prep;
-    let promptVersion = prep.promptVersion;
-    return {
-      ...(plan.resume !== undefined ? { resume: plan.resume } : {}),
-      ...(plan.history.length > 0 ? { history: plan.history } : {}),
-      ...(plan.deliverHistoryAsPreamble ? { deliverHistoryAsPreamble: true as const } : {}),
-      // Reuse the frozen prompt when the session has one; otherwise compile fresh and
-      // freeze the result (first turn only).
-      ...(frozen !== undefined ? { frozen: { neutral: frozen.neutral, frame: frozen.frame } } : {}),
-      ...(persistIn !== undefined && frozen === undefined
-        ? {
-            onCompile: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }): void => {
-              promptVersion = promptVersionOf(compiled.neutral);
-              persistIn.store.setCompilation(persistIn.convId, {
-                ...compiled,
-                promptVersion,
-                configHash: configHashOf(currentConfig),
-                config: currentConfig,
-                model: modelKey,
-              });
-            },
-          }
-        : {}),
-      ...(persistIn !== undefined
-        ? {
-            // Stamp the resume token with the provider/model + frozen prompt it's valid
-            // for, so a later model/provider switch OR a deliberate recompile falls back
-            // to replay instead of resuming a stale server session.
-            onBackendSession: (id: string): void =>
-              persistIn.store.setBackendSession(persistIn.convId, id, {
-                provider,
-                ...(model !== undefined ? { model } : {}),
-                ...(promptVersion !== undefined ? { promptVersion } : {}),
-              }),
-          }
-        : {}),
-    };
-  }
-
-  /**
    * Run ONE turn of `session` through today's per-turn `createSession` (session.ts)
    * — the `per-turn` strategy every pure-API backend runs unchanged (see
    * the daemon-authoritative live session, the held-open streaming-input strategy). A fresh adapter, a one-shot string `input`, and
@@ -637,70 +315,17 @@ export function buildSessionHandlers(
     persistentStore: ConversationStore | undefined,
   ): Promise<void> {
     const meta = turnMeta.get(turn);
-    const seqBox = { value: 0 };
-    const prep = prepareTurnPersistence(turn, session, persistentStore, seqBox);
-    let started: { id: string; worktree: string } | undefined;
-    // `full`, present on a `tool_result`, is the complete body the model saw —
-    // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
-    const acc = makeStreamAccumulator();
-    // Same rule as the held-open path: a delivery's line is written when the model receives
-    // it, and never between a `tool_use` and its `tool_result`. Only the
-    // frame-emission shape differs (a plain `started` local, this closure's own `seqBox`).
-    const deliveries = createDeliveryRecorder((delivery) => {
-      if (started === undefined) return;
-      const s = seqBox.value++;
-      const frame: TurnFrame = {
-        t: 'text',
-        text: delivery.text,
-        role: delivery.origin === 'system' ? 'system' : 'user',
-      };
-      session.emit({
-        kind: 'turn',
-        sessionId: started.id,
-        worktree: started.worktree,
-        seq: s,
-        frame,
-      });
-      if (prep.persistIn !== undefined)
-        prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
+    const seqBox: SeqBox = { value: 0 };
+    const prep = prepareTurnPersistence(turn, session, meta?.role ?? '', persistentStore, seqBox);
+    // A fresh turn owns its cursor and its start handle outright; the held-open path hands
+    // the recorder query-lifetime ones instead. Everything else about recording is shared.
+    const startedRef: StartedRef = { current: undefined };
+    const recorder = createFrameRecorder({
+      session,
+      seqBox,
+      startedRef,
+      persistIn: prep.persistIn,
     });
-    const takeDeliveries = (): readonly Delivery[] =>
-      deliveries.takeDeliveries(() => session.deliveries.drain());
-    const record = (frame: TurnFrame, full?: string): void => {
-      if (started === undefined) return;
-      acc.observe(frame);
-      // Streaming deltas are delivery-only: push for live render, but
-      // NEVER persist — the append-only log holds only settled frames,
-      // so the read-time fold and cross-turn memory are unchanged (opencode #11329).
-      if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
-        const s = seqBox.value++;
-        session.emit({
-          kind: 'turn',
-          sessionId: started.id,
-          worktree: started.worktree,
-          seq: s,
-          frame,
-        });
-        return;
-      }
-      // A settled `thinking` frame is stamped with the reasoning wall-clock (persisted so a
-      // reload shows "Thought for Ns" identically); every other frame passes through unchanged.
-      const settled = acc.stamp(frame);
-      const s = seqBox.value++;
-      session.emit({
-        kind: 'turn',
-        sessionId: started.id,
-        worktree: started.worktree,
-        seq: s,
-        frame: settled,
-      });
-      if (prep.persistIn !== undefined) {
-        prep.persistIn.store.append(prep.persistIn.convId, [
-          { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
-        ]);
-      }
-      deliveries.noteFrame(frame);
-    };
     const controller = new AbortController();
 
     try {
@@ -721,41 +346,39 @@ export function buildSessionHandlers(
           ...(session.parent !== undefined ? { root: session.root } : {}),
           ...buildPersistenceHooks(prep),
           signal: controller.signal,
-          drainDeliveries: takeDeliveries,
+          drainDeliveries: recorder.takeDeliveries,
           onStart: (s) => {
-            started = s;
+            startedRef.current = s;
             session.control = {
               controller,
               interrupted: false,
               mode: 'per-turn',
             };
             // A user stop settles whatever the model streamed (so it persists and a reload reads
-            // the same transcript), records the interrupt marker, THEN aborts the loop. Flushing
+            // the same transcript), records the interrupt marker, THEN aborts the loop. Settling
             // before the abort is what keeps the partial from being lost — deltas are never
             // persisted, so only this settled frame reaches the durable log.
             session.setInterruptClosure(() => {
-              for (const partial of acc.drainPartials()) record(partial);
-              deliveries.flushAtBoundary();
-              record({ t: 'interrupted' });
+              recorder.settleInterrupt();
               controller.abort();
               return true;
             });
             session.setState('running', s.worktree);
-            // Turn activity resets the idle-eviction clock (FIX #1) — belt-and-braces
-            // alongside the running-aware idle timer in live-registry.ts.
+            // Turn activity resets the idle-eviction clock — belt-and-braces alongside the
+            // running-aware idle timer in live-registry.ts.
             registry.touch(session.id);
             // Hydration reflects the true first status ('running') — this fires AFTER setState.
             if (meta?.subscribe !== undefined)
               unsubscribers.push(session.subscribe(meta.subscribe));
             meta?.onReady?.(s);
           },
-          onTurn: record,
+          onTurn: recorder.record,
         },
         deps,
       );
       // The loop is over; anything still parked behind a tool that never returned its result
       // was still handed to the model, so it is written rather than lost.
-      deliveries.flushAtBoundary();
+      recorder.flushDeliveries();
       // A pure-API backend aborted at the loop's top-of-iteration boundary settles
       // cleanly (no throw) — so a completed interrupt is seen here, not in `catch`.
       const interrupted = session.control?.interrupted === true;
@@ -764,7 +387,8 @@ export function buildSessionHandlers(
       // `interruptSession` already emitted `'interrupted'` synchronously — this
       // clean-break settle must not emit it again. Only a genuine completion emits `'done'`.
       if (interrupted) return;
-      if (started !== undefined) emitStatus(session, started.worktree, 'done');
+      if (startedRef.current !== undefined)
+        emitStatus(session, startedRef.current.worktree, 'done');
     } catch (err) {
       // A mid-turn throw (most often a dropped provider connection) leaves the backend
       // session id captured but this turn's transcript unsaved — a resume on the next
@@ -782,11 +406,11 @@ export function buildSessionHandlers(
       // own post-await flush — so anything parked behind a still-open tool call is flushed
       // here, BEFORE the error frame below, so the log shows the delivery where the model
       // actually read it, above the failure that followed it.
-      deliveries.flushAtBoundary();
+      recorder.flushDeliveries();
       const message = describeLoopFailure(err);
-      if (started !== undefined) {
-        record({ t: 'error', message, origin: 'loop' });
-        emitStatus(session, started.worktree, 'error', message);
+      if (startedRef.current !== undefined) {
+        recorder.record({ t: 'error', message, origin: 'loop' });
+        emitStatus(session, startedRef.current.worktree, 'error', message);
       }
     }
   }
@@ -805,12 +429,10 @@ export function buildSessionHandlers(
   function makeRunTurn(persistentStore: ConversationStore | undefined): RunTurn {
     // Held-open, query-scoped state (the SDK streaming strategy only). `held` is the
     // currently open query, if any; `heldSeqBox`/`heldStarted` are the shared cursor +
-    // start handle its long-lived record closure and its per-turn user-append both use.
+    // start handle its long-lived recorder and its per-turn user-append both use.
     let held: HeldQuery | undefined;
-    const heldSeqBox = { value: 0 };
-    const heldStarted: { current: { id: string; worktree: string } | undefined } = {
-      current: undefined,
-    };
+    const heldSeqBox: SeqBox = { value: 0 };
+    const heldStarted: StartedRef = { current: undefined };
 
     const closeHeld = async (): Promise<void> => {
       if (held === undefined) return;
@@ -875,46 +497,34 @@ export function buildSessionHandlers(
     session: LiveSession,
     configKey: string,
     persistentStore: ConversationStore | undefined,
-    seqBox: { value: number },
-    startedRef: { current: { id: string; worktree: string } | undefined },
+    seqBox: SeqBox,
+    startedRef: StartedRef,
     setHeld: (q: HeldQuery) => void,
   ): Promise<void> {
     const meta = turnMeta.get(turn);
     startedRef.current = undefined;
-    const prep = prepareTurnPersistence(turn, session, persistentStore, seqBox);
+    const prep = prepareTurnPersistence(turn, session, meta?.role ?? '', persistentStore, seqBox);
     const channel = new InputChannel();
     const controller = new AbortController();
     const boundary = deferred();
 
-    // `full`, present on a `tool_result`, is the complete body the model saw —
-    // pushed to the connection ONLY as `frame` (never on the wire); persisted alongside it.
-    const acc = makeStreamAccumulator();
-
-    // Record the steer as a user turn in the single log (the SoT — the single append-only conversation log) AND push
-    // it live. Pushing it (rather than leaving the console to render it optimistically) is
-    // the single source of truth: the console shows the steer the instant it is sent, in the
-    // exact form the model saw, and a later reload folds the same persisted frame into the
-    // same place — so the steer never double-renders. Also called for a delivery's line
-    // (below) — the write itself is identical, only the source differs.
-    const recordSteerTurn = (steerText: string, role: 'user' | 'system' = 'user'): void => {
-      const started = startedRef.current;
-      if (started === undefined) return;
-      const s = seqBox.value++;
-      const frame: TurnFrame = { t: 'text', text: steerText, role };
-      session.emit({
-        kind: 'turn',
-        sessionId: started.id,
-        worktree: started.worktree,
-        seq: s,
-        frame,
-      });
-      if (prep.persistIn !== undefined)
-        prep.persistIn.store.append(prep.persistIn.convId, [{ seq: s, frame }]);
-    };
-
-    const deliveries = createDeliveryRecorder((delivery) =>
-      recordSteerTurn(delivery.text, delivery.origin === 'system' ? 'system' : 'user'),
-    );
+    // ONE recorder spans every turn this query ever runs — that is what the query-lifetime
+    // cursor and start handle buy: a later turn's frames continue the same `seq` instead of
+    // restarting it under the previous turn's.
+    const recorder = createFrameRecorder({
+      session,
+      seqBox,
+      startedRef,
+      persistIn: prep.persistIn,
+      // After a bare stop, everything the abandoned turn still emits is inert: its partial was
+      // already settled, its marker recorded, and its driver released. Dropping the stragglers
+      // keeps content from appearing BELOW the interrupt marker (never an error either).
+      // Cleared when the next turn is fed (`continueHeldQuery`).
+      isInert: () => query.stopped,
+      onSettled: (frame) => {
+        if (frame.t === 'turn-boundary') noteTurnBoundary();
+      },
+    });
 
     const query: HeldQuery = {
       configKey,
@@ -926,19 +536,17 @@ export function buildSessionHandlers(
       stopped: false,
       terminated: false,
       close: () => channel.close(),
-      flushDeliveries: deliveries.flushAtBoundary,
+      recorder,
       done: Promise.resolve(),
     };
     setHeld(query);
-    const takeDeliveries = (): readonly Delivery[] =>
-      deliveries.takeDeliveries(() => session.deliveries.drain());
 
     /**
      * Feed whatever is still queued after a turn ends into the input feed as one plain next
      * turn, preserving FIFO order. Returns whether anything was fed.
      *
-     * Recorded HERE, by `takeDeliveries`, like every other drain point: nothing wrote these
-     * lines earlier. A `user` entry is then fed bare so the log and the model
+     * Recorded HERE, by the recorder's drain, like every other drain point: nothing wrote
+     * these lines earlier. A `user` entry is then fed bare so the log and the model
      * agree on the text; a `system` entry is framed as a notice, so the model cannot read an
      * automated report as the person speaking.
      *
@@ -946,7 +554,7 @@ export function buildSessionHandlers(
      */
     function flushStrandedDeliveries(): boolean {
       if (session.deliveries.size() === 0) return false;
-      const pending = takeDeliveries();
+      const pending = recorder.takeDeliveries();
       if (pending.length === 0) return false;
       const text = pending
         .map((d) => (d.origin === 'system' ? FRAME_SYSTEM_NOTICE + d.text : d.text))
@@ -956,70 +564,34 @@ export function buildSessionHandlers(
       return true;
     }
 
-    const record = (frame: TurnFrame, full?: string): void => {
+    /**
+     * One SDK turn ended. Close out its deliveries, count it off, and — once nothing is
+     * still outstanding — report `done` and release the driver parked on this turn.
+     * Deltas never reach here: only a settled frame can end a turn.
+     */
+    function noteTurnBoundary(): void {
+      // A turn can end with a tool still open (an interrupt, an error, a result that never
+      // arrived). Nothing else will close it, so write what is parked rather than lose text
+      // the model was already handed.
+      recorder.flushDeliveries();
+      query.pendingTurns -= 1;
+      dbgSteer('boundary counted', { pendingTurns: query.pendingTurns });
+      // Resolve the driver only when every outstanding turn has boundaried.
+      if (query.pendingTurns > 0) return;
+      query.pendingTurns = 0;
+      // The turn is over, so any delivery still queued missed every mid-loop drain
+      // point this turn had — the last of them (the Claude backend's `Stop` hook) has
+      // already fired and returned by the time this frame lands. Feed it as an ordinary
+      // next turn instead of leaving it queued: the user has already seen it rendered as
+      // their own turn, so silence is the one outcome that must not happen. It becomes a
+      // real turn, so it takes the pending slot and this driver stays parked until IT
+      // boundaries.
+      if (flushStrandedDeliveries()) return;
       const started = startedRef.current;
-      if (started === undefined) return;
-      // After a bare stop, everything the abandoned turn still emits is inert: its partial was
-      // already settled, its marker recorded, and its driver released. Dropping the stragglers
-      // keeps content from appearing BELOW the interrupt marker (never an error either).
-      // Cleared when the next turn is fed (`continueHeldQuery`).
-      if (query.stopped) return;
-      acc.observe(frame);
-      // Streaming deltas are delivery-only: push for live render, but
-      // NEVER persist, and never touch the boundary accounting below — the append-only
-      // log holds only settled frames (opencode #11329).
-      if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
-        const s = seqBox.value++;
-        session.emit({
-          kind: 'turn',
-          sessionId: started.id,
-          worktree: started.worktree,
-          seq: s,
-          frame,
-        });
-        return;
-      }
-      // A settled `thinking` frame is stamped with the reasoning wall-clock (persisted so a
-      // reload shows "Thought for Ns" identically); every other frame passes through unchanged.
-      const settled = acc.stamp(frame);
-      const s = seqBox.value++;
-      session.emit({
-        kind: 'turn',
-        sessionId: started.id,
-        worktree: started.worktree,
-        seq: s,
-        frame: settled,
-      });
-      if (prep.persistIn !== undefined) {
-        prep.persistIn.store.append(prep.persistIn.convId, [
-          { seq: s, frame: settled, ...(full !== undefined ? { full } : {}) },
-        ]);
-      }
-      deliveries.noteFrame(frame);
-      if (frame.t === 'turn-boundary') {
-        // A turn can end with a tool still open (an interrupt, an error, a result that never
-        // arrived). Nothing else will close it, so write what is parked rather than lose text
-        // the model was already handed.
-        deliveries.flushAtBoundary();
-        query.pendingTurns -= 1;
-        dbgSteer('boundary counted', { pendingTurns: query.pendingTurns });
-        // Resolve the driver only when every outstanding turn has boundaried.
-        if (query.pendingTurns <= 0) {
-          query.pendingTurns = 0;
-          // The turn is over, so any delivery still queued missed every mid-loop drain
-          // point this turn had — the last of them (the Claude backend's `Stop` hook) has
-          // already fired and returned by the time this frame lands. Feed it as an ordinary
-          // next turn instead of leaving it queued: the user has already seen it rendered as
-          // their own turn, so silence is the one outcome that must not happen (and
-          // the degradation delivery is one intent, realized per backend promises). It becomes a real turn, so it takes the
-          // pending slot and this driver stays parked until IT boundaries.
-          if (flushStrandedDeliveries()) return;
-          emitStatus(session, started.worktree, 'done');
-          query.boundary?.resolve();
-          query.boundary = undefined;
-        }
-      }
-    };
+      if (started !== undefined) emitStatus(session, started.worktree, 'done');
+      query.boundary?.resolve();
+      query.boundary = undefined;
+    }
 
     // NOT awaited: this createSession spans the whole live session. Its promise settles
     // only when the input feed closes (clean) or the query aborts (interrupt/error).
@@ -1039,7 +611,7 @@ export function buildSessionHandlers(
         ...(session.parent !== undefined ? { root: session.root } : {}),
         ...buildPersistenceHooks(prep),
         signal: controller.signal,
-        drainDeliveries: takeDeliveries,
+        drainDeliveries: recorder.takeDeliveries,
         onTurnInterrupt: (fn) => {
           query.turnInterrupt = fn;
         },
@@ -1061,7 +633,11 @@ export function buildSessionHandlers(
               // the backend drains it, not here.
               session.deliveries.push({ origin: 'user', text });
             } else {
-              recordSteerTurn(text);
+              // Written here rather than left to the console's optimistic render: the console
+              // shows the steer the instant it is sent, in the exact form the model saw, and a
+              // later reload folds the same persisted frame into the same place — so the steer
+              // never double-renders.
+              recorder.writeFrame({ t: 'text', text, role: 'user' });
               channel.push(text);
             }
           });
@@ -1076,9 +652,7 @@ export function buildSessionHandlers(
           // emits no boundary, so nothing else ever would (a user stop, never an error).
           session.setInterruptClosure(() => {
             if (query.pendingTurns === 0) return false;
-            for (const partial of acc.drainPartials()) record(partial);
-            deliveries.flushAtBoundary();
-            record({ t: 'interrupted' });
+            recorder.settleInterrupt();
             query.stopped = true;
             dbgSteer('bare stop issued', {
               pendingTurns: query.pendingTurns,
@@ -1107,12 +681,12 @@ export function buildSessionHandlers(
           if (meta?.subscribe !== undefined) unsubscribers.push(session.subscribe(meta.subscribe));
           meta?.onReady?.(s);
         },
-        onTurn: record,
+        onTurn: recorder.record,
       },
       deps,
     ).then(
-      () => settleHeldQuery(session, query, seqBox, startedRef, undefined),
-      (err: unknown) => settleHeldQuery(session, query, seqBox, startedRef, err),
+      () => settleHeldQuery(session, query, startedRef, undefined),
+      (err: unknown) => settleHeldQuery(session, query, startedRef, err),
     );
 
     // Closing the session ends this query's input feed ⇒ the query terminates after
@@ -1128,14 +702,14 @@ export function buildSessionHandlers(
    * Feed a further turn into an already-open held query (same config): append the
    * user turn (continuing the shared `seq`), re-mark `running` + (re)subscribe this
    * connection, push the text into the live feed, and await this turn's boundary.
-   * No new `createSession` — the open query's record closure handles the frames.
+   * No new `createSession` — the open query's recorder handles the frames.
    */
   async function continueHeldQuery(
     turn: TurnRequest,
     session: LiveSession,
     query: HeldQuery,
-    seqBox: { value: number },
-    startedRef: { current: { id: string; worktree: string } | undefined },
+    seqBox: SeqBox,
+    startedRef: StartedRef,
   ): Promise<void> {
     const meta = turnMeta.get(turn);
     // A bare stop closed the PREVIOUS turn but kept this query alive (turn-level interrupt).
@@ -1169,15 +743,14 @@ export function buildSessionHandlers(
    * feed closed) or rejects (an interrupt-abort or a mid-turn provider drop). Clears
    * the steer route + control, releases any turn still awaiting a boundary, and — on
    * a genuine (non-interrupt) error — flushes a delivery still parked behind an open
-   * tool call (a steer is recorded when the model receives it: nothing else will ever close it now), drops the stale
+   * tool call (nothing else will ever close it now — docs/adr/0031), drops the stale
    * resume token, and surfaces the failure (an interrupt is a user stop, never
    * rendered as an error).
    */
   function settleHeldQuery(
     session: LiveSession,
     query: HeldQuery,
-    seqBox: { value: number },
-    startedRef: { current: { id: string; worktree: string } | undefined },
+    startedRef: StartedRef,
     err: unknown,
   ): void {
     query.terminated = true;
@@ -1198,21 +771,13 @@ export function buildSessionHandlers(
     // else will ever write a line already parked behind a still-open tool call. Flush it BEFORE
     // the error frame below, so the log shows the delivery where the model actually read it,
     // above the failure that followed it (mirrors the interrupt closure's own ordering).
-    query.flushDeliveries();
+    query.recorder.flushDeliveries();
     const started = startedRef.current;
     if (started !== undefined) {
       const message = describeLoopFailure(err);
-      const s = seqBox.value++;
-      const frame: TurnFrame = { t: 'error', message, origin: 'loop' };
-      session.emit({
-        kind: 'turn',
-        sessionId: started.id,
-        worktree: started.worktree,
-        seq: s,
-        frame,
-      });
-      if (query.persistIn !== undefined)
-        query.persistIn.store.append(query.persistIn.convId, [{ seq: s, frame }]);
+      // Written, not `record`ed: the recorder's per-frame path is gated by the query's own
+      // inert flag, and a settlement error must land whatever the abandoned turn's state is.
+      query.recorder.writeFrame({ t: 'error', message, origin: 'loop' });
       emitStatus(session, started.worktree, 'error', message);
     }
   }
