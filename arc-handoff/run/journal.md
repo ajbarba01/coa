@@ -353,3 +353,42 @@ Workflow: flake-fixer → archiver → adversarial verifier (top lens: gate-chea
     (M4.md:35, M4.md:405, M8.md:293 still document `health()` as live) go to Stage 4.
 - **New question queued: Q9** — health-profile.ts orphaned by health.ts's archival.
 - Gate at 658fbd8: 2858 passed / 30 skipped, depcruise clean (406 modules), docs 60.
+
+## Rulings + prep while the session-layer work runs (2026-08-07 evening)
+
+- **Q2 RULED: strike R2 entirely.** Nothing removed; ledger row updated to STRUCK. The
+  knife's original question queue (Q1–Q3) is now fully closed.
+- **Q8 RETRACTED — it was never a real finding.** See questions.md; the orchestrator
+  misread `git check-ignore` output as `git ls-files` output. No dist/ is tracked.
+- **Q9 RULED: park health-profile.ts** alongside health.ts. Queued to execute as soon
+  as the session-layer workflow releases the working tree.
+- **Maintainer instruction (standing):** run autonomously — do not stop and hand back
+  after each completed unit; only surface when genuinely blocked. Non-blocking
+  questions go in this queue and the run continues.
+- **workflow-scripts/stage4-docs.js REVISED (original in git history).** It was written
+  before this arc's cost-cap ruling and would have shipped a documented lie: it told
+  writers to state the cap prominently as "the only fan-out bound for subagent
+  spawning". That deny path is archived. The revision inverts that instruction into an
+  explicit ground-truth block (spend is accounted, never capped; the close gate is the
+  only block; a fan-out bound is now a ROADMAP item), points paths at this machine,
+  tells writers to RE-DERIVE the known-debt list from the tree rather than trust the
+  brief (several listed items were fixed today), and adds a step the original missed:
+  sweeping `docs/adr` references out of CODE COMMENTS before the ADR corpus is deleted,
+  or every one of those links 404s.
+- **workflow-scripts/c5-composition-and-honesty.js WRITTEN.** Four phases: composition
+  root purification; core-side honesty (reconciler latch surfacing + the hashFile
+  existsSync/readFileSync TOCTOU that lets an ordinary mid-scan file deletion kill
+  producer 2 permanently; counting silently-skipped transcript lines, which today
+  truncate BOTH the rendered history and the model's resumed memory); shell-side
+  honesty; then two refute-framed verifiers. Sequenced so the **data-loss bug goes
+  first**: an agent scope move is delete-then-save, so a failed save destroys the
+  agent file in BOTH scopes while the UI shows it moved. Inverted to save-then-delete,
+  worst case a detectable duplicate.
+- **PR #2 ("Architecture…") exists as a draft, created 2026-08-07 14:37 under the
+  maintainer's gh identity — NOT opened by this orchestrator.** Its body describes the
+  pre-resume state and is now materially stale: it says adapter unification is
+  "in flight … ungated on arc/wip-adapter-unify" (it landed at 0c8c444) and that the
+  session-service/composition-root charters "were never started" (in flight and
+  scripted respectively). It also predates the cost-cap archive. Left untouched — a PR
+  description is outward-facing and Stage 5 owns PR bodies; flagged so the rewrite is
+  not forgotten. PR #1 (the knife) is unaffected.
