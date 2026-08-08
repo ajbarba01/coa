@@ -15,7 +15,7 @@ import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
 /**
- * The held-open drive strategy (docs/adr/0012): ONE session-creation call stays open across
+ * The held-open drive strategy: ONE session-creation call stays open across
  * every turn of a conversation, fed its successive user turns through a derived
  * {@link InputChannel}. The backend's own loop is never restarted, so the model keeps its
  * live context and a turn-level interrupt can stop the CURRENT turn without killing the
@@ -71,7 +71,7 @@ interface HeldQuery {
   /** This query's frame recorder. `settleHeldQuery` closes over nothing, so it reaches the
    *  recorder through the query it already receives, the same way `close` does — a mid-turn
    *  throw must flush a parked delivery line exactly like a turn boundary or an interrupt
-   *  already does (docs/adr/0031). */
+   *  already does. */
   recorder: FrameRecorder;
   done: Promise<void>;
 }
@@ -329,7 +329,7 @@ async function establishHeldQuery(
           }
         });
         // A user stop (bare, no redirect). Settle whatever the model streamed so it PERSISTS
-        // (deltas never do — docs/adr/0013 — so without this the partial renders live and
+        // (deltas never do, so without this the partial renders live and
         // vanishes on reload) and record the interrupt marker, which also makes the model aware
         // next turn. Then stop the TURN via the backend's turn-level interrupt, keeping the
         // query alive for the next send: a whole-query abort does not reliably stop an
@@ -430,7 +430,7 @@ async function continueHeldQuery(
  * rejects (an interrupt-abort or a mid-turn provider drop). Clears the steer route +
  * control, releases any turn still awaiting a boundary, and — on a genuine (non-interrupt)
  * error — flushes a delivery still parked behind an open tool call (nothing else will ever
- * close it now — docs/adr/0031), drops the stale resume token, and surfaces the failure (an
+ * close it now), drops the stale resume token, and surfaces the failure (an
  * interrupt is a user stop, never rendered as an error).
  */
 function settleHeldQuery(

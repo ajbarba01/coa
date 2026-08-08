@@ -12,7 +12,7 @@ import type { TerminalState, TurnDriverDeps } from './turn-driver.js';
 import { deriveTitle } from './turn-persistence.js';
 
 /**
- * The daemon's one owner of live-session lifetime (docs/adr/0011). Constructed ONCE, at
+ * The daemon's one owner of live-session lifetime. Constructed ONCE, at
  * the composition root, beside the registry and the conversation store it drives.
  *
  * The daemon is authoritative for a conversation's liveness, so the machinery that keeps

@@ -253,8 +253,8 @@ export function foldTreeToTranscript(
  * Guarantee every assistant `toolCall.id` has a matching `tool` message — synthesizing
  * a paired result for any that don't (an interrupt / mid-tool crash, or a stranded
  * non-last call in a parallel batch). Keyed by id SET MEMBERSHIP, not list position
- * (docs/design/research/2026-07-09-append-only-persistence-oss.md — the convergent OSS
- * practice: synthesize, don't drop). A synthesized result is inserted immediately after
+ * (the convergent practice across open-source implementations of this: synthesize, never
+ * drop). A synthesized result is inserted immediately after
  * its assistant message, before the next message.
  */
 export function repairUnpairedToolCalls(messages: readonly BackendMessage[]): BackendMessage[] {

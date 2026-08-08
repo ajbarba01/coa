@@ -1,153 +1,163 @@
 # Development Workflow
 
-> CORE doc — project-agnostic; product facts live in the handoff docs, project facts in [DESIGN.md](DESIGN.md).
+> Authority for **the dev loop, decisions, version control, and handoff**. Always-on governance (doc discipline,
+> hierarchical context, the constitution) lives in [AGENTS.md](../AGENTS.md). For code structure see
+> [ENGINEERING.md](ENGINEERING.md); conventions [CODE_STYLE.md](CODE_STYLE.md); layout
+> [REPO_LAYOUT.md](REPO_LAYOUT.md); what the system is [ARCHITECTURE.md](ARCHITECTURE.md).
 
-> Authority for **the dev loop, version control, and handoff**. Always-on governance (doc discipline,
-> hierarchical context, the Constitution) lives in [AGENTS.md](../AGENTS.md). For code structure see
-> [ENGINEERING.md](ENGINEERING.md); conventions [CODE_STYLE.md](CODE_STYLE.md); layout [REPO_LAYOUT.md](REPO_LAYOUT.md).
-
-**Consult to pick the next move.** Spec-driven and lightweight: the spec is the source artifact, code is the
-output. Quality comes from principles + gates, not ceremony. Single-agent today; written model-agnostic so another
-agent can pick up an artifact cold.
+**Consult this to pick the next move.** Lightweight and spec-driven: the written intent is the source artifact,
+code is the output. Quality comes from principles plus gates, not ceremony. Written model-agnostic so any agent
+can pick up an artifact cold.
 
 ---
 
-## The order of operations is the build order
+## Order of work
 
-Product work follows the **topological build order** ([IMPL-SPEC-BRIEF.md §2](design/handoff/IMPL-SPEC-BRIEF.md)):
-`M0 < M2 < M1 < M3 < M4 < M5 < M7 < M6 < M9 < M8 < M10`. Two hard gates sit inside it:
+There is no separate build order to consult. Work is ordered by the **dependency graph**: a thing is buildable
+once everything it points at exists, and the graph is acyclic by rule ([ENGINEERING.md](ENGINEERING.md) #1). Two
+pieces with no edge between them are independently buildable and can run in parallel.
 
-- **The v0 calibration spike** ([IMPL-SPEC-BRIEF.md §1](design/handoff/IMPL-SPEC-BRIEF.md)) — a one-time
-  pre-build gate that must run and be reported **before any M4 (Context Engine) milestone**. It gates _magnitude,
-  not soundness_; if the loop-win is marginal, M4 stays thin. **Do not start M4 work without it.**
-- **D-PROBE-1** (Phase 4/5) — the concurrent-session isolation probe; it is security-load-bearing and gates the
-  multi-agent (M8) work.
+What is done, what is partial, and what is deliberately deferred all live in [ROADMAP.md](../ROADMAP.md) — read
+it to find the next move, and update it in the same commit as the work that changes its state.
 
 ---
 
 ## Where am I → what's next
 
-| Situation                                           | Next move                                                                              | Preferred skill/capability                                  |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| New module / non-trivial feature, nothing written   | **Research**, then write a `specs/<topic>.md` (the _what_ & _why_, grounded in the SPEC) | `superpowers:brainstorming`                              |
-| Spec exists, no plan                                | **Plan** — turn it into a dependency-ordered technical plan.                            | `superpowers:writing-plans`                                 |
-| Plan approved, not started                          | **Build** — start with tests for the core logic (ENGINEERING #4).                      | `superpowers:subagent-driven-development` / `executing-plans` |
-| Mid-build, non-trivial logic                        | Test-first, then implement; keep the logic pure.                                       | `superpowers:test-driven-development`                       |
-| Think it's done                                     | **Verify** — `tsc`/lint/tests, `/code-review`, then exercise the running daemon/CLI.   | `verification-before-completion` → `requesting-code-review` → `/code-review` → `verify` |
-| Got code-review feedback                            | Triage before implementing — verify, don't perform agreement.                          | `superpowers:receiving-code-review`                         |
-| Verified                                            | **Ship** — conventional commit to `main`.                                           | —                                                           |
-| Hit a bug / unexpected behavior                     | Reproduce and find root cause _before_ proposing a fix; don't patch symptoms.          | `superpowers:systematic-debugging`                          |
-| Sub-spec change (bugfix, contained edit)            | **Lightweight lane** — skip spec/plan; one agent owns it end-to-end; build + verify.   | role-appropriate debugging/TDD skills                       |
-| Unsure what a module should do                      | Read its SPEC section. Still ambiguous → stop and ask the maintainer; don't assume.    | —                                                           |
+| Situation                                        | Next move                                                                        | Preferred skill/capability                                    |
+| ------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| New surface / non-trivial feature, nothing written | **Research**, then write the intent down — the _what_ and _why_, grounded in the code. | `superpowers:brainstorming`                                |
+| Intent exists, no plan                           | **Plan** — turn it into a dependency-ordered technical plan.                       | `superpowers:writing-plans`                                   |
+| Plan approved, not started                       | **Build** — start with tests for the core logic (ENGINEERING #4).                 | `superpowers:subagent-driven-development` / `executing-plans` |
+| Mid-build, non-trivial logic                     | Test-first, then implement; keep the logic pure.                                  | `superpowers:test-driven-development`                         |
+| Think it's done                                  | **Verify** — `pnpm check`, `/code-review`, then exercise the running thing.       | `verification-before-completion` → `requesting-code-review` → `/code-review` |
+| Got code-review feedback                         | Triage before implementing — verify, don't perform agreement.                     | `superpowers:receiving-code-review`                           |
+| Verified                                         | **Ship** — conventional commit to `main`.                                         | —                                                             |
+| Hit a bug / unexpected behavior                  | Reproduce and find root cause _before_ proposing a fix; don't patch symptoms.     | `superpowers:systematic-debugging`                            |
+| Small contained change                           | **Lightweight lane** — skip the written intent; one agent owns it end to end.     | role-appropriate debugging/TDD skills                         |
+| Unsure what a part is supposed to do             | Read its section in ARCHITECTURE.md and the code. Still ambiguous → stop and ask. | —                                                             |
 
 ---
 
-## The loop: Research → Spec → Plan → Build → Verify → Ship
+## The loop: Research → Intent → Plan → Build → Verify → Ship
 
-1. **Research** — explore the SPEC section + existing code _before_ coding. Use plan mode to separate exploration
-   from execution; don't solve the wrong problem.
-2. **Spec** — `specs/<topic>.md`: the _what_ and _why_, grounded in the handoff SPEC, no implementation detail.
-3. **Plan** — turn the spec into a technical, dependency-ordered plan (the build order is the spine).
+1. **Research** — read the relevant architecture section and the existing code _before_ coding. Use plan mode to
+   separate exploration from execution; don't solve the wrong problem.
+2. **Intent** — the _what_ and _why_, grounded in the code as it actually is, with no implementation detail.
+3. **Plan** — turn the intent into a technical, dependency-ordered plan.
 4. **Build** — implement against the plan. **Test-first for non-trivial logic** (the pure core especially).
-5. **Verify** — a _fresh_ pass grades the work: `/code-review`, then exercise the running daemon/CLI. The author
-   never grades itself.
-6. **Ship** — conventional commit on `main`.
+5. **Verify** — a _fresh_ pass grades the work: `pnpm check`, `/code-review`, then exercise the running daemon,
+   CLI, or console. The author never grades itself.
+6. **Ship** — conventional commit on `main`, with the docs the change touches updated in the same commit.
 
 ## Skill workflow (execution policy)
 
 The loop maps onto a preferred skill chain, but skills are **capabilities, not model identities**. An agent with
-the matching skill invokes it before acting; an agent without it follows the role contract + artifact checklist
+the matching skill invokes it before acting; an agent without it follows the same role contract and checklist
 directly. Process skills first (brainstorming, debugging), then implementation.
 
-- **Execution may be subagent-driven.** When the active agent exposes subagents and the maintainer requests
+- **Execution may be subagent-driven.** When the active agent exposes subagents and the maintainer asks for
   in-session execution, use `superpowers:subagent-driven-development`; otherwise `executing-plans` or sequential
   execution with native task tracking.
 - **No worktrees by default.** Execution runs against `main` unless the maintainer asks for isolation.
-- **Skip threshold (knob).** Brainstorm + spec + plan are required for anything non-trivial or scope-uncertain;
-  **skipped** for sub-spec work (Lightweight lane). The maintainer moves this line per session. Unsure → ask.
+- **Skip threshold (a knob).** Written intent plus a plan is required for anything non-trivial or
+  scope-uncertain, and **skipped** for contained work (the lightweight lane below). The maintainer moves this
+  line per session. Unsure → ask.
 
-## Portable stage map (model-agnostic)
+## Portable stage map
 
 Each stage is a **role + artifact**. The artifact is the handoff — whoever holds the next role reads it cold.
 
-| Stage  | Artifact (the contract)             | Role          | Preferred skill(s)                        | Fallback                    |
-| ------ | ----------------------------------- | ------------- | ----------------------------------------- | --------------------------- |
-| Spec   | `specs/<topic>.md`                  | designer      | `brainstorming`                           | native planning + AGENTS.md |
-| Plan   | `docs/superpowers/plans/<topic>.md` | designer      | `writing-plans`                           | native dependency planning  |
-| Build  | code + passing gates                | implementer   | `subagent-driven-development` / `executing-plans`; TDD as relevant | read plan and execute gates |
-| Verify | review report                       | reviewer      | `requesting-code-review` / `/code-review` | independent diff review     |
+| Stage  | Artifact (the contract)      | Role        | Preferred skill(s)                                                 | Fallback                     |
+| ------ | ---------------------------- | ----------- | ------------------------------------------------------------------ | ---------------------------- |
+| Intent | a written brief              | designer    | `brainstorming`                                                    | native planning + AGENTS.md  |
+| Plan   | a dependency-ordered plan    | designer    | `writing-plans`                                                    | native dependency planning   |
+| Build  | code + passing gates         | implementer | `subagent-driven-development` / `executing-plans`; TDD as relevant | read the plan, run the gates |
+| Verify | a review report              | reviewer    | `requesting-code-review` / `/code-review`                          | independent diff review      |
+
+**These artifacts are working files, not repo content.** They live in the session scratchpad and are thrown away
+when the work ships — the repo keeps the code, the decision, and the roadmap entry, not the paperwork that
+produced them.
 
 ## Handoff contract
 
-A plan is **ready to hand off** when a fresh agent runs it cold. It MUST contain: the spec path + dependency-ordered
-task groups; **test-first markers** for non-trivial logic; **gates named explicitly** (`pnpm typecheck`,
-`pnpm lint`, `pnpm test`, `/code-review`, manual `verify`); and the Definition of Done. **Handoff is file + git, not
-clipboard** — the planner commits spec + plan and emits a one-line pointer; the implementer reads it off disk.
+A plan is **ready to hand off** when a fresh agent can run it cold. It must contain: the intent it implements;
+dependency-ordered task groups; **test-first markers** for non-trivial logic; **gates named explicitly**
+(`pnpm check`, `/code-review`, and the manual exercise of the running thing); and the definition of done.
+Handoff is **a file plus its path**, never a paste into a chat — the implementer reads it off disk.
 
 ## Escalation protocol
 
-File-based handoff has no live channel: escalation is **written**.
+File-based handoff has no live channel, so escalation is **written**.
 
-- **Triggers (stop, don't improvise):** the SPEC is ambiguous; the SPEC contradicts code reality; a gate cannot
-  pass; a security / data-loss risk; scope creep into something deferred in OPEN.md; an invariant violation
-  (a sideways call, a model call on a critical path).
-- **Channel — a running `## Handoff log` at the bottom of the plan file.** The implementer appends an entry,
-  commits, and stops. **Blocking** → stop and await a decision. **Non-blocking minor** → log it, keep going,
-  batch for later.
+- **Triggers (stop, don't improvise):** the intent is ambiguous; the intent contradicts code reality; a gate
+  cannot pass; a security or data-loss risk; scope creep into something the roadmap defers; an invariant
+  violation (a sideways call, a model call on a critical path).
+- **Channel — a running handoff log at the bottom of the plan file.** The implementer appends an entry and
+  stops. **Blocking** → stop and await a decision. **Non-blocking minor** → log it, keep going, batch it for
+  later.
 
-## Lightweight lane (sub-spec work)
+## Lightweight lane (contained work)
 
-> When a change doesn't need a spec, it skips the **ceremony**, not the **gates**.
+> When a change doesn't need a written intent, it skips the **ceremony**, not the **gates**.
 
-- **Scope** — bugfixes, small/medium refactors, isolated contained edits. The test is "does this need a spec to
-  get right?", not "is it tiny?". Above the line → full Spec → Plan → handoff. Unsure → **ask**.
-- **One agent, end to end** — no spec/plan/handoff artifact; the agent owns research → fix → verify → commit.
-  Escalation is direct to the maintainer. If it grows past the line mid-task, stop and escalate to a spec.
-- **Gates still apply** — `tsc`/lint/tests, **TDD for non-trivial logic**, `systematic-debugging` for bugs (root
-  cause, not symptom), manual `verify`. The Definition of Done holds.
+- **Scope** — bugfixes, small and medium refactors, isolated contained edits. The test is "does this need
+  written intent to get right?", not "is it tiny?". Above the line → full intent → plan → handoff. Unsure →
+  **ask**.
+- **One agent, end to end** — no intent/plan/handoff artifact; the agent owns research → fix → verify → commit.
+  Escalation goes straight to the maintainer. If it grows past the line mid-task, stop and escalate.
+- **Gates still apply** — `pnpm check`, **TDD for non-trivial logic**, root-cause debugging for bugs, and the
+  manual exercise of the running thing. The definition of done holds.
 
-## Doc lifecycle
+## Recording decisions
 
-- **Plans and specs under `docs/superpowers/` are transient.** They exist to get a change built, not to be a
-  durable record — there is no `plans/archive/` or `specs/archive/` (neither ever existed as a real convention).
-- **Durable decisions graduate, they don't accumulate in place.** When a plan/spec ships:
-  - A decision that outlives the artifact that produced it becomes an **ADR** in `docs/adr/` (immutable once
-    accepted; see [docs/adr/README.md](adr/README.md) for the format and lifecycle).
-  - Its resulting **status** (what shipped, what's left) moves to `ROADMAP.md`.
-  - The point-in-time plan/spec file is then **deleted** — git history is the archive; there is nothing to keep
-    a stale copy of on disk.
-- The handoff docs (`SPEC.md` / `IMPL-SPEC-BRIEF.md` / `OPEN.md`) are the product source of truth and are amended
-  in place when a decision genuinely changes; they are not archived, and they are not where ADRs live.
+Decisions are recorded **where the constraint they explain lives**, not in a parallel corpus that drifts away
+from the code.
+
+- **A durable decision goes into [ARCHITECTURE.md](ARCHITECTURE.md)** — inline, in plain language, in the
+  section describing the thing it binds. A reader who needs to know why a boundary is drawn that way finds the
+  reason next to the boundary, in the same pass. Write the reason, not the meeting: what was chosen, what it
+  rules out, and what would have to change to revisit it.
+- **Deferred intent goes into [ROADMAP.md](../ROADMAP.md)** — what is not built, and whether that is "not yet"
+  or "deliberately not". A deferral with no home is how scope creeps back in.
+- **Everything else is transient.** Briefs, plans, and review reports exist to get a change built. When the
+  change ships, the decision graduates, the status lands in the roadmap, and the working file is deleted — git
+  history is the archive.
+- **When code and a doc disagree, the code is the fact.** Fix the doc in the same commit, or file it as a
+  critical finding ([ENGINEERING.md](ENGINEERING.md)) — never leave a doc asserting a feature the tree does not
+  have. Something that is missing is described as roadmap, never in the present tense.
 
 ## Version control & quality gates
 
-- **Single `main` branch**, commit-as-you-go. No PRs / worktrees / branch ceremony yet — revisit when the repo
-  opens to outside contributors (the OSS PR flow is described in [REPO_LAYOUT.md](REPO_LAYOUT.md)).
+- **Single `main` branch**, commit as you go. No PRs, worktrees, or branch ceremony yet — revisit when the repo
+  opens to outside contributors (the eventual PR flow is sketched in [REPO_LAYOUT.md](REPO_LAYOUT.md)).
 - **Commit only after verification.** Assume the tree is broken until verified; no broken commits.
-- **Stage files by name** (never `git add -A` / `.`) — avoids accidental secret/binary inclusion.
-- **Conventional Commits; imperative subject; new commit, not amend** (unless asked).
-- **Subject line only — no body, no `Co-Authored-By`/trailer, no "Generated with" footer.** This overrides any
-  harness default. No project-internal identifiers (phase numbers, plan/spec codenames, module IDs) in the subject.
+- **Stage files by name** (never `git add -A` or `.`) — it avoids accidental secret or binary inclusion.
+- **Conventional Commits; imperative subject; a new commit, not an amend** (unless asked).
+- **Subject line only — no body, no `Co-Authored-By` trailer, no "Generated with" footer.** This overrides any
+  harness default. No internal identifiers in the subject (phase numbers, plan codenames, internal IDs).
 - **Human-sized batches — one logical unit of work per commit.** Group related changes into one coherent commit
-  the way a human would; do NOT commit at fine per-file/per-edit granularity. A whole feature, fix, or doc pass is
-  normally a single commit. Split only for genuinely separate concerns. (This is why work is verified, then
-  committed as a batch — not dribbled out edit by edit.)
-- **Never `--no-verify`** — a failing hook means fix the root cause.
-- **Gates before commit:** `tsc --strict` + ESLint + Prettier + Vitest on core logic + `/code-review` + manual
-  `verify`. **Supply-chain gate** (when CI lands): committed `pnpm-lock.yaml`, `pnpm audit` / `osv-scanner`, and
-  `--ignore-scripts` with the native-addon allowlist (see [REPO_LAYOUT.md](REPO_LAYOUT.md)).
+  the way a human would; do not commit at per-file or per-edit granularity. A whole feature, fix, or doc pass is
+  normally a single commit. Split only for genuinely separate concerns.
+- **Never bypass a gate** — no `--no-verify`, no skipping `pnpm check` "just this once". A failure means fix the
+  root cause, not silence it.
+- **Gates before commit:** `pnpm check` (typecheck, lint, format, tests, dependency rules) plus `pnpm docs:check`
+  when docs moved, then `/code-review` and a manual exercise of the running thing. When CI lands it runs the same
+  gates plus the supply-chain checks described in [REPO_LAYOUT.md](REPO_LAYOUT.md).
 
 ## Verifying a daemon, not a web app
 
-"Verify the running thing" here means: start the daemon, exercise the CLI verbs against it, confirm the change-event
-WAL / projections behave, and check `coa raw` still shows the unfiltered loop (strict-superset). There is no browser
-to click through until M10; until then verification is the test suite + the CLI + daemon behavior.
+"Verify the running thing" here means: start the daemon, exercise the CLI verbs against it, confirm the change
+log and its projections behave, and — for anything the console touches — drive the Electron app and watch the
+surface actually change. Raw mode is part of that check: the console must still be able to show the unfiltered
+loop, because a governed view that cannot be turned off is not a superset of the raw one.
 
-## Definition of Done
+## Definition of done
 
-Tests green → types/lint/format clean → `/code-review` clean (a fresh pass, not the author) → manual `verify` of the
-running daemon/CLI → conventional commit on `main`.
+Tests green → types, lint, and format clean → dependency rules clean → `/code-review` clean (a fresh pass, not
+the author) → the running daemon, CLI, or console exercised by hand → docs touched by the change updated →
+conventional commit on `main`.
 
 ---
 
-_Last reviewed: 2026-07-05_
+_Last reviewed: 2026-08-08_

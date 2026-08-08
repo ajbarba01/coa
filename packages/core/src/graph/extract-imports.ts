@@ -4,8 +4,9 @@ import { walk, type SerializedNode } from '@coa/code-intel';
 /**
  * The tree-sitter import-graph floor. The kernel drives the parser's `parse` and walks the CST
  * for static `import`/re-export source specifiers, emitting `inferred` `imports`
- * edges — the language-agnostic structural floor every consumer reads before the
- * precise (TS-LSP) and convention layers add fidelity. Specifier
+ * edges — the language-agnostic structural floor every consumer reads. The convention
+ * extractors layer fidelity on top of it; a language-server-backed precise layer was
+ * always the intended third tier and is not built. Specifier
  * resolution (relative → repo path) is delegated to the caller's resolver, which
  * knows the indexed file set. It cannot see dynamic/string-keyed imports;
  * those are the convention extractors' domain.

@@ -1,24 +1,17 @@
 #!/usr/bin/env node
-// Router/orphan + dead-link check for the permanent doc set.
-// Transient corpora (superpowers/research/archive) and personal notes are excluded.
+// Router/orphan + dead-link check for the permanent doc set: every indexed doc must be
+// reachable from an entry point, and every in-repo link must resolve.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY_POINTS = ['AGENTS.md', 'README.md']; // roots of the reachability graph
-// Dir prefixes and exact files excluded from the indexed set (the `rel === ig` check handles exact files):
-// DEV-NOTES.md is the maintainer's personal scratch notes; CLAUDE.local.md is the
-// gitignored per-machine instructions file — both live outside the indexed set.
-const IGNORE = [
-  'docs/superpowers',
-  'docs/design/research',
-  'docs/archive',
-  'archive',
-  'node_modules',
-  'DEV-NOTES.md',
-  'CLAUDE.local.md',
-];
+// Dir prefixes and exact files excluded from the indexed set (the `rel === ig` check handles
+// exact files). `archive/` is parked feature code, deliberately outside every gate — linking
+// TO its README is fine, but its own pages are not part of the index. CLAUDE.local.md is the
+// gitignored per-machine instructions file.
+const IGNORE = ['archive', 'node_modules', 'CLAUDE.local.md'];
 const LINK_RE = /\[[^\]]*\]\(([^)]+)\)/g;
 
 const toPosix = (p) => relative(ROOT, p).split(sep).join('/');
@@ -48,15 +41,18 @@ function localLinks(file) {
   return out;
 }
 
-// Resolve a link target: if it points at a directory, treat `<dir>/README.md` as
-// the reached doc (a nav row linking a directory, e.g. `docs/adr/`, should not be
-// falsely flagged as dead, and its README should be queued as the reached page).
-function resolveTarget(base, t) {
+// Which docs a link target reaches. A link to a file reaches that file. A link to a
+// DIRECTORY reaches its README.md when it has one, and every .md inside it when it does
+// not — so one nav row can index a whole corpus (`docs/recipes/`) without forcing an
+// index page into it.
+function reachedDocs(base, t) {
   const r = resolve(base, t);
-  if (existsSync(r) && statSync(r).isDirectory()) {
-    return join(r, 'README.md');
+  if (!existsSync(r) || ignored(r)) return [];
+  if (statSync(r).isDirectory()) {
+    const readme = join(r, 'README.md');
+    return existsSync(readme) ? [readme] : walk(r);
   }
-  return r;
+  return r.endsWith('.md') ? [r] : [];
 }
 
 const rootMd = readdirSync(ROOT)
@@ -69,9 +65,7 @@ const allDocs = [...rootMd, ...docsMd].filter((p) => !ignored(p));
 const deadLinks = [];
 for (const file of allDocs) {
   for (const t of localLinks(file)) {
-    const r = resolve(dirname(file), t);
-    if (existsSync(r)) continue; // direct hit (file or directory)
-    if (existsSync(resolveTarget(dirname(file), t))) continue; // directory -> README.md
+    if (existsSync(resolve(dirname(file), t))) continue; // direct hit (file or directory)
     deadLinks.push(`${toPosix(file)} -> ${t}`);
   }
 }
@@ -85,10 +79,7 @@ while (queue.length) {
   if (reachable.has(key)) continue;
   reachable.add(key);
   if (!existsSync(file) || !file.endsWith('.md')) continue;
-  for (const t of localLinks(file)) {
-    const r = resolveTarget(dirname(file), t);
-    if (r.endsWith('.md') && existsSync(r) && !ignored(r)) queue.push(r);
-  }
+  for (const t of localLinks(file)) queue.push(...reachedDocs(dirname(file), t));
 }
 const orphans = allDocs.filter((p) => !reachable.has(resolve(p)));
 

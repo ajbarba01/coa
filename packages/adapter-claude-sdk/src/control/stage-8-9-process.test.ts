@@ -11,9 +11,8 @@ import { captureSpawn } from './probe-kit.js';
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Control-spike stages 8-9 — inference routing, and the process coa wraps.
- * SDK 0.3.196 / CLI 2.1.196 (a4ca500). See
- * docs/superpowers/specs/2026-08-02-claude-sdk-control-spike-design.md.
+ * Control probes — inference routing, and the process coa wraps.
+ * SDK 0.3.196 / CLI 2.1.196 (a4ca500).
  *
  * STRUCTURAL FINDING, discovered while writing these probes: `captureSpawn`
  * (probe-kit.ts) cannot be used to probe `env`, `executable`, or

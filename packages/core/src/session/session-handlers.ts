@@ -110,7 +110,7 @@ export function buildSessionHandlers(
     // so this is a no-op on the shipped path, and it keeps the console's optimistic pin —
     // built from that same trimmed text — matching the daemon's recorded line exactly. That
     // reconciliation counts matching lines, so an inexact match hangs the pin until the idle
-    // sweep clears it (docs/adr/0031).
+    // sweep clears it.
     steerSession: rpcMethod(steerParams, (params) => ({
       steered: service.steer(params.id, params.text.trim()),
     })),

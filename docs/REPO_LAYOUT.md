@@ -1,13 +1,13 @@
 # Repository Layout
 
-> CORE doc — the **physical organization** of the repo and the rules that keep it coherent. Read before adding a
-> package, a file, or a dependency. The _logical_ module definitions live in
-> [design/handoff/SPEC.md](design/handoff/SPEC.md) §A; this doc is the logical→physical mapping plus the build,
-> dependency, and open-source conventions.
+> Authority for the **physical organization** of the repo and the rules that keep it coherent. Read before adding
+> a package, a file, or a dependency. What the parts _are_ and why the boundaries fall where they do lives in
+> [ARCHITECTURE.md](ARCHITECTURE.md); this doc is the mapping onto disk, plus the build, dependency, and
+> open-source conventions.
 
-The repo is a **pnpm monorepo**. The guiding rule: **each logical module (M0–M10) has exactly one physical home**,
-the dependency graph is **acyclic and topological**, and the **change-event spine (M1) is the only shared mutable
-substrate** — producers and consumers point only at it, never sideways ([ENGINEERING.md](ENGINEERING.md) #1–#2).
+The repo is a **pnpm monorepo**. The guiding rule: **each responsibility has exactly one physical home**, the
+dependency graph is **acyclic**, and the **change-event spine is the only shared mutable substrate** — producers
+and consumers point only at it, never sideways ([ENGINEERING.md](ENGINEERING.md) #1–#2).
 
 ---
 
@@ -15,135 +15,107 @@ substrate** — producers and consumers point only at it, never sideways ([ENGIN
 
 ```
 coa/
-  packages/                  libraries (the logical modules)
-    shared/                  M0 — @coa/shared        (types + Zod schemas only; no behavior)
-    code-intel/              M2 — @coa/code-intel     (pure byte→structure; child-process parser seam)
-    core/                    M1,M3–M8 — @coa/core     (the spine + consumers + services; see below)
-    spi/                     M9 ports — @coa/spi       (capability port types)
-    loop-driver/             M9 — @coa/loop-driver     (coa-owned governed ReAct loop for pure-API backends; `complete()` primitive + driver; neutral, no backend SDK)
-    adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
-    adapter-openai-compat/   M9 impl  — @coa/adapter-openai-compat (ONE thin pure-API backend: `complete()` over any OpenAI-compatible HTTP API + the shared loop-driver, parameterized by a data-only `ProviderSpec` — endpoints, key/price/effort env vars, reasoning-field mapping, usage extraction; DeepSeek + LongCat + OpenAI + OpenRouter ship as spec objects, so a new compatible provider is a new spec, not a new package; no backend SDK, just fetch)
-    console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
-    console-transcript/      M10 — @coa/console-transcript (the streaming conversation renderer: the non-virtualized Transcript + its internal FindBar, StreamingMarkdown, the rich `ToolCard` and its supporting members, and `DenyNotice`; a composite built ON the kit, never the reverse; pure react, no electron/core).
-    console-kit/             M10 — @coa/console-kit (the workbench design system's kit: sand-dark theme seam + structural tokens + component vocabulary, COMPONENTS.md generated; pure react/@base-ui, no electron/core)
-  apps/                      shippable binaries (M10 Console)
-    cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue). Also the daemon's composition root: `src/session-deps.ts` binds the core to a backend, and `src/console-handlers.ts` builds the inspector+auth handler map — the `~/.coa` stores, the browser-isolation session, and the login manager over `src/login-driver.ts`'s pty driver — so core declares those ports without constructing them
-    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer is the three-column workbench (`src/renderer/shell/`: nav + center canvas + collapsible session column, daemon gate, ⌘K palette, settings dialog) composed from `@coa/console-kit`, fed by the controller in `src/renderer/console.ts` publishing one `ConsoleState` into a store; The IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); the shell arrangement (surface/tabs/columns) and console settings (theme/motion) persist per-user via the main process (`src/main/persistence.ts`: `layout.json` + `settings.json`). Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated). Every user-initiated write that fails announces itself on one shared surface (`src/renderer/shell/failures.ts` + its `FailureToast` mount) — advisory, never a gate.
-  docs/
-    design/handoff/          SPEC.md (a per-module index over spec/M0..M10.md) · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
-    adr/                     architecture decision records — immutable, the durable "why" (README is the index)
-    superpowers/             transient in-flight specs/ + plans/; graduated to adr/ + ROADMAP, then deleted (reappears as new work needs it)
-    *.md                     the engineering framework (this doc, ENGINEERING, CODE_STYLE, WORKFLOW, DESIGN, UI)
-  test/                      repo-level tooling tests (the dependency-cruiser canary)
-  archive/                   parked feature code — never compiled, linted, or cruised
-  AGENTS.md  CLAUDE.md       how work is done (router + Claude shim)
-  ROADMAP.md                 project status + path forward (the in-repo status authority)
-  LICENSE                    Apache-2.0
-  package.json               workspace root (private; scripts + devDeps only)
-  pnpm-workspace.yaml        workspace globs
+  packages/                  libraries — the units the daemon and the apps compose
+    shared/                  @coa/shared             types + Zod schemas only; no behavior, imports nothing
+    code-intel/              @coa/code-intel         bytes → structure via tree-sitter; ships a second runnable
+                                                     entry so the parser can run as an isolated child process
+    core/                    @coa/core               the daemon: the spine plus every ring around it (below)
+    spi/                     @coa/spi                the backend capability port types
+    loop-driver/             @coa/loop-driver        the neutral governed agent loop the pure-API backends
+                                                     share; knows no backend SDK
+    adapter-claude-sdk/      @coa/adapter-claude-sdk the Claude Agent SDK backend (neutral → native render)
+    adapter-openai-compat/   @coa/adapter-openai-compat  ONE thin backend over any OpenAI-compatible HTTP API,
+                                                     parameterized by a data-only provider spec (endpoints,
+                                                     credential and pricing pointers, reasoning-field mapping,
+                                                     usage extraction). Several providers ship as spec objects,
+                                                     so a new compatible provider is a new spec, not a new
+                                                     package. No SDK — just fetch plus the shared loop driver
+    console-viewmodel/       @coa/console-viewmodel  pure daemon-result → render-props; no electron/react/core
+    console-kit/             @coa/console-kit        the console design system: theme seam, structural tokens,
+                                                     component vocabulary; pure react, no electron/core
+    console-transcript/      @coa/console-transcript the streaming conversation renderer — a composite built ON
+                                                     the kit, never the reverse
+  apps/                      shippable binaries
+    cli/                     the `coa` CLI, and the daemon's composition root: it binds the core to a backend,
+                             constructs the concrete adapters, stores, and login machinery, and injects them —
+                             so the core declares those ports without ever building one
+    desktop/                 the Electron console: main process (pipe client, window and persistence) plus a
+                             sandboxed renderer composed from the kit
+  docs/                      ARCHITECTURE.md (what the system is and why its boundaries fall where they do),
+                             the engineering framework (this doc, ENGINEERING, CODE_STYLE, WORKFLOW, UI), and
+                             recipes/ — the how-to guides for working on specific surfaces
+  test/                      repo-level tooling tests (the dependency-rule canary)
+  archive/                   parked feature code — compiled by nothing, imported by nothing
+  ROADMAP.md                 what is done, what is partial, what is deliberately deferred
+  AGENTS.md  CLAUDE.md       how work is done (the router, plus the Claude-specific shim)
+  README.md  LICENSE         the front door; Apache-2.0
+  package.json               workspace root (private; scripts + devDependencies only)
+  pnpm-workspace.yaml        workspace globs, the native-addon build allowlist
   pnpm-lock.yaml             committed lockfile (supply-chain integrity)
-  tsconfig.base.json         shared strict compiler options; per-package tsconfig extends + project-references it
+  tsconfig.base.json         shared strict compiler options; every package extends and project-references it
 ```
 
-`packages/*` are libraries (publishable units, the logical modules); `apps/{cli,desktop}` are the end-user
-binaries that compose them. This is the standard pnpm/Turborepo split — publishable libs stay separate from
-shippable apps.
+`packages/*` are libraries; `apps/{cli,desktop}` are the end-user binaries that compose them. This is the
+standard pnpm split — publishable libraries stay separate from shippable apps.
 
-## The logical → physical map (from SPEC §A.4)
-
-| Module                       | Package                                | Notes                                                                              |
-| ---------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
-| M0 Shared Schema             | `packages/shared`                      | Types + Zod schemas only; imported by everything; imports nothing.                 |
-| M1 Change Kernel             | `packages/core` → the **spine** ring   | WAL, bus, in-mem graph, symbol table / piece-resolver, projections.                |
-| M2 Code Lens                 | `packages/code-intel`                  | Byte→structure; the parser runs as a **separate child process** (isolation seam).  |
-| M3 Constraint & Flag         | `packages/core` → a **consumer** + gate | Flags projection + the one close-gate service.                                     |
-| M4 Context Engine            | `packages/core` → **consumer/services** | Staleness consumer + generation/assembly/detection services.                      |
-| M5 Config Compiler           | `packages/core/compiler/`              | `compile(pieces) -> NeutralConfig`; **promotable to a standalone `compiler` package if it grows.** |
-| M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface; `workbench/base-tools.ts` (Read/Glob/Grep/Write/Edit/Bash for non-`claude` providers) declares those ports and `workbench/{ripgrep,file-listing,exec}.ts` implement the disk/process halves the daemon root binds them to (`@vscode/ripgrep` search + parse, `tinyglobby` globbing behind a `.gitignore` translation, and the shell `spawnSync` wrapper); `workbench/render-result.ts` renders each tool's structured result to human-readable display text (+ a success predicate) for the pure-API loop, which has no SDK-provided result text; `workbench/web/` (credential-gated WebSearch/WebFetch) pulls in `turndown` and routes BOTH tools through cooldown-aware provider chains (`routing.ts` + `key-state-store.ts` → `~/.coa/web-keys.json`, shared `limits.ts` classifiers): fetch = `firecrawl.ts`/`tavily.ts` scrape+extract → `plain-fetch.ts` free floor; search = `tavily.ts`/`firecrawl.ts`/`parallel.ts`; the chains and the WebFetch summarizer are assembled in the CLI composition root (`apps/cli/src/web-tools.ts` over `apps/cli/src/fetch-summarizer.ts` and `@coa/adapter-openai-compat`) and injected as finished deps into the daemon core, which stays backend-blind and never reads the process environment. Keys are managed user-global via `workbench/web/web-config-store.ts` (`~/.coa/web.yaml` pointers + `~/.coa/keys/` secrets), driven by the `coa websearch`/`coa webfetch` CLI (`apps/cli/src/web-cli.ts`) and loaded into the daemon by `apps/cli/src/session-deps.ts`. |
-| M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
-| M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
-| M9 Runtime Adapter           | `packages/spi` + `packages/loop-driver` + `packages/adapter-claude-sdk` + `packages/adapter-openai-compat` | Ports (types) + the shared pure-API loop driver + the SDK backend + the one thin OpenAI-compatible backend (DeepSeek, LongCat, OpenAI, and OpenRouter as `ProviderSpec` objects). |
-| M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-kit` + `packages/console-transcript` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-kit` owns the design system (theme seam, structural tokens, component vocabulary, COMPONENTS.md); `console-transcript` owns the conversation renderer built on it. |
-
-**Why M1 and M3–M8 share one `core` package.** They are the daemon's rings around the spine; they share the
-in-process graph and the single-writer WAL, and the SPEC keeps them co-located. The discipline that prevents this
-from becoming a tangle is enforced **inside** `core` by directory boundaries and the dependency ruleset below —
-not by package splits.
+**Why the daemon is one `core` package rather than several.** Its rings share the in-process graph and the
+single-writer log, and splitting them would turn one in-process call into a package boundary for no gain. The
+discipline that keeps it from becoming a tangle is enforced **inside** `core` by directory boundaries and the
+dependency ruleset below — not by package splits.
 
 ### Inside `packages/core` (the rings)
 
-```
-core/src/
-  *.ts           M1 — the spine, at the root: kernel (emit/subscribe + in-mem graph host), event,
-                      projection, checkpoint timeline, idle scheduler; index.ts is the package barrel
-  graph/         M1 — in-mem graph, symbol table, import/piece resolution
-  wal/           M1 — the single-writer WAL
-  reconcile/     M1 — the reconciler (producer ②)
-  scope/         M1 — scope config/resolution/linting, glob machinery
-  flags/         M3 — the one pipeline (registerProducer/ingest), dedup, the two audiences, the close-gate
-  context/       M4 — generation, assembly, detection/staleness services
-  compiler/      M5 — compile(pieces) -> NeutralConfig (its own service boundary)
-  workbench/     M6 — the Mutate producer + the outer-ring tool surface
-  governance/    M7 — cost ledger, provenance, decision log, policy
-  models/        model catalog + effective-model resolution
-  console/       console state store
-  session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
-    agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store
-    builtin-agents.ts the two code-shipped definitions (general-purpose, explorer)
-    session-service.ts the daemon's one owner of live-session lifetime: send-or-create,
-                      the drive loop, subagent dispatch, the conversation store. Built
-                      once at the composition root; a connection only translates onto it
-    session-handlers.ts the session-lifecycle JSON-RPC verbs, as pure translation over
-                      the service, plus the sinks/unsubscribes that die with the socket
-    frame-recorder.ts the one writer of a turn's frames — push + durable append, the
-                      delta/persist rule and the delivery-legality gate; parameterized by
-                      the seq cursor + start handle so every drive strategy shares it
-    turn-persistence.ts the per-turn conversation prelude (create/title/memory hand-off/
-                      selection pin/user-prompt append) and the session-call hooks it feeds
-    turn-driver.ts    the contract a drive strategy is built against — all daemon-scoped;
-                      a turn's own per-send facts ride the queued turn instead
-    per-turn-driver.ts   one session call per turn (every pure-API backend)
-    held-open-driver.ts  one session call held open across turns, fed an input channel
-  rpc/           M8 — JSON-RPC server plumbing
-  auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
-```
+| Directory      | What lives there                                                                        |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `src/*.ts`     | **the spine**: the kernel (append and subscribe, the in-memory graph host), the change event, the projection mirror, the checkpoint timeline, the idle scheduler. `index.ts` is the package barrel |
+| `graph/`       | spine — the in-memory graph, the symbol table, import and piece resolution               |
+| `wal/`         | spine — the single-writer append log                                                     |
+| `reconcile/`   | spine — the git-centric reconciler (the second producer)                                 |
+| `scope/`       | spine — scope config, resolution, linting, and the glob machinery                        |
+| `flags/`       | the one flag pipeline (register a producer, ingest), dedup, the two audiences, the close gate, the per-tool deny rules, and the user-invoked validator |
+| `context/`     | generation, drift detection, and origin-anchor verification                              |
+| `compiler/`    | compiling config pieces into one neutral config                                          |
+| `workbench/`   | the precise edit producer and the tool surface handed to the loop, including the disk, process, and web halves the composition root binds into it |
+| `governance/`  | the cost ledger and the sandbox posture                                                  |
+| `models/`      | the model catalog and effective-model resolution                                         |
+| `auth/`        | the credential-blind account registry — login pointers, never secrets                    |
+| `console/`     | the console state store                                                                  |
+| `session/`     | the daemon host, session and worktree lifetime, the drive strategies, the agent registry  |
+| `rpc/`         | the JSON-RPC server plumbing                                                              |
 
-**The intra-`core` rule** (mechanically enforced): only the spine (the root-level files plus `graph/`,
-`wal/`, `reconcile/`, `scope/`) is shared mutable substrate. Every other ring imports **from the spine and
-`@coa/shared`**, never from a sibling ring sideways. Two hubs are exempt: `session/` (M8 composition — it
-wires the rings into a daemon) and `rpc/` (M8 transport — it exposes them over JSON-RPC). `compiler/` reads
-`context/`'s output but not vice versa. `workbench/` is a producer (writes via the spine) and reads
-`flags/`/`context/`/`governance/` only as the SPEC's M6 dependency allows.
+**The intra-`core` rule** (mechanically enforced): only the spine — the root-level files plus `graph/`, `wal/`,
+`reconcile/`, and `scope/` — is shared mutable substrate. Every other ring imports **the spine and
+`@coa/shared`**, never a sibling ring sideways. Two hubs are exempt because composing rings is their job:
+`session/` (it wires the rings into a daemon) and `rpc/` (it exposes them over JSON-RPC). `compiler/` reads what
+`context/` produces, never the reverse. `workbench/` is a producer — it writes through the spine and reads
+`flags/`, `context/`, and `governance/` only.
 
-## Dependency rules (enforced by `dependency-cruiser` in CI)
+## Dependency rules (enforced by `dependency-cruiser`)
 
-The ruleset asserts the SPEC §A.4 arrows as hard constraints:
+The ruleset asserts the architecture's arrows as hard constraints:
 
-- **Acyclic** — no cross-package and no cross-ring import cycles. The topological order must hold.
-- **`shared` (M0) imports nothing**; everything may import it.
-- **Producers → spine ← consumers** — no consumer ring imports another consumer ring sideways; everything goes
-  through `spine/`.
-- **Backend isolation** — only `adapter-claude-sdk` may import the Claude Agent SDK (or any backend SDK). The core
-  calls `spi` port types — no `which-backend?` branch anywhere else.
+- **Acyclic** — no cross-package and no cross-ring import cycles.
+- **`@coa/shared` imports nothing**; everything may import it.
+- **Producers → spine ← consumers** — no consumer ring imports another consumer ring sideways.
+- **Backend isolation** — only the Claude adapter may import a backend SDK. There is no `which-backend?` branch
+  anywhere else.
 - **Apps depend on libraries, never the reverse** — `apps/*` import `packages/*`; no package imports an app.
-- **M9 fan-in is injected, not imported** — `core` does not depend on any adapter package (enforced:
-  `backend-fan-in-is-injected`); the app composition roots construct the concrete backends (session adapter
-  factory, WebFetch summarizer, login driver) and inject them through the `spi` port types, keeping M9 a
-  swappable leaf.
-- **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
-  `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
-- **`console-kit` and `console-transcript` are pure UI packages** — they import only
-  `react`/`@base-ui`/`lucide-react` (+ the kit's tokens), never `electron`/`core` (enforced:
-  `console-ui-no-electron-core`). `console-transcript` depends on `console-kit`; never the reverse.
-- **The ruleset is kept honest, not decorative** — every package's `exports` map carries a
-  `development` condition pointing at its TypeScript source, and the cruiser resolves with
-  `development` first, so cross-package `@coa/*` edges land on the source paths the rules match
-  rather than on built `dist` (which is excluded from the graph). The cruise covers `packages` and
-  `apps` (both binaries). A canary test (`test/depcruise-canary.test.ts`) plants a forbidden edge
-  and asserts it is reported, so a resolution regression cannot silently disarm the rules.
+- **Backends are injected, not imported** — `core` does not depend on any adapter package. The app composition
+  root constructs the concrete backends and passes them in through the port types in `spi`, which is what keeps a
+  backend a swappable leaf. The shared loop driver is the neutral engine adapters build on, and may never import
+  an adapter back.
+- **`console-viewmodel` stays pure** — never `electron`, `react`, or `core`.
+- **`console-kit` and `console-transcript` are pure UI packages** — react and its ecosystem only, never
+  `electron` or `core`. The transcript depends on the kit; the kit never depends on the transcript, because the
+  one-way edge is what keeps the kit small enough to review.
+- **The ruleset is kept honest, not decorative.** Every package's `exports` map carries a `development`
+  condition pointing at its TypeScript source, and the cruiser resolves `development` first — so cross-package
+  `@coa/*` edges land on the source paths the rules are written against instead of on built output (which is
+  excluded from the graph entirely). A canary test in `test/` plants a forbidden edge and asserts it is reported,
+  so a resolution regression cannot silently disarm every cross-package rule at once.
 
-A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
-**same commit** (the same-commit doc rule).
+A violation fails the gate. When a genuinely new edge is needed, the architecture doc and the ruleset change in
+the **same commit**.
 
 ## Per-package anatomy
 
@@ -151,73 +123,78 @@ A violation fails CI. When a genuinely new edge is needed, it changes the SPEC �
 packages/<name>/
   src/                 source; one primary export per file (CODE_STYLE)
   src/**/*.test.ts     unit tests co-located with the unit (Vitest)
-  test/                cross-module / integration tests for this package (optional)
-  package.json         name @coa/<name>, exports map, scripts, deps
-  tsconfig.json        extends ../../tsconfig.base.json; references its workspace deps
-  tsdown.config.ts     bundle config (libraries that ship build output)
+  test/                cross-module or integration tests for this package (optional)
+  package.json         name @coa/<name>, exports map (with the `development` condition), scripts, deps
+  tsconfig.json        extends ../../tsconfig.base.json; project-references its workspace deps
+  tsdown.config.ts     bundle config, for the libraries that ship build output
 ```
 
-- **One primary export per file**; the file is named for it. M0 (`shared`) exports types/schemas and **no runtime
-  behavior**.
-- **`code-intel` has two entry points**: the library API _and_ a **separate runnable parser-process entry** — so
-  running the tree-sitter parser as an isolated child process is a build flag, not a re-tooling (D112). A
-  native-addon crash on a hostile file takes down the child, not the daemon.
+- **One primary export per file**; the file is named for it. `@coa/shared` exports types and schemas and **no
+  runtime behavior**.
+- **`code-intel` has two build entries**: the library API _and_ a separate runnable parser process — so running
+  the tree-sitter parser in isolation is a flag rather than a re-tooling. A native crash on a hostile file takes
+  down the child, not the daemon.
+- Not every package needs a bundle. A renderer-side package the desktop app compiles from source has no
+  `tsdown.config.ts` at all; the `development` export condition is what lets the rest of the toolchain resolve it
+  as source.
 
 ## Build & packaging
 
-- **Bundler: `tsdown`** (Rolldown+Oxc, tsup-compatible), **pinned to an exact version** (it is pre-1.0).
-  **Documented fallback:** `tsc` + esbuild if the 0.x cadence churns. The bundler emits the `code-intel` parser as
-  a separate runnable process entry (above).
-- **Toolchain pinning** — `packageManager` field pins the pnpm version; `engines` + `.nvmrc` pin the Node version.
-  Native addons are rebuilt deterministically for the **daemon's Node ABI**, never Electron's.
-- **Supply-chain hygiene** — commit `pnpm-lock.yaml`; verify integrity (lockfile + content hashes); default
-  **`--ignore-scripts`** with an explicit native-addon allowlist for packages that legitimately need build scripts
-  (`better-sqlite3`, the tree-sitter binding). Install-time `postinstall` runs _before_ any
-  sandbox, so this is the highest-leverage supply-chain control.
-- **CI gates** — `pnpm audit` / `osv-scanner` on the committed lockfile, plus the standard gates (typecheck, lint,
-  format, tests, dependency-cruiser). See [WORKFLOW.md](WORKFLOW.md).
-- **Dependency pins (re-confirm at build time)** — the secondary backend path is `ai@^6` + `@ai-sdk/anthropic@^3`,
-  behind the M9 port; do not jump to the unstable majors.
+- **Bundler: `tsdown`** (Rolldown and Oxc, tsup-compatible), **pinned to an exact version** because it is
+  pre-1.0. **Documented fallback:** `tsc` plus esbuild if the 0.x cadence churns.
+- **Toolchain pinning** — the `packageManager` field pins pnpm; `engines` plus `.nvmrc` pin Node. Native addons
+  are rebuilt deterministically for the **daemon's Node ABI**, never Electron's.
+- **Supply-chain hygiene** — the lockfile is committed. Install scripts are **off by default**, with an explicit
+  allowlist in `pnpm-workspace.yaml` for the native addons that legitimately need them; Electron's and esbuild's
+  own postinstalls are pinned off, since they only fetch runtime binaries that typechecking and bundling do not
+  need. Install-time scripts run _before_ any sandbox exists, which makes this the highest-leverage
+  supply-chain control in the repo.
+- **Gates** — `pnpm check` runs typecheck, lint, format, tests, and the dependency ruleset locally.
+  Automated CI, and the dependency-audit step that belongs in it, is still ahead (see
+  [ROADMAP.md](../ROADMAP.md)); until it lands, the gate is run by hand before every commit
+  ([WORKFLOW.md](WORKFLOW.md)).
 
 ## Open-source scaffolding
 
-The repo is Apache-2.0 and built to open. The following is the **target** OSS structure; each file is created when
-the project reaches it (not pre-littered):
+The repo is Apache-2.0 and built to open. The following is the **target** structure; each file is created when
+the project reaches it, not pre-littered:
 
 ```
 LICENSE                  Apache-2.0 (present)
-NOTICE                   attribution + copyright line (add once the copyright holder is confirmed — DESIGN.md open Q)
-CONTRIBUTING.md          how to set up, run gates, and propose changes (the WORKFLOW loop, externalized)
+NOTICE                   attribution + copyright line
+CONTRIBUTING.md          how to set up, run the gates, and propose changes (the workflow loop, externalized)
 CODE_OF_CONDUCT.md       standard (Contributor Covenant)
-SECURITY.md              how to report a vulnerability (relevant: coa governs an agent + runs sandboxed code)
+SECURITY.md              how to report a vulnerability (relevant: coa governs an agent and runs its code)
 CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit history
 .github/
   workflows/             CI (the gates above)
-  ISSUE_TEMPLATE/        bug / feature templates
+  ISSUE_TEMPLATE/        bug and feature templates
   PULL_REQUEST_TEMPLATE.md
 ```
 
-- **Conventional Commits** are the changelog substrate — another reason the subject-line discipline
-  ([AGENTS.md](../AGENTS.md) Constitution) matters.
-- **PR flow** arrives with outside contributors (today it is single `main`, commit-as-you-go; see
-  [WORKFLOW.md](WORKFLOW.md)). The dependency rules and gates above are exactly what a PR CI check enforces.
-- **Apache-2.0 specifics** — source-file license headers are optional but the LICENSE + a NOTICE (once the holder
-  is set) cover attribution; the patent grant is the reason Apache-2.0 was chosen over MIT.
+- **Conventional Commits are the changelog substrate** — another reason the subject-line discipline
+  ([AGENTS.md](../AGENTS.md)) matters.
+- **PR flow arrives with outside contributors.** Today it is a single `main` and commit-as-you-go
+  ([WORKFLOW.md](WORKFLOW.md)); the dependency rules and gates above are exactly what a PR check would enforce.
+- **Apache-2.0 specifics** — per-file license headers are optional; LICENSE plus a NOTICE covers attribution.
+  The patent grant is why Apache-2.0 was chosen over MIT.
 
 ## Where non-code things live
 
-- **Product source of truth** → `docs/design/handoff/` (SPEC / IMPL-SPEC-BRIEF / OPEN). Amended in place.
-- **Durable decisions (the why)** → `docs/adr/` — immutable ADRs; see the doc-lifecycle rule in
-  [WORKFLOW.md](WORKFLOW.md).
-- **Project status / path forward** → [`ROADMAP.md`](../ROADMAP.md).
-- **In-flight specs & plans** → `docs/superpowers/{specs,plans}/` — **transient**: they exist to get a change
-  built, graduate their durable decisions to ADRs + ROADMAP, then are deleted (git history is the archive). The
-  directory reappears when the next plan is written.
-- **Agent definitions** → `.coa/agents/` scopes. Personal agents live in `~/.coa/agents/` (one YAML file per
-  agent, filename stem as the ref); project agents live in `<repo>/.coa/agents/` (committed to git). The daemon
-  loads both scopes plus two built-in definitions, with project definitions winning on ref collision.
-- **Throwaway scripts / scratch output** → the session scratchpad, **never committed**.
+- **What the system is, and why** → [`ARCHITECTURE.md`](ARCHITECTURE.md). Amended in place; a durable
+  decision is written into the section whose constraint it explains.
+- **Status and deferred intent** → [`ROADMAP.md`](../ROADMAP.md).
+- **How to work on a specific surface** → [`docs/recipes/`](recipes/) — one page per task, added when a surface
+  is fiddly enough that the next person would otherwise rediscover it.
+- **Parked feature code** → `archive/`, each entry with a row in [its README](../archive/README.md) recording
+  what it was, why it was parked, and what would revive it. Nothing there is compiled, linted, formatted,
+  cruised, tested, or indexed — so a parked feature cannot quietly become load-bearing, and reviving one is a
+  deliberate move back into the tree.
+- **Agent definitions** → per-scope directories: personal agents under the user's home config, project agents
+  committed alongside the repo they belong to. The daemon loads both scopes plus its built-in definitions, and a
+  project definition wins on a name collision.
+- **Briefs, plans, review reports, throwaway scripts** → the session scratchpad, **never committed**.
 
 ---
 
-_Last reviewed: 2026-08-04_
+_Last reviewed: 2026-08-08_

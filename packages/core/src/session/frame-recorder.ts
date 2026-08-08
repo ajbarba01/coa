@@ -6,10 +6,9 @@ import type { LiveSession, StartedHandle } from './live-session.js';
 /**
  * The ONE place a turn's frames become visible: pushed to the session's subscribers and
  * appended to the durable log. Every drive strategy records through this module, so the
- * rules that must hold for all of them — deltas are pushed but never persisted
- * (docs/adr/0013), a delivery's line is written where the model actually received it
- * (docs/adr/0031), a settled reasoning block carries its wall-clock — exist once instead
- * of once per strategy.
+ * rules that must hold for all of them — deltas are pushed but never persisted, a
+ * delivery's line is written where the model actually received it, a settled reasoning
+ * block carries its wall-clock — exist once instead of once per strategy.
  *
  * The strategies differ only in WHERE a frame's identity comes from, so exactly two things
  * are injected: the {@link SeqBox} (a per-turn cursor for a fresh turn, a query-lifetime
@@ -115,7 +114,7 @@ function makeStreamAccumulator(): StreamAccumulator {
 }
 
 /**
- * The delivery-legality gate, and its single writer (docs/adr/0031): a delivery drained
+ * The delivery-legality gate, and its single writer: a delivery drained
  * while a tool call is open cannot be written until that call's result lands, or the line
  * falls between a `tool_use` and its `tool_result` — the one interleaving the Messages API
  * forbids. Living inside the recorder is what keeps it to one writer: every drive strategy
@@ -251,7 +250,7 @@ export function createFrameRecorder(rec: FrameRecorderDeps): FrameRecorder {
     acc.observe(frame);
     // Streaming deltas are delivery-only: push for live render, but NEVER persist and never
     // reach the settled-frame bookkeeping below — the append-only log holds only settled
-    // frames, so the read-time fold and cross-turn memory are unchanged (docs/adr/0013).
+    // frames, so the read-time fold and cross-turn memory are unchanged.
     if (frame.t === 'text-delta' || frame.t === 'thinking-delta') {
       emitAt(startedRef.current, frame);
       return;

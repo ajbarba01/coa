@@ -3,8 +3,7 @@
  *  ``` / ~~~ fence; a closing fence ends its block; a trailing single newline stays trailing
  *  (soft-break ambiguity) so `completed` is append-only as text grows. Append-only is what lets
  *  the caller memoize each completed block by content and key it by index. No DOM, no React;
- *  re-run each frame under `useMemo` (StrictMode-safe — no mutation).
- *  See docs/superpowers/plans/2026-07-09-streaming-reveal-block-split.md. */
+ *  re-run each frame under `useMemo` (StrictMode-safe — no mutation). */
 export interface StreamSplit {
   completed: string[];
   /** The in-progress region after the last settled block. Part of the pure segmentation contract

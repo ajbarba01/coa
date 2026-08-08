@@ -112,7 +112,7 @@ describe('stage 7 — the Task/Agent rename (arc risk R2)', () => {
 
   it('carries BOTH delegation spellings in the vocabulary, while the floor demotes them', () => {
     // The pinned CLI advertises `Task` in `system:init.tools` while the model emits `Agent`
-    // in the same run (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184).
+    // in the same run — measured live, on one version.
     // coa's grant vocabulary carries both spellings so neither is silently dropped from a
     // frame that names them. THAT is the SDK fact, and it is unchanged.
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);

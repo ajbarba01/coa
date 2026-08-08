@@ -10,9 +10,8 @@ import { captureSpawn } from './probe-kit.js';
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Control-spike stages 1-2 — what the model is, what tools exist.
- * SDK 0.3.196 / CLI 2.1.196 (a4ca500). See
- * docs/superpowers/specs/2026-08-02-claude-sdk-control-spike-design.md.
+ * Control probes — what the model is, what tools exist.
+ * SDK 0.3.196 / CLI 2.1.196 (a4ca500).
  *
  * IMPORTANT STRUCTURAL FINDING, discovered while writing these probes and load-
  * bearing for almost everything below: `systemPrompt`, `toolAliases`, `agents`,

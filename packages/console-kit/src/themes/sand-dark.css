@@ -1,7 +1,7 @@
 /* @coa/console-kit — the "sand dark" theme. A THEME IS THIS WHOLE FILE: the 12-step
  * scale, the status vocabulary, diff tints, shadows, and the scrim. New themes
  * (light, the re-tailored brass identity) replace it at equal quality — never a
- * partial recolor. See docs/adr/0014. */
+ * partial recolor. The authoring rules that keep a theme whole are in docs/UI.md. */
 
 @theme {
   /* Radix Sand dark — tier-1 scale. Steps 7–12 (the text/icon band) are nudged

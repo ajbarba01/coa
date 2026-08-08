@@ -712,9 +712,9 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   return (
     <>
       {/* Session-switching chrome (title bar, session switcher, agent rail) is retired here —
-          the shell's title-bar tabs + ⌕ browser own switching now (docs/design plan A1). This
-          is a plain layout container, not a re-styled Pane — the running/needs-you state now
-          lives on the composer's own edge (its status-outline shimmer). */}
+          the shell's title-bar tabs + ⌕ browser own switching now. This is a plain layout
+          container, not a re-styled Pane — the running/needs-you state now lives on the
+          composer's own edge (its status-outline shimmer). */}
       <div className="flex h-full min-h-0 flex-col bg-s1">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {/* The transcript fills the pane; the composer floats over its bottom edge

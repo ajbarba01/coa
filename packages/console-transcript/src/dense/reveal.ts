@@ -1,8 +1,7 @@
 /** Single source of truth for the streaming reveal effect. Changing any effect is a
  *  one-line edit here (`variant: 'none'` degrades to a literal pass-through, so a disabled
  *  reveal is never worse than the raw text). The
- *  transcript components read `defaultReveal` directly; each also accepts a prop override.
- *  See docs/superpowers/specs/2026-07-09-streaming-reveal-effect-design.md. */
+ *  transcript components read `defaultReveal` directly; each also accepts a prop override. */
 export type TextVariant = 'blurIn' | 'fadeIn' | 'slideUp' | 'none';
 export type BlockVariant = 'blurRise' | 'fadeRise' | 'fade' | 'scale' | 'none';
 export type ReasoningMode = 'auto-expand' | 'shimmer' | 'peek' | 'static';

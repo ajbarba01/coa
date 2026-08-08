@@ -23,10 +23,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * ASSERTS STRUCTURE ONLY: presence of a marker, a count, a boolean, a checksum
  * match. Nothing read out of the binary is embedded here — the SDK's license is
- * "(c) Anthropic PBC. All rights reserved." The paraphrased findings this track
- * produced live in
- * docs/design/research/2026-08-02-claude-cli-binary-findings.md; that doc cites,
- * it does not paste.
+ * "(c) Anthropic PBC. All rights reserved." Findings from this track were only
+ * ever recorded as paraphrase; nothing was pasted.
  *
  * This track is explicitly LOWER-CONFIDENCE than the argv probes: a Bun
  * single-file executable embeds minified, unstructured JS, so a marker's absence

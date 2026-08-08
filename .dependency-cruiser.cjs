@@ -118,7 +118,7 @@ module.exports = {
       name: 'kit-never-depends-on-the-transcript',
       severity: 'error',
       comment:
-        'The kit is the vocabulary and the transcript is one surface built from it. The dependency runs one way; if it ever runs both, the split that keeps the kit reviewable has collapsed (docs/adr/0025).',
+        'The kit is the vocabulary and the transcript is one surface built from it. The dependency runs one way; if it ever runs both, the split that keeps the kit reviewable has collapsed.',
       from: { path: '^packages/console-kit/src' },
       to: { path: '^packages/console-transcript/' },
     },

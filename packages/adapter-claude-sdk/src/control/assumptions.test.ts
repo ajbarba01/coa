@@ -461,9 +461,9 @@ describe('stage 7: the Task/Agent rename — coa guards both spellings', () => {
 
   it('guards both spellings in the vocabulary, and demotes both at the floor', () => {
     // Both spellings are deliberately carried in the grant vocabulary because the pinned
-    // CLI advertises Task in system:init.tools while the model emits Agent in the same run
-    // (see docs/design/research/2026-08-02-claude-sdk-control-ledger.md:184). That is the
-    // SDK fact this probe exists to pin, and it is unchanged.
+    // CLI advertises Task in system:init.tools while the model emits Agent in the same run,
+    // measured live on one version. That is the SDK fact this probe exists to pin, and it
+    // is unchanged.
     expect(KNOWN_BUILTINS.has('Agent')).toBe(true);
     expect(KNOWN_BUILTINS.has('Task')).toBe(true);
 

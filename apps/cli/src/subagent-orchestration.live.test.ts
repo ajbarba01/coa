@@ -56,8 +56,7 @@ import {
  * adapter's `signal` (the exact seam a session-level interrupt rides in production). A
  * green run here is evidence the primitives behave as the core layer assumes; it is not a
  * live run of `spawn.ts`/`session-handlers.ts` themselves — that can only be proven by
- * driving the real daemon (which the maintainer did once, by hand; see
- * `.superpowers/sdd/2026-08-05-subagent-orchestration/progress.md`, "LIVE END-TO-END PASS").
+ * driving the real daemon end to end, which the maintainer has done once by hand.
  *
  * The cost assertion is deliberately narrow for a recorded reason — fan-out is deliberately unbounded, and spend is accounted rather than capped — and nothing
  * in this arc wires a producer that surfaces the tree cost roll-up over RPC — the ledger's

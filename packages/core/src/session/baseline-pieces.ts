@@ -10,7 +10,7 @@ import type { AssemblePiecesContext } from './session.js';
  * existing `assemblePieces → the prompt compile step → the backend renderNative step` pipeline (no backend
  * ever imports this module — it flows through the neutral config).
  *
- * Design rules (see docs/design/research/pieces-and-dual-backend-spec.md):
+ * Design rules:
  * - coa-neutral identity — never impersonate "Claude Code" (matters for parity
  *   AND for a from-scratch backend).
  * - minimal-but-sufficient — a faithful re-declaration, not a copy of the preset.

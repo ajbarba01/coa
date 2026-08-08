@@ -1,5 +1,5 @@
-/* The retired legacy kit's proven discipline, copied (not imported) so this kit
- * never depended on it — see docs/adr/0025. */
+/* The retired legacy kit's proven discipline, copied rather than imported: the point of
+ * retiring that kit was to leave nothing depending on it. */
 
 /** The per-component usage declaration. Presence + completeness are enforced;
  *  correctness is a review judgment. All intents compile into COMPONENTS.md. */
