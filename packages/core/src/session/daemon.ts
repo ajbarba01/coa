@@ -12,8 +12,7 @@ import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { listFilesFor } from '../workbench/file-listing.js';
 import { searchWithRipgrep } from '../workbench/ripgrep.js';
 import { createExec } from '../workbench/exec.js';
-import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
-import type { Summarizer } from '../workbench/web-tools.js';
+import type { WebToolDeps } from '../workbench/web-tools.js';
 import type { RuntimeUsage } from '@coa/spi';
 import { resolveShell } from './shell.js';
 import type { DaemonCore } from './composition.js';
@@ -36,18 +35,18 @@ export interface DaemonCoreOptions {
   /** The flag producers (injected) to register and drive off the kernel feed. */
   producers?: readonly Producer[];
   /**
-   * The web-egress config (credential-gated); when present and a key resolves,
-   * `baseCatalogue` gains `WebSearch`/`WebFetch` (absent/unresolved ⇒ the
-   * tools are simply not offered).
+   * Build the credential-gated web egress (`WebSearch`/`WebFetch`). The composition
+   * root owns the user's key config, the environment it resolves credentials from,
+   * and the summarizer's provider-specific `complete()` — so neither the backend
+   * package nor the process environment enters core. Handed the ledger's cost
+   * recorder for the summarizer's spend.
+   *
+   * Absent, or returning `undefined`, ⇒ the two tools are simply not offered (the
+   * floor for a user who has configured no web keys). Deps that carry no summarizer
+   * still offer WebFetch on its raw-markdown floor — no summarizer is a degradation,
+   * never an error.
    */
-  web?: WebConfig;
-  /**
-   * Compose the WebFetch summarizer from the web config — the composition root owns
-   * the provider-specific `complete()`, so the backend package never enters core.
-   * Handed the ledger's cost recorder. Absent, or returning `undefined`, ⇒ the
-   * raw-markdown floor (WebFetch is still offered; nothing is summarized).
-   */
-  summarizer?: (deps: { recordCost: (usage: RuntimeUsage) => void }) => Summarizer | undefined;
+  webTools?: (deps: { recordCost: (usage: RuntimeUsage) => void }) => WebToolDeps | undefined;
 }
 
 export interface DaemonCoreHandle {
@@ -253,13 +252,12 @@ function governedToolDeps(
 
 /**
  * Build the pure-API catalogue: governance + base tools, plus the web tools
- * (`WebSearch`/`WebFetch`) whenever `options.web` is configured — the free
- * floor guarantees `buildWebToolDeps` always returns deps in that case,
- * so `includeWebTools` is set whenever a `web` block is present. WebFetch's
- * summarizer comes from the injected factory (`options.summarizer`), handed the
- * ledger's cost recorder; an absent factory or an `undefined` return degrades to
- * raw markdown. Summarizer spend is audited (recorded to the ledger) but not
- * charged to the session spend counter — a deliberate deferral.
+ * (`WebSearch`/`WebFetch`) whenever the injected `webTools` factory yields deps —
+ * an absent factory or an `undefined` return leaves the two tools off the
+ * catalogue, which is the floor for a user with no web keys configured. The
+ * factory is handed the ledger's cost recorder for the summarizer it composes:
+ * that spend is audited (recorded to the ledger) but not charged to the session
+ * spend counter — a deliberate deferral.
  */
 function buildBaseCatalogue(
   kernel: ChangeKernel,
@@ -269,14 +267,9 @@ function buildBaseCatalogue(
   sessionId = 'daemon',
   spawn?: SpawnDeps,
 ) {
-  const summarizer = options.web
-    ? options.summarizer?.({
-        recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
-      })
-    : undefined;
-  const web = options.web
-    ? buildWebToolDeps(options.web, process.env, { ...(summarizer ? { summarizer } : {}) })
-    : undefined;
+  const web = options.webTools?.({
+    recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
+  });
   return buildGovernedTools(
     {
       ...governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),

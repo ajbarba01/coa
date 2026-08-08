@@ -395,92 +395,47 @@ describe('createDaemonCore', () => {
     expect(res.result).toEqual({ found: true, piece });
   });
 
-  it('offers WebSearch/WebFetch in baseCatalogue when a web config + resolvable key are present', () => {
-    const prior = process.env.PARALLEL_API_KEY;
-    process.env.PARALLEL_API_KEY = 'sk-test';
-    try {
-      handle = createDaemonCore({
-        walPath: join(dir, 'log.ndjson'),
-        root: dir,
-        web: {
-          search: {
-            providers: [
-              {
-                kind: 'parallel',
-                disabled: false,
-                credentials: [
-                  { locator: { type: 'env-var', name: 'PARALLEL_API_KEY' }, disabled: false },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      const names = handle.core.baseCatalogue.map((t) => t.name);
-      expect(names).toContain('WebSearch');
-      expect(names).toContain('WebFetch');
-    } finally {
-      if (prior === undefined) delete process.env.PARALLEL_API_KEY;
-      else process.env.PARALLEL_API_KEY = prior;
-    }
+  it('offers WebSearch/WebFetch in baseCatalogue when the injected factory yields deps', () => {
+    handle = createDaemonCore({
+      walPath: join(dir, 'log.ndjson'),
+      root: dir,
+      webTools: () => ({ searchChain: [], fetchChain: [] }),
+    });
+    const names = handle.core.baseCatalogue.map((t) => t.name);
+    expect(names).toContain('WebSearch');
+    expect(names).toContain('WebFetch');
   });
 
-  it('omits WebSearch/WebFetch from baseCatalogue with no web config', () => {
+  it('omits WebSearch/WebFetch from baseCatalogue with no web-tools factory', () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     const names = handle.core.baseCatalogue.map((t) => t.name);
     expect(names).not.toContain('WebSearch');
     expect(names).not.toContain('WebFetch');
   });
 
-  it('offers WebFetch via the free floor even when the search key does not resolve', () => {
-    const prior = process.env.MISSING_KEY_VAR;
-    delete process.env.MISSING_KEY_VAR;
-    try {
-      handle = createDaemonCore({
-        walPath: join(dir, 'log.ndjson'),
-        root: dir,
-        web: {
-          search: {
-            providers: [
-              {
-                kind: 'parallel',
-                disabled: false,
-                credentials: [
-                  { locator: { type: 'env-var', name: 'MISSING_KEY_VAR' }, disabled: false },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      const names = handle.core.baseCatalogue.map((t) => t.name);
-      expect(names).toContain('WebFetch');
-      expect(names).toContain('WebSearch'); // registered but inert without a key (a user stop, never an error)
-    } finally {
-      if (prior !== undefined) process.env.MISSING_KEY_VAR = prior;
-    }
+  it('omits them again when the factory yields nothing (an unconfigured user, never an error)', () => {
+    const factory = vi.fn(() => undefined);
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir, webTools: factory });
+    const names = handle.core.baseCatalogue.map((t) => t.name);
+    expect(factory).toHaveBeenCalled();
+    expect(names).not.toContain('WebSearch');
+    expect(names).not.toContain('WebFetch');
+    expect(names.length).toBeGreaterThan(0); // the rest of the catalogue is untouched
   });
 
-  it('invokes the injected summarizer factory with the ledger recorder when web is configured', () => {
+  it('hands the ledger recorder to the factory; deps with no summarizer still offer WebFetch', () => {
     const recorders: Array<(usage: RuntimeUsage) => void> = [];
     handle = createDaemonCore({
       walPath: join(dir, 'log.ndjson'),
       root: dir,
-      web: { fetch: { providers: [], freeFloor: true, quotaCooldown: 'next-midnight' } },
-      summarizer: ({ recordCost }) => {
+      webTools: ({ recordCost }) => {
         recorders.push(recordCost);
-        return undefined; // the raw-markdown floor — WebFetch must still be offered
+        return { searchChain: [], fetchChain: [] }; // the raw-markdown floor — no summarizer
       },
     });
     expect(recorders).toHaveLength(1);
     expect(handle.core.baseCatalogue.map((t) => t.name)).toContain('WebFetch');
     // The handed recorder reaches the live ledger without throwing.
     recorders[0]?.({ tokensIn: 1, tokensOut: 1, costUsd: 0.01 });
-  });
-
-  it('never invokes the summarizer factory with no web config', () => {
-    const factory = vi.fn(() => undefined);
-    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir, summarizer: factory });
-    expect(factory).not.toHaveBeenCalled();
   });
 });

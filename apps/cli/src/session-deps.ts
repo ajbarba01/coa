@@ -19,8 +19,8 @@ import {
 } from '@coa/core';
 import { providerSchema, type Provider } from '@coa/shared';
 import { createAdapter, fetchModels, sessionStrategy } from './adapter-factory.js';
-import { buildFetchSummarizer } from './fetch-summarizer.js';
 import { buildGenerationProducers } from './generation.js';
+import { buildWebTools } from './web-tools.js';
 
 /**
  * The app-side spike harness — assemble runnable {@link SessionDeps} from the
@@ -67,12 +67,11 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     walPath: options.walPath,
     root,
     producers: buildGenerationProducers(root),
-    // The concrete WebFetch summarizer (a DeepSeek complete()) is composed HERE and
-    // injected — the daemon core stays backend-blind and degrades to raw markdown
-    // when the factory yields nothing.
-    ...(hasWeb
-      ? { web, summarizer: ({ recordCost }) => buildFetchSummarizer(web, recordCost) }
-      : {}),
+    // The provider chains and the concrete WebFetch summarizer (a DeepSeek complete())
+    // are composed HERE and injected — the daemon core stays backend-blind and never
+    // reads the process environment. With no summarizer the chains still assemble, so
+    // WebFetch degrades to raw markdown rather than disappearing.
+    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost) } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const registry = new AccountsRegistry(homedir());

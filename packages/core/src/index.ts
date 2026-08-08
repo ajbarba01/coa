@@ -66,6 +66,6 @@ export {
   FETCH_KINDS,
   type WebChain,
 } from './workbench/web/web-config-store.js';
-export { webConfigSchema, type WebConfig } from './workbench/web/web-config.js';
+export { buildWebToolDeps, webConfigSchema, type WebConfig } from './workbench/web/web-config.js';
 export { makeSummarizer } from './workbench/web/summarizer.js';
-export { type Summarizer } from './workbench/web-tools.js';
+export { type Summarizer, type WebToolDeps } from './workbench/web-tools.js';
