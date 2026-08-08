@@ -34,7 +34,7 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | 143ce81 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
+| `arc/architecture` | e223f13 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
@@ -98,18 +98,15 @@ on the old machine.
    commit with exactly the predicted symptoms). See the journal for the one verification
    gap (G4 reattach / held-query-survives-interrupt lack independent confirmation).
 7. ~~Q9 archival~~ DONE 2026-08-07 (d57d5c0).
-8. **C5 — BUILT (10 commits, d57d5c0..143ce81), VERIFIED, FIXES IN FLIGHT.** Gate at the
-   tip: 2912 passed / 30 skipped, depcruise 418 modules, docs 60. Both refute-framed
-   verifiers returned passed=false with real findings; see the journal for the full text.
-   Four blocking items are being closed by wf_dd325935-2b5 (workflow-scripts/c5-fixes.js):
-   the model-resume path still gets a silently truncated history (the console was told, the
-   model was not); `AgentRegistry.remove` swallows every error and reports success, which
-   makes the new failure surface inert for the everyday Windows EPERM case; a back-compat
-   claim about the reload schema is provably false and reachable via the stale
-   apps/cli/dist/bin.js; and two resolved-false results (`removed`, `steered`) are read
-   nowhere, so a dropped steer silently eats the user's typed text.
-   **Verified good and not to be re-litigated:** the data-loss ordering fix (mutation-probed
-   twice, independently), the reconciler latch + hashFile race fix, and SC-1 intactness.
+8. **C5 — COMPLETE AND VERIFIED (15 commits, d57d5c0..e223f13).** Both verifiers found
+   real defects; all four blocking findings are fixed and were re-verified BY HAND after the
+   fix round's verifiers died on a session limit. Two mutation probes back the load-bearing
+   claims: reverting the delete fix reds a unit test AND an end-to-end RPC test; removing the
+   model notice reds the pure-API and Claude-preamble tests. Gate: 2928 passed / 30 skipped,
+   depcruise 418 modules, docs 60.
+   Remaining C5-adjacent debt, recorded not actioned: the crash-reason heuristic still shares
+   a stderr buffer with routine daemon logging (narrowed, not eliminated, by e223f13), and a
+   cross-scope duplicate is a reachable post-failure state with no diagnostic.
 9. Stage 4 docs (mandatory before any closeout) — the script was REVISED 2026-08-07;
    the original would have documented a cost cap that no longer exists. Absorbs the
    codename-consistency pass, the stale-package doc references, and the ADR-0031

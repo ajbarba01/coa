@@ -809,3 +809,61 @@ honoured because `reportFailure` was present at the call site. It was present an
 Checking that a fix is WIRED is not checking that the signal can travel it — the question is
 always whether the real failure mode can reach the handler, and that is answered by making the
 real failure happen, not by reading the call site.
+
+## C5 fixes LANDED (5 commits) — verifiers died on a session limit, orchestrator verified by hand
+
+The fix charter's two executors both reported COMMITTED; **both verifiers then died on the
+account's session limit** (reset 9:20am), exactly as happened during C3. Rather than leave
+four blocking findings closed only by self-report, the orchestrator verified them by hand at
+12:43. Commits:
+
+  f8664d7  tell the model when its resumed transcript is missing events
+  b7b245e  accept an older daemon's conversation reply instead of failing the open
+  f95f122  raise a delete that failed instead of reporting it as a no-op
+  85a6297  tell the user when a delete, a move or a steer did not land
+  e223f13  blame the newest failure line for a crash, not the oldest one in the buffer
+
+**FINDING A — closed, mutation-probed.** `AgentRegistry.remove` now answers false only for
+the not-there errno codes (reusing the same shape the reconciler already uses) and rethrows
+everything else. Probe: reverting it to the swallow-all catch reds TWO tests — the unit-level
+throw test and, more importantly, an end-to-end one that drives a real registry through
+`dispatch()` and asserts the caller receives an error response. The chain the previous round
+lacked is now continuous: throw -> RPC error envelope -> IPC rejection -> the renderer's
+existing catch fires (report + rollback + reconcile). Four doc comments corrected, two more
+than the two that were named.
+
+**FINDING B — closed, mutation-probed, and the fast-path caveat is sound.** The notice is
+applied ONCE at memory-plan.ts:122, ahead of the provider branch, and all three return paths
+carry it — so which path a turn takes cannot decide whether the loss is admitted. Traced to
+the wire rather than to a variable: turn-persistence:172 -> session:317 -> the Claude adapter
+at :239. Probe: removing the notice call reds two tests, one of them explicitly covering the
+Claude preamble path ("the branch taken must not decide honesty"). The agent's disclosed
+caveat — on the native resume fast path the note rides along without reaching the model — is
+CORRECT and now carries a comment saying why: the server session holds its own copy of the
+memory, which coa's unreadable local line never damaged.
+Notable judgment call, disclosed and right: the agent widened `loadBackendMessages` to return
+{ messages, skipped } rather than borrowing the count from the neighbouring reload call,
+"because the discard was possible precisely because the memory reader returned less than it
+knew". That closes the trap for the next caller instead of routing around it — 13 test
+assertion sites updated as the cost. It also appended rather than prepended the note, to avoid
+invalidating the provider's cached prefix.
+
+**FINDING C — closed.** The reload schema is now a union accepting either the object or a bare
+array normalized to a zero skip count, pinned by a bare-array parse test. The exported type
+still infers from the object branch, so the wire type stays one shape.
+
+**FINDING D — closed.** Both ignored booleans are read. A delete that removed nothing says so;
+the cross-scope move now names the operation that actually failed ("it was copied to X, but the
+old Y copy could not be removed"), instead of the old generic save-failed label; a dropped
+steer is surfaced.
+
+**Gate, verbatim:** `Test Files 281 passed | 11 skipped (292)` / `Tests 2928 passed | 30
+skipped (2958)`, depcruise clean 418 modules, docs-check 60. Pushed; arc/architecture tip
+e223f13, 15 commits from d57d5c0.
+
+**Process note.** Two verification rounds in this arc have now been lost to session limits
+(C3 and this one), and in both cases hand-verification found the self-reports substantially
+honest. That is not an argument for skipping verification — the LAST round's self-report was
+also honest and still shipped an inert fix. It is an argument for the orchestrator budgeting
+time to verify by hand when a verifier dies, rather than treating an executor's COMMITTED as
+the end of the charter.
