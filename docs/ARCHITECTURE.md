@@ -59,46 +59,43 @@ Three structural rules hold the graph together, all machine-checked (the ruleset
 `coa serve` stands up the daemon. `apps/cli` is its composition root: it constructs the daemon singletons in
 dependency order (the change kernel, then the flag pipeline, then governance, with the prompt compiler and the
 governed tool catalogue bound by reference), builds the concrete backend factory and the inspector/auth handler
-map, and binds a JSON-RPC endpoint — a Windows named pipe, or a Unix domain socket under the runtime directory.
-The transport frames NDJSON over any duplex, so the protocol layer is independent of the endpoint kind. Endpoint
-hardening (Unix peer-credential rejection, a Windows DACL) is **not** applied; the seam where it belongs is
-marked in the transport, and closing it is a precondition for any multi-user or remote-daemon mode.
+map, and binds a JSON-RPC endpoint — a Windows named pipe, or a Unix domain socket under the runtime directory,
+framed as NDJSON over any duplex so the protocol layer is independent of the endpoint kind. Endpoint hardening
+(Unix peer-credential rejection, a Windows DACL) is **not** applied; the seam is marked in the transport, and
+closing it is a precondition for any multi-user or remote-daemon mode.
 
 **The daemon owns a live session; a connection is only a viewer.** A conversation's liveness belongs to the
-daemon's live-session registry, never to whoever started it. One session service — constructed once, beside the
-registry and the conversation store — is the single owner of live-session lifetime. `send` is
-send-or-create: it resolves or mints the conversation id, queues the request as a turn, and (only the first
-time) starts a daemon-owned loop that drains that queue one turn at a time. Every later send, from any client
-over any transport, rides the same loop. Nothing caller-scoped is stored on the service; a turn's own facts —
-the role it asked for, the sink it wants hydrated, the answer it is waiting on — travel *with* the queued turn,
-because state kept privately by the founding caller would be invisible the moment a second client sent the next
-turn. A live session runs headless with zero subscribers, and a reattaching client is hydrated with the
-daemon's true current run status rather than reconstructing liveness from stale client memory.
+daemon's live-session registry, never to whoever started it. One session service, the single owner of
+live-session lifetime, treats `send` as send-or-create: it resolves or mints the conversation id, queues the
+request as a turn, and — only the first time — starts a daemon-owned loop that drains that queue one turn at a
+time. Every later send, from any client over any transport, rides the same loop. Nothing caller-scoped is
+stored on the service; a turn's own facts (the role it asked for, the sink it wants hydrated, the answer it is
+waiting on) travel *with* the queued turn, because state kept privately by the founding caller would be
+invisible the moment a second client sent the next turn. A live session runs headless with zero subscribers,
+and a reattaching client is hydrated with the daemon's true current run status rather than reconstructing
+liveness from stale client memory.
 
-Two **drive strategies** sit behind one contract, chosen per provider by the composition root:
-
-- **Held-open** (Claude): one backend query stays alive across a session's turns, fed successive user turns as
-  a stream. Warm continuation, no resume replay. A mid-conversation model or prompt-config change
-  re-establishes the query rather than silently continuing on the old pinned prompt.
-- **Per-turn** (every pure-API provider): a fresh governed loop per turn.
-
-Both record through **one frame recorder** — the single place a turn's frames become visible. It pushes to
-subscribers and appends to the durable log, so the rules that must hold for both strategies exist once:
-streaming deltas are pushed but never persisted, a delivery's log line is written where the model actually
-received it, and a settled reasoning block carries its wall-clock. A shared per-turn prelude does the rest of
-the durable work: mint the conversation if new, decide how the model regains its memory, reuse or recompile the
-frozen prompt, pin the effective model selection, append the user's prompt.
+Two **drive strategies** sit behind one contract, chosen per provider by the composition root: **held-open**
+(Claude) keeps one backend query alive across a session's turns, fed successive user turns as a stream — warm
+continuation, no resume replay, with a mid-conversation model or prompt-config change re-establishing the query
+rather than silently continuing on the old pinned prompt; **per-turn** (every pure-API provider) runs a fresh
+governed loop per turn. Both record through **one frame recorder**, the single place a turn's frames become
+visible: it pushes to subscribers and appends to the durable log, so the rules that must hold for both
+strategies exist once — streaming deltas are pushed but never persisted, a delivery's log line is written where
+the model actually received it, a settled reasoning block carries its wall-clock. A shared per-turn prelude does
+the rest: mint the conversation if new, decide how the model regains its memory, reuse or recompile the frozen
+prompt, pin the effective model selection, append the user's prompt.
 
 **One append-only conversation log per session.** A conversation persists as a single growing `events.ndjson`
 under a gitignored per-session directory; the UI view and the provider-shaped transcript are both **read-time
 projections** of it. The earlier two-store shape (an incremental UI file plus a canonical transcript rewritten
-on clean settle) made integrity a per-call-site flushing discipline and produced disk/conversation divergence
-on a mid-turn error. With one log that only grows, integrity is structural — a crash cannot persist an
-inconsistent state. Unpaired tool calls are repaired at read time (a synthesized interrupted-execution result;
-orphaned results dropped) so cross-provider replay stays valid. Reads never throw: a corrupt session index
-drops that session from the listing and a garbage log line is skipped — and what was dropped is **counted and
-reported**, because a conversation that lost part of its record must not come back looking whole, either to the
-console or to the model being handed its own memory.
+on clean settle) made integrity a per-call-site flushing discipline and produced disk/conversation divergence on
+a mid-turn error; with one log that only grows, integrity is structural — a crash cannot persist an inconsistent
+state. Unpaired tool calls are repaired at read time (a synthesized interrupted-execution result; orphaned
+results dropped) so cross-provider replay stays valid. Reads never throw: a corrupt session index drops that
+session from the listing and a garbage log line is skipped, and what was dropped is **counted and reported**,
+because a conversation that lost part of its record must not come back looking whole, either to the console or
+to the model being handed its own memory.
 
 **Streaming deltas are delivery-only.** The pure-API completion primitive is an async generator: it yields text
 and reasoning deltas and *returns* the settled result, so a non-streaming backend degrades for free by yielding
@@ -111,55 +108,55 @@ the core never asks which backend it is talking to. On Claude the only legal mid
 result — the API forbids a bare user message between a tool call and its result — so the post-tool hook carries
 pending text as additional context, with the stop hook as the floor for tool-free turns; the pure-API loop
 drains at the top of each round trip. A delivery stranded past the last drain point degrades to a plain next
-turn: never lost, never a hang. Sealing the queue is a one-way cancel guard, so a delivery arriving after
-teardown can never wake a subtree a person deliberately stopped. The `system` origin is unforgeable **by
+turn, never lost, never a hang. Sealing the queue is a one-way cancel guard, so a delivery arriving after
+teardown can never wake a subtree a person deliberately stopped, and the `system` origin is unforgeable **by
 reachability, not convention** — no tool handler ever receives a session handle capable of authoring one.
 
-**A steer is recorded when the model receives it.** Its log line is written at *drain*, not at send: held while
-any tool call is open and written the instant the last one closes. A send-time record claimed a transcript
-position that never happened and could land inside a tool-call/tool-result pair, an illegal shape that
-corrupted cross-provider replay. The rule is phrased as the legality constraint — hold while a tool call is
-open — precisely so it stays correct regardless of unmeasured hook-timing facts. One writer, in the core, for
-every backend; an unbalanced turn flushes held lines at the boundary, and a sealed queue is never drained, so
-an undelivered steer is never recorded. Barge-in was removed outright: a steer always delivers at the next
-possible boundary and never discards in-flight work. Discarding a turn is an explicit stop-then-send.
+**A steer is recorded when the model receives it,** at *drain* rather than at send: held while any tool call is
+open and written the instant the last one closes. A send-time record claimed a transcript position that never
+happened and could land inside a tool-call/tool-result pair, an illegal shape that corrupted cross-provider
+replay; phrasing the rule as the legality constraint keeps it correct regardless of unmeasured hook-timing
+facts. One writer, in the core, for every backend; an unbalanced turn flushes held lines at the boundary, and a
+sealed queue is never drained, so an undelivered steer is never recorded. Barge-in was removed outright: a steer
+always delivers at the next possible boundary and never discards in-flight work — discarding a turn is an
+explicit stop-then-send.
 
-**Prompt freezing and memory.** Provider caching is a prefix match, so any byte change in the prefix
-invalidates everything after it. A session compiles its system prompt once, at the first turn, and every later
-turn reuses that frozen compilation verbatim — the neutral config plus the capability frame it was built with,
-since tools are part of the cached prefix too. Recompiling is a deliberate, user-raised act surfaced as a drift
-notice, not a per-turn side effect. How the model regains memory is decided per turn against the same canonical
-fold of the log: a same-provider Claude continuation resumes the backend's own server session by id (the
-strongest cache guarantee, eligible only while the live provider and model still match the stamp the token was
-captured under); a pure-API backend replays the neutral transcript as history messages; a cross-provider switch
-*into* Claude delivers the transcript as a first-turn preamble, because the SDK cannot ingest a foreign
-transcript into its own store. After that turn Claude owns a resumable session again.
+**Prompt freezing and memory.** Provider caching is a prefix match, so any byte change in the prefix invalidates
+everything after it. A session compiles its system prompt once, at the first turn, and every later turn reuses
+that frozen compilation verbatim — the neutral config plus the capability frame it was built with, since tools
+are part of the cached prefix too. Recompiling is a deliberate, user-raised act surfaced as a drift notice, not
+a per-turn side effect. How the model regains memory is decided per turn against the same canonical fold of the
+log: a same-provider Claude continuation resumes the backend's own server session by id (the strongest cache
+guarantee, eligible only while the live provider and model still match the stamp the token was captured under);
+a pure-API backend replays the neutral transcript as history messages; a cross-provider switch *into* Claude
+delivers the transcript as a first-turn preamble, since the SDK cannot ingest a foreign transcript into its own
+store — after that turn Claude owns a resumable session again.
 
 **Subagents are ordinary sessions with a parent link.** A spawned child is created through the exact same path
-as any session, carrying two optional fields — `parent` and `root` — and nothing else distinguishes it.
-Everything a session already has (idle eviction, the single teardown path, cost settlement, the append-only
-log) is therefore free, with no new state to synchronize, and an ordinary session's on-disk shape is unchanged
-because absent lineage writes no keys. Lineage is a single stored pointer; the descendant walk rebuilds the
-tree on demand and carries an explicit visited set, so the stop cascade provably terminates on any graph shape
-— the depth cap was dropped deliberately, so a parent chain can point anywhere, including back up its own
-ancestry. Abort is wired at the session-lifecycle seam (seal the queue, close the session), not the turn seam,
-so it works mid-turn, between turns, or before the first turn, on every backend. A spawn against a dead parent
-orphans the child rather than refusing it — a refusal would need a throw or a lying success — and the orphan
-runs its turn and self-cleans via idle eviction. Accepted risk: a child shares its root's worktree, so two
-agents can write the same tree concurrently; the product is attended and every write still passes the gate.
+as any session, carrying two optional fields — `parent` and `root` — and nothing else distinguishes it, so idle
+eviction, the single teardown path, cost settlement and the append-only log are all free with no new state to
+synchronize, and an ordinary session's on-disk shape is unchanged because absent lineage writes no keys. Lineage
+is a single stored pointer; the descendant walk rebuilds the tree on demand with an explicit visited set, so the
+stop cascade provably terminates on any graph shape — the depth cap was dropped deliberately, so a parent chain
+can point anywhere, including back up its own ancestry. Abort is wired at the session-lifecycle seam (seal the
+queue, close the session), not the turn seam, so it works mid-turn, between turns, or before the first turn, on
+every backend. A spawn against a dead parent orphans the child rather than refusing it — a refusal would need a
+throw or a lying success — and the orphan runs its turn and self-cleans via idle eviction. Accepted risk: a
+child shares its root's worktree, so two agents can write the same tree concurrently; the product is attended
+and every write still passes the gate.
 
 **A completion notice is a fact, not a message.** When a child ends, its parent receives a daemon-authored
 lifecycle fact — child id, agent ref, one of three *observed* reasons (completed, errored, stopped), and a
-bounded, sanitized error detail — never the child's own text. If the notice were child-authored, a broken or
-adversarial child claiming "done" would be indistinguishable from an observed fact in the parent's context.
-There is deliberately no inferred reason such as "went quiet": a signal that cannot be detected must not be
-reported as one. The notice rides the same delivery queue as everything else, and the parent retrieves the
-child's actual work itself by reading the child's log with its ordinary file tools. Agent-to-agent messaging is
-deliberately not built, so its trust model is not inherited from this narrower channel.
+bounded, sanitized error detail — never the child's own text, because a child-authored notice would let a broken
+or adversarial child's claim of "done" pass as an observed fact. There is deliberately no inferred reason such
+as "went quiet": a signal that cannot be detected must not be reported as one. The notice rides the same
+delivery queue as everything else, and the parent retrieves the child's actual work itself by reading the
+child's log with its ordinary file tools. Agent-to-agent messaging is deliberately not built, so its trust model
+is not inherited from this narrower channel.
 
-Teardown has exactly one path. Idle eviction, the explicit close verb, and daemon shutdown all route through
-the same registry close, which is where the spine checkpoint and the worktree release happen — once, never
-twice. Idle eviction is running-aware and never fires on a live turn.
+Teardown has exactly one path. Idle eviction, the explicit close verb, and daemon shutdown all route through the
+same registry close, which is where the spine checkpoint and the worktree release happen — once, never twice —
+and idle eviction is running-aware and never fires on a live turn.
 
 ---
 
@@ -183,36 +180,35 @@ Two producers fund it:
 The reconciler is constructed **eagerly and guarded**. Eagerly, because its constructor seeds each tracked
 file's prior hash from git — deferring construction to the first tool call would seed the baseline from
 already-modified disk, so the first edit to a tracked file would read as no change at all. Guarded, because the
-git probe throws outside a worktree, and coa must work on any project. That expected failure is silent (its
-stderr is captured, not inherited, so a non-git project does not print a scary line); it degrades observation
-to a no-op and the session runs exactly as it would with no git at all.
+git probe throws outside a worktree, and coa must work on any project: that expected failure is silent (stderr
+captured, not inherited) and degrades observation to a no-op, running exactly as it would with no git at all.
 
-A failure *once observation is running* is the opposite case and is treated as such. A few consecutive scan
-failures are tolerated and retried, because the usual causes — an index lock held by another command, a file
-disappearing mid-scan — clear on their own, and a successful scan clears the streak. Past that tolerance
-observation latches off, since re-running a scan that keeps failing spawns a git process per tool call for
-nothing — and the latch **announces itself** as an advisory notice on the flag feed, because the symptom is
-otherwise invisible: edits made outside coa's own tools simply stop being recorded.
+A failure *once observation is running* is treated differently. A few consecutive scan failures are tolerated
+and retried, because the usual causes — an index lock held by another command, a file disappearing mid-scan —
+clear on their own. Past that tolerance observation latches off, since re-running a scan that keeps failing
+spawns a git process per tool call for nothing — and the latch **announces itself** as an advisory notice on the
+flag feed, because the symptom is otherwise invisible: edits made outside coa's own tools simply stop being
+recorded.
 
 ---
 
 ## Flags and the close gate
 
 One pluggable pipeline, one shared flag schema, no per-producer side channels. Registration is the only
-add-path and is gated by a validation stamp — an unvalidated producer is rejected rather than admitted.
-Ingestion is the only emit-path. On read the pipeline deduplicates by concern, assigns two independent axes
-(severity and confidence), and fans out to two audiences: the person sees everything, with low-severity
-concerns collapsed-but-counted rather than hidden; the agent gets a gated, grouped injection of only
+add-path, gated by a validation stamp that rejects an unvalidated producer rather than admitting it; ingestion
+is the only emit-path. On read the pipeline deduplicates by concern, assigns two independent axes (severity and
+confidence), and fans out to two audiences: the person sees everything, with low-severity concerns
+collapsed-but-counted rather than hidden, while the agent gets a gated, grouped injection of only
 high-confidence, high-severity items, with the rest riding a count line. A typed-reason triage channel records
 *why* a flag was acted on or dismissed and applies the deterministic effect (a wrong guess resolves it, a
-won't-fix baselines it). Prose-bearing notes stay local to the spine and never enter the audit ledger.
+won't-fix baselines it); prose-bearing notes stay local to the spine and never enter the audit ledger.
 
-Producers are driven off the kernel feed. The pipeline owns a projection, so it subscribes from cursor zero and
-replays history before going live. A **reconciling** producer — one that emits its complete current set — is
+Producers are driven off the kernel feed: the pipeline owns a projection, subscribing from cursor zero and
+replaying history before going live. A **reconciling** producer — one that emits its complete current set — is
 driven differently: the driver tracks the fingerprints that producer last emitted and resolves any it no longer
-emits, which is the self-heal, and runs one convergence sweep at wiring so state already dangling at startup
-surfaces even with no change events. Per-producer tracking keeps the diff scoped and never touches another
-producer's flags. With no producers configured the pipeline is inert: the gate allows and nothing fires.
+emits (the self-heal), and runs one convergence sweep at wiring so state already dangling at startup surfaces
+even with no change events. Per-producer tracking keeps the diff scoped. With no producers configured the
+pipeline is inert: the gate allows and nothing fires.
 
 **The close gate is the only block in the system.** It fires at turn end when unresolved high-severity,
 may-block concerns exist, and it does not stop the agent — it keeps the loop open and feeds its reason back so
@@ -243,53 +239,49 @@ whole-file patch escape, and the subagent spawn) and an on-demand set discovered
 The symbol-reading verbs are implemented but deliberately **unregistered** — the index they read has no
 producer feeding it, so they could only return empty results; they rejoin the catalogue when that layer is fed.
 
-One dispatch boundary turns pure handlers into registered tools. It is where the two cross-cutting rules land:
-inputs are schema-validated before a handler touches shared state, and every return is decorated with the
-gated, agent-audience flags. Dispatch **never throws and never denies** — a malformed input, a confinement
-rejection, or a failed diff comes back as a typed unapplied result the agent can read and retry. Each tool also
-carries its own display renderer and success predicate, because the tool owns its result shape and a pure-API
-loop has no backend-supplied result text or error signal.
+One dispatch boundary turns pure handlers into registered tools, where two cross-cutting rules land: inputs are
+schema-validated before a handler touches shared state, and every return is decorated with the gated,
+agent-audience flags. Dispatch **never throws and never denies** — a malformed input, a confinement rejection,
+or a failed diff comes back as a typed unapplied result the agent can read and retry. Each tool also carries its
+own display renderer and success predicate, since a pure-API loop has no backend-supplied result text or error
+signal.
 
-**Path confinement** is the load-bearing precondition. coa's in-process tools are not covered by any backend
-sandbox — deny rules bind built-in and shell tools, not custom in-process ones — so every handler runs a
-deterministic check before touching disk: resolve symlinks, reject anything that escapes the session worktree
+**Path confinement** is the load-bearing precondition: coa's in-process tools are not covered by any backend
+sandbox (deny rules bind built-in and shell tools, not custom in-process ones), so every handler runs a
+deterministic check before touching disk — resolve symlinks, reject anything that escapes the session worktree
 (a parent traversal, an absolute path, a symlink pointing out), then reject anything matching the forbidden set
-(coa's own local directory plus any injected deny globs). The math runs in POSIX path space because the spine
-addresses files with forward-slash worktree-relative paths, so it is deterministic and OS-independent; a
-Windows drive-letter root is mapped into that space for the traversal and the result rebuilt from the original
-root so it stays openable.
+(coa's own local directory plus any injected deny globs). The math runs in POSIX path space, since the spine
+addresses files with forward-slash worktree-relative paths; a Windows drive-letter root is mapped into that
+space for the traversal and rebuilt afterward so it stays openable.
 
 **Two independent gates must never collapse into one:** "does this backend have an executor behind this tool
 name at all" is a composition-time fact, and "may this session call it" is the capability frame plus the
-permission predicate. They answer different questions.
+permission predicate — different questions.
 
 ### The pure-API tool floor
 
 Thin backends are bare chat APIs — no executor exists behind a tool name unless coa supplies one — so on that
 path coa owns the file tools (read, glob, grep, write, edit, bash) and the web tools, while the Claude path
-keeps the vendor's better-integrated equivalents. The disk and process halves live beside the workbench and are
-bound by the composition root; the shell is resolved once per session, so a model's POSIX one-liners get a
-POSIX shell on Windows where one is present. Named deviations, accepted for an attended single-user product:
-the shell tool is confined to the worktree working directory, output-capped and time-boxed, but has no OS
-sandbox — parity with the vendor's own shell — and web domain filters are forwarded to providers rather than
+keeps the vendor's better-integrated equivalents. The shell is resolved once per session, so a model's POSIX
+one-liners get a POSIX shell on Windows where one is present. Named deviations, accepted for an attended
+single-user product: the shell tool is confined to the worktree, output-capped and time-boxed, but has no OS
+sandbox (parity with the vendor's own shell), and web domain filters are forwarded to providers rather than
 enforced locally. Writes fund through the one spine emit path, so a thin-backend write is exactly as observable
 as any other.
 
 **Web egress** is credential-gated and cooldown-aware: search and fetch each run a chain of providers degrading
 to a plain-fetch floor, with a shared classifier separating a rate limit from a real failure and a key-state
-store holding cooldowns. Provider keys live as credential-blind pointers in a user-global config plus
-mode-0600 key files, the same pattern as account auth. The chains and the fetch summarizer are assembled in
-`apps/cli` and injected as finished dependencies, so the core stays backend-blind and never reads the process
-environment. No configured keys means the two tools are simply not offered; deps without a summarizer still
-offer fetch on its raw-markdown floor. Degradation, never an error.
+store holding cooldowns. Provider keys live as credential-blind pointers in a user-global config plus mode-0600
+key files, the same pattern as account auth, assembled in `apps/cli` and injected as finished dependencies so
+the core stays backend-blind. No configured keys means the two tools are simply not offered; deps without a
+summarizer still offer fetch on its raw-markdown floor — degradation, never an error.
 
 **Subagent dispatch** is an ordinary tool. It resolves an agent ref against the live registry — read per
 dispatch, never a list cached at session start, so an agent authored moments ago is spawnable immediately —
-starts the child and returns its id **immediately**, without waiting for the child's work. It holds no
-governance surface of its own; the per-tool seam gates it like every other call. Everything it echoes back to
-the model (a model-chosen ref, an agent's name or description from a hand-authored file) is flattened through
-one shared sanitizer and length-capped, so a hostile or merely huge string stays inert data inside a fixed
-sentence rather than looking like a second, line-initial notice.
+starts the child and returns its id **immediately**, without waiting for its work, holding no governance surface
+of its own beyond the same per-tool seam every other call passes. Everything it echoes back to the model (a
+model-chosen ref, an agent's name or description from a hand-authored file) is flattened through one shared
+sanitizer and length-capped, so a hostile or merely huge string stays inert data inside a fixed sentence.
 
 ---
 
@@ -301,41 +293,36 @@ The runtime-adapter port was shrunk to exactly the calls the session host makes:
 governed catalogue, demote the built-ins coa removes, wire the two hooks, and render the neutral config into
 native form. Settled usage flows back through a construction-time settlement callback rather than a method.
 
-Adapters differ in **shape, not interface**:
-
-- **`adapter-claude-sdk` is fat.** The SDK owns its loop; coa configures and governs around it.
-- **`adapter-openai-compat` is thin.** It implements one primitive — a single model round-trip over any
-  OpenAI-compatible HTTP endpoint — and `packages/loop-driver` supplies the governed loop, so the
-  governance-critical dispatch path exists exactly once. On this path coa executes every tool call itself, so
-  governance is tighter, not looser: the per-tool predicate is checked inline before execution, the close gate
-  runs before the turn may end, and neither ever throws. The driver carries a hard iteration bound as a
-  fail-safe against a non-terminating loop, and a defense-in-depth character cap on any single tool result
-  entering the resent transcript (per-tool handlers do the primary bounding; the whole history is resent each
-  round trip, so an uncapped result would poison every later turn). The verbatim result is retained
-  separately — only the resent copy is bounded.
+Adapters differ in **shape, not interface**. `adapter-claude-sdk` is **fat**: the SDK owns its loop, and coa
+configures and governs around it. `adapter-openai-compat` is **thin**: it implements one primitive — a single
+model round-trip over any OpenAI-compatible HTTP endpoint — and `packages/loop-driver` supplies the governed
+loop, so the governance-critical dispatch path exists exactly once. On this path coa executes every tool call
+itself, so governance is tighter, not looser: the per-tool predicate is checked inline before execution, the
+close gate runs before the turn may end, and neither ever throws. The driver carries a hard iteration bound as a
+fail-safe against a non-terminating loop, and a defense-in-depth character cap on any single tool result
+entering the resent transcript, since the whole history is resent each round trip and an uncapped result would
+poison every later turn — the verbatim result is retained separately, only the resent copy is bounded.
 
 **One package, four providers.** Every per-provider difference that is real on the wire lives in a data-only
 **provider spec**: the chat host, the default model, the model-list endpoint when it diverges, the environment
-variables for key, price table and effort ladder, the shipped price and effort defaults, whether an unladdered
-model still exposes a thinking toggle, how coa's reasoning selection maps to the provider's request fields, and
-how to pull neutral token counts out of that provider's usage shape (flat versus nested cache tokens). DeepSeek,
-LongCat, OpenAI and OpenRouter ship as spec objects over one code path. Adding another compatible provider is a
-new spec and a new row in the factory's map — not a new package and not a new branch. Price and effort tables
-are config-overridable per model by environment variable, merged over the shipped defaults, with a
-malformed override falling back to the defaults rather than failing.
-
-The **per-provider turn-drive strategy** lives beside that map, so the provider-to-backend and
-provider-to-strategy decisions stay one source of truth and the core never sees a provider literal. An unknown
-provider throws at construction, which surfaces as an advisory error frame — never a silent wrong-backend run.
+variables for key, price table and effort ladder, the shipped price and effort defaults, how coa's reasoning
+selection maps to the provider's request fields, and how to pull neutral token counts out of that provider's
+usage shape. DeepSeek, LongCat, OpenAI and OpenRouter ship as spec objects over one code path; adding another
+compatible provider is a new spec and a row in the factory's map, not a new package or branch. Price and effort
+tables are config-overridable per model by environment variable, merged over the shipped defaults, with a
+malformed override falling back to the defaults rather than failing. The **per-provider turn-drive strategy**
+lives beside that map, so the provider-to-backend and provider-to-strategy decisions stay one source of truth
+and the core never sees a provider literal; an unknown provider throws at construction, surfacing as an
+advisory error frame rather than a silent wrong-backend run.
 
 ### The Claude path: layering, not replacing
 
-coa does not own the whole system prompt on Claude. It layers its own authority on the SDK's native preset,
+coa does not own the whole system prompt on Claude — it layers its own authority on the SDK's native preset,
 because restating baseline conduct the model already follows is pure token tax and fights a model that is
-already good at it. The invariant that matters: the composition and compile layers are backend-neutral and emit
-every piece; the **only** place a backend's coverage is subtracted is the adapter's render step, which drops a
-small hand-picked set of generic baseline pieces. Bare-API adapters apply no drop-set and render everything.
-The known cost is that the drop-set can drift against the vendor's preset with no automated signal.
+already good at it. The composition and compile layers are backend-neutral and emit every piece; the **only**
+place a backend's coverage is subtracted is the adapter's render step, which drops a small hand-picked set of
+generic baseline pieces (bare-API adapters apply no drop-set and render everything). The known cost is that the
+drop-set can drift against the vendor's preset with no automated signal.
 
 Leaning on the preset reopens a config-leak risk, and its containment is unconditional and test-asserted: the
 adapter sets an empty setting-source list, strict MCP config, and an explicit empty skills list on every
@@ -343,12 +330,12 @@ session, so the target repository's own instructions file, settings, ambient MCP
 can never enter a governed session as authority coa never rendered.
 
 **coa borrows the harness; it never modifies it.** The vendor harness is a compiled binary behind a thin
-wrapper. Forking the public repository buys none of the behavior anyone would want to change, and patching the
+wrapper — forking the public repository buys none of the behavior anyone would want to change, and patching the
 binary fails on release cadence, checksum and signature integrity, and licensing. The ruling is: configure the
-harness, or don't borrow it for that case — the pure-API path exists. There is no middle option involving a
-modified binary, and the rule is uniform for any future borrowed harness. The mitigation for "the boundary
-moves under us" is a kept control-probe suite in the adapter: every measured verdict is version-stamped and
-asserted, so an SDK bump fails a probe and names what expired instead of silently invalidating a design.
+harness, or don't borrow it for that case (the pure-API path exists) — no middle option involving a modified
+binary, uniform for any future borrowed harness. The mitigation for "the boundary moves under us" is a kept
+control-probe suite in the adapter: every measured verdict is version-stamped and asserted, so an SDK bump fails
+a probe and names what expired instead of silently invalidating a design.
 
 ### Verified SDK behavior the Claude adapter relies on
 
@@ -358,105 +345,95 @@ roughly twenty-seven releases a month, so these are tripwires, not trivia.
 
 **Permissions and per-tool governance**
 
-- The auto-approve list means auto-approve, **not** availability: a tool listed there is pre-permitted and never
+- The auto-approve list means auto-approve, **not** availability: a listed tool is pre-permitted and never
   reaches the permission callback (live — the model called built-in and MCP tools freely while the callback saw
-  nothing, and dropping the list made the same calls reach it). Granting through it silently disables your own
-  per-call governance, so the adapter keeps it permanently empty. The three levers split cleanly (live): the
-  tool list is what is advertised (an empty list genuinely empties the built-in set), the auto-approve list
-  removes nothing, and the disallow list removes a tool from the model's context.
-- A permission-callback allow result must echo the tool input back. A bare allow typechecks but the real CLI
-  treats it as a permission error for every tool — nothing executes.
-- The permission callback is **not** a universal seam. It is never consulted for a native delegation call
-  (live: the model emitted the spawn, the callback saw nothing), and under the native preset it was not
-  consulted even for a plain in-directory read (measured zero of two with the preset, six of six without;
-  mechanism hypothesized, not proven). Per-tool governance therefore rides a single pre-tool hook that only
-  denies or abstains and **never asserts allow** — an explicit allow at that seam is just an auto-approve, the
-  same mistake the design replaced.
-- That hook can deny a call and can rewrite its input before it runs (live), but has no result-bearing field:
-  coa can gate or reshape a call, never answer one. Denies are honored for real (live) — denying a built-in
-  read stops the read, and denying one of coa's own tools stops the handler from running, which is the fact
-  that makes a governed spawn viable.
+  nothing; dropping the list made the same calls reach it). Granting through it silently disables per-call
+  governance, so the adapter keeps it permanently empty. The three levers split cleanly: the tool list is what
+  is advertised (empty genuinely empties the built-in set), the auto-approve list removes nothing, and the
+  disallow list removes a tool from the model's context.
+- A permission-callback allow result must echo the tool input back — a bare allow typechecks but the real CLI
+  treats it as a permission error for every tool, and nothing executes.
+- The permission callback is **not** a universal seam: it is never consulted for a native delegation call (live)
+  and, under the native preset, was not consulted even for a plain in-directory read (measured zero of two with
+  the preset, six of six without). Per-tool governance therefore rides a single pre-tool hook that only denies
+  or abstains and **never asserts allow** — an explicit allow there is just an auto-approve, the same mistake
+  the design replaced.
+- That hook can deny a call and rewrite its input before it runs (live), but has no result-bearing field: coa
+  can gate or reshape a call, never answer one. Denies are honored for real — denying a built-in read stops the
+  read, and denying one of coa's own tools stops the handler from running, the fact that makes a governed spawn
+  viable.
 
 **Hooks and the turn boundary**
 
-- The pinned SDK exposes thirty hook events. Shipped code registers exactly three: stop (the close gate),
+- The pinned SDK exposes thirty hook events; shipped code registers exactly three — stop (the close gate),
   pre-tool (the gate), and post-tool (the reconciler trigger).
-- A blocking stop hook genuinely keeps the loop open (live: the hook is consulted again). But the turn cap
-  outranks it — with the cap hit the run ends as a raised error no matter how the hook answers. The close gate
-  argues only *inside* the turn cap; the two are not peers.
-- The SDK splits one options object across two wire channels: a small fixed argv set, and one stdin control
+- A blocking stop hook genuinely keeps the loop open (live), but the turn cap outranks it: with the cap hit the
+  run ends as a raised error no matter how the hook answers. The close gate argues only *inside* the turn cap.
+- The SDK splits one options object across two wire channels — a small fixed argv set, and one stdin control
   request carrying everything else (system prompt, hooks, tool aliases, agents, skills). Hook registration is
-  argv-invisible and only the permission callback leaves an argv trace, so any diagnostic reading argv alone is
-  blind to half the surface. Turn outcomes carry a thirteen-member terminal-reason union, which the adapter
-  reads off the boundary frame.
+  argv-invisible, so a diagnostic reading argv alone is blind to half the surface. Turn outcomes carry a
+  thirteen-member terminal-reason union, which the adapter reads off the boundary frame.
 
 **Tool surface control**
 
 - Every backend carries the same eight-tool floor — read, glob, grep, write, edit, bash, web search, web fetch
   — set unconditionally: an empty capability frame yields the floor and an allow list narrows it, never widens
   it. Everything outside the floor was ungoverned, unrecorded, and unmatched on other backends.
-- coa owns **no native tool implementation**. Trained priors cover the whole contract including output shape —
-  the numbered lines a read emits are exactly what an edit's exact-match is calibrated against — so
-  substituting a body under a native name reproduces known upstream hazards for no gain.
-- The native delegation tool is spelled inconsistently inside one version: the initialization frame advertises
-  one name while the model emits another in the same live run. Every list that names it carries both spellings,
-  and a drift test forces each of the SDK's generated tool schemas to be classified (grantable or not
-  model-visible) on every bump — an omission silently discards a valid grant, which is how one spelling was
-  lost once.
+- coa owns **no native tool implementation**: trained priors cover the whole contract including output shape
+  (the numbered lines a read emits are what an edit's exact-match is calibrated against), so a substitute body
+  under a native name would reproduce known upstream hazards for no gain.
+- The native delegation tool is spelled inconsistently inside one version — the initialization frame advertises
+  one name while the model emits another in the same live run — so every list that names it carries both
+  spellings, and a drift test forces each generated tool schema to be classified on every SDK bump.
 - Tool aliasing is honored at dispatch (live: a model-emitted native name ran coa's own handler, and the
-  handler's output rather than the file on disk reached the model) — but an alias only **redirects** a name the
-  harness already advertises, never publishes one. So per tool the choice is binary: keep the native tool
-  advertised and alias it (owning the implementation, inheriting the vendor's name, schema and trained prior),
-  or ship under coa's own namespace (owning everything, with no trained prior). There is no third option.
-- System prompt: only the preset *object* preserves the harness baseline (the wire then carries no system-prompt
-  key); an append field layers coa's text as a sibling; a raw string replaces the prompt outright; omitting the
-  option sends an empty custom prompt, **not** the preset. The preset is a dial, not a switch, and the tool
-  baseline is a separate preset on a separate channel.
+  handler's output reached the model) — but an alias only **redirects** a name the harness already advertises,
+  never publishes one. Per tool the choice is binary: keep the native tool advertised and alias it (own the
+  implementation, inherit the vendor's schema and trained prior), or ship under coa's own namespace (own
+  everything, no trained prior).
+- System prompt: only the preset *object* preserves the harness baseline; an append field layers coa's text as a
+  sibling; a raw string replaces the prompt outright; omitting the option sends an empty custom prompt, **not**
+  the preset. The preset is a dial, not a switch, and the tool baseline is a separate preset on a separate
+  channel.
 - An empty setting-source list is not full isolation: it governs only the three filesystem settings files. The
-  managed/policy tier is still read from disk, project MCP config needs the strict flag separately, skills
+  managed/policy tier still reads from disk, project MCP config needs the strict flag separately, skills
   discovery needs an explicit empty list (unset is not "off"), and a per-agent project-memory setting would
-  still read target-repo files on a channel the setting-source list never appears on. The adapter sets each of
-  these explicitly and states the residual honestly rather than claiming an isolation it does not have.
+  still read target-repo files on a channel the setting-source list never touches. The adapter sets each of
+  these explicitly.
 
 **Session lifecycle, injection, and persistence**
 
-- There is no silent mid-session system channel. A streamed system-role message is transmitted verbatim but not
-  obeyed (live); a non-querying user message *does* land in context and is recalled later, but still costs a
-  turn and produces a result frame. Mid-loop delivery therefore rides hook additional-context — the substrate
-  the delivery queue is built on.
+- There is no silent mid-session system channel: a streamed system-role message is transmitted verbatim but not
+  obeyed (live), while a non-querying user message *does* land in context and is recalled later but still costs
+  a turn. Mid-loop delivery rides hook additional-context — the substrate the delivery queue is built on.
 - Compaction is observable and schedulable, never vetoable. The compaction hooks have no specific output type
-  and a generic block was ignored live, but coa gets full observation: both hooks, an in-band boundary frame
-  carrying trigger, token counts and surviving messages, a context-usage read, and the post-compaction summary.
-  A streamed manual compaction turn fires the pre-hook with the instructions verbatim, so coa can choose the
-  moment and shape what survives. Caveats: a hook firing is not proof compaction happened (read the boundary
-  frame), and auto-compaction can be toggled per session and mid-session.
+  and a generic block was ignored live, but coa gets full observation — both hooks, an in-band boundary frame
+  with trigger, token counts and surviving messages, a context-usage read, and the post-compaction summary. A
+  streamed manual compaction turn fires the pre-hook with the instructions verbatim, so coa can choose the
+  moment and shape what survives. A hook firing is not proof compaction happened; the boundary frame is.
 - A local on-disk session write is structurally required — the SDK's session store cannot be combined with
   persistence off, and the append hook is a mirror called after the local write succeeds. coa cannot be the only
   writer, but it **sites** the write via the config-directory environment variable and keeps its own log as the
-  durable record. Live-verified: a session was fully reconstructed from coa's mirrored log after the CLI's own
-  store was deleted, and the CLI even accepted a synthesized transcript entry. Resume plumbing is plain argv,
-  and the SDK does not enforce the documented session-id/resume exclusivity, so coa must.
-- The config-directory variable is one lever doing two jobs: credentials **and** the session store live in it,
-  so redirecting the store also relocates the login (an empty directory reads as "not logged in"). Treat
-  config-directory redirection as an auth decision, not a storage one.
+  durable record: a session was fully reconstructed live from coa's mirrored log after the CLI's own store was
+  deleted. Resume plumbing is plain argv, and the SDK does not enforce the documented session-id/resume
+  exclusivity, so coa must.
+- The config-directory variable does two jobs at once: credentials **and** the session store live in it, so
+  redirecting the store also relocates the login (an empty directory reads as "not logged in").
 
 **Process and environment**
 
 - The environment option **replaces** the child environment entirely — an ambient variable absent from it does
-  not reach the CLI (sentinel-verified against a real spawn), except that Windows re-injects a fixed set of
-  system variables regardless. The auth overlay depends on this replacement.
+  not reach the CLI (sentinel-verified), except that Windows re-injects a fixed set of system variables
+  regardless. The auth overlay depends on this replacement.
 - The base-URL variable genuinely redirects the real CLI's inference traffic (live-verified against a local stub
-  server) — the premise for ever fronting the loop with an Anthropic-shaped gateway. Note the CLI retries a
-  server error with backoff indefinitely.
+  server) — the premise for ever fronting the loop with an Anthropic-shaped gateway.
 - The SDK's own budget option is a real enforced hard stop, but it surfaces as an exception **raised out of**
-  message iteration rather than as a result frame — anything rendering it must catch, or a deliberate budget
-  stop looks like a crash. The separate token-pacing hint is root-only and advisory, and nothing budget-shaped
-  exists per-agent or on the delegation tool's input, so a child cannot be ring-fenced by the vendor's own
-  machinery.
+  message iteration rather than a result frame — anything rendering it must catch it, or a deliberate budget
+  stop looks like a crash. Nothing budget-shaped exists per-agent or on the delegation tool's input, so a child
+  cannot be ring-fenced by the vendor's own machinery.
 
 The SDK's native subagent plane was measured in full and then archived: nothing shipped uses it, because
-subagents are coa's own governed sessions instead. Kept in `archive/` for the record — including that hooks
-around a native child cannot block its spawn (only a pre-tool deny of the delegation call can), and that the
+subagents are coa's own governed sessions instead. Kept in `archive/` for the record, including that hooks
+around a native child cannot block its spawn (only a pre-tool deny of the delegation call can) and that the
 *calling model*, not the host, picks a native child's permission mode on each spawn.
 
 ---
@@ -465,71 +442,67 @@ around a native child cannot block its spawn (only a pre-tool deny of the delega
 
 coa stores **pointers, never secrets**. A user-global accounts file maps a label to a login — for the
 subscription backend, a config-directory path holding a completed vendor login that coa never opens, parses, or
-copies; for API-key providers, a stable mode-0600 key file that is written once and never read back. The active
-account is tracked **per provider**, so each backend has its own login and switching one never disturbs
-another. A missing file is the pass-through case: every provider ambient, empty list. Account ids are random
-rather than derived from an email or label, because a derived id inherits their collisions and dies on a
-rename — and per-account side state is keyed by it.
+copies; for API-key providers, a stable mode-0600 key file written once and never read back. The active account
+is tracked **per provider**, so switching one backend's login never disturbs another; a missing file is the
+pass-through case (every provider ambient, empty list). Account ids are random rather than derived from an
+email or label, since a derived id inherits their collisions and dies on a rename, and per-account side state
+is keyed by it.
 
 Selection is delivered per session through the backend's own environment-override option, never by mutating the
 daemon's process environment, which would pin every concurrent session to one account. The overlay also
-**clears** the environment variables that would silently outrank a subscription login — the ambient API key and
-token variables — because those force API-key billing and defeat the reason multiple subscription accounts
-exist. No accounts registered means no overlay and byte-identical ambient behavior. Recorded spend is attributed
-per account label.
+**clears** the ambient API-key and token variables that would silently outrank a subscription login, because
+those force API-key billing and defeat the reason multiple subscription accounts exist. No accounts registered
+means no overlay and byte-identical ambient behavior; recorded spend is attributed per account label.
 
 **Login health is probe-derived.** Health comes only from the CLI's own status probe, never from reading token
 files, which would breach credential-blindness and lie under silent token refresh. The probe's landed email is
-the identity truth; a mismatch is surfaced with keep-or-retry. A broken *active* account is flagged with a
-re-login action and **never silently rerouted** to another account, because silent switching hides the problem.
-Health is cached per daemon run and refreshed on view, refresh, or a live failure — no background polling.
+the identity truth; a mismatch surfaces with keep-or-retry, and a broken *active* account is flagged with a
+re-login action and **never silently rerouted** to another, since silent switching hides the problem. Health is
+cached per daemon run and refreshed on view, refresh, or a live failure — no background polling.
 
 **A login is a transition, not a state.** A flow completes only if the login directory *started clean*: the
 manager probes a baseline concurrently with the CLI spawn and finalizes only from that baseline. A directory
 that was already authenticated ends in a distinct "pre-existing" decision naming who it holds — use it or
-cancel — instead of being reported as a successful login that never happened. That failure was live: closing
-the browser tab without authorizing used to "succeed". A baseline that cannot be established is treated as
-clean, so probe failure degrades to the old behavior, and the verdict is enforced at the one completion funnel
-every probe-driven path passes through rather than per caller. **Removal then deletes the login coa created,
-and only that**: the ownership test is a path-containment check under coa's own logins root and it fails toward
-*kept*, because a config directory the user pointed at is their data. There is no toggle — a login *is* the
-credential, and keeping it is what produced phantom re-login surprises.
+cancel — instead of being reported as a successful login that never happened (closing the browser tab without
+authorizing used to "succeed"). A baseline that cannot be established is treated as clean, so probe failure
+degrades to the old behavior, and the verdict is enforced at the one completion funnel every probe-driven path
+passes through. **Removal then deletes the login coa created, and only that**: the ownership test is a
+path-containment check under coa's own logins root, failing toward *kept* because a config directory the user
+pointed at is their data. There is no toggle — a login *is* the credential, and keeping it is what produced
+phantom re-login surprises.
 
-**Browser-profile isolation.** Isolated sign-ins launch a *real* browser — embedded windows are rejected by
-identity providers, and honesty beat spoofing — with per-identity cookie isolation via one Chrome profile
-directory per identity under a **single shared** user-data directory. That split was measured: roughly ninety
-percent of a per-identity user-data directory was shared machinery, not the login, so isolation is bought per
-profile rather than per directory. Profiles are keyed by **identity, not account row** (a readable slug plus a
-short digest of the email), because the jar is a cache of a signed-in identity whose worth is being found
+**Browser-profile isolation.** Isolated sign-ins launch a *real* browser (embedded windows are rejected by
+identity providers) with per-identity cookie isolation via one Chrome profile directory per identity under a
+**single shared** user-data directory — measured, since roughly ninety percent of a per-identity user-data
+directory was shared machinery, not the login. Profiles are keyed by **identity, not account row** (a readable
+slug plus a short digest of the email), because the jar caches a signed-in identity whose worth is being found
 again; row-keying stranded unreachable megabyte-scale orphans and forced re-sign-ins. The cookie jar keeps its
-opt-in toggle, because a jar is a cache, not a credential.
+own opt-in toggle, because a jar is a cache, not a credential.
 
-The browser environment shim is a **courier**, not a launcher: it writes the CLI's self-completing authorize
-URL to a file and exits, suppressing the CLI's own browser open, and coa performs the real open itself as an
-argv spawn with **no shell in the path**. Every failure in this lineage was a shell-quoting failure, so the
-class was removed rather than patched — a batch file is trusted only to copy a string to disk, never to build a
-command line. The shim is necessary because the URL the CLI *prints* and the URL it hands the browser variable
-are different: they share a handshake but not a redirect target, so the printed one ends in a code the user
-must paste back while the relayed one completes itself against a localhost callback. Every failure degrades to
-copy-link plus paste-code, which stays portable to another device. Dead jars are reclaimed only through a
-surfaced list the user acts on, renamed before deletion so an open window cannot leave a half-deleted jar —
-never by a background sweeper.
+The browser environment shim is a **courier**, not a launcher: it writes the CLI's self-completing authorize URL
+to a file and exits, suppressing the CLI's own browser open, while coa performs the real open itself as an argv
+spawn with **no shell in the path** — every failure in this lineage was a shell-quoting failure, so the class
+was removed rather than patched. The shim exists because the URL the CLI *prints* and the URL it hands the
+browser variable are different: the printed one ends in a code the user must paste back, the relayed one
+completes itself against a localhost callback. Every failure degrades to copy-link plus paste-code, portable to
+another device. Dead jars are reclaimed only through a surfaced list the user acts on, renamed before deletion
+so an open window cannot leave a half-deleted jar — never by a background sweeper.
 
 ---
 
 ## Model catalog
 
 The per-provider model list the pickers consume is the **user's editable list**, seeded from a hand-verified
-shipped catalog. The backend's live model fetch is demoted to enrichment — capabilities, and an "add from
-defaults" affordance — because no backend reliably enumerates what actually works: the SDK advertises a handful
-of aliases while a subscription honors explicit older ids it never mentions. Resolution runs user override,
-then live fetch, then shipped catalog, then a bare runnable descriptor for an id no tier knows.
+shipped catalog. The backend's live model fetch is demoted to enrichment (capabilities, an "add from defaults"
+affordance) because no backend reliably enumerates what actually works: the SDK advertises a handful of aliases
+while a subscription honors explicit older ids it never mentions. Resolution runs user override, then live
+fetch, then shipped catalog, then a bare runnable descriptor for an id no tier knows.
 
 Never-cage holds structurally: an emptied list serves empty, a removed or hidden id still runs on the wire, and
-an unknown hand-typed id assembles into something runnable — the backend is the real authority and an invalid
-id errors live rather than being blocked locally. Reaching a new model is a data change, not a
-rearchitecture. A per-account capability cache fronts the fetch and never caches a rejected fetch, so a
-key-less provider fails loudly rather than serving a silent empty list.
+an unknown hand-typed id assembles into something runnable — the backend is the real authority, and an invalid
+id errors live rather than being blocked locally. Reaching a new model is a data change, not a rearchitecture. A
+per-account capability cache fronts the fetch and never caches a rejected fetch, so a key-less provider fails
+loudly rather than serving a silent empty list.
 
 ---
 
@@ -564,58 +537,51 @@ and would amount to an undeclared second block: coa does not govern how a person
 
 **Main** owns everything privileged: the daemon's lifecycle and connection, per-user persistence of the shell
 arrangement and settings, the window frame and zoom, and the two escape hatches the renderer cannot have —
-revealing a file in the editor (spawned shell-free, resolved against the project root main derives itself, and
-worktree-confined) and opening a validated web URL. Daemon status is a *transport* fact, not an RPC read, so
-main tracks it and pushes it on its own channel. Stopping the daemon goes over the pipe rather than by process
-id, so it also reaps a daemon this app did not spawn; a spawned child is still tracked and killed as a
-fallback. Every failure carries its **reason** alongside the status, because a bare error enum tells the user
-only that they are stuck. The reason is chosen from a rolling stderr tail by preferring the *most recent*
-failure-shaped line and skipping stack frames — the daemon reports its own routine trouble on stderr too, so
-the oldest error-shaped line in the window is usually the least related to why the process just died.
+revealing a file in the editor (spawned shell-free, worktree-confined) and opening a validated web URL. Daemon
+status is a *transport* fact, not an RPC read, so main tracks it and pushes it on its own channel. Stopping the
+daemon goes over the pipe rather than by process id, so it also reaps a daemon this app did not spawn; a spawned
+child is still tracked and killed as a fallback. Every failure carries its **reason** alongside the status,
+chosen from a rolling stderr tail by preferring the *most recent* failure-shaped line and skipping stack frames
+— the daemon reports its own routine trouble on stderr too, so the oldest error-shaped line in the window is
+usually the least related to why the process just died.
 
 **Preload** exposes one named function per verb, generated from a shared schema registry, plus three one-way
-subscriptions (the daemon push stream, daemon status, window maximize state). No raw IPC handle crosses the
-bridge. The renderer's content-security policy is applied as a response header and is strict in production —
-same-origin scripts only, no inline or eval, and no network connections at all, since every data flow is IPC.
+subscriptions (the daemon push stream, daemon status, window maximize state) — no raw IPC handle crosses the
+bridge. The renderer's content-security policy is applied as a response header and is strict in production:
+same-origin scripts only, no inline or eval, no network connections at all, since every data flow is IPC.
 Development relaxes exactly two directives for the bundler's hot-reload preamble and websocket.
 
 **Renderer** is a three-column workbench: a left nav of surfaces, a center canvas, and a collapsible right
 column showing the active session's working state. Surfaces are chat, flags, timeline, auth, usage, and agents,
 plus a component showcase gated to development builds. Chat's title-bar segment is a session tab strip that
 morphs into a session search; the right column shows the root agent row, the session's plan checklist when it
-has emitted one, and a quiet "not tracked yet" line for the things that genuinely have no backing data.
+has emitted one, and a quiet "not tracked yet" line for things that genuinely have no backing data.
 
-The renderer holds **two stores**, deliberately separate:
-
-- **The shell store** owns chrome only: the selected surface, work-versus-search mode, the tab working set and
-  its reopen stack, column widths and dock visibility, the daemon status badge, and the dialog set. Modal
-  overlays are mutually exclusive by construction — opening one clears the rest through a single shared
-  close-all, so a dialog opened any other way is a visible rule violation.
-- **The console store** holds one whole `ConsoleState` object — data down, actions up — assembled by a single
-  controller and republished as a **full replace**, never a merge. The controller settles every daemon read
-  into an explicit loading/ok/error value that never throws, keeps per-session transcript buffers so a
-  background session's streamed frames are retained rather than misfiled, and coalesces incoming frames onto
-  one animation frame, because applying each token synchronously would re-render the whole conversation per
-  token and starve even the elapsed-seconds timer. A periodic refresh compares its results structurally and
-  skips the replace entirely when a tick returns exactly what the last one did.
+The renderer holds **two stores**, deliberately separate. **The shell store** owns chrome only — the selected
+surface, work-versus-search mode, the tab working set and its reopen stack, column widths and dock visibility,
+the daemon status badge, and the dialog set; modal overlays are mutually exclusive by construction, opening one
+clears the rest through a single shared close-all. **The console store** holds one whole `ConsoleState` object
+— data down, actions up — assembled by a single controller and republished as a **full replace**, never a
+merge. The controller settles every daemon read into an explicit loading/ok/error value that never throws,
+keeps per-session transcript buffers so a background session's streamed frames are retained rather than
+misfiled, and coalesces incoming frames onto one animation frame, since applying each token synchronously would
+re-render the whole conversation per token. A periodic refresh compares its results structurally and skips the
+replace entirely when a tick returns exactly what the last one did.
 
 Three structural rules bind the renderer (the visual register, tokens, and authoring rules are
-[UI.md](UI.md)'s):
+[UI.md](UI.md)'s): the GUI is a client, **never** a second source of truth (every action is a daemon verb, and
+raw mode renders the daemon's frames byte-faithfully, reachable from the command palette); **exactly one
+component** may render a block, constructed only from a daemon-issued deny frame, since the console never
+originates a denial itself; and the transcript is **unwindowed by design** — every frame is a real DOM node,
+content-visibility keeping off-screen rows cheap, because full-conversation text selection and native find are
+incompatible with row windowing (the windowed foundation was built, used, and reversed on that evidence).
 
-- **The GUI is a client, never a second source of truth.** Every action it offers is a daemon verb; raw mode
-  renders the daemon's frames byte-faithfully and is reachable from the command palette.
-- **Exactly one component may render a block**, constructed only from a daemon-issued deny frame. The console
-  never originates a denial. This is the one-block invariant made structural at a component boundary.
-- **The transcript is unwindowed by design.** Every frame is a real DOM node, with content-visibility keeping
-  off-screen rows cheap, because full-conversation text selection and native find are incompatible with row
-  windowing. The windowed foundation was built, used, and reversed on that evidence.
-
-Package shape follows the same "one thing each" discipline: `console-kit` is the vocabulary,
-`console-transcript` is the one big surface built from it, and the dependency runs one way only. The transcript
-is deliberately *not* a kit member — admitting a single-consumer renderer of that size would carve a permanent
-exception into the kit's discipline. Every kit member carries an enforced intent contract and a showcase
-specimen enforced by test, so the catalogue cannot drift from the code. `console-viewmodel` stays pure: it maps
-daemon results to render props and imports neither Electron, React, nor the core.
+Package shape follows the same "one thing each" discipline: `console-kit` is the vocabulary, `console-transcript`
+is the one big surface built from it, and the dependency runs one way only — the transcript is deliberately
+*not* a kit member, since admitting a single-consumer renderer of that size would carve a permanent exception
+into the kit's discipline. Every kit member carries an enforced intent contract and a showcase specimen enforced
+by test. `console-viewmodel` stays pure: it maps daemon results to render props and imports neither Electron,
+React, nor the core.
 
 ---
 
@@ -631,42 +597,36 @@ prose-bearing fields never enter it at all. An over-length or control-charactere
 allowed is flattened and capped rather than discarded, because an audit trail's one job is to be complete.
 
 The hard-cap and deny path was **archived** this arc. At head it had become dead configuration: no production
-caller ever set a ceiling, so the cap state was a constant and the deny branch was wired but could never fire.
-The system was carrying the full plumbing of a block — options, budget math, budget forwarding to the backend, a
-deny frame, and its renderer copy — for a stop that could not happen, and every reader of that path described a
-behavior the shipped product did not have. The alternative was to make the ceiling real; the maintainer ruled
-against it, accepting the consequence with eyes open. What was kept is exactly what carried the value:
-settlement, the counter, and the ledger.
+caller ever set a ceiling, so the cap state was a constant and the deny branch was wired but could never fire —
+the system carried the full plumbing of a block (options, budget math, budget forwarding to the backend, a deny
+frame, its renderer copy) for a stop that could not happen. The alternative was to make the ceiling real; the
+maintainer ruled against it, accepting the consequence with eyes open. What was kept is exactly what carried
+the value: settlement, the counter, and the ledger.
 
-Three consequences follow, stated plainly:
+Three consequences follow, stated plainly. **The close gate is now the system's only block** — "exactly two
+blocks" became exactly one. **Subagent fan-out is unbounded**: there is no depth limit, width limit, or spend
+bound, and a spawn tree of any shape runs until its work ends, the operator stops it, or the provider's own plan
+limit does (a depth check that denied a spawn would itself be a second block, and a depth counter would only
+stop a chain, not a wide fan-out — the vendor's own machinery offers nothing per-agent to ring-fence a child
+with). A bound on fan-out is a **roadmap** item, most likely a real user-set ceiling over the kept counter, not
+a quiet revival of the dead path. **The read surfaces report unbounded**: the cap read verb, the CLI cap
+command, and the console's governed inspect read all still work and all report no ceiling; exposing real
+accumulated spend through them is future work.
 
-1. **The close gate is now the system's only block.** "Exactly two blocks" became exactly one.
-2. **Subagent fan-out is unbounded.** There is no depth limit, no width limit, and no spend bound. A spawn tree
-   of any shape runs until its work ends, the operator stops it, or the provider's own plan limit does. A depth
-   check that denied a spawn would itself be a second block, and a depth counter would only stop a chain, not a
-   wide fan-out. The vendor's own machinery offers nothing per-agent to ring-fence a child with. A bound on
-   fan-out is a **roadmap** item — most likely a real, user-set ceiling over the kept counter — not a shipped
-   feature and not a quiet revival of the dead path.
-3. **The read surfaces report unbounded.** The cap read verb, the CLI cap command, and the console's governed
-   inspect read all still work and all report no ceiling. Exposing real accumulated spend through them is
-   future work.
-
-Cost itself is reported by the backend on Claude. On the pure-API path there is no dollar figure on the wire,
-so coa computes one from the provider spec's price table — cache-hit input tokens billed at the cache rate when
-one is configured, the rest at the input rate. **A model with no configured price entry costs zero**, which is
-the deliberate floor: the accounting never guesses. Shipped tables cover only some models, so an unlisted model
-records as free until a price is supplied.
+Cost itself is reported by the backend on Claude. On the pure-API path there is no dollar figure on the wire, so
+coa computes one from the provider spec's price table — cache-hit input tokens billed at the cache rate when one
+is configured, the rest at the input rate. **A model with no configured price entry costs zero**, the deliberate
+floor: the accounting never guesses, so an unlisted model records as free until a price is supplied.
 
 Three honest gaps today: the ledger accumulates in memory for the daemon's lifetime and no surface reads it or
-writes it to disk; the console's Usage surface renders a **mock** ledger (clearly labelled as such in its own
-source) rather than the real one; and the session listing carries no cost, so the console's family-tree spend
-roll-up is built and correct but always renders its "not tracked yet" floor. Wiring the recorded ledger to a
-read verb and to those surfaces is the next step, not a claim about today. Separately, the web-fetch
-summarizer's spend is recorded to the ledger under its own scope but not charged to the session counter — a
-deliberate, named deferral.
-
-The live smoke suites still run under a real-money guard, but that guard now rides a raw backend session-option
-pass-through — the vendor's own budget stop, a test-harness concern rather than a governance surface.
+writes it to disk; the console's Usage surface renders a **mock** ledger (labelled as such in its own source)
+rather than the real one; and the session listing carries no cost, so the console's family-tree spend roll-up is
+built and correct but always renders its "not tracked yet" floor. Wiring the recorded ledger to a read verb and
+to those surfaces is the next step, not a claim about today. Separately, the web-fetch summarizer's spend is
+recorded to the ledger under its own scope but not charged to the session counter — a deliberate, named
+deferral. The live smoke suites still run under a real-money guard, but that guard now rides a raw backend
+session-option pass-through — the vendor's own budget stop, a test-harness concern rather than a governance
+surface.
 
 ---
 
@@ -678,34 +638,32 @@ which is excluded from compilation, linting, formatting, tests, dependency cruis
 entry there records what it was, why it was parked, and what would revive it.
 
 - **The symbol and graph layer.** The typed graph, the symbol table, the tree-sitter reparse path, the
-  convention extractors, and the scope resolver are all present in `packages/core` and `packages/code-intel`
-  and all tested. **Nothing in production populates the symbol table.** That is why the grounding producer was
-  archived — it could only query a permanently-empty index, so every lookup missed and it returned nothing on
-  every call — and why the symbol-reading tools are unregistered. What *is* live from `code-intel` is
-  canonicalization, used by the generation-drift producer, and the import extraction the graph builds on. If
-  this layer is revived, its first real design decision (what populates the symbol table, and when) has no
-  prior ruling to honor: it starts clean.
+  convention extractors, and the scope resolver are all present in `packages/core` and `packages/code-intel` and
+  all tested. **Nothing in production populates the symbol table** — that is why the grounding producer was
+  archived (it could only query a permanently-empty index) and why the symbol-reading tools are unregistered.
+  What *is* live from `code-intel` is canonicalization, used by the generation-drift producer, and the import
+  extraction the graph builds on. A revival starts clean: what populates the symbol table, and when, has no
+  prior ruling to honor.
 - **Health scoring.** A code-health signal producer composed cheap, language-agnostic signals — cycle tangle,
   coupling fan-in and fan-out, churn and hotspot from the change log, size — into a worst-of, never-scored
-  profile with conservative starting cut-points. It was never constructed or registered by any path. It sits in
-  `archive/` with its composition helper, and both revive together once something calls them and the
-  calibration pass its cut-points always awaited has happened.
+  profile with conservative starting cut-points, but was never constructed or registered by any path. It sits
+  in `archive/` with its composition helper; both revive together once something calls them and the calibration
+  pass its cut-points always awaited has happened.
 - **The idle queue.** The daemon is resident precisely so idle pre-compute has somewhere to live: a priority
-  scheduler with cancellable handles hangs off the kernel, and the flush runs pending jobs highest-priority
-  first. No production path registers a job today. Regeneration, index building, context pre-assembly and
-  detection sweeps are its intended tenants.
-- **Lazy tool loading.** The catalogue is partitioned into an always-loaded kernel set and an on-demand set,
-  and the discovery and load verbs over the on-demand half exist. The adapter marks kernel tools always-loaded,
-  but the proxy that would let a model discover and pull an on-demand tool mid-session is not wired: today the
-  whole catalogue is registered and the partition only expresses intent.
+  scheduler with cancellable handles hangs off the kernel, flushing pending jobs highest-priority first. No
+  production path registers a job today; regeneration, index building, context pre-assembly and detection
+  sweeps are its intended tenants.
+- **Lazy tool loading.** The catalogue is partitioned into an always-loaded kernel set and an on-demand set, and
+  the discovery and load verbs over the on-demand half exist, but the proxy that would let a model discover and
+  pull an on-demand tool mid-session is not wired — today the whole catalogue is registered and the partition
+  only expresses intent.
 - **Other parked entries** in `archive/` include the decision log and provenance layer, the flag auto-patch
   planner and reminder policy, the bundle importer and version gate, the write-only signal bus, the
-  checkpoint-undo plumbing, the spec-conformance pair, the backend port-manifest shape, and the exploratory
-  half of the SDK probe suite.
+  checkpoint-undo plumbing, the spec-conformance pair, the backend port-manifest shape, and the exploratory half
+  of the SDK probe suite.
 
 One capability sits between built and shipped: projecting a whole session tree as a single transcript is
-implemented and tested, but its only non-test consumer is a live subagent test. Treat it as capability, not as
-a surface.
+implemented and tested, but its only non-test consumer is a live subagent test — capability, not yet a surface.
 
 ---
 
@@ -740,31 +698,28 @@ control record outlives a single turn. It works and is well tested, but correctn
 and clearing the right fields in the right order rather than on a structure that makes the wrong order
 unrepresentable.
 
-**The console store's re-render blast radius.** `ConsoleState` is published as a whole-object replace, and
-eight components subscribe with an identity selector — the workbench frame, the nav, the center column, the
-work dock, the palette, the settings dialog, the new-session dialog, and the agents panel. Every publish
-re-renders all of them. Streaming mitigations exist and are real (frames coalesce onto one animation
-frame, poll ticks that changed nothing skip the publish entirely, and per-frame projections are cached by
-object identity so the transcript's memoized rows actually hit), but the underlying shape is still "one object,
-one subscription granularity".
+**The console store's re-render blast radius.** `ConsoleState` is published as a whole-object replace, and eight
+components subscribe with an identity selector — the workbench frame, the nav, the center column, the work
+dock, the palette, the settings dialog, the new-session dialog, and the agents panel — so every publish
+re-renders all of them. Real mitigations exist (frames coalesce onto one animation frame, poll ticks that
+changed nothing skip the publish, per-frame projections are cached by identity so memoized rows hit), but the
+underlying shape is still one object, one subscription granularity.
 
 **The transcript exists in three renderer-side copies.** The controller keeps per-session wire frames in one
 map and mirrors the active session's into the published state; the chat panel keeps a second map of *projected*
-frames per keep-alive tab so a hidden tab keeps showing what it last showed; and two identity-keyed caches hold
-the per-frame projections. Each has its own invalidation rule. Nothing is known to be wrong, but a conversation
-that goes stale in one of them and not the others would be hard to spot.
+frames per keep-alive tab so a hidden tab keeps showing what it last showed; two identity-keyed caches hold the
+per-frame projections. Each has its own invalidation rule; nothing is known to be wrong, but a conversation
+gone stale in one and not the others would be hard to spot.
 
 **A tab-switch can lose freshly-streamed frames.** Opening a session flips the active id synchronously and
 reconciles a persisted reload in the background. The reload's result is guarded against a stale *render* (it
-returns early if the user moved on), but it writes into the per-session buffer **unconditionally** — so a
-reload that lands after live frames have already been merged for that session overwrites them with the
-persisted view. Rapidly switching away and back, or switching away from a still-streaming session, is the
-shape that hits it.
+returns early if the user moved on) but writes into the per-session buffer **unconditionally**, so a reload
+landing after live frames were already merged overwrites them with the persisted view. Rapidly switching away
+and back, or switching away from a still-streaming session, is the shape that hits it.
 
-**The two-second poll.** Cap state, the flag feed and the timeline are refreshed by a fixed interval rather
-than pushed. The structural-equality guard keeps a quiet tick from costing a re-render, but it does not stop
-the three round trips, and it means a change lands up to two seconds late. Push notifications for these reads
-are the intended replacement.
+**The two-second poll.** Cap state, the flag feed and the timeline are refreshed by a fixed interval rather than
+pushed. The structural-equality guard keeps a quiet tick from costing a re-render but does not stop the three
+round trips, so a change can land up to two seconds late. Push notifications are the intended replacement.
 
 **Three desktop panel suites have been seen failing intermittently under parallel load and are not
 root-caused.** They pass in isolation and the full suite was green when this was written (2,928 passing). This
