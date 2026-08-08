@@ -11,8 +11,12 @@ stages.
 
 ## Start here, in this order
 
+0. **`SESSION-HANDOFF.md`** — how this run is being driven, the environment as it
+   actually is (Windows, bypass, ultracode, Opus-with-Fable-reserved), the operating
+   lessons, and the immediate next actions. Written for a fresh orchestrator context.
 1. **`MACHINE-SETUP.md`** — Node 22, the node-gyp/Python workaround, the gitignored
    files to restore, the two skills. `pnpm install` fails without this.
+   (Largely moot on the Windows machine — see SESSION-HANDOFF.md.)
 2. **`run/state.md`** — where the work is, what every branch holds, what is done, what
    is next. This is the single resume document.
 3. **`run/journal.md`** — the append-only narrative of what actually happened, including
