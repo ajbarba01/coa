@@ -139,17 +139,15 @@ build here), bypass permissions ON (the settings.local.json allowlist and
 scratch-inside-repo workaround are obsolete), Fable 5 CLI session; ultracode/dynamic
 workflows were enabled mid-session, so the Workflow runner IS available after all.
 
-## Q8 — Committed dist/ is stale and ungated (found 2026-08-07 during R1 verify)
-**Context:** packages/console-ui/dist/ (and possibly sibling kit packages) is tracked
-in git but ALSO matched by the ignore rules — committed once when the kit gained dist
-exports, never rebuilt since. Source has moved (de-slop sweep, R1's DenyNotice edit),
-so the committed dist carries stale code/comments and nothing in the gate suite
-detects the drift.
-**Needed:** a ruling — (a) add a freshness gate (build + diff check) so committed dist
-can't drift, (b) stop committing dist and build on install/publish, or (c) accept the
-drift as harmless (dev resolves source via the development exports condition; dist
-only matters to a consumer installing the package raw).
-**Done instead:** nothing changed; queued for the maintainer / Stage 4.
+## Q8 — WITHDRAWN, NOT A REAL FINDING (raised and retracted 2026-08-07)
+Claimed that packages/console-ui/dist/ was tracked-but-gitignored and drifting. **False.**
+`git ls-files | grep -c "/dist/"` returns 0 and no dist path has any commit history —
+nothing under any dist/ is or ever was tracked. The claim came from misreading combined
+shell output: `git check-ignore` echoes the path it is asked about, and that echo was
+mistaken for `git ls-files` output. The dist directories are ordinary local build
+artifacts, correctly ignored; stale local build output is expected and harmless.
+Recorded rather than deleted so the retraction is visible to the morning review.
+**Needed:** nothing.
 
 ## Q9 — health-profile.ts orphaned by the Q7 archival (found 2026-08-07)
 **Context:** packages/core/src/context/health-profile.ts (`composeProfile`,
@@ -160,5 +158,8 @@ deliberately did NOT move it (the ruling named four surfaces; over-archiving is 
 more expensive mistake) and recorded the fact in the archive README row and ROADMAP so
 it cannot be silently forgotten. Verified not to cascade further: `MetricSample` is
 still live via packages/code-intel/src/extract-metrics.ts.
-**Needed:** one line — park it alongside health.ts, or keep it.
-**Done instead:** left in place; harmless (all gates pass); documented in two places.
+**RULED (2026-08-07): park it alongside health.ts.** To execute in archive/code-health/
+once the session-layer work releases the working tree: move health-profile.ts +
+health-profile.test.ts, update the archive README row (it already flags this as the
+obvious next thing to park), and check the ROADMAP M4 row. `MetricSample` stays live
+(packages/code-intel/src/extract-metrics.ts) — the cascade stops there.

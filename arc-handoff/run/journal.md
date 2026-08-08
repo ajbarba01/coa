@@ -273,9 +273,12 @@ items, screenshots (UI stages). This file is the maintainer's morning audit.
     packages/core/README.md "(the only two blocks)" and AGENTS.md SC-1/"hard cost
     cap" — fixed by the orchestrator in 0be23fb (docs-check 60 OK; remaining
     "two blocks" hits are all dated research/plans/archive = historical by design).
-  - **New find (Q8, queued):** packages/console-ui/dist/ is TRACKED but gitignored
-    build output, stale since the kit got dist exports — no gate keeps committed
-    dist fresh. Needs a ruling: rebuild-on-commit gate, or stop committing dist.
+  - ~~New find (Q8): packages/console-ui/dist/ is TRACKED but gitignored build
+    output~~ **RETRACTED 2026-08-07 — this was wrong.** Nothing under any dist/ is
+    tracked (`git ls-files | grep -c "/dist/"` = 0, no commit history on any dist
+    path). The orchestrator misread combined shell output: `git check-ignore` echoes
+    the path it is given, and that echo was taken for `git ls-files` output. The dist
+    dirs are ordinary local build artifacts, correctly ignored. No action needed.
 - C2 part 3 (OpenAI + OpenRouter ProviderSpecs + backend-import lockdown rule)
   launched as a workflow: builder + refute-framed verifier.
 - Mid-part-3 the FIRST Fable account's promo credit hit its monthly limit and killed
