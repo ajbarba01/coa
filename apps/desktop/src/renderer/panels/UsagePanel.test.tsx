@@ -90,6 +90,24 @@ const credential = (over: Partial<Credential> = {}): Credential => ({
   ...over,
 });
 
+describe('the surface admits its figures are not real', () => {
+  // The numbers here come from a renderer-owned stand-in but the account names and providers
+  // beside them are genuinely live, which is what makes an unlabelled reading misleading
+  // rather than merely incomplete. The label is the whole honesty of this surface until the
+  // reads are wired, so it is pinned rather than left to survive by habit.
+  it('says so in the strip, in both readings and inside a drill-down', () => {
+    renderUsage();
+    expect(screen.getByText(/sample data/i)).toBeInTheDocument();
+
+    useUsageUi.setState({ view: 'tools' });
+    expect(screen.getByText(/sample data/i)).toBeInTheDocument();
+
+    // The drill-down is the most misleading view — a named account with invented dollars.
+    useUsageUi.setState({ view: 'providers', opened: FIXTURE_CREDENTIALS[0]?.id });
+    expect(screen.getByText(/sample data/i)).toBeInTheDocument();
+  });
+});
+
 describe('honest degradation', () => {
   it('gives Claude its limits and everyone else spend only', () => {
     const claude = accountUsage(credential({ plan: 'Claude Pro' }));

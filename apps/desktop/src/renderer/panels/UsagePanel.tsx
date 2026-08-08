@@ -3,6 +3,7 @@ import {
   Button,
   CapsLabel,
   FloatCard,
+  InlineMessage,
   Meter,
   StatusDot,
   Tooltip,
@@ -49,11 +50,17 @@ import { useNarrow } from './useNarrow.js';
  *   tools       key health — the only meter that is real for a service. Rows are doors
  *               to their key pools on auth.
  *
- * Nothing here is invented. Spend is coa's own ledger and every figure is a sum over the
- * SAME daily series (the aggregate folds the account ledgers, so no two numbers can
- * disagree). Limits are the one live snapshot Claude publishes — through an EXPERIMENTAL
- * method, so "unknown" renders as unknown. The range control lives WITH the reading it
- * moves — in the chart's block head, not up in the frame.
+ * The SHAPE of this surface is the real design: spend is meant to be coa's own ledger, with
+ * every figure a sum over the same daily series (the aggregate folds the account ledgers, so
+ * no two numbers can disagree), and limits the one live snapshot the provider publishes.
+ *
+ * The NUMBERS are not real yet. Every figure below is drawn from a renderer-owned stand-in,
+ * joined onto genuinely live credentials — which is precisely what makes it dangerous: real
+ * account names and real providers alongside invented dollars read as a true reading. The
+ * strip therefore says "sample data" wherever the figures are shown, and it is not
+ * conditional or dismissible: a surface that invents numbers has to admit it in the surface,
+ * not in a comment only its maintainer will read. Wiring these reads to real backend usage is
+ * roadmap work; until then the label is the honest part.
  */
 
 /** The series token an identity owns — fixed per model/provider, never reassigned by rank. */
@@ -135,6 +142,11 @@ export function UsageStrip(): React.JSX.Element {
             </span>
           </>
         )}
+        {/* Unconditional, and beside the figure it qualifies rather than tucked in a corner:
+            the drill-down views render invented dollars against real account names, so the
+            admission has to travel with the numbers. Not dismissible — a user who dismissed
+            it once would spend the rest of the session reading fiction as fact. */}
+        <InlineMessage tone="warning">sample data — not real spend</InlineMessage>
       </div>
       <div className="flex-1" />
       {/* The toggle stands down while a dashboard is open — the strip is carrying the way
