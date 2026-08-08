@@ -224,3 +224,35 @@ those key paths — so an auth WRITE verb exercised under a test home would touc
 its own injected deps. The second one is the real bug; the first is what stops tests polluting
 the checkout. NOT in C5's charter, so not done here.
 **Done instead:** recorded with file:line so it can be executed without re-deriving it.
+
+## Q12 — the parked charter and the parked features (closeout inventory, 2026-08-08)
+**C4 — console store rewrite.** The one architecture charter never started, and the only one
+deliberately reserved: the plan's rule is that UX work runs on the Fable credit, and this is
+push-fed slices, one store-owned per-session transcript map (killing the triplication and the
+tab-switch reload race), deleting the 2s stringify polls, and porting the invariants trapped in
+a 1020-line integration test BEFORE the old store is deleted. Acceptance is instant navigation.
+C3 was its prerequisite and is done, so it is unblocked — it needs the model, not the sequence.
+**Stage 3 features — none started.** F6 rode C2 and shipped. The plan's order is F2 permission
+modes -> F3 model info/attachments -> F1 orchestration + F7 worktrees -> F4 library -> F8
+viewer -> F9 naming -> F5 light theme, with F10 instant-nav being C4's acceptance gate. The
+maintainer's UI-freedom ruling stands: the mockups are guidance, only their listed functionality
+is binding.
+**Needed:** nothing to unblock — both resume as written. Flagged so the closeout review is not
+misread as "the arc is finished". The architecture workstream is complete except C4; the
+feature workstream is untouched.
+
+## Q13 — the verification chain reads the script, never the charter (2026-08-08)
+**Context:** C5's workflow script carried four of the five items the plan's C5 defines. The
+missing item (a user-visible sample-data label on the usage surface) was real and unshipped, and
+was found only by re-reading the plan while writing closeout questions — after two verifiers had
+passed judgment on the charter. Both verifiers were asked whether the SCRIPT's items were done.
+Neither was asked whether the script matched the plan.
+**Why it matters beyond this instance:** every charter in this arc was executed from a
+hand-written script derived from a plan document. Any item lost in that derivation is invisible
+to the entire executor-plus-verifier apparatus, because nothing in the chain ever re-reads the
+source. This is a systematic blind spot, not a one-off slip.
+**Needed:** a decision on whether to re-audit the other charters' scripts against the plan.
+Recommended: yes, and cheaply — diff each script's task list against the plan's charter
+definition. C1/C2/C3 are the candidates; the knife had its own verified ruling inventory.
+**Done instead:** C5's missing item was implemented and pinned (7852763); this entry records the
+class of error so the re-audit is not forgotten.

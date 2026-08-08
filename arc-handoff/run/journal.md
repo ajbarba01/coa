@@ -930,3 +930,48 @@ after 5:40pm with:
   Workflow({scriptPath: '<arc>/workflow-scripts/stage4-docs.js', resumeFromRunId: 'wf_1261f87e-ce1'})
 The five writers replay from cache; the closer will re-run and must be told the closing work is
 already committed (fa6a433/a716bf4/9fb09db) so it does not redo it.
+
+## A DROPPED CHARTER ITEM, found by reading the plan instead of the workflow (7852763)
+
+While writing the closeout questions I re-read the plan's C5 definition and found the workflow
+script had only ever carried FOUR of its five items. The missing one:
+
+  "Usage surface's fabricated data gets visible 'sample data' labeling in the UI itself
+   (reset ruling keeps the surface; honesty finding upgrades the label from code comment
+   to user-visible)."
+
+Nobody noticed because the script was self-consistent and every agent and verifier worked
+from the script, not from the plan. The verifiers were asked whether the script's items were
+done — never whether the script matched the charter it came from. **A verification chain that
+only ever reads the derived artifact cannot catch an item lost in the derivation.**
+
+The item was real and unshipped. UsagePanel.tsx carried the honesty as a CODE COMMENT
+("Everything it renders is MOCK DATA BY DESIGN") while a comment 150 lines above it asserted
+the opposite — "Nothing here is invented. Spend is coa's own ledger" — and the rendered surface
+said nothing at all. Invented dollars sit beside genuinely live account names and providers,
+which is what makes it misleading rather than merely incomplete: the real parts lend the
+invented parts their credibility.
+
+Fixed at 7852763: an unconditional, non-dismissible "sample data — not real spend" marker in
+the strip, using the kit's existing InlineMessage rather than a new visual language, plus the
+contradictory comment rewritten to say which half is real (the shape) and which is not (the
+numbers). Pinned by a test that checks the label in BOTH readings and inside the drill-down —
+the most misleading view, a named account with invented figures — and mutation-probed: removing
+the marker reds it.
+
+One design judgment flagged rather than hidden: InlineMessage's own intent block says
+surface-level state should "dock a notice instead", but the kit ships no dock member. Following
+C5's instruction to do the minimum honest thing and flag it rather than invent a visual
+language. If the UX stage adds a dock, this should move to it.
+
+## Stage 5 closeout — PARTIALLY DONE (no agents needed)
+
+- **PR #2's body rewritten.** It claimed adapter unification was "in flight … ungated" (landed
+  at 0c8c444) and that the session-service and composition-root charters "were never started"
+  (both complete). The new body covers all 45 commits, states plainly that fan-out is currently
+  unbounded, and describes the five error-honesty fixes by what each was lying about. Still a
+  draft.
+- **PR #3 opened** (draft, arc/docs -> arc/architecture) for the docs workstream, with its
+  verification debt stated in the body rather than glossed.
+- The three PRs now stack: #1 knife <- #2 architecture <- #3 docs.
+- All branches pushed.
