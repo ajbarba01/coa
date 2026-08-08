@@ -148,6 +148,13 @@ export interface DaemonOptions {
   walPath?: string;
   /** Endpoint override; defaults to {@link defaultDaemonPath}. */
   path?: string;
+  /**
+   * The worktree the daemon governs; defaults to the process's working directory, which
+   * is what a user running `coa serve` means. Overridable because the reconciler walks
+   * and hashes this root at startup: a test that leaves it at the default boots a daemon
+   * over the whole checkout, so its cost grows with the repo rather than with the test.
+   */
+  root?: string;
   /** How the `shutdown` verb tears the process down (injected for tests); defaults to close-then-exit. */
   onShutdown?: (server: RpcServer) => void;
 }
@@ -228,7 +235,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // function even accepts a connection.
   const { deps, handle, models, modelAccounts } = buildSessionDeps({
     walPath,
-    root: process.cwd(),
+    root: options.root ?? process.cwd(),
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
   });
   // The driven-login plumbing imports the backend package, so it is built here (the

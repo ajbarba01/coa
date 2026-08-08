@@ -63,9 +63,13 @@ describe('startDaemon — the serve path', () => {
   it('serves the inspector reads over the bound endpoint', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-serve-'));
     const path = testPath();
+    // Root the daemon at the temp dir, not the default working directory: the reconciler
+    // walks and hashes its root at startup, so leaving the default would have this test
+    // scan the entire checkout and get slower every time the repo grows.
     const server = await startDaemon({
       walPath: join(dir, 'log.ndjson'),
       path,
+      root: dir,
       out: () => {},
       err: () => {},
     });
