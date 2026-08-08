@@ -669,3 +669,46 @@ parent commit and re-running, not reading the diff harder — the diff looked in
 it *was* innocent. When a gate fails after a change, the controlled comparison is cheap
 (~90s here) and it is the only step that distinguishes "my change did this" from "my change
 revealed this." Both earlier hypotheses were defensible and both were wrong.
+
+## Compose COMPLETE (94b48a9 · 0dacaeb) — daemon.ts 483 -> 308 lines
+
+The relaunch worked and the commit-as-you-go rule proved itself immediately: both commits
+were gated and landed as they were finished, so nothing was at risk when the phase ended.
+- **94b48a9** moved `buildDaemonConsoleHandlers` + its four `~/.coa` stores, the
+  BrowserSession and the LoginManager out of core into `apps/cli/src/console-handlers.ts`,
+  beside login-driver.ts and session-deps.ts. Core keeps only the port declarations.
+- **0dacaeb** collapsed `DaemonCoreOptions.web` + `.summarizer` into one injected
+  `webTools` factory and moved the assembly to `apps/cli/src/web-tools.ts`. The daemon core
+  no longer imports the web config and never reads `process.env`.
+Gates green after each: 2875 passed / 30 skipped, depcruise 416 modules, docs-check 60.
+
+**Honest deviations, all sound.** It reported that the brief was wrong about the summarizer
+(`apps/cli/src/fetch-summarizer.ts` already owned the construction; what remained was the
+assembly around it) and moved the right thing anyway. It disclosed a 10-symbol growth in the
+core barrel as unavoidable — the app cannot compose a handler map out of core's ports
+without seeing them — and gave the barrel doc comment as justification. It also added an
+optional `home` to the moved builder so its tests stop reading the maintainer's real home
+directory, flagged as not-asked-for. Two web cases in daemon.test.ts were rewritten rather
+than deleted, with the coverage traced to its new owner.
+
+## The `root` override is only HALF effective — a real finding, raised as Q11
+
+The compose agent was asked to report (not fix) other composition entry points that bake in
+ambient paths, and the answer materially qualifies 7c379ad. Inside the very function that
+fix touched, three sites ignore the `root` two lines above them:
+`new AgentRegistry(homedir(), process.cwd())`, `createConversationStore(join(process.cwd(),
+…))`, plus `buildClaudeLoginDriver(homedir())` / `new ModelCatalogStore(homedir())` with no
+home seam at all. `session-deps.ts` does the same for WebConfigStore and AccountsRegistry.
+
+This is not theoretical. `.coa/` in the checkout currently holds **24 files** — conversation
+stores and `untitled-agent-5/6.yaml` — i.e. daemon runs have been writing into the repo
+working tree all along. So 7c379ad removed the expensive half (the reconciler no longer
+hashes the checkout, which is what blew the 5s budget) but a daemon served against another
+root still reads agents and writes conversations under the process cwd.
+
+Worse in kind: `packages/core/src/rpc/auth-handlers.ts` calls `homedir()` directly at NINE
+sites to compute key-file paths, bypassing its own injected `AuthHandlerDeps`. The new `home`
+seam redirects the four stores but not those key paths, so an auth WRITE verb under a test
+home would still touch the real `~/.coa/keys/`. Nothing is wrong today — the moved tests only
+exercise reads and login — but the seam is half-honoured, and that is exactly the shape of
+thing that bites the first time someone writes the obvious test.

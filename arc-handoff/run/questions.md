@@ -201,3 +201,26 @@ would have hidden it indefinitely. Second, it means the three panel-suite sighti
 deserve the same treatment rather than a timeout bump: look for a test doing real work
 against the real tree before concluding anything about timing.
 Q10 stays OPEN for the three panel suites, which are untouched by this fix.
+
+## Q11 — ambient paths defeat the daemon's `root` seam; auth key paths bypass their own deps (2026-08-08)
+**Context:** raised by the C5 compose agent when asked to report (not fix) composition entry
+points that bake in a working directory or home directory. 7c379ad added a `root` override to
+`startDaemon` and it works for the reconciler — but three sites in the same function ignore
+it: `new AgentRegistry(homedir(), process.cwd())` (cli.ts:254), `createConversationStore(join(
+process.cwd(), '.coa','local','conversation'))` (cli.ts:261), and `buildClaudeLoginDriver(
+homedir())` / `new ModelCatalogStore(homedir())` (244, 247) which have no home seam at all.
+`session-deps.ts` (64, 77) does the same for WebConfigStore and AccountsRegistry, and
+`DaemonSessionOptions` has a `root` but no `home`.
+**Evidence it is not theoretical:** `.coa/` in the checkout holds 24 files today —
+conversation stores plus `untitled-agent-5.yaml`/`-6.yaml`. Daemon runs have been writing into
+the repo working tree.
+**The sharper half:** `packages/core/src/rpc/auth-handlers.ts` calls `homedir()` at nine sites
+(126, 150, 210, 211, 248, 378, 403, 455, 505) to compute key-file paths, bypassing the
+injected `AuthHandlerDeps`. The `home` seam added at 94b48a9 redirects the four stores but NOT
+those key paths — so an auth WRITE verb exercised under a test home would touch the real
+`~/.coa/keys/`. No test does that today, which is the only reason it is harmless.
+**Needed:** a decision on scope. Recommended: finish the seam in `startDaemon`/`session-deps`
+(mechanical — thread `root`/`home` through, defaults unchanged) and make auth-handlers honour
+its own injected deps. The second one is the real bug; the first is what stops tests polluting
+the checkout. NOT in C5's charter, so not done here.
+**Done instead:** recorded with file:line so it can be executed without re-deriving it.
