@@ -104,10 +104,13 @@ recorded here as final unless the maintainer objects.
   + ceilingUsd plumbing archived, spend counter kept), accepting that spawn_agent
   fan-out is unbounded for now. ADR 0032's "cost cap is the only fan-out bound" claim
   becomes stale prose to reconcile in Stage 4 docs.
-- **Q2 — OPEN, awaiting ruling.** Explained to the maintainer; agent recommends
-  striking R2 entirely (three of four symbols are live safety code; the fourth,
-  `ledgerEntries`, is the roadmap's named read seam for tree-spend UI). Alternative on
-  the table: re-scope to exactly `ledgerEntries`. Nothing removed until ruled.
+- **Q2 — RULED (2026-08-07): strike R2 entirely.** Ruling withdrawn; nothing is
+  removed and nothing is deferred. Three of the four symbols are live safety code
+  (`redactLedgerEvent` is the ledger write-path allow-list; SECRETS_GLOB and
+  DENY_READ_GLOBS feed the SDK's disallowedTools), and the fourth, `ledgerEntries`,
+  is the roadmap's named read seam for the session-tree spend UI — deleting it would
+  mean rewriting it. Ledger row updated to STRUCK. **The knife's question queue
+  (Q1–Q3) is now fully closed.**
 - **Q3 — RULED (delegated): keep the Cost section.** It renders live session-tree
   spend with pinning tests; the ruling targeted a dead floor that no longer exists.
   R12f stands as executed (Record floor removed, Cost kept).

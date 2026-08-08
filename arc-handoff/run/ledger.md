@@ -5,7 +5,7 @@ Tick each row as executed; correct any row that reality contradicts.
 | # | Item | Fate | Revival path | Status |
 |---|------|------|--------------|--------|
 | R1 | Hard cost-cap + ceiling plumbing | archive/ | Later: budget guard if metered spend returns | **PARKED (Q1)** — contradicted by ADR 0032 (cost cap = sole fan-out bound for live spawn_agent); nothing removed |
-| R2 | Ledger reads + redaction utilities | archive/ | with governance era | **PARKED (Q2)** — 3 of 4 symbols live (redaction = write-path enforcement; globs feed SDK deny list); nothing removed |
+| R2 | Ledger reads + redaction utilities | archive/ | with governance era | **STRUCK (Q2, maintainer 2026-08-07)** — ruling withdrawn, nothing removed, nothing to revisit. 3 of 4 symbols are live safety code (redaction = ledger write-path allow-list; SECRETS_GLOB/DENY_READ_GLOBS feed the SDK deny list); the 4th, ledgerEntries, is the roadmap's named read seam for tree-spend UI |
 | R3 | Decision log, why/vouch provenance, its CLI/RPC/tools | archive/ | none planned (deliberate) | **DONE** 01a939b — archive/decision-log/, all read verbs/tools unwired, −566 lines |
 | R4 | AutoPatcher + ReminderPolicy | archive/ | someday: flag auto-fix / reminders | **DONE** a4cdd90 — archive/flag-extensions/, barrel unwired |
 | R5 | Bundle importer + version gate | archive/ | Next: skills/MCP/plugin arc | **DONE** c7f6f7f — archive/bundle-importer/; NOTE shared/src/bundle.ts now orphaned (Stage 2 leftover) |
