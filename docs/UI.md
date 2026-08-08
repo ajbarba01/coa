@@ -126,8 +126,14 @@
   Don't-use-it-when / Anatomy / Variants & States / Accessibility / Related); do not inline a bespoke component
   inside a panel. A panel is kit composition plus a pure selector, with no styling of its own.
 - **No raw values.** No literal hex, px, rem, duration, radius, or z-index in a component — every one comes from
-  a token. The one sanctioned raw px is a value that must match a main-process pixel (the title bar height), and
-  it says so in a comment.
+  a token. Three sanctioned exceptions exist, each flagged in a comment where it lives, and the set is closed —
+  a new one is a design decision, not a shortcut: a main-process pixel match (the title bar height); a
+  third-party brand mark (`packages/console-kit/src/brand/BrandMark.tsx`) wearing its own color because on a
+  credentials surface the logo _is_ the identity, and identity is never state — the hex lives on a descriptor,
+  never a token, dimmed rather than recolored when a provider is benched; and the chart series palette
+  (`packages/console-kit/src/themes/sand-dark.css`), a validated three-color set (lightness band, chroma floor,
+  colorblind separation, contrast) kept deliberately disjoint from the four status hues so a spend segment can
+  never read as a warning.
 - **Every state ships.** default · hover · focus-visible · active · disabled · loading · empty · error.
   "Unpolished" almost always means "an unhandled state". Every clickable has its own hover _and_ press, and shows
   no hover when disabled. This is the graduation checklist for moving a prototype specimen into the kit.
