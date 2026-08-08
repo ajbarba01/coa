@@ -1081,3 +1081,47 @@ the behaviour a user would see. Two verifiers caught it by running the OLD code 
 Comparing against the parent commit keeps being the step that separates "my change did this" from
 "my change revealed this" — it found the daemon-root defect this morning and a duplicated persisted
 frame this afternoon.
+
+## Lifecycle fixes LANDED by hand (8b97c94 · 77e6dd4) — third limit-kill, third hand-finish
+
+The fix round's executor and verifier both died on the session limit (reset 6:10pm). The
+executor had gotten further than its 135k tokens suggested: it left, uncommitted, the
+HeldOpenDropAdapter fixture and all THREE missing tests. Gated and finished by hand.
+
+**The critical gap is closed and PROVEN closed.** The abandon-stop edge — the one whose
+deletion left the entire repo suite green but for a unit test — now reds a behavioural test.
+Probe: deleted `'abandon-stop': { 'stop-requested': 'running' }` from the table and ran; the
+new test "still surfaces a genuine failure on the turn after a Stop that found nothing to stop"
+fails with `expected false to be true` on the error-frame assertion. That is the silent death
+reproduced exactly: no error frame, no error status, the session just ends. Restored
+byte-identical. The other two tests (settle-from-running via a mid-turn provider drop, and the
+redundant Stop writing ONE persisted marker rather than two) landed with it: 2942 tests, up 3.
+
+**ITEM 2 resolved by making the comment true, not by changing behaviour.** The claim was that
+both strategies close a stop alike. They do not, and I could not honestly enforce it without a
+verifier available: making per-turn's ordering load-bearing means giving it an inert gate, which
+is a behaviour change, and this arc has already shown what unverified behaviour changes cost.
+So the comment now states what is actually true and WHY the asymmetry is not an oversight:
+held-open hands the recorder an inert gate keyed to the stopped phase, so closing before
+settling there would drop the interrupt marker; per-turn supplies none, because aborting unwinds
+the loop and leaves no surviving query to emit stragglers into — that survival is precisely what
+held-open has and per-turn does not. The close still runs so the phase stays honest for any
+later reader, and the comment says plainly that no test can pin the order until something
+observable depends on it.
+
+**ITEM 5(c) comment rot fixed with the real reason.** The settlement error is written rather
+than recorded; the old comment justified that by "the per-frame path is gated by the query's
+inert flag", which the refactor had already falsified — settling reopens the gate before that
+line runs. The comment now says the gate is already open there and that the write is deliberate
+belt-and-braces: routing a genuine failure through `record` would make its visibility depend on
+which phase the turn happened to end in.
+
+**Gate:** `Test Files 282 passed | 11 skipped (293)` / `Tests 2942 passed | 30 skipped (2972)`,
+depcruise clean 419 modules, docs-check 60. Pushed; arc/architecture tip 77e6dd4.
+
+**Still owed on this charter** (verifier items I did NOT action, recorded rather than dropped):
+ITEM 5(a) — two call sites still discard the machine's `false` return (the held-open re-arm and
+the registry cascade), which is the property the design rests on; ITEM 5(b) — `settle()` still
+clears `inert`, latent because the shipped Claude backend always reports the turn-level
+interrupt so the abort-fallback never fires, but a trap for the next held-open backend. Both are
+small and both want a verifier. Queue them with the Stage 4 verification for after 6:10pm.
