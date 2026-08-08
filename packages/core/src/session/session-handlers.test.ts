@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,7 @@ import { buildSessionHandlers } from './session-handlers.js';
 import { SessionService } from './session-service.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 import { configHashOf } from './prompt-freeze.js';
+import { unreadableMemoryNotice } from './memory-plan.js';
 import { LiveSessionRegistry } from './live-registry.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import type { RpcHandlers } from '../rpc/router.js';
@@ -562,12 +563,49 @@ describe('buildSessionHandlers — persistent conversation', () => {
       { role: 'assistant', content: 'reply' },
     ]);
     // And the persisted transcript now covers both turns (system omitted).
-    expect(store.loadBackendMessages('c1')).toEqual([
+    expect(store.loadBackendMessages('c1').messages).toEqual([
       { role: 'user', content: 'first' },
       { role: 'assistant', content: 'reply' },
       { role: 'user', content: 'second' },
       { role: 'assistant', content: 'reply' },
     ]);
+  });
+
+  it('hands the model a note when part of the stored record could not be read', async () => {
+    const inits: SessionAdapterInit[] = [];
+    const handlers = handlersFor(
+      depsCapturing([{ t: 'text', text: 'reply' }], inits, true),
+      connection(),
+      store,
+      new LiveSessionRegistry(),
+    );
+    await handlers['createSession']!.handle({
+      input: 'first',
+      role: '',
+      scope: '',
+      conversationId: 'c1',
+    });
+    // A half-written append (the shape a crash mid-flush leaves behind): the line is
+    // skipped on read, and the next send would otherwise resume the model on the
+    // remainder as if it were the whole conversation.
+    appendFileSync(join(dir, 'c1', 'events.ndjson'), '{"seq":9,"frame":{"t":"te\n', 'utf8');
+
+    await handlers['createSession']!.handle({
+      input: 'second',
+      role: '',
+      scope: '',
+      conversationId: 'c1',
+    });
+    await flush();
+    const history = inits[1]?.history ?? [];
+    expect(history.slice(0, 2)).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+    expect(history[history.length - 1]).toEqual({
+      role: 'user',
+      content: unreadableMemoryNotice(1),
+    });
   });
 
   it('does not persist or resume an ephemeral session (no conversationId)', async () => {
@@ -963,7 +1001,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
         { t: 'interrupted' },
       ]);
       // …and the model's NEXT turn reads that it was cut off, not that it finished.
-      expect(store.loadBackendMessages('c1')).toEqual([
+      expect(store.loadBackendMessages('c1').messages).toEqual([
         { role: 'user', content: 'write a poem' },
         { role: 'assistant', content: 'The clockmaker' },
         { role: 'user', content: '[Request interrupted by user]' },
@@ -1187,7 +1225,7 @@ describe('buildSessionHandlers — block-preserving persistence on error', () =>
       await conn.settled;
 
       // The completed work reached canonical memory despite the mid-turn throw.
-      expect(store.loadBackendMessages('c1')).toContainEqual({
+      expect(store.loadBackendMessages('c1').messages).toContainEqual({
         role: 'assistant',
         content: 'reply',
       });
@@ -1223,7 +1261,7 @@ describe('buildSessionHandlers — full tool-result fidelity', () => {
       // The fold reads the persisted `full` body — not the frame's lossy `pointer` —
       // into the provider-neutral tool message (`reload` deliberately omits `full`;
       // it is a frame-only read surface, see conversation-store.ts).
-      expect(store.loadBackendMessages('c1')).toContainEqual({
+      expect(store.loadBackendMessages('c1').messages).toContainEqual({
         role: 'tool',
         toolCallId: 'h1',
         content: FULL_BODY,
@@ -2113,7 +2151,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       ]);
       // The canonical transcript is the read-time fold of the persisted frame stream
       // above — it covers both turns.
-      expect(store.loadBackendMessages('h1')).toEqual([
+      expect(store.loadBackendMessages('h1').messages).toEqual([
         { role: 'user', content: 'first' },
         { role: 'assistant', content: 'ok' },
         { role: 'user', content: 'second' },
@@ -2465,7 +2503,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       // stream tap, and the append-only log is the only durable record of what the user
       // sent. Recorded when the drain call above consumed it, so it lands
       // after what the turn had already streamed.
-      expect(store.loadBackendMessages('h1')).toEqual([
+      expect(store.loadBackendMessages('h1').messages).toEqual([
         { role: 'user', content: 'go' },
         { role: 'assistant', content: 'reply:go' },
         { role: 'user', content: 'also do X' },
@@ -2608,7 +2646,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
 
       // ONE writer per record: `takeDeliveries` recorded the steer once, at the drain call
       // above, so the flush feeds the model WITHOUT appending a second user frame.
-      expect(store.loadBackendMessages('h1')).toEqual([
+      expect(store.loadBackendMessages('h1').messages).toEqual([
         { role: 'user', content: 'go' },
         { role: 'assistant', content: 'reply:go' },
         { role: 'user', content: 'also do X' },
@@ -2976,7 +3014,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(store.getMeta(child.sessionId)?.title).not.toContain(lineSep);
     // The prompt becomes the child's first turn, persisted byte-for-byte like any other
     // user-authored turn (no extra escaping/mangling introduced by the spawn path).
-    expect(store.loadBackendMessages(child.sessionId)).toEqual([
+    expect(store.loadBackendMessages(child.sessionId).messages).toEqual([
       { role: 'user', content: 'hostile prompt with a fake line break' },
       { role: 'assistant', content: 'ok' },
     ]);

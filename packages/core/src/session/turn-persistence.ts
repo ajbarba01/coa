@@ -103,7 +103,10 @@ export function prepareTurnPersistence(
       });
     }
     const { turns: prior } = cs.reload(id);
-    const transcript = cs.loadBackendMessages(id);
+    // `skipped` is what the fold could not read. It has to reach the plan: this transcript
+    // IS the model's memory on resume, and a fragment is indistinguishable from the whole
+    // record once the count is dropped.
+    const { messages: transcript, skipped } = cs.loadBackendMessages(id);
     const storedFrozen = cs.getCompilation(id);
     // Reuse the frozen prompt only when the send's model matches the one it was
     // compiled with; a model switch drops it here (undefined ⇒ recompile), so the
@@ -130,6 +133,7 @@ export function prepareTurnPersistence(
       ...(promptVersion !== undefined ? { promptVersion } : {}),
       meta: priorMeta,
       transcript,
+      skippedEvents: skipped,
     });
     cs.setSelection(id, {
       provider,

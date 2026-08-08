@@ -51,9 +51,11 @@ import { foldEventsToTranscript, type PersistedEvent } from './transcript-projec
  * identical to a reader otherwise. The event log is the same record the console draws a
  * transcript from and the model is handed back as its memory, so a partly-flushed append
  * that silently loses lines produces a transcript that reads as complete and a model that
- * quietly forgot something. `reload` returns the count with the turns; every reader
- * reports through {@link ConversationStoreOptions.reportUnreadable} so the daemon can log
- * it. Both are reports — nothing here starts throwing.
+ * quietly forgot something. BOTH readers return the count with what they could read
+ * (`reload` with the turns, `loadBackendMessages` with the messages), so neither consumer
+ * can hand a fragment on as the whole record; every reader also reports through
+ * {@link ConversationStoreOptions.reportUnreadable} so the daemon can log it. All of it is
+ * reporting — nothing here starts throwing.
  */
 
 /** The (provider, model) a `backendSessionId` was captured under — the native
@@ -144,6 +146,15 @@ export interface ReloadedConversation {
   skipped: number;
 }
 
+/** A loaded transcript: the neutral messages folded from the events that could be read,
+ *  and how many stored events could not be. The count travels WITH the messages because
+ *  this is the memory a model is resumed on — handed the messages alone, the resume path
+ *  has no way to tell a fragment from the whole conversation. */
+export interface LoadedTranscript {
+  messages: BackendMessage[];
+  skipped: number;
+}
+
 /** One never-throwing read that had to drop something, reported so the daemon can log it. */
 export interface UnreadableRecord {
   sessionId: string;
@@ -193,8 +204,9 @@ export interface ConversationStore {
    *  to read, so a truncated transcript can be shown as truncated. */
   reload(id: string, toSeq?: number): ReloadedConversation;
   /** The canonical neutral transcript (system omitted) — a read-time fold of the event
-   *  log; empty if none / unparseable. */
-  loadBackendMessages(id: string): BackendMessage[];
+   *  log; empty if none / unparseable — plus the count of stored events too corrupt to
+   *  read, so the model is never resumed on a silently truncated transcript. */
+  loadBackendMessages(id: string): LoadedTranscript;
   /** The session's frozen compilation (the byte-stable prompt reused every turn), or
    *  undefined before the first turn compiles it / if unparseable. */
   getCompilation(id: string): FrozenCompilation | undefined;
@@ -352,7 +364,8 @@ export function createConversationStore(
     },
 
     loadBackendMessages(id) {
-      return foldEventsToTranscript(readEvents(id).events);
+      const { events, skipped } = readEvents(id);
+      return { messages: foldEventsToTranscript(events), skipped };
     },
 
     getCompilation(id) {

@@ -210,9 +210,11 @@ describe('conversation store', () => {
   it('counts the events it could not read, and reports each unreadable file', () => {
     // The silence this replaces: an unreadable line was dropped with a bare `continue`,
     // so a partially-flushed append produced a transcript that looked whole and a model
-    // resumed with less memory than it had. Neither reader could tell. The floor is
-    // unchanged — nothing throws, everything readable is still returned — but the loss
-    // is now counted for the reader and reported for the log.
+    // resumed with less memory than it had. Now BOTH readers return the count alongside
+    // what they could read — the console's turns and the model's transcript — so neither
+    // consumer can pass a fragment on as the whole record. The floor is unchanged:
+    // nothing throws, everything readable is still returned, and the loss is also
+    // reported for the log.
     const dropped: { sessionId: string; file: string; count: number }[] = [];
     store = createConversationStore(dir, fakeClock(), {
       reportUnreadable: (d) => dropped.push(d),
@@ -228,11 +230,16 @@ describe('conversation store', () => {
     const reloaded = store.reload('c1');
     expect(reloaded.turns.map((t) => t.seq)).toEqual([0, 3]);
     expect(reloaded.skipped).toBe(2);
-    // The model's memory is folded from the same log, so it lost the same two events.
-    expect(store.loadBackendMessages('c1')).toEqual([
-      { role: 'user', content: 'first' },
-      { role: 'assistant', content: 'last' },
-    ]);
+    // The model's memory is folded from the same log, so it lost the same two events —
+    // and the count comes back WITH the messages, so the resume path can say so instead
+    // of handing the remainder to the model as the whole conversation.
+    expect(store.loadBackendMessages('c1')).toEqual({
+      messages: [
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'last' },
+      ],
+      skipped: 2,
+    });
     expect(dropped).toContainEqual({ sessionId: 'c1', file: 'events', count: 2 });
 
     // A metadata file that is present but unreadable is a session dropping out of the
@@ -254,7 +261,7 @@ describe('conversation store', () => {
   it('returns undefined/empty for unknown ids', () => {
     expect(store.getMeta('nope')).toBeUndefined();
     expect(store.reload('nope')).toEqual({ turns: [], skipped: 0 });
-    expect(store.loadBackendMessages('nope')).toEqual([]);
+    expect(store.loadBackendMessages('nope')).toEqual({ messages: [], skipped: 0 });
   });
 
   it('append writes events.ndjson; loadBackendMessages folds it (no messages.json)', () => {
@@ -271,7 +278,7 @@ describe('conversation store', () => {
       { seq: 4, frame: { t: 'turn-boundary', role: 'assistant' } },
     ]);
     // Transcript = the fold (full body preserved), NOT the pointer.
-    expect(store.loadBackendMessages('c1')).toEqual([
+    expect(store.loadBackendMessages('c1').messages).toEqual([
       { role: 'user', content: 'hi' },
       {
         role: 'assistant',
@@ -294,7 +301,8 @@ describe('conversation store', () => {
 
   it('loadBackendMessages returns [] for a session with no events (fresh start; old files ignored)', () => {
     store.create({ id: 'c2', agentRef: 'r', title: 't', scope: '' });
-    expect(store.loadBackendMessages('c2')).toEqual([]);
+    // A log that was never written lost nothing — an absent file is not a skipped event.
+    expect(store.loadBackendMessages('c2')).toEqual({ messages: [], skipped: 0 });
   });
 
   it('freezes and reloads a session compilation; a corrupt one reads as none', () => {
