@@ -98,6 +98,10 @@ describe('TurnLifecycle', () => {
       const t = arrive(new TurnLifecycle());
       expect(t.settle()).toBe(true);
       expect(t.isSettled).toBe(true);
+      // A settled run is as inert as a stopped one, whichever phase it settled FROM: nothing
+      // legitimate is ever recorded through this gate once settlement has run (a settlement's
+      // own writes bypass it), so anything still arriving is a straggler by definition.
+      expect(t.inert).toBe(true);
       // Terminal: a settled run is replaced, never resumed — so nothing revives it.
       expect(t.settle()).toBe(false);
       expect(t.beginTurn()).toBe(false);

@@ -74,11 +74,17 @@ export class TurnLifecycle {
     return this.#phase;
   }
 
-  /** Whether everything the turn still emits must be dropped. True only once a stop has
-   *  actually closed the turn: its partial is already settled and its marker recorded, so
-   *  a straggler would render BELOW the interrupt marker (and never as an error). */
+  /** Whether everything the turn still emits must be dropped. True once a stop has actually
+   *  closed the turn (its partial is already settled and its marker recorded, so a straggler
+   *  would render BELOW the interrupt marker), and true again once the run has settled by any
+   *  path — settlement is terminal, and every write a settlement itself still needs to make
+   *  (the genuine-failure frame in settleHeldQuery) goes through `writeFrame` directly rather
+   *  than this gate, so nothing legitimate is ever lost by closing the gate here too. Without
+   *  the second half, a straggler arriving after settle() moved the phase off `stopped` would
+   *  read this as false and be recorded — the exact hazard this getter exists to prevent, just
+   *  moved one step later. */
   get inert(): boolean {
-    return this.#phase === 'stopped';
+    return this.#phase === 'stopped' || this.#phase === 'settled';
   }
 
   /** Whether the end this run is reaching is a USER STOP rather than a failure — the one

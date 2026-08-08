@@ -2351,6 +2351,125 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     ).toBe(true);
   });
 
+  /**
+   * A held-open adapter that registers no turn-level interrupt handle, so a Stop always takes
+   * the whole-query abort branch, and emits a straggler once `init.signal` fires: one frame
+   * SYNCHRONOUSLY in the abort listener (a chunk already in flight when the signal fired) and a
+   * second one 20ms later via a real timer (a chunk still queued in the backend's own
+   * transport, with no synchronous relationship to the abort at all). Neither should ever be
+   * recorded — the sync one because `closeStop()` already ran before the abort; the delayed one
+   * because settlement is terminal and nothing legitimate emits after it.
+   */
+  class AbortStragglerAdapter implements RuntimeAdapter {
+    constructor(readonly init: SessionAdapterInit) {}
+    renderNative(): BackendConfig {
+      return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
+    }
+    registerTools(): void {}
+    denyBuiltins(): void {}
+    interceptTool(_c: CanUseTool): void {}
+    interceptStop(_s: StopPredicate): void {}
+    async runLoop(): Promise<void> {
+      const input = this.init.input;
+      if (typeof input === 'string')
+        throw new Error('AbortStragglerAdapter expects a streamed held-open input');
+      for await (const _text of input) {
+        this.init.onTurn?.({ t: 'text', text: 'partial' });
+        await new Promise<void>((_resolve, reject) => {
+          this.init.signal?.addEventListener(
+            'abort',
+            () => {
+              this.init.onTurn?.({ t: 'text', text: 'SYNC-STRAGGLER' });
+              setTimeout(() => this.init.onTurn?.({ t: 'text', text: 'LATE-STRAGGLER' }), 20);
+              reject(new Error('aborted'));
+            },
+            { once: true },
+          );
+        });
+        return; // unreachable — the promise above only ever rejects
+      }
+    }
+  }
+
+  it('drops a straggler that arrives after settle(), not just one that arrives before stopped (5b)', async () => {
+    // TurnLifecycle.inert used to be phase==='stopped' only; settle() moves the phase OFF
+    // stopped, so a straggler arriving after the whole query has settled read inert as false
+    // and would be recorded — landing content below the interrupted marker, exactly what this
+    // getter exists to prevent. This is the everyday `interruptSession` verb, not a contrived
+    // backend: closeStop() runs before the abort regardless of whether a turn-level interrupt
+    // handle was ever registered.
+    const adapters: AbortStragglerAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new AbortStragglerAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush();
+    expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({
+      interrupted: true,
+    });
+    await new Promise((r) => setTimeout(r, 40)); // past the 20ms late straggler's own timer
+
+    const pushes = pushesOf(conn.pushes);
+    // The legitimate 'partial' frame IS expected — only the two named stragglers must not be.
+    expect(
+      pushes.some(
+        (p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text.includes('STRAGGLER'),
+      ),
+    ).toBe(false);
+    const interruptedAt = pushes.findIndex((p) => p.kind === 'turn' && p.frame.t === 'interrupted');
+    expect(interruptedAt).toBeGreaterThan(-1);
+    expect(pushes.slice(interruptedAt + 1).some((p) => p.kind === 'turn')).toBe(false);
+  });
+
+  it('a registry-driven cascade close also leaves a stopped query inert, not just a settled one (5a/5b)', async () => {
+    // #closeOne used to call requestStop() alone — the phase stuck at stop-requested, where
+    // frames are still meant to flow, and settle() later moved it straight to settled without
+    // ever passing through stopped. A straggler the abort provoked was recorded either way.
+    // closeStop() now runs synchronously before the abort, so this path is inert immediately.
+    const adapters: AbortStragglerAdapter[] = [];
+    const conn = connection();
+    const registry = new LiveSessionRegistry();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new AbortStragglerAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = handlersFor(customDeps, conn, undefined, registry);
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await flush();
+    expect(await handlers['closeSession']!.handle({ id: sessionId })).toEqual({ closed: true });
+    await new Promise((r) => setTimeout(r, 40)); // past the 20ms late straggler's own timer
+
+    const pushes = pushesOf(conn.pushes);
+    // The legitimate 'partial' frame IS expected — only the two named stragglers must not be.
+    expect(
+      pushes.some(
+        (p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text.includes('STRAGGLER'),
+      ),
+    ).toBe(false);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
+  });
+
   it('still surfaces a genuine failure on the turn after a Stop that found nothing to stop', async () => {
     // A held-open query holds its control state BETWEEN turns, so Stop pressed while it
     // idles reaches a close-out that reports there was no turn in flight — a common, real

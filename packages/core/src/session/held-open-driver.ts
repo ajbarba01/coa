@@ -212,8 +212,11 @@ async function establishHeldQuery(
     persistIn: prep.persistIn,
     // After a bare stop, everything the abandoned turn still emits is inert: its partial was
     // already settled, its marker recorded, and its driver released. Dropping the stragglers
-    // keeps content from appearing BELOW the interrupt marker (never an error either).
-    // The next turn re-arms the lifecycle (`continueHeldQuery`).
+    // keeps content from appearing BELOW the interrupt marker (never an error either). The
+    // next turn re-arms the lifecycle (`continueHeldQuery`). `inert` covers `settled` too, not
+    // only `stopped` — a straggler that arrives after the whole query has settled (a chunk
+    // already queued in the backend's own plumbing when the abort fired) is exactly as much a
+    // straggler as one that arrives right after a bare stop, and needs the same drop.
     isInert: () => lifecycle.inert,
     onSettled: (frame) => {
       if (frame.t === 'turn-boundary') noteTurnBoundary();
@@ -410,7 +413,15 @@ async function continueHeldQuery(
 ): Promise<void> {
   // A bare stop closed the PREVIOUS turn but kept this query alive (turn-level interrupt).
   // Re-arm the one state: frames flow again, and the previous turn's stop must not make
-  // this turn's settlement look like a user stop.
+  // this turn's settlement look like a user stop. The return is intentionally unchecked:
+  // begin-turn has no edge from stop-requested or settled, but this call site can never
+  // observe either. Every caller of requestStop() resolves stop-requested synchronously,
+  // in the same call stack, to stopped or (abandonStop) back to running before returning —
+  // except the registry cascade, which now closes the stop itself (see live-registry.ts's
+  // #closeOne) and ends the session's own turn queue in the same synchronous step, so no
+  // further turn ever reaches this function for that session again. beginTurn() here is
+  // therefore always either a no-op on an already-running query or the stopped->running
+  // re-arm it exists for.
   query.lifecycle.beginTurn();
   if (query.persistIn !== undefined) {
     query.persistIn.store.append(query.persistIn.convId, [

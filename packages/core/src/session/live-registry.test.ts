@@ -120,9 +120,13 @@ describe('LiveSessionRegistry', () => {
     r.close('c1');
 
     expect(controller.signal.aborted).toBe(true);
-    // The cascade never runs a driver's close-out closure, so the turn stays at the
-    // request — which is still a user stop as far as every settlement is concerned.
-    expect(lifecycle.phase).toBe('stop-requested');
+    // The cascade never runs a driver's close-out closure (no settled partial, no interrupt
+    // marker — a hard teardown), but it closes the stop itself before aborting, so the turn
+    // reaches `stopped` — inert — rather than sticking at the request, where frames are still
+    // meant to flow. A straggler the abort provokes must not be recorded for a session this
+    // call already decided to end.
+    expect(lifecycle.phase).toBe('stopped');
+    expect(lifecycle.inert).toBe(true);
     expect(lifecycle.stoppedByUser).toBe(true);
   });
 

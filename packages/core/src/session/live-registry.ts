@@ -127,9 +127,19 @@ export class LiveSessionRegistry {
       // block — request the stop BEFORE aborting so the drive strategy's
       // settlement (the same state `interruptSession` relies on) suppresses the
       // resulting throw/settle instead of rendering it as an error. This cascade
-      // never runs the driver's close-out closure, so the request is where it stays;
-      // a settlement treats a requested stop as a user stop for exactly that reason.
+      // never runs the driver's close-out closure (no settled partial, no interrupt
+      // marker — a hard teardown, not a graceful one), so it closes the stop itself,
+      // synchronously, before the abort: `requestStop()` alone leaves the phase at
+      // stop-requested, where frames are still meant to flow, and the abort's own
+      // straggler would be recorded before this session's later settle() ever runs.
+      // closeStop() makes `inert` true immediately, so nothing the abort provokes —
+      // synchronously or later — gets recorded for a session this call already decided
+      // to end. Both returns are intentionally unchecked: whichever phase this session
+      // was already in (a concurrent user stop can have moved it), the pair together
+      // always leaves the machine in stopped or settled — both already inert — so there
+      // is no phase this can reach where the abort's straggler would still be recorded.
       session.control.lifecycle.requestStop();
+      session.control.lifecycle.closeStop();
       session.control.controller.abort();
     }
     this.#onClose?.(session);
