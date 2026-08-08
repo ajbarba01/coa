@@ -34,7 +34,7 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | 1b70e47 | Stage 2 partial (C1, de-slop, C2 part 1, **+ the gated unified adapter package**), all gates green on the Windows machine |
+| `arc/architecture` | d57d5c0 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival. All gates green (2861 tests, depcruise 411 modules, docs 60). Remaining: C4 (needs Fable/UX), C5 (scripted, ready) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
@@ -92,10 +92,22 @@ on the old machine.
 5. ~~Q7 cleanups~~ DONE 2026-08-07 (a28bd30..658fbd8 pushed; arc/architecture tip
    658fbd8). Flakes root-caused (suite also ~20% faster), four orphans archived,
    verifier findings actioned. New question Q9 raised (health-profile.ts).
-6. Stage 4 docs (mandatory before any closeout) — absorbs the codename-consistency
-   pass and the ADR-0032/D150/ROADMAP prose reconciliation R1 makes stale.
-7. Stage 5 closeout: write questions for every parked charter/feature, push all
-   branches, open draft PRs per workstream, final morning report in the journal.
+6. ~~C3 session-service extraction~~ DONE + VERIFIED 2026-08-07 (21bbc78 · f66d72b ·
+   ca8fbdf · f648551). session-handlers.ts 1411 -> 122 lines; the non-founding-connection
+   turn bug is fixed and was PROVEN real (all 3 regression tests fail at the pre-fix
+   commit with exactly the predicted symptoms). See the journal for the one verification
+   gap (G4 reattach / held-query-survives-interrupt lack independent confirmation).
+7. ~~Q9 archival~~ DONE 2026-08-07 (d57d5c0).
+8. **C5 — NEXT.** Fully scripted at `workflow-scripts/c5-composition-and-honesty.js`;
+   launch with `Workflow({scriptPath: ...})`. Four phases; its phase-3 item 2 is the
+   arc's ONLY data-loss bug (agent scope move is delete-then-save) and goes first.
+9. Stage 4 docs (mandatory before any closeout) — the script was REVISED 2026-08-07;
+   the original would have documented a cost cap that no longer exists. Absorbs the
+   codename-consistency pass, the stale-package doc references, and the ADR-0031
+   reconciliation C3 created.
+10. Stage 5 closeout: write questions for every parked charter/feature, push all
+    branches, open draft PRs per workstream, final morning report in the journal.
+    **PR #2's body is materially stale — Stage 5 owns rewriting it.**
 
 ## Standing operational facts (do not rediscover)
 

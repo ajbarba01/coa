@@ -458,6 +458,27 @@ Symptom to recognise: mass `Cannot find module '@coa/…'` or desktop collection
 Check `ls apps/desktop/node_modules/@coa` against the package.json dep count before
 concluding anything is wrong with the code.
 
+**Post-repair gate, verbatim:** `Test Files 277 passed | 11 skipped (288)` /
+`Tests 2861 passed | 30 skipped (2891)`, depcruise clean (412 modules), docs-check 60.
+
+## Q9 executed (d57d5c0, pushed)
+
+`health-profile.ts` + its test parked in `archive/code-health/` beside the producer they
+served, per the 2afa808 convention: archived-from header explaining why, codenames swept
+out of the moved file (it still carried verb-family tags the earlier sweep missed), the
+archive README row rewritten (it had predicted this exact move), and the ROADMAP row
+updated to say both files are parked together. Gates green after: depcruise 411 modules
+(one fewer, as expected), context tests 44 passed, docs-check 60.
+
+**Process note worth keeping:** the first attempt at this commit hit the exact failure
+this journal and SESSION-HANDOFF.md both warn about — `git add` listing the pre-move
+paths, which git rejects as a whole pathspec, so only the `git mv`-staged renames landed
+and the header/README/ROADMAP edits were silently left out. Caught by reading the commit
+output (`rename … (100%)` on a file that should have changed), then fixed by staging the
+remainder and amending, since the rename-without-its-docs commit violated the repo's own
+same-commit doc rule. Writing the warning down was not enough to avoid repeating it;
+what caught it was checking the commit's own output against what was expected.
+
 ## Rulings + prep while the session-layer work runs (2026-08-07 evening)
 
 - **Q2 RULED: strike R2 entirely.** Nothing removed; ledger row updated to STRUCK. The
