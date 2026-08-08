@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import type { PieceRef, Producer, ProducerInput, SymbolRef } from '@coa/shared';
+import type { FlagRecord, PieceRef, Producer, ProducerInput, SymbolRef } from '@coa/shared';
 import { compile } from '../compiler/compile.js';
 import { createGovernanceAnchorProducer } from '../context/governance-anchor.js';
 import { FlagPipeline } from '../flags/pipeline.js';
@@ -81,8 +81,13 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   // baseline from already-modified disk, so the first edit to a tracked file would show
   // no change at all. Guarded because `git ls-files` throws outside a git worktree — coa
   // must work on any project (no-lock-in) and producer ② is an enhancement, so a non-git
-  // root degrades to a no-op rather than breaking every session. A later failure
-  // latches the same way, so a broken git does not respawn a process per tool call.
+  // root degrades to a no-op rather than breaking every session.
+  //
+  // A failure HERE is the expected floor on a project that is not under git, so it is
+  // quiet: there is nothing to tell anyone about a feature that was never going to run.
+  // A failure once we are running is the opposite — observation was working and stopped,
+  // which the person at the keyboard cannot see, since the symptom is only that changes
+  // made outside coa's tools stop being recorded. See {@link observeChanges}.
   let reconciler: Reconciler | undefined;
   try {
     reconciler = new Reconciler({
@@ -95,12 +100,25 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   } catch {
     reconciler = undefined;
   }
+  let consecutiveFailures = 0;
   const observeChanges = (): void => {
     if (reconciler === undefined) return;
     try {
       reconciler.reconcile();
-    } catch {
+      // A scan that got through clears the streak — the point of tolerating failures is
+      // that the usual causes are momentary, so they must not accumulate toward a latch
+      // across an otherwise healthy session.
+      consecutiveFailures = 0;
+    } catch (error) {
+      consecutiveFailures += 1;
+      // The everyday causes here clear on their own — a git index lock held by another
+      // command, a file disappearing under the scan — so a scan is retried on the next
+      // tool call rather than ending observation on the first stumble. Past the streak
+      // it is treated as durable and latched off, because re-running a scan that keeps
+      // failing spawns a git process per tool call for nothing.
+      if (consecutiveFailures < RECONCILE_FAILURE_TOLERANCE) return;
       reconciler = undefined;
+      flags.ingest(reconcilerStopped(options.root ?? '.', consecutiveFailures, error));
     }
   };
 
@@ -139,6 +157,35 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
 
 /** The sweep scope for a reconciling producer's full-set recompute (any non-golden scope). */
 const RECONCILE_SWEEP: ProducerInput = { kind: 'scope', scope: '' };
+
+/** How many scans in a row may fail before file-change observation is latched off.
+ *  Small on purpose: enough to ride out a lock or a mid-scan delete, not enough to
+ *  keep paying for a scan that is never going to work again. */
+const RECONCILE_FAILURE_TOLERANCE = 3;
+
+/** The one concern the stopped observer reports under, so a re-ingest replaces it. */
+const RECONCILER_STOPPED_CONCERN = 'reconciler-stopped';
+
+/**
+ * The user-visible notice that file-change observation has stopped. Type 2 (advisory):
+ * it is a report that coverage was lost, and nothing about it should ever stop work —
+ * the session keeps running, exactly as it does on a project with no git at all. It
+ * rides the same flag feed the compile path's findings do, so it lands in the console's
+ * flags feed without a second channel.
+ */
+function reconcilerStopped(root: string, failures: number, error: unknown): FlagRecord {
+  const detail = error instanceof Error ? error.message : String(error);
+  return {
+    ruleId: 'daemon:reconciler-stopped',
+    location: root,
+    severity: 'high',
+    message: `File-change observation stopped after ${failures} failed scans — edits made outside coa's own tools are no longer being recorded for this session. Last failure: ${detail}`,
+    fingerprint: RECONCILER_STOPPED_CONCERN,
+    type: 2,
+    confidence: 'high',
+    concernKey: RECONCILER_STOPPED_CONCERN,
+  };
+}
 
 /**
  * Register context assembly's producers into the flag pipeline (each gated by the CF-6 `validateProducer`

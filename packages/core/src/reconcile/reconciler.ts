@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeEventDraft } from '../event.js';
 import { classifyObservation, type Observation, type PathState, type PreciseOp } from './dedup.js';
@@ -99,8 +99,26 @@ export function scanWorktree(root: string, worktree: string): Observation[] {
 
 /** sha256 of a file's bytes, or `null` if it does not exist (deleted). */
 function hashFile(absolute: string): string | null {
-  if (!existsSync(absolute)) return null;
-  return createHash('sha256').update(readFileSync(absolute)).digest('hex');
+  try {
+    return createHash('sha256').update(readFileSync(absolute)).digest('hex');
+  } catch (error) {
+    // Read straight through instead of asking whether the file exists first: a scan
+    // lists a path and we hash it a moment later, so anything that checked existence
+    // up front would still have to survive the file vanishing in between. A file that
+    // is gone by the time we read it means exactly what a file that was never there
+    // means — no content to hash — and an ordinary `rm` or build cleanup running
+    // alongside a scan is enough to hit it. Any other read failure is a real fault and
+    // stays visible to the caller.
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+/** True for the errno codes that mean "this path is not there", including a parent
+ *  component that disappeared (which surfaces as ENOTDIR rather than ENOENT). */
+function isMissing(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
 /** Extract the path from a porcelain line, taking the post-rename target for renames. */

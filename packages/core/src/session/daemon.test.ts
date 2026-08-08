@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
@@ -44,6 +44,31 @@ function stubProducer(state: { flags: FlagRecord[] }, reconciling: boolean): Pro
 
 const hasConcern = (handle: DaemonCoreHandle, key: string): boolean =>
   handle.flags.flagsForUser().collapsed.some((c) => c.concernKey === key);
+
+/** Whatever the user's feed is saying about file-change observation having stopped. */
+const reconcilerNotices = (handle: DaemonCoreHandle): FlagRecord[] =>
+  handle.flags.flagsForUser().expanded.filter((f) => f.concernKey === 'reconciler-stopped');
+
+/**
+ * A throwaway git repo with one committed file. The committer identity rides each
+ * command instead of being written into the repo's config first: everything here is
+ * spawning git, so two fewer spawns is most of the way to two fewer of them being slow
+ * on a busy machine.
+ */
+function makeRepo(): string {
+  const repo = mkdtempSync(join(tmpdir(), 'coa-recon-'));
+  const git = (...args: string[]): void => {
+    execFileSync('git', ['-c', 'user.email=probe@example.com', '-c', 'user.name=probe', ...args], {
+      cwd: repo,
+      encoding: 'utf8',
+    });
+  };
+  git('init', '-q');
+  writeFileSync(join(repo, 'app.ts'), 'export const answer = 41;\n');
+  git('add', 'app.ts');
+  git('commit', '-qm', 'baseline');
+  return repo;
+}
 
 /** A minimal registered constraint (a flag producer) that emits nothing on normal runs. */
 function namedConstraint(id: string): Producer {
@@ -121,24 +146,7 @@ describe('createDaemonCore', () => {
     // from already-modified disk, so the first edit to a tracked file reads as no change
     // at all — the exact case producer ② exists for. Creates still worked, which is why
     // a "does not throw" test could not catch it.
-    const repo = mkdtempSync(join(tmpdir(), 'coa-recon-'));
-    // The committer identity rides each command instead of being written into the repo's
-    // config first. Everything this test does is spawn git, so two fewer spawns is most of
-    // the way to two fewer of them being slow on a busy machine.
-    const git = (...args: string[]) =>
-      execFileSync(
-        'git',
-        ['-c', 'user.email=probe@example.com', '-c', 'user.name=probe', ...args],
-        {
-          cwd: repo,
-          encoding: 'utf8',
-        },
-      );
-    git('init', '-q');
-    writeFileSync(join(repo, 'app.ts'), 'export const answer = 41;\n');
-    git('add', 'app.ts');
-    git('commit', '-qm', 'baseline');
-
+    const repo = makeRepo();
     const seen: { kind: string; path?: string }[] = [];
     handle = createDaemonCore({ walPath: join(repo, 'log.ndjson'), root: repo });
     handle.kernel.subscribe(0, (event) => seen.push(event as { kind: string; path?: string }));
@@ -151,13 +159,54 @@ describe('createDaemonCore', () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it('degrades observeChanges to a no-op outside a git worktree', () => {
+  it('degrades observeChanges to a no-op outside a git worktree, and says nothing', () => {
     // The reconciler baselines itself with `git ls-files`, which throws in a directory
     // that is not a git repo — as this temp dir is, and as any non-git project would be.
-    // Producer ② is an enhancement, so its absence must never break a session.
+    // Producer ② is an enhancement, so its absence must never break a session. It is also
+    // the EXPECTED state on a project that is not under git, so it stays quiet: a notice
+    // about a feature that was never going to run here is noise, not information.
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(() => handle?.core.observeChanges()).not.toThrow();
     expect(() => handle?.core.observeChanges()).not.toThrow();
+    expect(reconcilerNotices(handle)).toEqual([]);
+  });
+
+  it('rides out a transient scan failure, then reports observation stopping for good', () => {
+    // What this pins: observation used to latch off on the FIRST scan failure, silently
+    // and for the rest of the process. Everything after that point looked normal while no
+    // change made outside coa's own tools reached the change-event spine again. Both
+    // halves matter — a momentary failure must not cost the session its coverage, and a
+    // durable one must be visible instead of inferred from an absence of events.
+    const repo = makeRepo();
+    handle = createDaemonCore({ walPath: join(repo, 'log.ndjson'), root: repo });
+    const seen: { kind: string; path?: string }[] = [];
+    handle.kernel.subscribe(0, (event) => seen.push(event as { kind: string; path?: string }));
+    const gitDir = join(repo, '.git');
+    const parked = join(repo, '.git-parked');
+
+    // Two scans fail while git is unusable, and then one succeeds: the streak resets and
+    // the producer is still live.
+    renameSync(gitDir, parked);
+    handle.core.observeChanges();
+    handle.core.observeChanges();
+    renameSync(parked, gitDir);
+    writeFileSync(join(repo, 'app.ts'), 'export const answer = 42;\n');
+    handle.core.observeChanges();
+    expect(reconcilerNotices(handle)).toEqual([]);
+    expect(seen.some((e) => e.kind === 'modify' && e.path === 'app.ts')).toBe(true);
+
+    // A failure that does not clear ends observation — and says so, in the same feed the
+    // console already reads.
+    renameSync(gitDir, parked);
+    for (let i = 0; i < 4; i += 1) handle.core.observeChanges();
+    const notices = reconcilerNotices(handle);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.severity).toBe('high');
+    expect(notices[0]?.type).toBe(2); // advisory: it reports lost coverage, it never blocks
+    expect(notices[0]?.message).toContain('no longer being recorded');
+
+    renameSync(parked, gitDir);
+    rmSync(repo, { recursive: true, force: true });
   });
 
   it('checkpoints the real kernel at the session boundary', () => {
