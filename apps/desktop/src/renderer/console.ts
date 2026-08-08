@@ -261,6 +261,18 @@ function remoteEqual<T>(a: Remote<T>, b: Remote<T>): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** What a failed agent write puts back. Every agent mutation renders its edit
+ *  optimistically before the daemon has written anything, so a rejected write has to
+ *  restore the list — otherwise the row stays on screen claiming a save that never
+ *  landed. `selection` is carried only by the mutations that moved the editor
+ *  selection: `claimed` is what they set it to, and the undo fires only while that is
+ *  still the selection, so a user who clicked another agent mid-write isn't yanked
+ *  back to this one. */
+interface AgentUndo {
+  agents: AgentSummary[];
+  selection?: { claimed: string | undefined; previous: string | undefined };
+}
+
 export async function startConsole(
   bridge: ConsoleBridge,
   sinks: { publish: (s: ConsoleState) => void; navigate: (surface: string) => void },
@@ -427,6 +439,29 @@ export async function startConsole(
     pushAgents();
   }
 
+  /** Drive an agent write whose edit is already on screen: reconcile on SETTLE — not
+   *  only on success — and restore the pre-edit list when the write failed, so what is
+   *  rendered matches what is on disk. Without the restore a rejected write leaves the
+   *  row looking saved, which is the console lying about durable state. Advisory
+   *  throughout: the failure surfaces as the list snapping back, never as a throw and
+   *  never as a block. The reconcile runs either way and wins whenever the daemon read
+   *  succeeds, since disk is the authority over both the optimistic edit and the undo. */
+  function commitAgentWrite(write: Promise<unknown>, undo: AgentUndo): void {
+    void write
+      .catch(() => {
+        agents = undo.agents;
+        const selection = undo.selection;
+        if (selection !== undefined && state.ui.selectedAgentRef === selection.claimed) {
+          const ui = { ...state.ui };
+          if (selection.previous === undefined) delete ui.selectedAgentRef;
+          else ui.selectedAgentRef = selection.previous;
+          state = { ...state, ui };
+        }
+        pushAgents();
+      })
+      .then(() => refreshAgents());
+  }
+
   const selectAgent = (ref: string): void => {
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     push();
@@ -440,10 +475,14 @@ export async function startConsole(
       icon: 'bot',
       color: 'slate',
     };
+    const undo: AgentUndo = {
+      agents,
+      selection: { claimed: ref, previous: state.ui.selectedAgentRef },
+    };
     agents = [...agents, { ...file, ref, scope }];
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     pushAgents();
-    void bridge.saveAgent({ ref, scope, file }).then(() => refreshAgents());
+    commitAgentWrite(bridge.saveAgent({ ref, scope, file }), undo);
   };
 
   const updateAgent = (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>): void => {
@@ -455,30 +494,40 @@ export async function startConsole(
     // action) — anything else (or none) keeps the agent where it already lives.
     const nextScope: 'personal' | 'project' =
       next.scope === 'personal' || next.scope === 'project' ? next.scope : prevScope;
+    const undo: AgentUndo = { agents };
     agents = agents.map((a) => (a.ref === ref ? { ...next, scope: nextScope } : a));
     pushAgents();
     const file = toAgentFile({ ...next, scope: nextScope });
-    // A scope move leaves a file behind at the old location unless the old one is
-    // removed first — otherwise the agent exists twice (a stale duplicate the next
-    // `listAgents` would show).
+    // A scope move WRITES THE NEW COPY FIRST and removes the old one only once that
+    // save resolved. Removing first is what turns a half-finished move into data loss:
+    // if the save then fails the agent's file is gone from both scopes and there is
+    // nothing left to recover it from. In this order the worst outcome is a copy left
+    // behind in the old scope — the file still exists, and the reconcile below re-reads
+    // the daemon so the list shows where the agent actually resolves from. Be honest
+    // about the cost: the daemon treats the same ref in two scopes as an intentional
+    // override, not a diagnostic, so that leftover is silent. Silent and recoverable is
+    // still strictly better than gone.
+    const saved = bridge.saveAgent({ ref, scope: nextScope, file });
     const written =
       nextScope === prevScope
-        ? bridge.saveAgent({ ref, scope: nextScope, file })
-        : bridge
-            .deleteAgent({ ref, scope: prevScope })
-            .then(() => bridge.saveAgent({ ref, scope: nextScope, file }));
-    void written.then(() => refreshAgents());
+        ? saved
+        : saved.then(() => bridge.deleteAgent({ ref, scope: prevScope }));
+    commitAgentWrite(written, undo);
   };
 
   const deleteAgent = (ref: string): void => {
     const current = agents.find((a) => a.ref === ref);
     if (current === undefined || current.scope === 'builtin') return;
+    const undo: AgentUndo = {
+      agents,
+      selection: { claimed: undefined, previous: state.ui.selectedAgentRef },
+    };
     agents = agents.filter((a) => a.ref !== ref);
     const ui = { ...state.ui };
     if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
     state = { ...state, ui };
     pushAgents();
-    void bridge.deleteAgent({ ref, scope: current.scope }).then(() => refreshAgents());
+    commitAgentWrite(bridge.deleteAgent({ ref, scope: current.scope }), undo);
   };
 
   const togglePinAgent = (ref: string): void => {

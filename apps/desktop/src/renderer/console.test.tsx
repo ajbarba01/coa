@@ -57,6 +57,49 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   };
 }
 
+/** One agent file on the fake disk. Keyed the way disk actually is — one file per
+ *  (scope, ref) — so a scope move that half-completes is observable as a surviving
+ *  file, not merely as a mock call order. */
+interface DiskAgentFile {
+  scope: 'personal' | 'project';
+  ref: string;
+  file: AgentFile;
+}
+
+/** A stand-in for the daemon's per-agent-file registry. `listAgents` folds the scopes
+ *  the way the daemon's own merge does (personal then project, project winning a
+ *  shared ref), so a leftover copy in the losing scope is invisible in the list —
+ *  exactly as it would be in the real app. */
+function fakeAgentDisk(seed: AgentSummary[]) {
+  let files: DiskAgentFile[] = seed.flatMap((a): DiskAgentFile[] => {
+    const { ref, scope, ...file } = a;
+    return scope === 'builtin' ? [] : [{ ref, scope, file }];
+  });
+  return {
+    /** Every scope that currently holds a file for this ref — empty means the file is gone. */
+    scopesOf: (ref: string): ('personal' | 'project')[] =>
+      files.filter((f) => f.ref === ref).map((f) => f.scope),
+    saveAgent: (p: { ref: string; scope: 'personal' | 'project'; file: AgentFile }) => {
+      files = [...files.filter((f) => !(f.ref === p.ref && f.scope === p.scope)), { ...p }];
+      return Promise.resolve({ ok: true });
+    },
+    deleteAgent: (p: { ref: string; scope: 'personal' | 'project' }) => {
+      const before = files.length;
+      files = files.filter((f) => !(f.ref === p.ref && f.scope === p.scope));
+      return Promise.resolve({ removed: files.length < before });
+    },
+    listAgents: () => {
+      const byRef = new Map<string, AgentSummary>();
+      for (const scope of ['personal', 'project'] as const) {
+        for (const f of files.filter((x) => x.scope === scope)) {
+          byRef.set(f.ref, { ...f.file, ref: f.ref, scope });
+        }
+      }
+      return Promise.resolve({ agents: [...byRef.values()], diagnostics: [] });
+    },
+  };
+}
+
 /** Wait one animation frame — the coalesced turn-flush (`flushTurns`) lands on the next
  *  `requestAnimationFrame`, so a test asserting on buffered turn content must wait for it
  *  (a subsequent `status` push flushes synchronously instead; see console.ts). */
@@ -867,7 +910,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     }
   });
 
-  it('updateAgent moving scope deletes the old file before writing the new one — otherwise the agent exists twice', async () => {
+  it('updateAgent moving scope writes the new copy before removing the old one', async () => {
     const saveAgent = vi.fn().mockResolvedValue({ ok: true });
     const deleteAgent = vi.fn().mockResolvedValue({ removed: true });
     const bridge = fakeBridge({ saveAgent, deleteAgent });
@@ -876,10 +919,101 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(deleteAgent).toHaveBeenCalledWith({ ref: 'roles/reviewer', scope: 'project' });
     expect(saveAgent).toHaveBeenCalledWith(
       expect.objectContaining({ ref: 'roles/reviewer', scope: 'personal' }),
     );
+    expect(deleteAgent).toHaveBeenCalledWith({ ref: 'roles/reviewer', scope: 'project' });
+    // Order is the whole safety property, not an implementation detail: the copy has to
+    // exist before the original is removed.
+    const saveOrder = saveAgent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    const deleteOrder = deleteAgent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    expect(saveOrder).toBeLessThan(deleteOrder);
+  });
+
+  it('updateAgent keeps the agent file when the second write of a scope move fails', async () => {
+    // A scope move is two daemon writes and either can fail between them. Removing the
+    // old copy first meant a failed second step erased the agent from BOTH scopes with
+    // nothing left to recover it from — the one way this console could destroy a user
+    // file. Writing first turns the same failure into a leftover copy.
+    const disk = fakeAgentDisk(MOCK_AGENTS);
+    let writes = 0;
+    const failSecondWrite = <P,>(op: (p: P) => Promise<unknown>) =>
+      vi.fn((p: P) => (++writes === 2 ? Promise.reject(new Error('EIO')) : op(p)));
+    const bridge = fakeBridge({
+      listAgents: vi.fn(disk.listAgents),
+      saveAgent: failSecondWrite(disk.saveAgent),
+      deleteAgent: failSecondWrite(disk.deleteAgent),
+    });
+    const { last } = await mount(bridge);
+    expect(disk.scopesOf('roles/reviewer')).toEqual(['project']);
+
+    last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The file survives the half-finished move — the agent is still on disk.
+    expect(disk.scopesOf('roles/reviewer')).toContain('personal');
+    expect(disk.scopesOf('roles/reviewer').length).toBeGreaterThan(0);
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      const rows = agents.value.filter((a) => a.ref === 'roles/reviewer');
+      // Reconciled against disk: one row, and it reports the scope the daemon actually
+      // resolves the agent from — so the move visibly did not take rather than the UI
+      // claiming a move it only half made.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.scope).toBe('project');
+    }
+  });
+
+  it('updateAgent rolls the edit back and re-reads the registry when the save fails', async () => {
+    const bridge = fakeBridge({ saveAgent: vi.fn().mockRejectedValue(new Error('EACCES')) });
+    const { last } = await mount(bridge);
+    expect(bridge.listAgents).toHaveBeenCalledTimes(1);
+
+    last().actions.updateAgent('roles/reviewer', { name: 'sec-reviewer' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.find((a) => a.ref === 'roles/reviewer')?.name).toBe('reviewer');
+    }
+    // Reconciled on SETTLE, not only on success.
+    expect(bridge.listAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it('createAgent takes the optimistic row back down when the save fails', async () => {
+    const bridge = fakeBridge({ saveAgent: vi.fn().mockRejectedValue(new Error('ENOSPC')) });
+    const { last } = await mount(bridge);
+    const selectedBefore = last().ui.selectedAgentRef;
+
+    last().actions.createAgent('personal');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.some((a) => a.ref === 'untitled-agent')).toBe(false);
+    }
+    expect(last().ui.selectedAgentRef).toBe(selectedBefore);
+    expect(bridge.listAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it('deleteAgent puts the row and the selection back when the delete fails', async () => {
+    const bridge = fakeBridge({ deleteAgent: vi.fn().mockRejectedValue(new Error('EBUSY')) });
+    const { last } = await mount(bridge);
+    last().actions.selectAgent('personal/scratch-helper');
+
+    last().actions.deleteAgent('personal/scratch-helper');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.some((a) => a.ref === 'personal/scratch-helper')).toBe(true);
+    }
+    expect(last().ui.selectedAgentRef).toBe('personal/scratch-helper');
+    expect(bridge.listAgents).toHaveBeenCalledTimes(2);
   });
 
   it('updateAgent refuses a builtin agent — it never reaches the bridge', async () => {
