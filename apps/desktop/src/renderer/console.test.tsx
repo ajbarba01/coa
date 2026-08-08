@@ -1383,3 +1383,69 @@ describe('the daemon is the authority on what is still running', () => {
     expect(last().ui.runStatus['c1']).toBeDefined();
   });
 });
+
+describe('a write the daemon answered but did not carry out is said out loud', () => {
+  beforeEach(() => {
+    useNotices.setState({ notice: undefined });
+  });
+
+  it('says so when the delete found no file to remove', async () => {
+    const bridge = fakeBridge({ deleteAgent: vi.fn().mockResolvedValue({ removed: false }) });
+    const { last } = await mount(bridge);
+
+    last().actions.deleteAgent('personal/scratch-helper');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({ title: 'Nothing to delete' });
+  });
+
+  it('stays quiet when the delete actually removed the file', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.deleteAgent('personal/scratch-helper');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toBeUndefined();
+  });
+
+  it('names the removal, not the save, when a scope move cannot delete the old copy', async () => {
+    // The half that failed is the half to name: the copy IS in the new scope, so
+    // "couldn't save that agent" would send the user looking at the wrong thing.
+    const bridge = fakeBridge({
+      deleteAgent: vi.fn().mockRejectedValue(new Error('EBUSY: file is open elsewhere')),
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't finish moving that agent",
+    });
+    // Both facts the user needs: the copy landed, and why the old file is still there.
+    expect(useNotices.getState().notice?.detail).toContain('copied to personal');
+    expect(useNotices.getState().notice?.detail).toContain('EBUSY: file is open elsewhere');
+  });
+
+  it('says so when a steer reached no running turn', async () => {
+    const bridge = fakeBridge({ steerSession: vi.fn().mockResolvedValue({ steered: false }) });
+    const { last } = await mount(bridge);
+
+    last().actions.steerSession('c1', 'actually, stop at the tests');
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Without this the text is simply gone: the pin sweeps and no frame ever arrives.
+    expect(useNotices.getState().notice).toMatchObject({ title: 'Nothing to steer' });
+  });
+
+  it('stays quiet when the steer was taken', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.steerSession('c1', 'actually, stop at the tests');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toBeUndefined();
+  });
+});

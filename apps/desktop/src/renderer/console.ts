@@ -525,10 +525,29 @@ export async function startConsole(
     // override, not a diagnostic, so that leftover is silent. Silent and recoverable is
     // still strictly better than gone.
     const saved = bridge.saveAgent({ ref, scope: nextScope, file });
-    const written =
-      nextScope === prevScope
-        ? saved
-        : saved.then(() => bridge.deleteAgent({ ref, scope: prevScope }));
+    if (nextScope === prevScope) {
+      commitAgentWrite(saved, undo, 'save that agent');
+      return;
+    }
+    // A move is TWO writes, so it needs its own report: the generic "couldn't save that
+    // agent" names the wrong operation when the copy landed and only the removal of the
+    // old file failed (its YAML open in an editor is the everyday cause). Say which half
+    // broke — the user is looking at an agent that really is in the new scope, with a
+    // stale twin left behind in the old one. Reported and swallowed, not rethrown: the
+    // reconcile below re-reads the daemon, so the list still ends up showing the truth,
+    // and rolling the edit back would claim the copy never happened. A `removed: false`
+    // here stays silent — the old file being gone already IS the finished move.
+    const written = saved.then(async () => {
+      try {
+        await bridge.deleteAgent({ ref, scope: prevScope });
+      } catch (error: unknown) {
+        const cause = error instanceof Error ? error.message : String(error);
+        reportFailure(
+          'finish moving that agent',
+          `it was copied to ${nextScope}, but the old ${prevScope} copy could not be removed — ${cause}`,
+        );
+      }
+    });
     commitAgentWrite(written, undo, 'save that agent');
   };
 
@@ -544,7 +563,16 @@ export async function startConsole(
     if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
     state = { ...state, ui };
     pushAgents();
-    commitAgentWrite(bridge.deleteAgent({ ref, scope: current.scope }), undo, 'delete that agent');
+    // `removed: false` is the answer that used to disappear: the daemon found no file
+    // for this agent, so the delete was a no-op. The row goes either way, but the user
+    // asked for a removal and nothing was removed — usually because the file had already
+    // gone from under the console — and that is worth a word rather than silence.
+    const removal = bridge.deleteAgent({ ref, scope: current.scope }).then((result) => {
+      if (!result.removed) {
+        reportNotice('Nothing to delete', 'that agent had no file left to remove.');
+      }
+    });
+    commitAgentWrite(removal, undo, 'delete that agent');
   };
 
   const togglePinAgent = (ref: string): void => {
@@ -847,11 +875,22 @@ export async function startConsole(
    *  redirect, never a block). The daemon writes the transcript line when the model actually
    *  RECEIVES the text (a steer is recorded only when the model receives it), which is seconds later — so `ChatPanel` shows the
    *  message pinned at the bottom of the transcript meanwhile and drops the pin when the real
-   *  frame arrives. Queue-mode follow-ups stay held console-side until the turn ends. */
+   *  frame arrives. Queue-mode follow-ups stay held console-side until the turn ends.
+   *
+   *  `steered: false` is the case that used to disappear: the daemon has no live turn to
+   *  reach, so the text was DROPPED and no frame is ever coming for it. Left unsaid, the
+   *  pin just gets swept a moment later and the user watches what they typed vanish with
+   *  no account of where it went. Advisory, as ever — nothing is blocked and nothing is
+   *  retried, the console simply says the message did not land. */
   const steerSession = (sessionId: string, text: string): void => {
     const body = text.trim();
     if (body === '') return;
-    void surfaceWrite('send that steer', bridge.steerSession({ id: sessionId, text: body }));
+    void surfaceWrite('send that steer', bridge.steerSession({ id: sessionId, text: body })).then(
+      (result) => {
+        if (result === undefined || result.steered) return;
+        reportNotice('Nothing to steer', 'that turn is no longer running, so nothing received it.');
+      },
+    );
   };
 
   /** Set a session's in-chat model override; the next send routes there (and the
