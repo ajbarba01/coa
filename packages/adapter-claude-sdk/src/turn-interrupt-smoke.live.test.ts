@@ -26,12 +26,12 @@ import {
  * directly through {@link ClaudeSdkAdapter}, proving the assumption the fake
  * suite could only model — that the SDK's TURN-LEVEL `query.interrupt()` (the
  * handle the adapter reports up via `onTurnInterrupt`, and the one the user-Stop
- * closure in session-handlers.ts calls) (a) stops the current turn while keeping
+ * closure in held-open-driver.ts calls) (a) stops the current turn while keeping
  * the query ALIVE, and (b) lets a message pushed right after run as an ordinary
  * next turn — exactly what happens when a user stops a running turn and then
  * sends a new message. It ALSO records the exact frame sequence the interrupted
  * turn emits — a `turn-boundary`? an `error` frame? nothing? — which is the
- * ground truth for why session-handlers.ts's `query.stopped` guard drops every
+ * ground truth for why held-open-driver.ts's `query.stopped` guard drops every
  * frame type unconditionally, not just `error`. The diagnostic lines below print
  * that sequence for reconciliation.
  *
@@ -119,7 +119,7 @@ describe.skipIf(!process.env['COA_LIVE'])(
       // the whole-query AbortController, which would have settled runLoop by now).
       expect(await isPending(runLoopPromise)).toBe(true);
 
-      // --- DIAGNOSTIC (grounds session-handlers.ts's `query.stopped` guard) -----
+      // --- DIAGNOSTIC (grounds held-open-driver.ts's `query.stopped` guard) -----
       // Everything the adapter emitted from the interrupt up to the next turn's answer.
       const window = frames.slice(cutIndex);
       const boundariesInWindow = boundaryCount(window);
@@ -134,7 +134,7 @@ describe.skipIf(!process.env['COA_LIVE'])(
 
       // The interrupted turn A emits its OWN terminal result too, so the window carries
       // at least two turn-boundaries (A's abandoned one, then the next turn's). A bare
-      // stop must not lose that fact: session-handlers.ts's `record()` drops every frame
+      // stop must not lose that fact: the frame recorder drops every frame
       // while `query.stopped` is set, so it never depends on counting these boundaries —
       // but if interrupting a running turn ever stopped emitting A's boundary at all,
       // that would be a real SDK contract change worth knowing about.

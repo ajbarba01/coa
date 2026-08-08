@@ -29,7 +29,8 @@ export type Sink = (push: Push) => void;
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
  * {@link AbortController} whose signal the session layer forwards to the adapter as the
  * neutral user-stop. `interrupted` distinguishes a user-initiated stop from a
- * genuine loop failure in `session-handlers.ts`'s settlement — an
+ * genuine loop failure in each drive strategy's settlement (per-turn-driver.ts,
+ * held-open-driver.ts) — an
  * interrupt must never surface as an error. Lives on the {@link LiveSession}
  * (not a per-connection map) so ANY connection sharing the daemon's registry —
  * not just the one that started the turn — can resolve and act on it (see
@@ -133,7 +134,7 @@ export class LiveSession {
     this.#sinks.add(sink);
     // The hydration call is subject to the same crash-safety as `emit` below — a
     // sink that throws on its very first push is dropped rather than propagating
-    // into the caller (e.g. `onStart` in session-handlers.ts).
+    // into the caller (e.g. a driver's `onStart`).
     try {
       sink(this.#statusPush());
     } catch {

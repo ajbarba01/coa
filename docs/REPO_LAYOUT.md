@@ -95,6 +95,10 @@ core/src/
                       the seq cursor + start handle so every drive strategy shares it
     turn-persistence.ts the per-turn conversation prelude (create/title/memory hand-off/
                       selection pin/user-prompt append) and the session-call hooks it feeds
+    turn-driver.ts    the contract a drive strategy is built against: the daemon + the
+                      per-connection state it must be handed, never reach for
+    per-turn-driver.ts   one session call per turn (every pure-API backend)
+    held-open-driver.ts  one session call held open across turns, fed an input channel
   rpc/           M8 — JSON-RPC server plumbing
   auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
 ```

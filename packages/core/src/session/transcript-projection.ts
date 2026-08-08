@@ -173,7 +173,7 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
  *
  * Ordering merges every session's events into one stream sorted by `seq` (ascending),
  * tying on session id. `seq` is a per-session monotonic counter — each session's log
- * starts it at 0 independently (`session-handlers.ts`'s `seqBox`), not a shared
+ * starts it at 0 independently (frame-recorder.ts's `seqBox`), not a shared
  * clock — so this does not reconstruct true cross-session wall-clock order. It IS a
  * TOTAL, deterministic order (session ids are unique, so ties never remain unresolved),
  * which is what repeatability actually requires: two runs over the same data always
