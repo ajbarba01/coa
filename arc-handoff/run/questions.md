@@ -256,3 +256,35 @@ Recommended: yes, and cheaply — diff each script's task list against the plan'
 definition. C1/C2/C3 are the candidates; the knife had its own verified ruling inventory.
 **Done instead:** C5's missing item was implemented and pinned (7852763); this entry records the
 class of error so the re-audit is not forgotten.
+
+### Q13 AUDIT RESULT (2026-08-08) — 2 of 4 charters lost an item in derivation
+Ran the recommended re-audit by hand, diffing each charter's plan definition against what
+actually landed. The blind spot is real and it is not a one-off.
+
+- **C1 — CLEAN.** All four plan items delivered (source-condition resolution, node_modules to
+  doNotFollow, apps/cli cruised, the never-inert canary).
+- **C2 — CLEAN, including the item most likely to be lost.** The plan called specifically for
+  carrying LongCat's streamed tool-call parse fix into the unified adapter, "the clones have
+  already drifted" — exactly the kind of bug fix a merge silently drops. It survived:
+  packages/adapter-openai-compat/src/complete.ts guards every field with `!= null` and
+  accumulates arguments by index, and complete.test.ts pins the precise null-id/null-name
+  delta sequence the original fix was written for.
+- **C5 — one item lost**, found and fixed (7852763, see the journal).
+- **C3 — ONE ITEM LOST, still outstanding.** The plan's C3 reads: daemon-scoped session service
+  (done), fix the non-founding-connection bug (done, proven) and the crash-wedged running
+  session (done, in C5 at 143ce81), split the 1411-line god module (done, 1411 -> 122), **and
+  "make the interrupt/steer lifecycle one explicit state machine" (NOT DONE).**
+  Verified in the tree: the lifecycle is still two hand-rolled booleans kept in sync by hand
+  across three files — `session.control.interrupted` (session-service.ts:160/164,
+  held-open-driver.ts:406, read at held-open-driver.ts:445 and per-turn-driver.ts:89/104) and
+  a separate `query.stopped` (held-open-driver.ts:68/343/405). The `RunState` union in
+  live-session.ts is the run status, not this. It is also already named as debt in the new
+  ROADMAP and ARCHITECTURE known-debt sections, so the docs are honest about it — it was simply
+  never built.
+**Needed:** a decision on whether to build it now or leave it as the roadmap item it has become.
+Recommended: build it, as its own small charter with a verifier — it is a genuine refactor
+across two drivers and the service, not a patch, and hand-rolled boolean pairs kept in sync
+across three files are precisely what produced C3's original connection-ownership bug.
+**Done instead:** recorded with file:line so it can be executed without re-deriving it; NOT
+attempted by hand, because a refactor of this shape without an available verifier is how a
+subtle regression lands on a green suite.
