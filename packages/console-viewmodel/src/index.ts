@@ -10,7 +10,9 @@ export {
   reloadToViewFrames,
   persistedTurnSchema,
   persistedTurnsSchema,
+  reloadedConversationSchema,
   type PersistedTurnWire,
+  type ReloadedConversationWire,
 } from './turn-map.js';
 // The daemon push wire type + schema, re-exported so the console edge validates the
 // real shared wire shape without every consumer taking a direct @coa/shared dependency.

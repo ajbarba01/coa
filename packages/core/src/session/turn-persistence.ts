@@ -102,7 +102,7 @@ export function prepareTurnPersistence(
         scope: turn.scope ?? '',
       });
     }
-    const prior = cs.reload(id);
+    const { turns: prior } = cs.reload(id);
     const transcript = cs.loadBackendMessages(id);
     const storedFrozen = cs.getCompilation(id);
     // Reuse the frozen prompt only when the send's model matches the one it was

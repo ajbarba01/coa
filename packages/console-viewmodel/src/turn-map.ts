@@ -12,16 +12,44 @@ export const persistedTurnSchema = z.object({ seq: z.number(), frame: turnFrameS
 export const persistedTurnsSchema = z.array(persistedTurnSchema);
 export type PersistedTurnWire = z.infer<typeof persistedTurnSchema>;
 
+/** A reloaded conversation as the turn store returns it: the readable turns plus the
+ *  count of stored events too corrupt to read. `skipped` defaults to 0 so a daemon that
+ *  predates the count still reloads (as a conversation that lost nothing). */
+export const reloadedConversationSchema = z.object({
+  turns: persistedTurnsSchema,
+  skipped: z.number().default(0),
+});
+export type ReloadedConversationWire = z.infer<typeof reloadedConversationSchema>;
+
 /**
  * Map a reloaded conversation (persisted wire frames from the turn store) to the view `TurnFrame`s the
  * transcript renders — the durable analog of {@link pushToViewFrames}. Reuses the same
  * per-frame translation, so a reopened session reads identically to the live stream.
+ *
+ * When the store could not read part of the log, the transcript ends with a system
+ * notice saying so. Rendering the readable remainder on its own would present a
+ * fragment as the complete record — the reader has no other way to tell the difference,
+ * since missing turns leave no gap to see.
  */
-export function reloadToViewFrames(turns: PersistedTurnWire[]): TurnFrame[] {
-  return turns.flatMap((t) => {
+export function reloadToViewFrames(reloaded: ReloadedConversationWire): TurnFrame[] {
+  const frames = reloaded.turns.flatMap((t) => {
     const frame = mapFrame(t.frame, `t${t.seq}`);
     return frame === undefined ? [] : [frame];
   });
+  if (reloaded.skipped > 0) frames.push(skippedNotice(reloaded.skipped));
+  return frames;
+}
+
+/** The transcript's own admission that it is incomplete — a system notice, the lane
+ *  coa's own statements use, never something attributed to the model. */
+function skippedNotice(skipped: number): TurnFrame {
+  const events = skipped === 1 ? '1 unreadable event' : `${skipped} unreadable events`;
+  return {
+    id: 'reload:skipped',
+    role: 'system',
+    kind: 'text',
+    text: `${events} skipped — part of this session's record could not be read, so what is shown above is incomplete.`,
+  };
 }
 
 /**

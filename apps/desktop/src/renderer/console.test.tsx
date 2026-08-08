@@ -24,6 +24,9 @@ const FAKE_TURNS = [
   { seq: 0, frame: { t: 'text', text: 'Refactor the auth module', role: 'user' } },
   { seq: 1, frame: { t: 'text', text: 'on it' } },
 ];
+/** `reloadConversation` answers with the turns it could read AND how many stored events
+ *  it could not — a record that read cleanly is `skipped: 0`. */
+const reloaded = (turns: unknown[] = FAKE_TURNS, skipped = 0) => ({ turns, skipped });
 
 function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   return {
@@ -42,7 +45,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     deleteAgent: vi.fn().mockResolvedValue({ removed: true }),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
-    reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
+    reloadConversation: vi.fn().mockResolvedValue(reloaded()),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
@@ -235,6 +238,21 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
         { id: 't1', role: 'agent', kind: 'text', text: 'on it' },
       ],
     });
+  });
+
+  it('shows a transcript the daemon could not fully read as incomplete, not as the whole record', async () => {
+    // The daemon's reload never throws — it hands back what it could read. Rendering that
+    // remainder alone would present a fragment as the complete conversation, and nothing
+    // else in the UI can hint otherwise, since missing turns leave no visible gap.
+    const { last } = await mount(
+      fakeBridge({ reloadConversation: vi.fn().mockResolvedValue(reloaded(FAKE_TURNS, 2)) }),
+    );
+    const turns = last().data.turns;
+    expect(turns.status).toBe('ok');
+    if (turns.status !== 'ok') return;
+    expect(turns.value).toHaveLength(FAKE_TURNS.length + 1);
+    expect(turns.value.at(-1)).toMatchObject({ role: 'system', kind: 'text' });
+    expect(JSON.stringify(turns.value.at(-1))).toContain('2 unreadable events');
   });
 
   // Pushes under the mounted/active session ('c1', see FAKE_SESSIONS) so the frame
@@ -531,7 +549,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
           updatedAt: '2026-07-01T00:00:00Z',
         },
       ]),
-      reloadConversation: vi.fn().mockResolvedValue([]),
+      reloadConversation: vi.fn().mockResolvedValue(reloaded([])),
       onPush: vi.fn((listener: (payload: unknown) => void) => {
         emit = listener;
         return () => {};
@@ -599,7 +617,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
       reloadConversation: vi
         .fn()
-        .mockResolvedValueOnce(FAKE_TURNS) // boot-time open (newest = c1)
+        .mockResolvedValueOnce(reloaded()) // boot-time open (newest = c1)
         .mockImplementationOnce(
           () =>
             new Promise((r) => {
@@ -612,7 +630,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     // No await: the switch must not wait on the daemon round-trip.
     expect(last().ui.activeSessionId).toBe('c2');
     expect(last().data.turns).toEqual({ status: 'loading' });
-    resolveReload([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]);
+    resolveReload(reloaded([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]));
     await new Promise((r) => setTimeout(r, 0));
     expect(last().data.turns.status).toBe('ok');
   });
@@ -626,8 +644,8 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
       reloadConversation: vi
         .fn()
-        .mockResolvedValueOnce(FAKE_TURNS) // boot: c1
-        .mockResolvedValueOnce([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]) // c2
+        .mockResolvedValueOnce(reloaded()) // boot: c1
+        .mockResolvedValueOnce(reloaded([{ seq: 0, frame: { t: 'text', text: 'second turn' } }])) // c2
         .mockImplementationOnce(() => new Promise(() => {})), // c1 again — held forever
     });
     const { last } = await mount(bridge);
@@ -651,20 +669,20 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
       reloadConversation: vi
         .fn()
-        .mockResolvedValueOnce(FAKE_TURNS) // boot: c1
+        .mockResolvedValueOnce(reloaded()) // boot: c1
         .mockImplementationOnce(
           () =>
             new Promise((r) => {
               resolveC2 = r;
             }),
         ) // c2 — held
-        .mockResolvedValueOnce(FAKE_TURNS), // c1 again
+        .mockResolvedValueOnce(reloaded()), // c1 again
     });
     const { last } = await mount(bridge);
     last().actions.selectSession('c2');
     last().actions.selectSession('c1');
     await new Promise((r) => setTimeout(r, 0));
-    resolveC2([{ seq: 0, frame: { t: 'text', text: 'late c2 turn' } }]);
+    resolveC2(reloaded([{ seq: 0, frame: { t: 'text', text: 'late c2 turn' } }]));
     await new Promise((r) => setTimeout(r, 0));
     expect(last().ui.activeSessionId).toBe('c1');
     const turns = last().data.turns;

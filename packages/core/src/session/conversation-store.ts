@@ -46,6 +46,14 @@ import { foldEventsToTranscript, type PersistedEvent } from './transcript-projec
  * Reads never throw: a corrupt `meta.json` drops that session from the listing, and a
  * garbage `events.ndjson` line is skipped — so a hand-edited or partially-written store
  * still re-materializes what it can (the degrade-to-what-we-can floor).
+ *
+ * What is dropped is COUNTED and reported, because "what we can" and "all of it" look
+ * identical to a reader otherwise. The event log is the same record the console draws a
+ * transcript from and the model is handed back as its memory, so a partly-flushed append
+ * that silently loses lines produces a transcript that reads as complete and a model that
+ * quietly forgot something. `reload` returns the count with the turns; every reader
+ * reports through {@link ConversationStoreOptions.reportUnreadable} so the daemon can log
+ * it. Both are reports — nothing here starts throwing.
  */
 
 /** The (provider, model) a `backendSessionId` was captured under — the native
@@ -128,6 +136,29 @@ const persistedEventSchema = z.object({
   full: z.string().optional(),
 });
 
+/** A reloaded conversation: the turns that could be read, and how many stored events
+ *  could not be. A non-zero `skipped` means the transcript is a fragment — the reader
+ *  is told so rather than handed the remainder as the whole record. */
+export interface ReloadedConversation {
+  turns: PersistedTurn[];
+  skipped: number;
+}
+
+/** One never-throwing read that had to drop something, reported so the daemon can log it. */
+export interface UnreadableRecord {
+  sessionId: string;
+  /** Which of the session's files: the event log, its metadata, or its frozen prompt. */
+  file: 'events' | 'meta' | 'compilation';
+  /** How many records were lost — event lines, or 1 for a whole file that would not parse. */
+  count: number;
+}
+
+export interface ConversationStoreOptions {
+  /** Called whenever a read drops a record. Default: ignore (the store on its own is a
+   *  pure disk mirror; the daemon decides what to do with the report). */
+  reportUnreadable?: (dropped: UnreadableRecord) => void;
+}
+
 export interface ConversationStore {
   /** Start a session: write its initial metadata (createdAt = updatedAt = now). */
   create(init: {
@@ -158,8 +189,9 @@ export interface ConversationStore {
   /** Append events to the session's log (bumps updatedAt). */
   append(id: string, events: PersistedEvent[]): void;
   /** The persisted turn sequence (up to and including `toSeq`, when given) — the frame
-   *  stream, `full` dropped (the UI view). */
-  reload(id: string, toSeq?: number): PersistedTurn[];
+   *  stream, `full` dropped (the UI view) — plus the count of stored events too corrupt
+   *  to read, so a truncated transcript can be shown as truncated. */
+  reload(id: string, toSeq?: number): ReloadedConversation;
   /** The canonical neutral transcript (system omitted) — a read-time fold of the event
    *  log; empty if none / unparseable. */
   loadBackendMessages(id: string): BackendMessage[];
@@ -178,44 +210,57 @@ export interface ConversationStore {
 export function createConversationStore(
   dir: string,
   now: () => string = () => new Date().toISOString(),
+  options: ConversationStoreOptions = {},
 ): ConversationStore {
+  const report = options.reportUnreadable ?? ((): void => {});
   const sessionDir = (id: string): string => join(dir, id);
   const metaPath = (id: string): string => join(sessionDir(id), 'meta.json');
   const eventsPath = (id: string): string => join(sessionDir(id), 'events.ndjson');
   const compilationPath = (id: string): string => join(sessionDir(id), 'compilation.json');
 
-  /** Read + validate the raw event log, skipping any garbage line (never throw; re-materialize what we can). */
-  const readEvents = (id: string): PersistedEvent[] => {
+  /** Read + validate the raw event log, skipping any garbage line (never throw;
+   *  re-materialize what we can) and counting every line skipped. */
+  const readEvents = (id: string): { events: PersistedEvent[]; skipped: number } => {
     const path = eventsPath(id);
-    if (!existsSync(path)) return [];
-    const out: PersistedEvent[] = [];
+    if (!existsSync(path)) return { events: [], skipped: 0 };
+    const events: PersistedEvent[] = [];
+    let skipped = 0;
     for (const line of readFileSync(path, 'utf8').split('\n')) {
       if (line.trim() === '') continue;
       let raw: unknown;
       try {
         raw = JSON.parse(line);
       } catch {
-        continue; // skip a garbage line (re-materialize what we can)
+        skipped += 1; // a garbage line: re-materialize what we can, and say how much we could not
+        continue;
       }
       const parsed = persistedEventSchema.safeParse(raw);
-      if (!parsed.success) continue;
+      if (!parsed.success) {
+        skipped += 1;
+        continue;
+      }
       const { seq, frame, full } = parsed.data;
       // `exactOptionalPropertyTypes`: zod's `.optional()` yields `full: string | undefined`
       // (a present-but-undefined key), not the absent-key `full?: string` PersistedEvent wants.
-      out.push(full !== undefined ? { seq, frame, full } : { seq, frame });
+      events.push(full !== undefined ? { seq, frame, full } : { seq, frame });
     }
-    return out;
+    if (skipped > 0) report({ sessionId: id, file: 'events', count: skipped });
+    return { events, skipped };
   };
 
   const readMeta = (id: string): SessionMeta | undefined => {
     const path = metaPath(id);
-    if (!existsSync(path)) return undefined;
+    if (!existsSync(path)) return undefined; // never written / already removed — nothing was lost
     try {
       const parsed = metaSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
-      return parsed.success ? parsed.data : undefined;
+      if (parsed.success) return parsed.data;
     } catch {
-      return undefined; // unreadable/partial write → treat as absent (never throw)
+      // fall through — an unreadable/partial write reads as absent (never throw)
     }
+    // The file is THERE and unreadable, which is a session dropping out of the listing
+    // rather than a session that was never created. Those look the same to a caller.
+    report({ sessionId: id, file: 'meta', count: 1 });
+    return undefined;
   };
 
   const writeMeta = (meta: SessionMeta): void => {
@@ -299,24 +344,28 @@ export function createConversationStore(
     },
 
     reload(id, toSeq) {
-      return readEvents(id)
+      const { events, skipped } = readEvents(id);
+      const turns = events
         .filter((e) => toSeq === undefined || e.seq <= toSeq)
         .map(({ seq, frame }) => ({ seq, frame }));
+      return { turns, skipped };
     },
 
     loadBackendMessages(id) {
-      return foldEventsToTranscript(readEvents(id));
+      return foldEventsToTranscript(readEvents(id).events);
     },
 
     getCompilation(id) {
       const path = compilationPath(id);
-      if (!existsSync(path)) return undefined;
+      if (!existsSync(path)) return undefined; // no prompt frozen yet — nothing was lost
       try {
         const parsed = frozenCompilationSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
-        return parsed.success ? parsed.data : undefined; // unparseable ⇒ recompile fresh (never throw)
+        if (parsed.success) return parsed.data;
       } catch {
-        return undefined;
+        // fall through — unparseable ⇒ recompile fresh (never throw)
       }
+      report({ sessionId: id, file: 'compilation', count: 1 });
+      return undefined;
     },
 
     setCompilation(id, compilation) {

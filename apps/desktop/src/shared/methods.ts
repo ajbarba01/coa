@@ -15,7 +15,7 @@ import {
   TimelineSchema,
   modelSelectionSchema,
   modelDescriptorSchema,
-  persistedTurnsSchema,
+  reloadedConversationSchema,
 } from '@coa/console-viewmodel';
 import { z } from 'zod';
 import { ConsoleSettingsSchema } from './settings.js';
@@ -259,7 +259,7 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
-  reloadConversation: { params: z.object({ id: z.string() }), result: persistedTurnsSchema },
+  reloadConversation: { params: z.object({ id: z.string() }), result: reloadedConversationSchema },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   recompilePrompt: {
     params: z.object({ sessionId: z.string() }),

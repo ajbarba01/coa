@@ -182,10 +182,34 @@ describe('mapping a governed deny', () => {
 
   it('reloads a persisted deny identically to the live push', () => {
     expect(
-      reloadToViewFrames([
-        { seq: 7, frame: { t: 'deny', denyKind: 'close-gate', reason: 'blocked at close' } },
-      ]),
+      reloadToViewFrames({
+        turns: [
+          { seq: 7, frame: { t: 'deny', denyKind: 'close-gate', reason: 'blocked at close' } },
+        ],
+        skipped: 0,
+      }),
     ).toEqual([{ id: 't7', kind: 'deny', denyKind: 'close-gate', reason: 'blocked at close' }]);
+  });
+
+  it('ends a transcript the store could not fully read with a notice saying so', () => {
+    // Without this the readable remainder renders as if it were the whole conversation:
+    // missing turns leave no gap, so a fragment and a complete record look identical.
+    const frames = reloadToViewFrames({
+      turns: [{ seq: 0, frame: { t: 'text', text: 'kept', role: 'user' } }],
+      skipped: 3,
+    });
+    expect(frames).toHaveLength(2);
+    expect(frames[1]).toMatchObject({ role: 'system', kind: 'text' });
+    expect(frames[1]).toHaveProperty('text', expect.stringContaining('3 unreadable events'));
+  });
+
+  it('says nothing when the whole record read cleanly', () => {
+    expect(
+      reloadToViewFrames({
+        turns: [{ seq: 0, frame: { t: 'text', text: 'kept', role: 'user' } }],
+        skipped: 0,
+      }),
+    ).toEqual([{ id: 't0', role: 'you', kind: 'text', text: 'kept' }]);
   });
 });
 

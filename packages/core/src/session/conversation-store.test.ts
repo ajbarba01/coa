@@ -76,12 +76,18 @@ describe('conversation store', () => {
       { seq: 1, frame: { t: 'tool_use', tool: 'graph_read', input: { scope: 'x' }, handle: 'h1' } },
       { seq: 2, frame: text('done') },
     ]);
-    expect(store.reload('c1')).toEqual([
-      { seq: 0, frame: { t: 'text', text: 'hello' } },
-      { seq: 1, frame: { t: 'tool_use', tool: 'graph_read', input: { scope: 'x' }, handle: 'h1' } },
-      { seq: 2, frame: { t: 'text', text: 'done' } },
-    ]);
-    expect(store.reload('c1', 1).map((r) => r.seq)).toEqual([0, 1]);
+    expect(store.reload('c1')).toEqual({
+      turns: [
+        { seq: 0, frame: { t: 'text', text: 'hello' } },
+        {
+          seq: 1,
+          frame: { t: 'tool_use', tool: 'graph_read', input: { scope: 'x' }, handle: 'h1' },
+        },
+        { seq: 2, frame: { t: 'text', text: 'done' } },
+      ],
+      skipped: 0,
+    });
+    expect(store.reload('c1', 1).turns.map((r) => r.seq)).toEqual([0, 1]);
   });
 
   it('orders list by most-recently-active first, and appending bumps recency', () => {
@@ -175,7 +181,7 @@ describe('conversation store', () => {
     store.remove('c1');
     expect(store.getMeta('c1')).toBeUndefined();
     expect(store.list()).toEqual([]);
-    expect(store.reload('c1')).toEqual([]);
+    expect(store.reload('c1')).toEqual({ turns: [], skipped: 0 });
   });
 
   it('is durable across store instances (data lives on disk)', () => {
@@ -183,7 +189,10 @@ describe('conversation store', () => {
     store.append('c1', [{ seq: 0, frame: text('persisted') }]);
     const reopened = createConversationStore(dir, fakeClock());
     expect(reopened.getMeta('c1')?.id).toBe('c1');
-    expect(reopened.reload('c1')).toEqual([{ seq: 0, frame: { t: 'text', text: 'persisted' } }]);
+    expect(reopened.reload('c1')).toEqual({
+      turns: [{ seq: 0, frame: { t: 'text', text: 'persisted' } }],
+      skipped: 0,
+    });
   });
 
   it('never throws on corrupt data: skips a bad meta dir and a garbage turn line', () => {
@@ -195,12 +204,56 @@ describe('conversation store', () => {
     appendFileSync(join(dir, 'good', 'events.ndjson'), 'not-json\n', 'utf8');
     store.append('good', [{ seq: 5, frame: text('after') }]);
     expect(store.list().map((m) => m.id)).toEqual(['good']);
-    expect(store.reload('good')).toEqual([{ seq: 5, frame: { t: 'text', text: 'after' } }]);
+    expect(store.reload('good').turns).toEqual([{ seq: 5, frame: { t: 'text', text: 'after' } }]);
+  });
+
+  it('counts the events it could not read, and reports each unreadable file', () => {
+    // The silence this replaces: an unreadable line was dropped with a bare `continue`,
+    // so a partially-flushed append produced a transcript that looked whole and a model
+    // resumed with less memory than it had. Neither reader could tell. The floor is
+    // unchanged — nothing throws, everything readable is still returned — but the loss
+    // is now counted for the reader and reported for the log.
+    const dropped: { sessionId: string; file: string; count: number }[] = [];
+    store = createConversationStore(dir, fakeClock(), {
+      reportUnreadable: (d) => dropped.push(d),
+    });
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    store.append('c1', [{ seq: 0, frame: { t: 'text', text: 'first', role: 'user' } }]);
+    // a truncated JSON line (a half-written append) and a well-formed line that is not
+    // an event at all (schema-invalid) — both used to vanish without trace
+    appendFileSync(join(dir, 'c1', 'events.ndjson'), '{"seq":1,"frame":{"t":"te\n', 'utf8');
+    appendFileSync(join(dir, 'c1', 'events.ndjson'), '{"nonsense":true}\n', 'utf8');
+    store.append('c1', [{ seq: 3, frame: text('last') }]);
+
+    const reloaded = store.reload('c1');
+    expect(reloaded.turns.map((t) => t.seq)).toEqual([0, 3]);
+    expect(reloaded.skipped).toBe(2);
+    // The model's memory is folded from the same log, so it lost the same two events.
+    expect(store.loadBackendMessages('c1')).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'last' },
+    ]);
+    expect(dropped).toContainEqual({ sessionId: 'c1', file: 'events', count: 2 });
+
+    // A metadata file that is present but unreadable is a session dropping out of the
+    // listing — reported, where a session that simply does not exist is not.
+    writeFileSync(join(dir, 'c1', 'meta.json'), '{ not json', 'utf8');
+    dropped.length = 0;
+    expect(store.getMeta('c1')).toBeUndefined();
+    expect(store.getMeta('never-existed')).toBeUndefined();
+    expect(dropped).toEqual([{ sessionId: 'c1', file: 'meta', count: 1 }]);
+
+    // Same for a frozen prompt that will not parse: the next turn recompiles either way,
+    // but a compilation that was there and is now unreadable is worth saying out loud.
+    dropped.length = 0;
+    writeFileSync(join(dir, 'c1', 'compilation.json'), 'not json at all', 'utf8');
+    expect(store.getCompilation('c1')).toBeUndefined();
+    expect(dropped).toEqual([{ sessionId: 'c1', file: 'compilation', count: 1 }]);
   });
 
   it('returns undefined/empty for unknown ids', () => {
     expect(store.getMeta('nope')).toBeUndefined();
-    expect(store.reload('nope')).toEqual([]);
+    expect(store.reload('nope')).toEqual({ turns: [], skipped: 0 });
     expect(store.loadBackendMessages('nope')).toEqual([]);
   });
 
@@ -229,14 +282,14 @@ describe('conversation store', () => {
       { role: 'assistant', content: 'done' },
     ]);
     // UI view = the frame stream (full dropped).
-    expect(store.reload('c1').map((t) => t.frame.t)).toEqual([
+    expect(store.reload('c1').turns.map((t) => t.frame.t)).toEqual([
       'text',
       'tool_use',
       'tool_result',
       'text',
       'turn-boundary',
     ]);
-    expect(store.reload('c1').every((t) => !('full' in t))).toBe(true);
+    expect(store.reload('c1').turns.every((t) => !('full' in t))).toBe(true);
   });
 
   it('loadBackendMessages returns [] for a session with no events (fresh start; old files ignored)', () => {

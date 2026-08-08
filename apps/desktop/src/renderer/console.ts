@@ -16,7 +16,7 @@ import {
   type ModelDescriptor,
   type ModelSelection,
   type PackageSummary,
-  type PersistedTurnWire,
+  type ReloadedConversationWire,
   type ReasoningProfile,
   type RoleSummary,
   type SessionSummary,
@@ -82,7 +82,7 @@ export interface ConsoleBridge {
   // Persistent sessions: the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
-  reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
+  reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
   /** Drop a session's frozen prompt + resume token so the next send recompiles (the drift banner's recompile). */
   recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;

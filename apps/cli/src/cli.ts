@@ -258,7 +258,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     deleteAgent: (ref, scope) => agentRegistry.remove(ref, scope),
   });
   // The persistent conversation store lives beside the WAL under the gitignored `.coa/local/`.
-  const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
+  // Reads there never throw — they return what they could read — so anything they had to
+  // drop is logged here. Otherwise a conversation that lost part of its record comes back
+  // looking whole, both to the console and to the model being handed its own memory.
+  const store = createConversationStore(
+    join(process.cwd(), '.coa', 'local', 'conversation'),
+    undefined,
+    {
+      reportUnreadable: ({ sessionId, file, count }) =>
+        console.error(
+          `conversation store: session ${sessionId} — ${count} unreadable record(s) in ${file}, skipped`,
+        ),
+    },
+  );
   const conversationHandlers = buildConversationHandlers(store);
   // The daemon-authoritative home for every conversation's live session (the daemon,
   // not any client, owns a live session across turns),

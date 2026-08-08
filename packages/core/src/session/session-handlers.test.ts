@@ -412,7 +412,7 @@ describe('buildSessionHandlers — streaming deltas are delivery-only', () => {
       expect(pushedFrames).toContainEqual({ t: 'text', text: 'Hello' });
 
       // The durable log holds only the settled frame — deltas never reach `store.append`.
-      const persistedFrames = store.reload('c1').map((t) => t.frame);
+      const persistedFrames = store.reload('c1').turns.map((t) => t.frame);
       expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'Hel' });
       expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'lo' });
       expect(persistedFrames).toContainEqual({ t: 'text', text: 'Hello' });
@@ -447,7 +447,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
     });
     await conn.settled;
 
-    expect(store.reload('c1')).toEqual([
+    expect(store.reload('c1').turns).toEqual([
       { seq: 0, frame: { t: 'text', text: 'Refactor the auth module', role: 'user' } },
       { seq: 1, frame: { t: 'text', text: 'on it' } },
     ]);
@@ -491,7 +491,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
     await flush();
     expect(inits[1]?.resume).toBe('backend-c1'); // resumes the captured backend session
 
-    expect(store.reload('c1').map((t) => ({ seq: t.seq, frame: t.frame }))).toEqual([
+    expect(store.reload('c1').turns.map((t) => ({ seq: t.seq, frame: t.frame }))).toEqual([
       { seq: 0, frame: { t: 'text', text: 'first', role: 'user' } },
       { seq: 1, frame: { t: 'text', text: 'reply' } },
       { seq: 2, frame: { t: 'text', text: 'second', role: 'user' } },
@@ -956,7 +956,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
       // The streamed reasoning + answer land as ONE settled frame each (the deltas themselves are
       // never persisted), then the marker — so a reload renders exactly what the live stream showed
       // rather than losing the partial or double-rendering it.
-      expect(store.reload('c1').map((t) => t.frame)).toEqual([
+      expect(store.reload('c1').turns.map((t) => t.frame)).toEqual([
         { t: 'text', text: 'write a poem', role: 'user' },
         { t: 'thinking', text: 'weighing', durationMs: expect.any(Number) },
         { t: 'text', text: 'The clockmaker' },
@@ -2103,7 +2103,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       expect(adapters.length).toBe(1);
       // Both user turns landed, and the seq continued monotonically across the two turns
       // of the single query (turn 2's prompt never collides with turn 1's streamed frames).
-      expect(store.reload('h1').map((t) => ({ seq: t.seq, frame: t.frame }))).toEqual([
+      expect(store.reload('h1').turns.map((t) => ({ seq: t.seq, frame: t.frame }))).toEqual([
         { seq: 0, frame: { t: 'text', text: 'first', role: 'user' } },
         { seq: 1, frame: { t: 'text', text: 'ok' } },
         { seq: 2, frame: { t: 'turn-boundary', role: 'assistant' } },
@@ -2650,7 +2650,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       expect(pushedFrames).toContainEqual({ t: 'text-delta', text: 'lo' });
       expect(pushedFrames).toContainEqual({ t: 'text', text: 'Hello' });
 
-      const persistedFrames = store.reload('h1').map((t) => t.frame);
+      const persistedFrames = store.reload('h1').turns.map((t) => t.frame);
       expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'Hel' });
       expect(persistedFrames).not.toContainEqual({ t: 'text-delta', text: 'lo' });
       expect(persistedFrames).toContainEqual({ t: 'text', text: 'Hello' });

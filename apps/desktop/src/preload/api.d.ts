@@ -11,7 +11,7 @@ import type {
   ModelDescriptor,
   ModelSelection,
   PackageSummary,
-  PersistedTurnWire,
+  ReloadedConversationWire,
   ReasoningProfile,
   RoleSummary,
   SessionSummary,
@@ -73,7 +73,7 @@ declare global {
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
-      reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
+      reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
       /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
