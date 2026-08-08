@@ -139,3 +139,67 @@ Everything from the knife's original queue is closed. Outstanding: nothing that 
 work. `run/questions.md` holds the full history including two rulings delegated to the
 orchestrator and one finding (Q8) that was raised and then RETRACTED as a misread —
 that retraction is deliberate and should stay visible.
+
+---
+
+# Addendum — written 2026-08-08 (afternoon) for the NEXT fresh session
+
+Everything above still holds. What this run added:
+
+## Operational facts learned the hard way (these cost real time)
+
+- **`git stash` is DENIED in this harness, and the denial tells an agent to STOP AND WAIT.** It
+  wedged a C5 agent with finished work stranded in `stash@{0}` and a CLEAN working tree — so
+  "no commits, nothing modified" is NOT proof an agent produced nothing. **Check
+  `git stash list` before concluding a dead agent did no work.** Every workflow prompt now
+  carries a NOSTASH rule plus "a denied tool call means adapt, not halt".
+- **COMMIT AS YOU GO is now in every prompt.** Three agents lost or nearly lost finished work by
+  batching commits to the end and then dying. Two were recovered only because the orchestrator
+  looked in the working tree and the stash before re-running.
+- **Session limits killed FOUR verification rounds** (C3, C5-fixes, Stage 4, lifecycle-fixes).
+  Each time the orchestrator finished by hand. **Budget for this**: when a verifier dies, the
+  fallback is hand-verification with mutation probes, not accepting COMMITTED at face value.
+- **Syntax-check every workflow script before launching** (`node --input-type=module --check`;
+  the top-level `return` error is expected) and **write scripts as BINARY** — a Python text-mode
+  write flips LF to CRLF on Windows and the launcher rejects the script for control characters.
+  Also: **no backticks inside the template literals** — they terminate the string.
+- **Beware `find -maxdepth`.** A stray git worktree at `.claude/worktrees/conversation-canvas`
+  has its OWN `node_modules` and is deep enough to be missed by a shallow find. It **hijacks
+  module resolution** — it is why `pnpm --filter @coa/desktop dev` failed with "Electron
+  uninstall" while the root package looked fine.
+- **Electron's binary is not installed by design**: `pnpm-workspace.yaml` sets
+  `allowBuilds: electron: false`. Any fresh `pnpm install` re-breaks `dev`. Repair without
+  `pnpm install` by extracting the cached zip from
+  `%LOCALAPPDATA%\electron\Cache\<hash>\electron-v34.5.8-win32-x64.zip` into the package's
+  `dist/` and writing `path.txt` containing `electron.exe`. **The worktree copy needs it too.**
+
+## The methodological finding worth carrying (it caught the most real bugs)
+
+**Compare against the parent commit.** Reading a diff harder does not distinguish "my change did
+this" from "my change revealed this". Reverting to the parent and re-running found: the
+daemon-root hermeticity defect (a test booting a daemon over the whole checkout), and a
+duplicated PERSISTED interrupt marker frame. Both verifiers that caught the second one did it
+that way independently.
+
+**And: verify the CHARTER, not just the script.** Every charter was executed from a hand-written
+script derived from the plan. C5's script silently carried 4 of its 5 items, and no executor or
+verifier could see the gap because nothing in the chain ever re-read the plan. Audited the rest:
+C1 and C2 clean, C3 was missing its state machine (now built). See Q13.
+
+## Where to pick up
+
+`run/state.md` is current. In priority order:
+1. **Stage 4 verification** — `Workflow({scriptPath: '<arc>/workflow-scripts/stage4-docs.js',
+   resumeFromRunId: 'wf_1261f87e-ce1'})`. Writers replay from cache; TELL the closer its work is
+   already committed (fa6a433 · a716bf4 · 9fb09db) so it does not redo it.
+2. **The two lifecycle leftovers** (discarded `false` returns; `settle()` clearing `inert`).
+3. **Stage 5 closeout** — mostly done (PR #2 rewritten, PR #3 opened, all branches pushed). What
+   remains is the final report.
+4. **C4 + Stage 3** need the maintainer's Fable/UX allocation, not sequence. C4 is unblocked.
+
+## Needs the maintainer, not an agent
+
+- The stray `.claude/worktrees/conversation-canvas` worktree hijacks resolution. Removing it is
+  the real fix, but it may hold unmerged work (`worktree-conversation-canvas` @ 2cb7b9f).
+- `allowBuilds: electron: false` — flipping it to true is the documented intent for interactive
+  dev, but it is a supply-chain posture change to a committed file.
