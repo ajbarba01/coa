@@ -380,15 +380,83 @@ apps/cli/src/cli.ts:277.
 
 Gates green on every commit (2858 passed / 30 skipped; depcruise clean at 411 modules).
 
-**VERIFICATION DID NOT RUN WITH THE BUILD — both verifier agents died on a session
-limit.** The build phases are therefore self-reported. Verification was relaunched
-separately (three refute-framed lenses: invariants, the bug-and-its-proof including a
-scratch-worktree replay at the pre-fix commit, and behaviour drift in the unified hot
-path). Do not treat C3 as verified until that lands. Disclosed deviations to check:
-held-open query-scoped state moved into its driver though the brief said to leave
-makeRunTurn ownership alone; deriveTitle relocated; ADR 0031 still names the old home of
-the delivery recorder (left unedited because ADRs are immutable — the new module cites
-it instead, so the rule stays greppable).
+### C3 VERIFICATION — resolved 2026-08-07 late evening
+
+Verification did not run with the build (both verifiers died on a session limit), and
+the relaunch died the same way on two of three lenses. Net result: **one lens ran as an
+agent, the rest the orchestrator verified by hand.** C3 is now verified — but note the
+verify phase cost two full agent rounds to session limits before that happened.
+
+**LENS 1 — behaviour drift in the unified hot path: PASSED (agent).** The strongest
+report of the arc. It traced every statement of both pre-split record closures against
+frame-recorder.ts + the two drivers and found ZERO drift, enumerating twelve
+differences and classifying each. Highlights worth keeping:
+- The two divergences the audit named are BOTH covered by existing tests, which
+  falsifies the orchestrator's own stated suspicion that "the untouched test file still
+  passes" was weak evidence. The stop-vs-straggler test at session-handlers.test.ts
+  ~2157 drives an adapter that emits an error frame AND a boundary frame after a stop;
+  it covers the inert gate and the settled hook together.
+- It called two of the executor's claimed "ordering equivalences" TRUE BUT VACUOUS
+  (preserved, but load-bearing nothing) — they should not be cited as evidence of care.
+- One added defensive guard in the boundary path is strictly safer, never different.
+- Honest limit disclosed: no mutation probes were run, so test SENSITIVITY rests on
+  reading the test double, not on watching a mutant fail.
+
+**LENS 2 — the bug proof: PASSED, run by the orchestrator by hand.** This is the
+headline claim of C3 and it is now empirically proven, not self-reported. Method: a
+scratch worktree at f66d72b (the fix's parent) with the fix commit's test file swapped
+in, node_modules supplied by junction, run directly. ALL THREE regression tests fail
+pre-fix, and each failure is exactly the consequence the audit predicted:
+- role in prompt assembly: `expected [ 'alpha', '' ] to deeply equal [ 'alpha', 'beta' ]`
+  — the second connection's turn compiled under the EMPTY default role. Role dropped.
+- hydration: `expected undefined to deeply equal { kind: 'status', … }` — the sending
+  connection's deferred subscribe never fired.
+- held query: `expected 2 to be 1` — the open query was torn down and re-established
+  instead of being ridden.
+The bug was real, the tests reach it, and the fix closes it.
+
+**LENS 3 — invariants: partially verified by the orchestrator, one gap remains.**
+Confirmed directly: the delivery-legality gate has exactly ONE writer
+(createDeliveryRecorder is module-private in frame-recorder.ts with a single call site
+— it was two before, so this restructuring made the single-writer rule enforceable
+rather than merely stated); deltas are never persisted (frame-recorder.ts:255-258 emits
+and RETURNS before writeFrame, citing 0013 in a comment). Lens 1 independently
+confirmed the exactly-once interrupt ordering (settleInterrupt runs before
+query.stopped = true, so its own marker is recorded) and the SC-1 stop-is-not-an-error
+guard via the test above.
+**GAP — not verified by anyone: G4 reattach** (a connection stays a stateless
+subscriber; subscribe-time hydration reflects true run-status) and the held-open query
+surviving a turn-level interrupt (0012) were only ever checked by the executor itself.
+Both are plausible — the hydration regression test exercises adjacent behaviour — but
+neither has independent confirmation. Worth a targeted check in a later session; not
+worth blocking on.
+
+**Disclosed deviations, all confirmed benign:** held-open query-scoped state moved into
+its driver (makeRunTurn ownership did NOT move); deriveTitle relocated (never imported
+outside the session directory); ADR 0031's text still names session-handlers.ts as the
+delivery recorder's home and says "both closures use it" — stale prose, not drift,
+since every invariant it states still holds. ADRs are immutable here, so the new module
+cites the ADR from its new home. **Stage 4 should reconcile that text.**
+
+**Environment note that cost real time:** a verifier's `pnpm test` triggered pnpm's
+deps-status auto-install, which tried to relink node_modules and failed with EPERM on
+the electron binary — because a desktop dev session had been running since the previous
+evening (4 electron processes + the daemon). That produced ~38 phantom desktop
+module-resolution failures in that verifier's suite run, which it correctly identified
+as environmental rather than reporting them as regressions.
+The damage turned out to be REAL but narrow, and it outlived the verifier: the
+workspace junction `apps/desktop/node_modules/@coa/console-transcript` had been
+unlinked and never restored (5 of 6 declared workspace deps present), which failed
+`pnpm typecheck` with TS2307 on ChatPanel/ShowcasePanel. Repaired surgically by
+recreating that one junction to `packages/console-transcript` — matching how pnpm links
+the other five — rather than running `pnpm install`, which would have contended with
+the still-running electron processes for the locked binary and could have disrupted the
+maintainer's live app. All six links now present; pnpm store intact at 870 packages.
+**Do not run the full suite while the desktop app is running** — pnpm's deps-status
+auto-install fires, tries to relink, and hits EPERM on the in-use electron binary.
+Symptom to recognise: mass `Cannot find module '@coa/…'` or desktop collection errors.
+Check `ls apps/desktop/node_modules/@coa` against the package.json dep count before
+concluding anything is wrong with the code.
 
 ## Rulings + prep while the session-layer work runs (2026-08-07 evening)
 

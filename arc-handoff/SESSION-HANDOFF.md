@@ -76,6 +76,18 @@ deviations section of every report — that is where the real information is.
 - **Windows gotchas that have already bitten:** `.bin/` shims are extensionless POSIX
   scripts and cannot be spawned — spawn `process.execPath` against the package's real
   `.mjs` entry. Prettier line-length will fail a gate on a long comment you just wrote.
+- **Do not run the full suite while the desktop app is running.** pnpm's deps-status
+  auto-install fires, tries to relink `node_modules`, and hits EPERM on the in-use
+  electron binary — leaving workspace junctions missing. Symptom: mass
+  `Cannot find module '@coa/…'` / desktop collection errors that look like a code
+  regression and are not. Diagnose with `ls apps/desktop/node_modules/@coa` against the
+  `@coa/` dep count in `apps/desktop/package.json`. Repair the missing link surgically
+  (`mklink /J <apps/desktop/node_modules/@coa/NAME> <packages/NAME>`) rather than
+  running `pnpm install`, which will contend with the running app for the locked binary.
+  This happened on 2026-08-07 and cost a gate cycle to diagnose.
+- **If you create a scratch git worktree and junction `node_modules` into it, unlink
+  every junction with `rmdir` BEFORE removing the worktree.** A recursive delete would
+  otherwise follow the junction into the real `node_modules` and destroy it.
 - **`git add` with a path that no longer exists rejects the WHOLE pathspec and stages
   nothing** — and if you have suppressed stderr, it does it silently. This produced a
   content-free commit earlier today. Stage by name, never `-A`, never suppress stderr
