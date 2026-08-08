@@ -102,6 +102,9 @@ core/src/
                       selection pin/user-prompt append) and the session-call hooks it feeds
     turn-driver.ts    the contract a drive strategy is built against — all daemon-scoped;
                       a turn's own per-send facts ride the queued turn instead
+    turn-lifecycle.ts a turn's one owned state (running / stop-requested / stopped /
+                      settled) with its legal edges as a table — the stop path's single
+                      source of truth, read by both drivers and the service
     per-turn-driver.ts   one session call per turn (every pure-API backend)
     held-open-driver.ts  one session call held open across turns, fed an input channel
   rpc/           M8 — JSON-RPC server plumbing

@@ -12,6 +12,7 @@ import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
 import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
+import { TurnLifecycle } from './turn-lifecycle.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
 /**
@@ -47,7 +48,7 @@ function dbgSteer(event: string, detail: Record<string, unknown>): void {
 /**
  * A single held-open query: its derived input feed, the current turn's boundary latch, the
  * persistence target, and the long-lived session promise. `close` ends the feed so the query
- * terminates after the last result; `terminated` guards a settled query.
+ * terminates after the last result; its `lifecycle` settling is what marks it spent.
  */
 interface HeldQuery {
   configKey: string;
@@ -62,11 +63,11 @@ interface HeldQuery {
   /** This backend's turn-level interrupt (reported up via `onTurnInterrupt`), used by a
    *  bare stop (`interruptSession`) to stop the current turn while keeping the query alive. */
   turnInterrupt: TurnInterrupt | undefined;
-  /** True once a bare stop has closed the in-flight turn: the driver was already released, so
-   *  any residual frame the abandoned turn emits must not re-resolve it or surface as an error.
-   *  Cleared when the next turn is fed (the query stays alive across a turn-level interrupt). */
-  stopped: boolean;
-  terminated: boolean;
+  /** Where this query's CURRENT turn stands — the one state the recorder, the interrupt
+   *  closure, the settlement, and `session.control` all read (the same instance is on the
+   *  control). A bare stop leaves it `stopped`, which is what makes the abandoned turn's
+   *  stragglers inert; the next turn re-arms it, because the query outlives the stop. */
+  lifecycle: TurnLifecycle;
   close: () => void;
   /** This query's frame recorder. `settleHeldQuery` closes over nothing, so it reaches the
    *  recorder through the query it already receives, the same way `close` does — a mid-turn
@@ -145,12 +146,13 @@ export function createHeldOpenDriver(
       const configKey = configKeyOf(turn);
       // Re-establish (rather than continue) when the open query can no longer serve this
       // turn — otherwise a continue pushes into a feed with no consumer and hangs on a
-      // boundary that never resolves. Two cases: (1) it has TERMINATED — a prior interrupt
-      // or mid-turn error already settled the query (its adapter loop is gone); the next
+      // boundary that never resolves. Two cases: (1) it has SETTLED — a prior interrupt
+      // or mid-turn error already ended the query (its adapter loop is gone); the next
       // turn must start a fresh one, not resume the dead one (an interrupt must leave
       // the session usable). (2) its pinned prompt-shaping config + model DIFFER from this
       // turn's — a mid-conversation model/role/scope switch can't ride the pinned query.
-      if (held !== undefined && (held.terminated || held.configKey !== configKey)) await close();
+      if (held !== undefined && (held.lifecycle.isSettled || held.configKey !== configKey))
+        await close();
 
       if (held === undefined) {
         await establishHeldQuery(
@@ -195,6 +197,10 @@ async function establishHeldQuery(
   const channel = new InputChannel();
   const controller = new AbortController();
   const boundary = deferred();
+  // ONE state for this query's current turn, shared by everything that used to consult a
+  // flag: the recorder's inert check, the interrupt closure, the settlement, and the
+  // session control the interrupt verb reaches it through.
+  const lifecycle = new TurnLifecycle();
 
   // ONE recorder spans every turn this query ever runs — that is what the query-lifetime
   // cursor and start handle buy: a later turn's frames continue the same `seq` instead of
@@ -207,8 +213,8 @@ async function establishHeldQuery(
     // After a bare stop, everything the abandoned turn still emits is inert: its partial was
     // already settled, its marker recorded, and its driver released. Dropping the stragglers
     // keeps content from appearing BELOW the interrupt marker (never an error either).
-    // Cleared when the next turn is fed (`continueHeldQuery`).
-    isInert: () => query.stopped,
+    // The next turn re-arms the lifecycle (`continueHeldQuery`).
+    isInert: () => lifecycle.inert,
     onSettled: (frame) => {
       if (frame.t === 'turn-boundary') noteTurnBoundary();
     },
@@ -221,8 +227,7 @@ async function establishHeldQuery(
     boundary,
     pendingTurns: 0,
     turnInterrupt: undefined,
-    stopped: false,
-    terminated: false,
+    lifecycle,
     close: () => channel.close(),
     recorder,
     done: Promise.resolve(),
@@ -306,7 +311,7 @@ async function establishHeldQuery(
         startedRef.current = s;
         session.control = {
           controller,
-          interrupted: false,
+          lifecycle,
           mode: 'held-open',
         };
         // A steer never abandons work in flight: while a turn runs it rides the session's
@@ -339,8 +344,12 @@ async function establishHeldQuery(
         // emits no boundary, so nothing else ever would (a user stop, never an error).
         session.setInterruptClosure(() => {
           if (query.pendingTurns === 0) return false;
+          // ORDER IS LOAD-BEARING: settle while the turn's frames still flow, THEN close
+          // the stop. Closing first would make this query inert, and the interrupt marker
+          // — itself a frame — would be dropped along with the stragglers it exists to
+          // sit above.
           recorder.settleInterrupt();
-          query.stopped = true;
+          lifecycle.closeStop();
           dbgSteer('bare stop issued', {
             pendingTurns: query.pendingTurns,
             turnLevel: query.turnInterrupt !== undefined,
@@ -400,10 +409,9 @@ async function continueHeldQuery(
   startedRef: StartedRef,
 ): Promise<void> {
   // A bare stop closed the PREVIOUS turn but kept this query alive (turn-level interrupt).
-  // Re-arm it: frames flow again, and the stale `interrupted` flag must not make this turn's
-  // settlement look like a user stop.
-  query.stopped = false;
-  if (session.control !== undefined) session.control.interrupted = false;
+  // Re-arm the one state: frames flow again, and the previous turn's stop must not make
+  // this turn's settlement look like a user stop.
+  query.lifecycle.beginTurn();
   if (query.persistIn !== undefined) {
     query.persistIn.store.append(query.persistIn.convId, [
       { seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } },
@@ -440,9 +448,11 @@ function settleHeldQuery(
   startedRef: StartedRef,
   err: unknown,
 ): void {
-  query.terminated = true;
+  // Read HOW the run ended before recording THAT it ended: `settled` is terminal and
+  // carries no history, so the user-stop fact has to be taken while the phase still holds it.
+  const stoppedByUser = query.lifecycle.stoppedByUser;
+  query.lifecycle.settle();
   session.setSteerSink(undefined);
-  const interrupted = session.control?.interrupted === true;
   session.control = undefined;
   // Release a turn parked on this query's boundary so its driver returns and the
   // live-session loop can advance/idle instead of hanging on a dead query.
@@ -452,7 +462,7 @@ function settleHeldQuery(
   if (err === undefined) return; // clean termination: the per-turn `'done'` already fired.
   if (query.persistIn !== undefined)
     query.persistIn.store.clearBackendSession(query.persistIn.convId);
-  if (interrupted) return; // `interruptSession` already emitted `'interrupted'`.
+  if (stoppedByUser) return; // `interruptSession` already emitted `'interrupted'`.
   // A genuine mid-turn throw (most often a dropped provider connection) reaches neither the
   // interrupt closure nor a `turn-boundary` frame — the two other flush points — so nothing
   // else will ever write a line already parked behind a still-open tool call. Flush it BEFORE

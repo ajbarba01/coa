@@ -153,15 +153,22 @@ export class SessionService {
    * next turn knows it was cut off), and stops the backend the way that drive strategy
    * must. Each driver's settlement then suppresses the resulting throw/settle from
    * rendering as an error: a user stop is never an error.
+   *
+   * The stop is a two-step move on the turn's own lifecycle — request, then either the
+   * driver closes it or the request is withdrawn — so a stop is never half-applied and
+   * the caller's negative result and the turn's state can never disagree.
    */
   interrupt(id: string): boolean {
     const session = this.#registry.get(id);
-    if (session?.control === undefined) return false;
-    session.control.interrupted = true;
+    const lifecycle = session?.control?.lifecycle;
+    if (session === undefined || lifecycle === undefined) return false;
+    // Only a running turn can be stopped: a redundant Stop finds no edge and is reported
+    // as "nothing to stop", leaving the earlier stop's own state intact.
+    if (!lifecycle.requestStop()) return false;
     // A held-open query keeps `control` between turns, so the closure is the authority on
     // whether a turn was actually in flight.
     if (!session.closeInterrupted()) {
-      session.control.interrupted = false;
+      lifecycle.abandonStop();
       return false;
     }
     this.#emitStatus(session, session.worktree ?? '', 'interrupted');
@@ -344,9 +351,9 @@ export class SessionService {
    * Hooked into `#emitStatus` — the ONE place every drive strategy (per-turn, held-open),
    * a direct interrupt, AND a cascade abort all funnel their terminal status through —
    * rather than duplicated at each settlement call site. A cascade abort
-   * (`live-registry.ts`'s `#closeOne`) marks `control.interrupted` before it aborts a
-   * running turn, so that turn's own settlement lands here exactly like a direct interrupt
-   * would, reported as `stopped`. A session with no parent (the overwhelming common case)
+   * (`live-registry.ts`'s `#closeOne`) requests the stop on the turn's lifecycle before it
+   * aborts a running turn, so that turn's own settlement lands here exactly like a direct
+   * interrupt would, reported as `stopped`. A session with no parent (the overwhelming common case)
    * is untouched: `store?.getMeta(...)?.parent` is undefined, so this is a no-op.
    */
   #notifyParentIfChild(session: LiveSession, state: TerminalState, detail?: string): void {

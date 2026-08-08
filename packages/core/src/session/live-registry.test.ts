@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LiveSessionRegistry } from './live-registry.js';
+import { TurnLifecycle } from './turn-lifecycle.js';
 
 function fakeTimers() {
   const timers = new Map<number, () => void>();
@@ -113,12 +114,16 @@ describe('LiveSessionRegistry', () => {
     const r = new LiveSessionRegistry();
     const { session } = r.getOrCreate('c1');
     const controller = new AbortController();
-    session.control = { controller, interrupted: false };
+    const lifecycle = new TurnLifecycle();
+    session.control = { controller, lifecycle };
 
     r.close('c1');
 
     expect(controller.signal.aborted).toBe(true);
-    expect(session.control?.interrupted).toBe(true);
+    // The cascade never runs a driver's close-out closure, so the turn stays at the
+    // request — which is still a user stop as far as every settlement is concerned.
+    expect(lifecycle.phase).toBe('stop-requested');
+    expect(lifecycle.stoppedByUser).toBe(true);
   });
 
   // Three levels, two branches: root-1 -> kid-a -> grandkid, root-1 -> kid-b (leaf).

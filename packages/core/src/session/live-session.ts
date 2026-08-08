@@ -1,5 +1,6 @@
 import type { ModelSelection, Push } from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
+import type { TurnLifecycle } from './turn-lifecycle.js';
 
 /**
  * A `LiveSession`'s run state — whether the backend loop is actively driving a
@@ -65,17 +66,18 @@ export interface QueuedTurn extends TurnRequest {
 /**
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
  * {@link AbortController} whose signal the session layer forwards to the adapter as the
- * neutral user-stop. `interrupted` distinguishes a user-initiated stop from a
- * genuine loop failure in each drive strategy's settlement (per-turn-driver.ts,
- * held-open-driver.ts) — an
- * interrupt must never surface as an error. Lives on the {@link LiveSession}
- * (not a per-connection map) so ANY connection sharing the daemon's registry —
- * not just the one that started the turn — can resolve and act on it (see
+ * neutral user-stop, plus the turn's {@link TurnLifecycle} — the one owned state that
+ * says where the turn stands, and so whether a settlement is looking at a user stop or a
+ * genuine loop failure (an interrupt must never surface as an error). The driver that
+ * started the run owns the same lifecycle instance, so the service and the driver read
+ * one state rather than two flags they have to keep in agreement. Lives on the
+ * {@link LiveSession} (not a per-connection map) so ANY connection sharing the daemon's
+ * registry — not just the one that started the turn — can resolve and act on it (see
  * the daemon-authoritative reattach contract).
  */
 export interface TurnControl {
   controller: AbortController;
-  interrupted: boolean;
+  lifecycle: TurnLifecycle;
   /**
    * Which drive strategy owns this turn (the held-open streaming-input strategy). `held-open` ⇒ a steer
    * is routed into the live query's derived input feed via {@link LiveSession.pushSteer};

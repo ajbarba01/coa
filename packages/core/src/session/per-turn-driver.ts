@@ -4,6 +4,7 @@ import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
 import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
+import { TurnLifecycle } from './turn-lifecycle.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
 /**
@@ -33,6 +34,10 @@ export async function runPerTurn(
     persistIn: prep.persistIn,
   });
   const controller = new AbortController();
+  // The turn and the run are the same thing here, so one lifecycle spans both. The
+  // session control carries this very instance, which is how the interrupt verb and this
+  // settlement read ONE state instead of a flag each.
+  const lifecycle = new TurnLifecycle();
 
   try {
     await createSession(
@@ -57,15 +62,17 @@ export async function runPerTurn(
           startedRef.current = s;
           session.control = {
             controller,
-            interrupted: false,
+            lifecycle,
             mode: 'per-turn',
           };
           // A user stop settles whatever the model streamed (so it persists and a reload reads
           // the same transcript), records the interrupt marker, THEN aborts the loop. Settling
           // before the abort is what keeps the partial from being lost — deltas are never
-          // persisted, so only this settled frame reaches the durable log.
+          // persisted, so only this settled frame reaches the durable log. The lifecycle is
+          // closed in that same settle-first order, so both strategies close a stop alike.
           session.setInterruptClosure(() => {
             recorder.settleInterrupt();
+            lifecycle.closeStop();
             controller.abort();
             return true;
           });
@@ -86,12 +93,13 @@ export async function runPerTurn(
     recorder.flushDeliveries();
     // A pure-API backend aborted at the loop's top-of-iteration boundary settles
     // cleanly (no throw) — so a completed interrupt is seen here, not in `catch`.
-    const interrupted = session.control?.interrupted === true;
+    const stoppedByUser = lifecycle.stoppedByUser;
+    lifecycle.settle();
     session.control = undefined;
     session.setInterruptClosure(undefined);
     // `interruptSession` already emitted `'interrupted'` synchronously — this
     // clean-break settle must not emit it again. Only a genuine completion emits `'done'`.
-    if (interrupted) return;
+    if (stoppedByUser) return;
     if (startedRef.current !== undefined)
       ctx.emitStatus(session, startedRef.current.worktree, 'done');
   } catch (err) {
@@ -101,12 +109,13 @@ export async function runPerTurn(
     // replays the last-good transcript instead (fail-safe, not resume).
     if (prep.persistIn !== undefined)
       prep.persistIn.store.clearBackendSession(prep.persistIn.convId);
-    const interrupted = session.control?.interrupted === true;
+    const stoppedByUser = lifecycle.stoppedByUser;
+    lifecycle.settle();
     session.control = undefined;
     session.setInterruptClosure(undefined);
     // an interrupt is a user stop, not a governance block; `interruptSession`
     // already emitted `'interrupted'`. Nothing further to surface.
-    if (interrupted) return;
+    if (stoppedByUser) return;
     // A genuine mid-turn throw reaches neither the interrupt closure nor the `try` block's
     // own post-await flush — so anything parked behind a still-open tool call is flushed
     // here, BEFORE the error frame below, so the log shows the delivery where the model

@@ -124,10 +124,12 @@ export class LiveSessionRegistry {
     const { session } = entry;
     if (session.control !== undefined) {
       // a close-triggered abort is a user-style stop, never a governance
-      // block — mark it interrupted BEFORE aborting so the drive strategy's
-      // settlement (the same guard `interruptSession` relies on) suppresses the
-      // resulting throw/settle instead of rendering it as an error.
-      session.control.interrupted = true;
+      // block — request the stop BEFORE aborting so the drive strategy's
+      // settlement (the same state `interruptSession` relies on) suppresses the
+      // resulting throw/settle instead of rendering it as an error. This cascade
+      // never runs the driver's close-out closure, so the request is where it stays;
+      // a settlement treats a requested stop as a user stop for exactly that reason.
+      session.control.lifecycle.requestStop();
       session.control.controller.abort();
     }
     this.#onClose?.(session);
