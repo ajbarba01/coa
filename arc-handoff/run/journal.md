@@ -867,3 +867,66 @@ honest. That is not an argument for skipping verification — the LAST round's s
 also honest and still shipped an inert fix. It is an argument for the orchestrator budgeting
 time to verify by hand when a verifier dies, rather than treating an executor's COMMITTED as
 the end of the charter.
+
+## Stage 4 docs LANDED (3 commits on arc/docs) — closer done by hand after another limit
+
+The five writers finished (949k tokens). **The closer and BOTH verifiers then died on the
+session limit** (reset 5:40pm) — the third verification round this arc has lost that way. The
+closer had gotten partway before dying: the corpus deletions were already STAGED and ~25
+source files were modified by the code-comment sweep. Nothing was committed, so ~950k tokens
+of work was sitting in the working tree. Backed it up first (a 34k-line patch plus the two
+untracked files), then finished the closer's job by hand.
+
+**What remained and what I did.** The comment sweep had missed FOUR package READMEs still
+linking into the deleted corpora (console-viewmodel, console-transcript, adapter-claude-sdk,
+console-kit — 8 dead links). Rewrote them to the convention the closer had established on the
+six it did finish: drop the module IDs and decision-record links, inline the rationale in plain
+language, point at ARCHITECTURE.md/REPO_LAYOUT.md. After that a repo-wide search for
+docs/adr, docs/superpowers, docs/design, DEV-NOTES and DESIGN.md returns ZERO hits.
+
+Commits: fa6a433 (the living doc set), a716bf4 (drift repair + the rationale links in code),
+9fb09db (retirement — 88 files, 30,736 deletions). Pushed to a new branch arc/docs.
+
+**Gate, verbatim:** `Test Files 281 passed | 11 skipped (292)` / `Tests 2928 passed | 30
+skipped (2958)`, depcruise clean 418 modules, `docs-check OK — 11 docs, all reachable, no dead
+links` (60 -> 11 as the corpora retired).
+
+**Disclosed deviation, judged acceptable:** the closer edited archive/sdk-probes/binary.test.ts
+despite archive/ being on its never-touch list. Inspected: it removed a pointer to a research
+doc being deleted, leaving the license statement intact. A dead link in archive/ is still a
+dead link, so the edit was necessary and correct; the constraint and the sweep genuinely
+conflicted here.
+
+**Checks I ran in place of the verifiers (partial, not a substitute).** The cost/governance
+claim is handled correctly — ARCHITECTURE explains the cap was wired but could never fire, that
+the deny path was archived, and that a fan-out bound is a roadmap item; UI.md says "accounted,
+never capped"; ROADMAP carries "Bound the fan-out" as an open Next item. Every doc carries the
+2026-08-08 footer. The README quick-start scripts all exist. NOTICE needs no change: the only
+license-shaped hit is a comment stating the SDK's license is restrictive and that findings were
+paraphrased, never pasted.
+
+### RETRACTION — the "stale dist" exposure was FALSE, and I repeated it
+
+The C5 verifier justified the reload-schema back-compat finding by observing that
+apps/cli/dist/bin.js is dated 2026-07-03, "a month stale", so the desktop would spawn an old
+daemon and hit the version-skew path. I carried that into the journal and the status report.
+**It is wrong.** bin.js is old because its SOURCE is old — apps/cli/src/bin.ts has not changed
+since 2026-06-30 — and tsc -b rewrites only outputs whose input changed. bin.js is a 943-byte
+shim that imports ./cli.js, and cli.js is dated 2026-08-08 04:23, tracking today's commits. The
+build is current; there is no version skew from that path.
+What survives: the schema-tolerance fix (b7b245e) is still correct and worth keeping — accepting
+either shape is genuinely more robust than rejecting an array outright, and the ORIGINAL finding
+(that a z.object default cannot rescue a bare array) was demonstrated by running it and is
+true. Only the claimed real-world exposure was false. Recorded rather than quietly dropped.
+
+### Stage 4 verification still OWED
+
+The two verifier lenses did not run: (1) does the prose match the tree — sample 20+ concrete
+claims from ARCHITECTURE/README/ROADMAP and check each; (2) what died with the corpus — for
+each distilled rationale, is its constraint still live in code, and if so does its WHY survive
+somewhere. My spot-checks covered the highest-risk claim (cost/governance) and the mechanical
+ones (links, footers, scripts, NOTICE), NOT the 20-claim sample or rationale survival. Resume
+after 5:40pm with:
+  Workflow({scriptPath: '<arc>/workflow-scripts/stage4-docs.js', resumeFromRunId: 'wf_1261f87e-ce1'})
+The five writers replay from cache; the closer will re-run and must be told the closing work is
+already committed (fa6a433/a716bf4/9fb09db) so it does not redo it.

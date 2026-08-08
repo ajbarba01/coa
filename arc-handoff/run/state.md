@@ -36,6 +36,7 @@
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
 | `arc/architecture` | e223f13 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
+| `arc/docs` | 9fb09db | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736).** Gates green (2928 tests, depcruise 418, docs-check 11). Verification OWED — both lenses died on a session limit |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
@@ -107,10 +108,14 @@ on the old machine.
    Remaining C5-adjacent debt, recorded not actioned: the crash-reason heuristic still shares
    a stderr buffer with routine daemon logging (narrowed, not eliminated, by e223f13), and a
    cross-scope duplicate is a reachable post-failure state with no diagnostic.
-9. Stage 4 docs (mandatory before any closeout) — the script was REVISED 2026-08-07;
-   the original would have documented a cost cap that no longer exists. Absorbs the
-   codename-consistency pass, the stale-package doc references, and the ADR-0031
-   reconciliation C3 created.
+9. **Stage 4 docs — LANDED on arc/docs (fa6a433 - a716bf4 - 9fb09db), VERIFICATION OWED.**
+   Writers finished; the closer and both verifiers died on the session limit (reset 5:40pm),
+   so the orchestrator finished the closing work by hand: four package READMEs still linked
+   the deleted corpora and were rewritten to the closer's own convention; a repo-wide search
+   for the retired paths now returns zero hits. Resume the two verifier lenses after the reset
+   with resumeFromRunId 'wf_1261f87e-ce1' — and TELL the closer its work is already committed
+   so it does not redo it. Unverified: the 20-claim prose-vs-tree sample, and rationale
+   survival for constraints whose decision records were deleted.
 10. Stage 5 closeout: write questions for every parked charter/feature, push all
     branches, open draft PRs per workstream, final morning report in the journal.
     **PR #2's body is materially stale — Stage 5 owns rewriting it.**
