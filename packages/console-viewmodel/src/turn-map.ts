@@ -12,14 +12,28 @@ export const persistedTurnSchema = z.object({ seq: z.number(), frame: turnFrameS
 export const persistedTurnsSchema = z.array(persistedTurnSchema);
 export type PersistedTurnWire = z.infer<typeof persistedTurnSchema>;
 
-/** A reloaded conversation as the turn store returns it: the readable turns plus the
- *  count of stored events too corrupt to read. `skipped` defaults to 0 so a daemon that
- *  predates the count still reloads (as a conversation that lost nothing). */
-export const reloadedConversationSchema = z.object({
+/** A reloaded conversation as the turn store returns it today: the readable turns plus
+ *  the count of stored events too corrupt to read. */
+const reloadedObjectSchema = z.object({
   turns: persistedTurnsSchema,
   skipped: z.number().default(0),
 });
-export type ReloadedConversationWire = z.infer<typeof reloadedConversationSchema>;
+
+/**
+ * The reply shape, accepting BOTH the object above and the bare turns ARRAY a daemon
+ * that predates the count answers with — normalized to a conversation that lost nothing.
+ *
+ * The tolerance has to be a real alternative, not a default: a default only fills a
+ * missing key INSIDE an object, and an object schema rejects an array outright. The
+ * console strictly parses every reply, so without this an older daemon behind a newer
+ * console fails every conversation open with a load error — which is a version skew a
+ * stale build reaches in practice, not a hypothetical.
+ */
+export const reloadedConversationSchema = z.union([
+  reloadedObjectSchema,
+  persistedTurnsSchema.transform((turns) => ({ turns, skipped: 0 })),
+]);
+export type ReloadedConversationWire = z.infer<typeof reloadedObjectSchema>;
 
 /**
  * Map a reloaded conversation (persisted wire frames from the turn store) to the view `TurnFrame`s the

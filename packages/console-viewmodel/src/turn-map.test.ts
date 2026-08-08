@@ -1,6 +1,11 @@
 import type { Push, TurnFrame as WireTurnFrame } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
-import { pushToBanner, pushToViewFrames, reloadToViewFrames } from './turn-map.js';
+import {
+  pushToBanner,
+  pushToViewFrames,
+  reloadedConversationSchema,
+  reloadToViewFrames,
+} from './turn-map.js';
 
 /** Wrap a wire turn frame in its `turn` Push (sessionId `s`, given seq). */
 const turn = (frame: WireTurnFrame, seq = 0): Push => ({
@@ -201,6 +206,29 @@ describe('mapping a governed deny', () => {
     expect(frames).toHaveLength(2);
     expect(frames[1]).toMatchObject({ role: 'system', kind: 'text' });
     expect(frames[1]).toHaveProperty('text', expect.stringContaining('3 unreadable events'));
+  });
+
+  it('parses the bare turns array an older daemon replies with, as nothing skipped', () => {
+    // A default cannot do this: it fills a missing key inside an object, and an object
+    // schema rejects an array outright. The console parses every reply strictly, so
+    // without the array alternative a stale daemon fails every conversation open.
+    const parsed = reloadedConversationSchema.parse([
+      { seq: 0, frame: { t: 'text', text: 'from an older daemon', role: 'user' } },
+    ]);
+    expect(parsed).toEqual({
+      turns: [{ seq: 0, frame: { t: 'text', text: 'from an older daemon', role: 'user' } }],
+      skipped: 0,
+    });
+    expect(reloadToViewFrames(parsed)).toEqual([
+      { id: 't0', role: 'you', kind: 'text', text: 'from an older daemon' },
+    ]);
+    // An empty conversation is still the array shape, and still not an error.
+    expect(reloadedConversationSchema.parse([])).toEqual({ turns: [], skipped: 0 });
+    // The current shape keeps parsing unchanged, count and all.
+    expect(reloadedConversationSchema.parse({ turns: [], skipped: 4 })).toEqual({
+      turns: [],
+      skipped: 4,
+    });
   });
 
   it('says nothing when the whole record read cleanly', () => {
