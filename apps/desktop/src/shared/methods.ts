@@ -357,7 +357,9 @@ export const METHODS: Record<MethodName, MethodSpec> = {
    *  `saveAgent`. A `builtin` scope is refused by the daemon's own params schema. */
   saveAgent: { params: SaveAgentParamsSchema, result: OkResultSchema },
   /** Remove one agent definition — proxies the daemon `deleteAgent`. `removed` is
-   *  `false` when there was nothing to remove (a double delete is not an error). */
+   *  `false` ONLY when there was nothing there to remove (a double delete is not an
+   *  error); a remove that actually failed comes back as an RPC error, not as a
+   *  successful `removed: false`. */
   deleteAgent: { params: DeleteAgentParamsSchema, result: DeleteAgentResultSchema },
   startLogin: {
     params: z.object({ email: z.string(), credentialId: z.string().optional() }),

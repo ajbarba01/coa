@@ -77,6 +77,9 @@ export function buildRegistryHandlers(ports: RegistryReadPorts): RpcHandlers {
 export interface AgentRegistryPorts {
   listAgents: () => { agents: AgentSummary[]; diagnostics: AgentDiagnostic[] };
   saveAgent: (ref: string, file: AgentFile, scope: 'personal' | 'project') => void;
+  /** `false` means there was nothing there to remove. A remove that FAILED throws, and
+   *  the router turns that into an ordinary error reply — a delete that did not happen
+   *  must never come back as a successful `removed: false`. */
   deleteAgent: (ref: string, scope: 'personal' | 'project') => boolean;
 }
 

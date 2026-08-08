@@ -7,8 +7,12 @@ import type {
   RoleSummary,
 } from '@coa/shared';
 import { RPC_ERROR } from '@coa/shared';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CapState } from '../governance/cost-cap.js';
+import { AgentRegistry } from '../session/agent-defs.js';
 import { dispatch } from './router.js';
 import {
   buildAgentRegistryHandlers,
@@ -222,5 +226,47 @@ describe('buildAgentRegistryHandlers', () => {
     );
 
     expect(res).toMatchObject({ error: { code: RPC_ERROR.invalidParams } });
+  });
+
+  it('deleteAgent answers removed:false when the file was already gone', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'coa-home-'));
+    const root = mkdtempSync(join(tmpdir(), 'coa-root-'));
+    const registry = new AgentRegistry(home, root);
+    const handlers = buildAgentRegistryHandlers({
+      listAgents: () => registry.list(),
+      saveAgent: (ref, file, scope) => registry.save(ref, file, scope),
+      deleteAgent: (ref, scope) => registry.remove(ref, scope),
+    });
+
+    const res = await dispatch(
+      { jsonrpc: '2.0', id: 1, method: 'deleteAgent', params: { ref: 'ghost', scope: 'project' } },
+      handlers,
+    );
+
+    expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: { removed: false } });
+  });
+
+  it('deleteAgent carries a genuinely failed remove back to the caller as an error', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'coa-home-'));
+    const root = mkdtempSync(join(tmpdir(), 'coa-root-'));
+    const registry = new AgentRegistry(home, root);
+    const handlers = buildAgentRegistryHandlers({
+      listAgents: () => registry.list(),
+      saveAgent: (ref, file, scope) => registry.save(ref, file, scope),
+      deleteAgent: (ref, scope) => registry.remove(ref, scope),
+    });
+    // A real unlink that cannot succeed — a non-empty directory where the agent's file
+    // belongs — rather than a stub that rejects, so this proves the whole edge and not
+    // just the mock. Answering `{ removed: false }` here is what let a failed delete
+    // travel the stack as a success.
+    mkdirSync(join(root, '.coa', 'agents', 'wedged.yaml'), { recursive: true });
+    writeFileSync(join(root, '.coa', 'agents', 'wedged.yaml', 'occupant.txt'), 'in the way');
+
+    const res = await dispatch(
+      { jsonrpc: '2.0', id: 1, method: 'deleteAgent', params: { ref: 'wedged', scope: 'project' } },
+      handlers,
+    );
+
+    expect(res).toMatchObject({ id: 1, error: { code: RPC_ERROR.internalError } });
   });
 });

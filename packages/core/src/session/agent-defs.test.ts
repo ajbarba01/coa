@@ -193,6 +193,24 @@ describe('AgentRegistry', () => {
     expect(reg.list().agents.some((a) => a.ref === 'temp')).toBe(false);
   });
 
+  it('treats an agent that was never on disk as a quiet no-op', () => {
+    const { reg } = registry();
+    expect(reg.remove('never-existed', 'personal')).toBe(false);
+  });
+
+  it('throws when the remove genuinely fails instead of answering false', () => {
+    const { reg, root } = registry();
+    // A real failing unlink, not a stubbed one: a DIRECTORY sitting where the agent's
+    // file belongs makes the unqualified `rmSync` fail for a reason that is not
+    // "nothing there" (EISDIR on POSIX, EPERM on Windows) — the same shape as the
+    // everyday Windows case where the YAML is open in an editor.
+    const dir = join(root, '.coa', 'agents', 'wedged.yaml');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'occupant.txt'), 'in the way');
+
+    expect(() => reg.remove('wedged', 'project')).toThrow();
+  });
+
   it('refuses a ref that would escape its scope directory', () => {
     const { reg } = registry();
     expect(() =>

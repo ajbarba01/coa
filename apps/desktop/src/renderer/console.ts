@@ -77,6 +77,8 @@ export interface ConsoleBridge {
   saveAgent(params: { ref: string; scope: 'personal' | 'project'; file: AgentFile }): Promise<{
     ok: boolean;
   }>;
+  /** `removed: false` means there was nothing there to remove — the benign case. A
+   *  remove that actually failed REJECTS instead, so the two are never confused. */
   deleteAgent(params: { ref: string; scope: 'personal' | 'project' }): Promise<{
     removed: boolean;
   }>;

@@ -137,7 +137,8 @@ declare global {
         file: AgentFile;
       }): Promise<{ ok: boolean }>;
       /** Remove one agent definition — proxies the daemon `deleteAgent`. `removed` is
-       *  `false` when there was nothing to remove (a double delete is not an error). */
+       *  `false` ONLY when there was nothing there to remove (a double delete is not an
+       *  error); a remove that actually failed REJECTS, so the caller can say so. */
       deleteAgent(params: {
         ref: string;
         scope: 'personal' | 'project';
