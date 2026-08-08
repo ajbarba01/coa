@@ -34,7 +34,7 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | d57d5c0 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival. All gates green (2861 tests, depcruise 411 modules, docs 60). Remaining: C4 (needs Fable/UX), C5 (scripted, ready) |
+| `arc/architecture` | f59bdc3 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**. All gates green (2859 tests, depcruise 411 modules, docs 60). Remaining: C4 (needs Fable/UX), C5 phases 2-5 (running) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
@@ -98,9 +98,17 @@ on the old machine.
    commit with exactly the predicted symptoms). See the journal for the one verification
    gap (G4 reattach / held-query-survives-interrupt lack independent confirmation).
 7. ~~Q9 archival~~ DONE 2026-08-07 (d57d5c0).
-8. **C5 — NEXT.** Fully scripted at `workflow-scripts/c5-composition-and-honesty.js`;
-   launch with `Workflow({scriptPath: ...})`. Four phases; its phase-3 item 2 is the
-   arc's ONLY data-loss bug (agent scope move is delete-then-save) and goes first.
+8. **C5 — IN FLIGHT.** The data-loss bug is FIXED and pushed (f59bdc3): the agent scope
+   move is save-then-delete, orchestrator-mutation-probed (old order reds exactly the two
+   guard tests, the data-loss one on an EMPTY scope list). Its executing agent was wedged
+   by a denied `git stash` with the work stranded in a stash entry — see the journal; the
+   script now carries a NOSTASH rule and treats a denied tool call as "adapt", not "halt".
+   Phases 2-5 (compose · honest core · honest shell · two verifiers) relaunched as
+   wf_17a541d4-d5a with phase 1 inlined as a literal result.
+   **Carry forward into the honest-shell phase:** a scope-move duplicate is NOT reported —
+   the daemon reads the same ref in two scopes as an intentional override, not a
+   diagnostic — so the optimistic rollback is currently the only failure signal on those
+   three writes; they must be routed through the shared failure surface.
 9. Stage 4 docs (mandatory before any closeout) — the script was REVISED 2026-08-07;
    the original would have documented a cost cap that no longer exists. Absorbs the
    codename-consistency pass, the stale-package doc references, and the ADR-0031
@@ -121,6 +129,15 @@ on the old machine.
   bug to root-cause, not a known-flake to rerun.
 - Commits: subject-only Conventional Commits, no body, no trailers, no internal
   codenames, stage files BY NAME, human-sized batches.
+- **`git stash` is DENIED in this harness and the denial tells an agent to stop and wait
+  for a human.** It wedged a C5 agent with finished work stranded in `stash@{0}` and a
+  CLEAN working tree — so "no commits, nothing modified" is NOT proof an agent produced
+  nothing. Check `git stash list` before concluding a dead agent did no work. Every
+  workflow prompt should ban stash and say that a denied call means adapt, not halt.
+- **Syntax-check a workflow script before launching** (`node --input-type=module --check`;
+  the top-level `return` error is expected and fine) and write it as BINARY — a Python
+  text-mode write converts LF to CRLF on Windows, and the launcher rejects the script for
+  control characters.
 - Never push `main`; never force-push anything on origin except the arc's own branches.
 
 ## Model allocation (maintainer decision, 2026-08-07 afternoon)

@@ -163,3 +163,27 @@ once the session-layer work releases the working tree: move health-profile.ts +
 health-profile.test.ts, update the archive README row (it already flags this as the
 obvious next thing to park), and check the ROADMAP M4 row. `MetricSample` stays live
 (packages/code-intel/src/extract-metrics.ts) — the cascade stops there.
+
+## Q10 — three desktop panel suites each failed once under a workflow agent's runs (2026-08-08)
+**Context:** the standing rule since 2026-08-07 is that the suite is green every run and a
+failure is REAL, never a flake to rerun. That rule is now in tension with evidence. Across
+the ~4 full-suite runs the wedged C5 phase-1 agent performed, three DIFFERENT desktop panel
+suites failed exactly once each:
+- `UsagePanel.test.tsx > scopes the reading to any combination of providers; clearing every tile reads as all`
+- `ChatPanel.test.tsx > labels the running-turn action Steer and routes it to steerSession…`
+- `AuthPanel.test.tsx > removing a provider asks first — and cancel keeps everything`
+`AuthPanel` was one of the three suites the 2026-08-07 flake fix (852922c) specifically
+de-raced, so this is a partial regression of that work or a second cause with the same shape.
+**Diagnostics:** the agent's own reasoning is on record and is sound as far as it goes —
+`ChatPanel.test.tsx` does not import `console.js`, so its change could not reach it. Its
+final full run was green, and the orchestrator's independent post-commit gate was green
+(2859 passed). So the failures are load/timing dependent, not caused by the data-loss fix.
+**Why it is not being chased now:** it does not block C5, every gate that mattered was
+green, and the three named tests are assertion-timing shaped rather than logic shaped.
+**Needed:** a decision on whether to spend a charter on it. Recommended: treat it as a real
+(if narrow) defect in the desktop panel suites' timing discipline, sized as one focused
+pass — the 08-07 fix trimmed slow `user.type` loops and added deterministic waits, and the
+same technique likely applies. What must NOT happen is the rule quietly eroding into
+"panel tests are flaky, rerun them"; that is how the pre-arc suite got where it was.
+**Done instead:** recorded with the verbatim test names so the next observer can tell a
+recurrence from a first sighting.
