@@ -203,3 +203,65 @@ C1 and C2 clean, C3 was missing its state machine (now built). See Q13.
   the real fix, but it may hold unmerged work (`worktree-conversation-canvas` @ 2cb7b9f).
 - `allowBuilds: electron: false` — flipping it to true is the documented intent for interactive
   dev, but it is a supply-chain posture change to a committed file.
+
+---
+
+# Addendum — written 2026-08-08 (evening) for the NEXT fresh session
+
+Everything above is now HISTORY, not a to-do list — the arc reached Stage 5 closeout this session.
+Read `run/state.md`'s "The arc, right now" section and the journal's "STAGE 5 CLOSEOUT" entry
+first; both items in "Needs the maintainer" above were resolved this session (worktree deleted
+after checking what was on it; electron flag deliberately left as-is). If you're reading this
+addendum stack from the top, you can skip everything before this section — it's all closed.
+
+## What this session did, in one paragraph
+
+Cross-checked the whole handoff against the live repo before trusting it (worth doing — the tree
+matched exactly). Cleaned up the stray worktree and its zombie processes. Ran Stage 4's two
+verification lenses for real (one found and fixed a real doc/code contradiction). Closed C3's last
+item — which turned out to be a genuine, provable bug in the turn-lifecycle machine, not the
+hygiene nit it had been filed as — fixed it, mutation-probed it, and got a second independent
+agent to confirm. Reconciled the ledger (it had drifted from reality more than anyone had
+noticed). Wrote the Stage 5 final report. See the journal for all of it in full.
+
+## New operational facts, learned the hard way (again)
+
+- **A `Workflow` call's agents check out branches in the SAME main working directory you're
+  sitting in — there is no isolation by default.** Launching `stage4-docs.js` (which needs
+  `arc/docs` checked out) while separately investigating `arc/architecture` files in that same
+  directory produced a file that had just been read successfully coming back "not found" moments
+  later — not corruption, the workflow had switched HEAD underneath the investigation. If you need
+  to touch a different branch while a workflow runs, use a separate `git worktree add`, or just
+  don't parallelize the two. This cost real confusion before the cause was clear.
+- **A git worktree with its own deeply-nested `node_modules`/`.pnpm` store can defeat
+  `git worktree remove` on Windows** with "Filename too long" — the underlying files are too deep
+  for Windows's default path length. Clear it first with a robocopy-mirror-to-empty-directory
+  trick (`robocopy <empty> <target> /MIR` then remove the now-empty tree), which handles long
+  paths where `Remove-Item -Recurse`/`rm -rf` do not.
+- **A worktree can be running its own zombie processes that lock its files.** Deleting the stray
+  conversation-canvas worktree failed with an `EBUSY`-style "used by another process" on
+  `default_app.asar` — 4 Electron processes were still running from that worktree's own binary
+  (loaded there via the module-resolution hijack this file already documents), started hours
+  earlier and never cleaned up. `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"`
+  (with `CommandLine`) is how to confirm which binary/path a running process actually traces to
+  before killing anything.
+- **The verifier's own gate run and the orchestrator's independent gate run can both hit large,
+  matching test-suite failures that have nothing to do with the change under review.** Two
+  separate full `pnpm test` runs today each threw 37-50 failures concentrated in
+  apps/desktop/renderer, console-kit, and console-transcript — an order of magnitude worse than
+  earlier sightings of the same (already-tracked) Q10 pattern. Package-isolated reruns of whatever
+  was actually being changed were 100% green both times. If a full-suite run looks bad but the
+  isolated package you touched is clean, don't let the unrelated noise block you — but do escalate
+  the pattern itself if it's growing, which is what happened here (see Q10 in questions.md).
+- **When an executor dies before writing anything, the verifier can still be worth running** — its
+  prompt should degrade gracefully on a null/empty executor result (optional-chain everything).
+  This session's verifier did exactly that and, working off entirely unfixed code, built two
+  actual reproductions of a bug that a "latent, theoretical" writeup had underestimated. A dead
+  executor is not a wasted verification round if the verifier's prompt survives it.
+- **Verifying your own fix is not the same as verifying period.** Mutation-probing a fix you wrote
+  yourself catches implementation bugs but not blind spots in your own reasoning — this session
+  caught two bugs in its OWN new test assertions (checking for "any text frame" when the
+  legitimate content frame is also text) only by re-running the mutation probes after tightening
+  them. Still worth getting a second, independent agent afterward regardless: it re-derived the
+  reachability argument from a file the first pass hadn't even cited (`run-live-session.ts`) and
+  did an actual parent-commit file-swap comparison rather than trusting the diff.

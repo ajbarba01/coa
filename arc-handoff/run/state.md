@@ -46,35 +46,24 @@ a13e46d) are reachable in `arc/reset-knife`'s ancestry — recreate with
 `git branch -f main a13e46d` if you want that local main back. Nothing exists only
 on the old machine.
 
-## Stage status
+## Stage status (current as of 2026-08-08, the Stage 5 closeout)
 
-- **Stage 0 (baseline)** — COMPLETE. Found the pre-flight "green suite" was a no-op
-  (`pnpm -r test` runs nothing); the real root suite had 27 pre-existing failures, all
-  fixed. Also fixed a real workbench import cycle and lint/format debt.
-- **Stage 1 (the knife)** — COMPLETE. 12/12 verified rulings executed, 19 commits,
-  draft PR #1. R1 + R2 + the Cost floor half of R12f PARKED as contradicted (Q1–Q3).
-- **Stage 2 (architecture)** — PARTIAL:
-  - C1 tooling honesty — DONE (3 commits). Dependency rules actually fire now
-    (source-resolved cross-package edges, node_modules matchable, apps/cli cruised)
-    and a canary test makes silent inertness impossible. Ring rule extended to all of
-    core. Two real CLI cycles fixed.
-  - de-slop — DONE (4 commits). Codename sweep across 312 files; mockAuth→authStore
-    and the mock/live boundary untangled; barrels narrowed (core 272→48 exports);
-    knife leftovers archived/deleted.
-  - C2 backend seam — part 1 DONE (2 commits: port shrink 14→6; core imports no
-    adapter, capability ports injected from the CLI, new enforced cruiser rule).
-    **Part 2 (adapter unification) killed by the spend limit — ungated work on
-    `arc/wip-adapter-unify`. Part 3 (OpenAI + OpenRouter specs) never started.**
-  - C3 (session service extraction), C4 (console store rewrite), C5 (composition
-    root + error honesty) — PARKED, never started.
-- **Stage 3 (features)** — NOT STARTED. F6 was riding C2 (so it is half-done via the
-  WIP branch). F1–F5, F7–F10 untouched.
-- **Stage 4 (docs)** — NOT STARTED, but fully prepped: both harvests are complete in
-  `run/harvest/` (27 live ADR rationales distilled + ~40 tiered roadmap candidates +
-  ~25 verified-SDK-behavior bullets), and the whole workflow is pre-written at
-  `arc-handoff/workflow-scripts/stage4-docs.js` — launch it with
-  `Workflow({scriptPath: '<that file>'})` after copying it somewhere writable.
-- **Stage 5 (closeout)** — NOT STARTED.
+- **Stage 0 (baseline)** — COMPLETE.
+- **Stage 1 (the knife)** — COMPLETE. 12/12 verified rulings executed (R1 archived per Q1's
+  ruling, R2 struck per Q2, R12f's Cost half kept per Q3 — the knife's question queue is fully
+  closed), draft PR #1.
+- **Stage 2 (architecture)** — COMPLETE except C4. C1, de-slop, C2 (all 3 parts, adapter
+  unification gated and landed), C3 (session service extraction, including its turn-lifecycle
+  state machine — see journal for the real bug its last item turned out to be), C5 (composition
+  root + error honesty) are all DONE and independently verified. **C4 (console store rewrite) is
+  the only item left, deliberately unstarted — it needs the maintainer's Fable/UX allocation, not
+  sequence; C3 was its prerequisite and is done, so it is unblocked.**
+- **Stage 3 (features)** — NOT STARTED except F6, which rode C2 and shipped. F1–F5, F7–F10
+  untouched, same as Stage 2's UX allocation.
+- **Stage 4 (docs)** — COMPLETE AND VERIFIED. Landed on `arc/docs`, both adversarial lenses ran
+  and their one real finding (ADR 0015's rationale) is fixed. See branch table above.
+- **Stage 5 (closeout)** — COMPLETE. See the "STAGE 5 CLOSEOUT" journal entry for the full
+  morning-after report.
 
 ## Next action (in order)
 
@@ -104,15 +93,17 @@ on the old machine.
    findings fixed and hand-verified with mutation probes. Plus the charter item the SCRIPT had
    dropped (a user-visible sample-data label on the usage surface, 7852763) — found by auditing
    the plan against the tree, not by any test.
-8b. **C3's missing item — turn lifecycle — BUILT AND FIXED (fa437a1 · a1902f9 · 8b97c94 ·
-   77e6dd4).** One owned state machine replaces three hand-synced flags. Both verifiers returned
-   passed=false; the headline was that the refactor had introduced a NEW silent-failure mode (the
-   abandon-stop edge was deletable with the whole suite green, and its loss makes a later genuine
-   provider failure die with no error frame). Now pinned behaviourally and probe-proven.
-   STILL OWED on this charter, both small, both want a verifier: two call sites discard the
-   machine's `false` return (held-open re-arm, registry cascade), and `settle()` clears `inert`
-   (latent — the shipped Claude backend never takes the abort-fallback, but a trap for the next
-   held-open backend).
+8b. ~~C3's missing item — turn lifecycle~~ **BUILT, FIXED, AND NOW FULLY CLOSED (fa437a1 ·
+   a1902f9 · 8b97c94 · 77e6dd4 · 5c232df).** One owned state machine replaces three hand-synced
+   flags. Multiple verifier rounds returned passed=false across this charter, each finding
+   something real: a NEW silent-failure mode the refactor itself introduced (the abandon-stop
+   edge), and — in the final round — the two small leftover items (discarded `false` returns,
+   `settle()` clearing `inert`) turned out to be a REAL, provable bug rather than the "latent,
+   future-backend-only" hygiene nit this file previously described: a straggler frame could
+   render below the `interrupted` marker via the everyday Stop button, proven with two working
+   reproductions before any fix existed. Fixed at 5c232df, mutation-probed, and independently
+   re-verified by a second adversarial agent (passed=true). See the journal for the full story
+   and Q13's resolution.
 9. **Stage 4 docs — LANDED on arc/docs (fa6a433 · a716bf4 · 9fb09db · 388272e · 14b55ac),
    VERIFIED, draft PR #3 body rewritten to match.** Resumed wf_1261f87e-ce1: the five writers
    replayed from cache, the closer found and reverted an uncommitted ROADMAP.md edit that had
@@ -129,9 +120,16 @@ on the old machine.
    also noted `docs/recipes/openai-bridge.md` isn't in AGENTS.md's nav table — it's reachable via
    README so nothing is broken, and the table's shape is "one row per domain authority," which a
    how-to recipe doesn't cleanly fit.
-10. Stage 5 closeout: write questions for every parked charter/feature, push all
-    branches, open draft PRs per workstream, final morning report in the journal.
-    PR #2 and PR #3 bodies are both current as of this session.
+10. ~~Stage 5 closeout~~ **COMPLETE.** Every parked charter/feature has a numbered question; all
+    branches pushed (`arc/wip-adapter-unify` deleted, fully merged); PR #2 and PR #3 bodies both
+    current; the final morning report is the "STAGE 5 CLOSEOUT" entry at the end of the journal.
+
+## The arc, right now
+
+Nothing is queued. Stage 0/1 complete, Stage 2 complete except C4, Stage 4 complete and verified,
+Stage 5 complete. C4 and Stage 3 wait on the maintainer's Fable/UX allocation — not sequence, not a
+technical blocker. The next session starting fresh should read the journal's closeout entry first;
+everything after this point in the file is prior-session detail, kept for the record.
 
 ## Standing operational facts (do not rediscover)
 

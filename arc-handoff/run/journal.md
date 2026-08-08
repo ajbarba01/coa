@@ -1301,3 +1301,97 @@ clean commit stops being reviewable as one thing.
 
 **C3 is now fully complete.** This was its last outstanding item (Q13), and it turned out to be a
 real, provable bug rather than the hygiene nit its own state.md description undersold it as.
+
+Updated PR #2's body to describe the completed C3 item and the straggler fix (51 commits now, was
+45), and PR #3's body was already current from the Stage 4 closeout above. Pushed.
+
+---
+
+# STAGE 5 CLOSEOUT — the morning-after report
+
+Everything queued at the top of this session is now either shipped or consciously parked with a
+recorded question. Nothing is silently unfinished.
+
+## What shipped this session
+
+- **Restored the handoff worktree and independently cross-checked it against the live repo**
+  (branch tips, PR states, `git stash list`) before trusting a word of it — everything matched
+  exactly; the prior session's bookkeeping was accurate.
+- **Cleaned up two pieces of workspace debris**, at the maintainer's direction: deleted the stray
+  `.claude/worktrees/conversation-canvas` worktree (431 commits of console-redesign prototyping,
+  preserved on `backup/pre-squash`, nothing lost) after finding and closing 4 zombie Electron
+  processes it had left running via the exact module-resolution hijack this handoff already
+  documented; left `allowBuilds: electron: false` as-is (a deliberate supply-chain posture, kept
+  given this repo is headed toward open-sourcing).
+- **Stage 4 documentation verification, completed for real.** Both adversarial lenses that had
+  twice died on session limits finally ran. Lens 1 (prose vs. tree, 24 claims) passed clean. Lens
+  2 (rationale survival) found one real gap — ADR 0015's two color exceptions were deleted with
+  the ADR and left `docs/UI.md`'s own authoring law silently contradicted by live code — fixed by
+  naming both exceptions and their reasoning directly in the doc. `arc/docs` pushed
+  (9fb09db..14b55ac); PR #3's body rewritten to state verification is complete, no longer a caveat.
+- **Ledger reconciliation** (`run/ledger.md`), which the plan requires and which turned out to be
+  genuinely out of date, not just incomplete: R1 was marked "parked, nothing removed" a full day
+  after it was actually executed; two rows carried "flag for maintainer" notes about leftovers that
+  had already been resolved in later commits; P2 and P3 had no status recorded at all despite both
+  being done. All six corrected against the actual tree and git history.
+- **Deleted the fully-merged `arc/wip-adapter-unify`** (local + origin) after confirming via
+  `merge-base --is-ancestor` that `arc/architecture` contains every commit — Q5's own anticipated
+  closeout step, not a new decision.
+- **C3's last outstanding item, closed and independently verified** — and reclassified in the
+  process from a hygiene nit into a real bug. A straggler frame could render literally below the
+  `interrupted` marker via the everyday Stop button; a second, independent leak existed on the
+  registry cascade-close path. Both proven with working reproductions before any fix existed, both
+  fixed (5c232df), each fix mutation-probed independently, and the whole thing re-verified by a
+  second, fresh adversarial agent that re-derived the reachability arguments from the actual call
+  graph and did a real parent-commit comparison rather than trusting the diff. `passed: true`.
+  `packages/core/src/session` isolated: 354/354, confirmed by two independent agents.
+- **Both architecture PRs (#2, #3) brought current** — bodies describe the tree as it actually is,
+  not as it was when first opened.
+
+## What's parked, and why
+
+- **C4 (console store rewrite) and all of Stage 3's features** — unchanged from before this
+  session, deliberately reserved for the maintainer's Fable/UX allocation. C3 was C4's prerequisite
+  and is now fully done, so C4 is unblocked whenever that allocation opens.
+- **Q10 (desktop/console-kit test suite reliability) — ESCALATED, not resolved.** What began as 3
+  isolated sightings is now two independent full-suite runs each throwing 37-50 failures, entirely
+  outside anything this session touched. Recommendation upgraded from "not worth chasing" to "size
+  this soon" — see the two candidate causes (file-handle exhaustion, memory pressure) recorded in
+  questions.md before assuming it's pure load.
+- **Q11 (the daemon's root/home seam is honored in one place, bypassed in ~6 others, sharpest in
+  `auth-handlers.ts`'s 9 raw `homedir()` calls)** — untouched this session, recommendation
+  unchanged: a small, mechanical follow-up charter.
+- **Q14 (new — a closed session's leftover queued turn can still dispatch a new backend query,
+  invisible to the registry)** — found while verifying the C3 fix, explicitly unrelated to it, not
+  chased. Needs a decision on whether it's worth its own charter.
+
+## What to review first
+
+1. **PR #2 and PR #3** are both in a genuinely reviewable state now — bodies match the tree, no
+   outstanding verification caveats, gates green. PR #1 (the knife) was already fine.
+2. **Q10's escalation** — if this machine is going to keep running long workflow sessions back to
+   back, it may be worth checking whether the desktop test suite's growing unreliability is a
+   process-hygiene problem (restart node/vitest workers between big runs) before it's mistaken for
+   a code-quality problem and someone spends a charter chasing timing in test files instead.
+3. **Q14** — cheap to fix (clear or drain `LiveSession#queue` on close) if it's worth doing now, or
+   fine to leave as a recorded, reproducible-but-unobserved gap.
+4. **C4 + Stage 3** — the architecture workstream is complete except C4; the feature workstream is
+   untouched. Both are unblocked and waiting on the maintainer's model/time allocation, not on
+   anything technical.
+
+## Spend / time
+
+This session's new subagent spend: ~1.37M tokens across three background runs — the Stage 4
+re-verification workflow (1.00M, 8 agents, ~32 min wall-clock), the turn-lifecycle-leftovers
+workflow (204k, 2 agents, one of which died on a server error before writing anything), and the
+independent adversarial re-verification of the resulting fix (163k, 1 agent, ~12.5 min). Combined
+with the prior session's recorded ~4.4M subagent tokens over ~6h wall-clock, the arc's running total
+is approximately **5.8M subagent tokens**. No dollar figure is available in-session (subscription
+account, no spend meter, per Q4's ruling) — token counts are the only available proxy.
+
+## Where this leaves the arc
+
+Stage 0, Stage 1, and Stage 2 (except C4) are complete and verified. Stage 4 is complete and
+verified. Stage 5 closeout is now complete — this entry is its final report. Stage 3 (features) is
+entirely unstarted. C4 is the one remaining architecture item. Every parked item has a numbered
+question with a recommendation attached; nothing is unaccounted for.
