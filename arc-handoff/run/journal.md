@@ -712,3 +712,100 @@ seam redirects the four stores but not those key paths, so an auth WRITE verb un
 home would still touch the real `~/.coa/keys/`. Nothing is wrong today — the moved tests only
 exercise reads and login — but the seam is half-honoured, and that is exactly the shape of
 thing that bites the first time someone writes the obvious test.
+
+## C5 BUILT — 10 commits, gates green — and BOTH verifiers returned passed=false
+
+The relaunched workflow finished all five agents cleanly (819k tokens, ~70 min). Ten commits
+now sit on arc/architecture from d57d5c0:
+
+  f59bdc3  write the moved agent file before removing the old copy
+  7c379ad  stop the serve-path test booting a daemon over the whole checkout
+  a29908a  move ripgrep, exec, and file listing out of the daemon root
+  94b48a9  build the console handler map in the binary that owns the home directory
+  0dacaeb  inject finished web tool deps instead of a config the daemon assembles
+  d14fc32  report when file-change observation stops instead of latching off silently
+  dc8a2ce  count and surface conversation events too corrupt to read
+  f6bcfe5  report why the daemon failed instead of only that it did
+  8afa5af  announce user-initiated writes that fail instead of swallowing them
+  143ce81  reconcile session run state against the daemon on every reattach
+
+Gate at the tip: 2912 passed / 30 skipped, depcruise clean 418 modules, docs-check 60.
+
+**What the verifiers CONFIRMED (worth recording, because it is the evidence the work is
+real).** One of them independently re-ran the orchestrator's mutation probe on the data-loss
+fix — reverted the ordering, watched exactly the two guard tests red, restored and checked
+md5 identity — and reported the same empty-scope-list failure. The reconciler latch fix holds:
+a non-git root still degrades silently (pinned by a test asserting the notice list is EMPTY,
+so the no-spam floor cannot regress), while three consecutive runtime failures latch and raise
+an advisory flag that genuinely reaches the console's feed. The hashFile race fix is real and
+its test discriminates — the harness deletes the file INSIDE readFileSync so the ENOENT is a
+genuine OS error rather than a synthetic one. SC-1 is intact: the one new throw is a re-throw
+that the pre-fix shape also threw, the new flag is advisory-typed and cannot be promoted to a
+block, and the toast surface is polite-live with no focus trap.
+
+### Both verdicts were passed=false, and both were right
+
+**FINDING A — the failure wire cannot carry the signal it was built for.** 8afa5af routed the
+three agent writes through a shared failure surface, closing the data-loss agent's handoff
+note. But the surface only reacts to a REJECTION, and the real failure mode cannot reject:
+`AgentRegistry.remove` wraps rmSync in a catch that swallows EVERY error and returns false,
+which the RPC layer reports as a perfectly successful result. The verifier proved this with a
+scratch probe rather than by reading — made rmSync genuinely throw EISDIR and watched
+`remove()` return false. So the everyday Windows case (the agent's YAML open in an editor →
+EPERM/EBUSY) travels the whole stack as success: no report, no toast, no rollback. The user
+sees the row snap back with old content and their move and edits look silently reverted, while
+a shadowed duplicate carrying the new content sits in the other scope forever. The two doc
+comments describing `removed` as false only "when there was nothing to remove" are now wrong
+in a way that will mislead the next caller.
+
+**FINDING B — the transcript work is a half-fix, and it is the half that matters least.**
+dc8a2ce surfaced the skipped-event count in the console transcript. The MODEL-RESUME path
+still drops it: `loadBackendMessages` discards the count, `turn-persistence` destructures only
+the turns, and the truncated fold becomes the history the model is replayed. So the console
+tells the user that events are missing and the model is told nothing. The verifier found the
+proof sitting in the tree: a test that ASSERTS the truncated pair under a comment naming this
+exact problem ("a model resumed with less memory than it had. Neither reader could tell").
+The commit made one of the two readers able to tell and left that test encoding the bug.
+
+**FINDING C — a back-compat claim that is false, disproved by running it.** The commit
+rationale claimed the new reload schema defaults the skip count to 0 "so a daemon that predates
+the count still reloads". A pre-count daemon returns a bare ARRAY, and a z.object schema
+rejects an array outright — a default only fills a missing key inside an object. The verifier
+ran it and reported the literal error. This is reachable rather than theoretical: the desktop
+strictly parses every IPC reply and prefers the built apps/cli/dist/bin.js, which on this
+machine is about a month stale, so launching without a rebuild lands exactly there and every
+conversation open fails.
+
+**FINDING D — two more resolved-false results nobody reads.** The same commit established the
+right pattern for this family (checking `interrupted` and `recompiled` and reporting "Nothing
+to stop" / "Nothing to recompile"), then missed two siblings: `removed` is read NOWHERE in the
+desktop (grep finds it only as a type), and `steered` is unchecked — the session service
+returns false when there is no live control handle, so the steer is DROPPED, the optimistic pin
+is swept by a later effect, and the user's typed text vanishes from the transcript with no
+explanation.
+
+Non-blocking, recorded not actioned: the main process's crash-reason heuristic scans a 4 KB
+stderr tail that now also carries routine daemon console.error output, so an older error-shaped
+line can be reported as the reason for a later crash; and a cross-scope duplicate is now a
+reachable post-failure state that no diagnostic surfaces.
+
+**Both verifiers also independently re-confirmed Q11** (the auth handlers computing key paths
+from the home directory at nine sites, bypassing their injected deps) — raised by the compose
+agent, now corroborated. It stays queued as Q11; it is not C5's charter.
+
+### Fix charter launched (wf_dd325935-2b5)
+
+Written as workflow-scripts/c5-fixes.js: core honesty (carry the skip into the model-resume
+path and fix the test that encodes the bug; make the reload schema genuinely tolerant or delete
+the false claim), then shell honesty (distinguish "nothing to remove" from "the remove failed"
+while keeping a double delete a quiet success; surface the two ignored booleans; name the
+operation that actually failed on a cross-scope move), then two refute-framed verifiers. The
+first verifier is told explicitly to assume this round has the same shape of hole — a fix that
+looks complete and is inert — and to make a remove fail at the filesystem level rather than
+accept a mocked rejection as proof.
+
+**The lesson this round teaches, worth carrying:** the previous verifier passed the handoff as
+honoured because `reportFailure` was present at the call site. It was present and unreachable.
+Checking that a fix is WIRED is not checking that the signal can travel it — the question is
+always whether the real failure mode can reach the handler, and that is answered by making the
+real failure happen, not by reading the call site.
