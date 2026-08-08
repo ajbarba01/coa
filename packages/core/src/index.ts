@@ -33,7 +33,13 @@ export {
 } from './session/agent-registry.js';
 export { AgentRegistry } from './session/agent-defs.js';
 export { composeSessionDeps, type SessionWiring } from './session/composition.js';
-export { buildSessionHandlers, type StartChildFn } from './session/session-handlers.js';
+export { buildSessionHandlers } from './session/session-handlers.js';
+export {
+  SessionService,
+  type SendRequest,
+  type SessionServiceOptions,
+  type StartChildRequest,
+} from './session/session-service.js';
 export { LiveSessionRegistry } from './session/live-registry.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';

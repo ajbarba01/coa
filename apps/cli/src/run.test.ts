@@ -11,6 +11,7 @@ import {
   createDaemonCore,
   listen,
   LiveSessionRegistry,
+  SessionService,
   type RpcServer,
   type SessionAdapterInit,
 } from '@coa/core';
@@ -66,13 +67,13 @@ describe('coa run — over a live daemon with a fake backend', () => {
       bindWorktree: () => dir,
     });
     path = testPath();
-    // One shared, daemon-wide registry (mirrors cli.ts) — constructed once, OUTSIDE
-    // the per-connection factory, so two connections sharing a conversation id share
-    // the one live session. No `idleMs`: an unset idle timer avoids real timers here.
+    // One shared, daemon-wide registry + session service (mirrors cli.ts) — constructed
+    // once, OUTSIDE the per-connection factory, so two connections sharing a conversation
+    // id share the one live session AND the one drive loop. No `idleMs`: an unset idle
+    // timer avoids real timers here.
     registry = new LiveSessionRegistry();
-    server = await listen(path, (connection) =>
-      buildSessionHandlers(deps, connection, undefined, registry),
-    );
+    const sessions = new SessionService({ deps, registry });
+    server = await listen(path, (connection) => buildSessionHandlers(sessions, connection));
   });
   afterEach(async () => {
     await server.close();

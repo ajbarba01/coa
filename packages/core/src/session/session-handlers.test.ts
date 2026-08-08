@@ -12,10 +12,13 @@ import type {
 } from '@coa/shared';
 import type { BackendConfig, CanUseTool, Delivery, RuntimeAdapter, StopPredicate } from '@coa/spi';
 import type { AssemblePiecesContext, SessionAdapterInit, SessionDeps } from './session.js';
-import { buildSessionHandlers, type StartChildFn } from './session-handlers.js';
+import { buildSessionHandlers } from './session-handlers.js';
+import { SessionService } from './session-service.js';
 import { createConversationStore, type ConversationStore } from './conversation-store.js';
 import { configHashOf } from './prompt-freeze.js';
 import { LiveSessionRegistry } from './live-registry.js';
+import type { RpcConnection } from '../rpc/stream.js';
+import type { RpcHandlers } from '../rpc/router.js';
 import { dispatch } from '../rpc/router.js';
 
 const NEUTRAL: NeutralConfig = {
@@ -201,6 +204,34 @@ function connection(): {
   };
 }
 
+/** The daemon-scoped half: one service over one registry, exactly as `apps/cli` builds it.
+ *  Tests with more than one connection build ONE of these and hand it to both. */
+function sessionService(
+  deps: SessionDeps,
+  store: ConversationStore | undefined,
+  registry: LiveSessionRegistry,
+  listAgents?: () => readonly AgentSummary[],
+): SessionService {
+  return new SessionService({
+    deps,
+    registry,
+    ...(store !== undefined ? { store } : {}),
+    ...(listAgents !== undefined ? { listAgents } : {}),
+  });
+}
+
+/** One connection's handlers over a service built for this call — the single-connection
+ *  shape most of these tests want. */
+function handlersFor(
+  deps: SessionDeps,
+  connection: RpcConnection,
+  store: ConversationStore | undefined,
+  registry: LiveSessionRegistry,
+  listAgents?: () => readonly AgentSummary[],
+): RpcHandlers {
+  return buildSessionHandlers(sessionService(deps, store, registry, listAgents), connection);
+}
+
 const pushesOf = (notes: RpcNotification[]): Push[] => notes.map((n) => n.params as Push);
 
 /** Every turn frame pushed, in push order — the read-time view of the append-only log. */
@@ -215,7 +246,7 @@ const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 describe('buildSessionHandlers — createSession over RPC', () => {
   it('returns the session id + worktree once the session starts', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'hi' }]),
       conn,
       undefined,
@@ -234,7 +265,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
       { t: 'thinking', text: 'weighing' },
       { t: 'text', text: 'answer' },
     ];
-    const handlers = buildSessionHandlers(deps(frames), conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(deps(frames), conn, undefined, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
     await flush();
@@ -259,7 +290,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
       { t: 'text', text: 'thinking out loud' },
       { t: 'tool_use', tool: 'Read', input: { path: 'a' }, handle: 'tu1' },
     ];
-    const handlers = buildSessionHandlers(deps(frames), conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(deps(frames), conn, undefined, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
     await flush(); // the live session's post-turn `idle` (run-live-session.ts) lands one hop later
@@ -275,7 +306,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
 
   it('every pushed record is sent as a `push` JSON-RPC notification', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'x' }]),
       conn,
       undefined,
@@ -288,12 +319,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
 
   it('surfaces a loop failure as an error frame + an error status (never a thrown RPC)', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
-      deps([], true),
-      conn,
-      undefined,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(deps([], true), conn, undefined, new LiveSessionRegistry());
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
     await flush();
@@ -313,7 +339,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
 
   it('rejects a request with no input via invalid params (Zod-validated)', () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(deps([]), conn, undefined, new LiveSessionRegistry());
     expect(handlers['createSession']!.params?.safeParse({}).success).toBe(false);
   });
 
@@ -321,7 +347,7 @@ describe('buildSessionHandlers — createSession over RPC', () => {
     // A deny is NOT an error, so no error-suppression path may swallow it, and `stamp`
     // must pass it through unreshaped. If either is false, the session layer needs a fix.
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'deny', denyKind: 'close-gate', reason: 'blocked at close' }]),
       conn,
       undefined,
@@ -374,7 +400,7 @@ describe('buildSessionHandlers — streaming deltas are delivery-only', () => {
         { t: 'text-delta', text: 'lo' },
         { t: 'text', text: 'Hello' },
       ];
-      const handlers = buildSessionHandlers(deps(frames), conn, store, new LiveSessionRegistry());
+      const handlers = handlersFor(deps(frames), conn, store, new LiveSessionRegistry());
       await handlers['createSession']!.handle({ input: 'go', conversationId: 'c1' });
       await conn.settled;
 
@@ -407,7 +433,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
 
   it('persists the user prompt then the streamed frames, and auto-titles from the prompt', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'on it' }]),
       conn,
       store,
@@ -438,7 +464,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
 
   it('records the backend session id and resumes it on the next send, continuing the seq', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'reply' }], inits),
       connection(),
       store,
@@ -477,7 +503,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
     const conn = connection();
     const registry = new LiveSessionRegistry();
     // Turn 1 succeeds and captures a resumable backend session.
-    await buildSessionHandlers(deps([{ t: 'text', text: 'reply' }]), conn, store, registry)[
+    await handlersFor(deps([{ t: 'text', text: 'reply' }]), conn, store, registry)[
       'createSession'
     ]!.handle({
       input: 'first',
@@ -492,7 +518,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
     // dropped so the next send replays the last-good transcript rather than resuming a
     // phantom server session the model never actually advanced (the "confused agent" bug).
     const conn2 = connection();
-    await buildSessionHandlers(deps([], true), conn2, store, new LiveSessionRegistry())[
+    await handlersFor(deps([], true), conn2, store, new LiveSessionRegistry())[
       'createSession'
     ]!.handle({
       input: 'second',
@@ -506,7 +532,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
 
   it('resends the whole prior transcript as history on the next send (pure-API memory)', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'reply' }], inits, true),
       connection(),
       store,
@@ -546,7 +572,7 @@ describe('buildSessionHandlers — persistent conversation', () => {
 
   it('does not persist or resume an ephemeral session (no conversationId)', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'x' }], inits),
       connection(),
       store,
@@ -586,7 +612,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   it('pins the provider and, on a fresh daemon (restart), routes DeepSeek back to itself with memory intact', async () => {
     const inits: SessionAdapterInit[] = [];
     await send(
-      buildSessionHandlers(
+      handlersFor(
         depsCapturing([{ t: 'text', text: 'reply' }], inits),
         connection(),
         store,
@@ -601,7 +627,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
     // Simulate a console/daemon restart: brand-new handlers over the same on-disk store.
     const inits2: SessionAdapterInit[] = [];
     await send(
-      buildSessionHandlers(
+      handlersFor(
         depsCapturing([{ t: 'text', text: 'reply' }], inits2),
         connection(),
         store,
@@ -621,7 +647,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('Claude→DeepSeek: drops the Claude resume token and replays the Claude transcript as history', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'reply' }], inits),
       connection(),
       store,
@@ -643,7 +669,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('DeepSeek→Claude: no resumable session, so the transcript is delivered as a first-turn preamble', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'reply' }], inits),
       connection(),
       store,
@@ -662,7 +688,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('same-provider Claude continuation still uses native resume (fast path preserved)', async () => {
     const inits: SessionAdapterInit[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'r' }], inits),
       connection(),
       store,
@@ -685,12 +711,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
         return base.compile(...args);
       },
     };
-    const handlers = buildSessionHandlers(
-      countingDeps,
-      connection(),
-      store,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(countingDeps, connection(), store, new LiveSessionRegistry());
     await handlers['createSession']!.handle({
       input: 'first',
       role: '',
@@ -721,12 +742,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
         return base.compile(...args);
       },
     };
-    const handlers = buildSessionHandlers(
-      countingDeps,
-      connection(),
-      store,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(countingDeps, connection(), store, new LiveSessionRegistry());
 
     // First send on claude → compiles + freezes, stamped with the model.
     await handlers['createSession']!.handle({
@@ -767,7 +783,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('stamps the frozen compilation with the drift key of the config that produced it', async () => {
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'r' }]),
       connection(),
       store,
@@ -788,7 +804,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('stamps the frozen compilation with the sorted role list when multiple roles are selected', async () => {
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'r' }]),
       connection(),
       store,
@@ -809,7 +825,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
 
   it('recompilePrompt drops the frozen prompt and the resume token so the next turn recompiles', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'r' }]),
       conn,
       store,
@@ -833,7 +849,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('recompilePrompt is a no-op (never throws) without a store', async () => {
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'r' }]),
       connection(),
       undefined,
@@ -845,7 +861,7 @@ describe('buildSessionHandlers — provider pinning + switching (1a/1b)', () => 
   });
 
   it('pins the effective provider even when the send names only a model (keeps the pin complete for routing + drift/cache detection)', async () => {
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       deps([{ t: 'text', text: 'r' }]),
       connection(),
       store,
@@ -925,7 +941,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
         ...deps([]),
         createAdapter: (init) => new PartialStreamAdapter(init, []),
       };
-      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+      const handlers = handlersFor(customDeps, conn, store, new LiveSessionRegistry());
       const { sessionId } = await handlers['createSession']!.handle({
         input: 'write a poem',
         conversationId: 'c1',
@@ -959,12 +975,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
 
   it('aborts the session and surfaces a clean interrupted stop — never an error (a user stop, never an error)', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
-      depsAbortable(),
-      conn,
-      undefined,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(depsAbortable(), conn, undefined, new LiveSessionRegistry());
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({
@@ -996,7 +1007,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
 
   it('emits `interrupted` exactly once when the loop returns cleanly after an abort (clean-break path)', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCleanBreakAbortable(),
       conn,
       undefined,
@@ -1025,7 +1036,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     // through `control.steer`/`control.queueSteer` anymore (those buffers are gone).
     const conn = connection();
     const adapters: FrameAdapter[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsSteerable(adapters),
       conn,
       undefined,
@@ -1045,7 +1056,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     const conn = connection();
     const adapters: FrameAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsSteerable(adapters), conn, undefined, registry);
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     // Core fills ONE queue per session; the driver drains it at the top of its next
@@ -1065,7 +1076,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     const conn = connection();
     const adapters: FrameAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsSteerable(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsSteerable(adapters), conn, undefined, registry);
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     const session = registry.get(sessionId)!;
     session.deliveries.push({ origin: 'user', text: 'check the schema first' });
@@ -1083,24 +1094,14 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
   });
 
   it('interruptSession on an unknown id returns the negative result without throwing', async () => {
-    const handlers = buildSessionHandlers(
-      deps([]),
-      connection(),
-      undefined,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(deps([]), connection(), undefined, new LiveSessionRegistry());
     expect(await handlers['interruptSession']!.handle({ id: 'nope' })).toEqual({
       interrupted: false,
     });
   });
 
   it('steerSession on an unknown id returns the negative result without throwing', async () => {
-    const handlers = buildSessionHandlers(
-      deps([]),
-      connection(),
-      undefined,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(deps([]), connection(), undefined, new LiveSessionRegistry());
     expect(await handlers['steerSession']!.handle({ id: 'nope', text: 'hi' })).toEqual({
       steered: false,
     });
@@ -1112,7 +1113,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     // be recorded as a visible blank "you" turn.
     const conn = connection();
     const adapters: FrameAdapter[] = [];
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsSteerable(adapters),
       conn,
       undefined,
@@ -1129,12 +1130,7 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
   });
 
   it('strips an unknown mode key instead of rejecting it, since there is only one steer', () => {
-    const handlers = buildSessionHandlers(
-      deps([]),
-      connection(),
-      undefined,
-      new LiveSessionRegistry(),
-    );
+    const handlers = handlersFor(deps([]), connection(), undefined, new LiveSessionRegistry());
     // Asserted on the SCHEMA, not through `.handle()`: `rpcMethod` is a pure type cast and all
     // Zod validation happens in `dispatch()`, so a direct `.handle()` call proves nothing here.
     // Not `.strict()`: an older console build still sending `mode` (a version-skew straggler)
@@ -1163,12 +1159,7 @@ describe('buildSessionHandlers — closeSession', () => {
       },
     });
     const conn = connection();
-    const handlers = buildSessionHandlers(
-      deps([{ t: 'text', text: 'x' }]),
-      conn,
-      undefined,
-      registry,
-    );
+    const handlers = handlersFor(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
     await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
 
@@ -1180,7 +1171,7 @@ describe('buildSessionHandlers — closeSession', () => {
 
   it('reports not-closed for an unknown session id', async () => {
     const conn = connection();
-    const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(deps([]), conn, undefined, new LiveSessionRegistry());
     expect(await handlers['closeSession']!.handle({ id: 'nope' })).toEqual({ closed: false });
   });
 });
@@ -1191,12 +1182,7 @@ describe('buildSessionHandlers — block-preserving persistence on error', () =>
     try {
       const store = createConversationStore(dir);
       const conn = connection();
-      const handlers = buildSessionHandlers(
-        depsFlushThenFail(),
-        conn,
-        store,
-        new LiveSessionRegistry(),
-      );
+      const handlers = handlersFor(depsFlushThenFail(), conn, store, new LiveSessionRegistry());
       await handlers['createSession']!.handle({ input: 'edit the file', conversationId: 'c1' });
       await conn.settled;
 
@@ -1230,12 +1216,7 @@ describe('buildSessionHandlers — full tool-result fidelity', () => {
           full: FULL_BODY,
         },
       ];
-      const handlers = buildSessionHandlers(
-        depsEnriched(enriched),
-        conn,
-        store,
-        new LiveSessionRegistry(),
-      );
+      const handlers = handlersFor(depsEnriched(enriched), conn, store, new LiveSessionRegistry());
       await handlers['createSession']!.handle({ input: 'read the file', conversationId: 'c1' });
       await conn.settled;
 
@@ -1258,7 +1239,7 @@ describe('buildSessionHandlers — one live session across turns (P-α multi-tur
     const inits: SessionAdapterInit[] = [];
     const registry = new LiveSessionRegistry();
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsCapturing([{ t: 'text', text: 'ok' }], inits),
       conn,
       undefined,
@@ -1303,10 +1284,9 @@ describe('buildSessionHandlers — a turn sent over a connection that did not fo
     assembledRoles: string[];
     founder: ReturnType<typeof connection>;
     second: ReturnType<typeof connection>;
-    founderHandlers: ReturnType<typeof buildSessionHandlers>;
-    secondHandlers: ReturnType<typeof buildSessionHandlers>;
+    founderHandlers: RpcHandlers;
+    secondHandlers: RpcHandlers;
   } {
-    const registry = new LiveSessionRegistry();
     const assembledRoles: string[] = [];
     const sessionDeps: SessionDeps = {
       ...(shared ?? deps([{ t: 'text', text: 'ok' }])),
@@ -1315,14 +1295,16 @@ describe('buildSessionHandlers — a turn sent over a connection that did not fo
         return { pieces: [], frame: { allow: [], deny: [] } };
       },
     };
+    // ONE service, as the daemon has — the two connections share it and nothing else.
+    const service = sessionService(sessionDeps, undefined, new LiveSessionRegistry());
     const founder = connection();
     const second = connection();
     return {
       assembledRoles,
       founder,
       second,
-      founderHandlers: buildSessionHandlers(sessionDeps, founder, undefined, registry),
-      secondHandlers: buildSessionHandlers(sessionDeps, second, undefined, registry),
+      founderHandlers: buildSessionHandlers(service, founder),
+      secondHandlers: buildSessionHandlers(service, second),
     };
   }
 
@@ -1400,15 +1382,15 @@ describe('buildSessionHandlers — a turn sent over a connection that did not fo
 
 describe('buildSessionHandlers — subscribeSession (console reattach)', () => {
   it('hydrates a newly subscribing connection with the running status of an in-flight session', async () => {
-    const registry = new LiveSessionRegistry();
     const founder = connection();
     const adapters: FrameAdapter[] = [];
-    const handlers = buildSessionHandlers(depsSteerable(adapters), founder, undefined, registry);
+    const service = sessionService(depsSteerable(adapters), undefined, new LiveSessionRegistry());
+    const handlers = buildSessionHandlers(service, founder);
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     // A second, independent connection joins the SAME daemon-owned live session.
     const watcher = connection();
-    const watcherHandlers = buildSessionHandlers(deps([]), watcher, undefined, registry);
+    const watcherHandlers = buildSessionHandlers(service, watcher);
     const result = await watcherHandlers['subscribeSession']!.handle({ id: sessionId });
 
     expect(result).toEqual({ subscribed: true });
@@ -1419,7 +1401,7 @@ describe('buildSessionHandlers — subscribeSession (console reattach)', () => {
 
   it('reports not-subscribed for an unknown session id', async () => {
     const watcher = connection();
-    const handlers = buildSessionHandlers(deps([]), watcher, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(deps([]), watcher, undefined, new LiveSessionRegistry());
     expect(await handlers['subscribeSession']!.handle({ id: 'nope' })).toEqual({
       subscribed: false,
     });
@@ -1430,7 +1412,7 @@ describe('buildSessionHandlers — interrupt on a registry-backed conversation k
   it('interrupts the live session (a real conversationId) and never renders an error', async () => {
     const registry = new LiveSessionRegistry();
     const conn = connection();
-    const handlers = buildSessionHandlers(depsAbortable(), conn, undefined, registry);
+    const handlers = handlersFor(depsAbortable(), conn, undefined, registry);
     const { sessionId } = await handlers['createSession']!.handle({
       input: 'go',
       conversationId: 'live-int',
@@ -1453,20 +1435,20 @@ describe('buildSessionHandlers — interrupt on a registry-backed conversation k
 
 describe('buildSessionHandlers — interruptSession resolves via the LiveSession, not a per-connection map (the interrupt resolves via the daemon-owned live session, which survives reattach)', () => {
   it('a second connection that never started the turn can still interrupt it through the shared registry', async () => {
-    const registry = new LiveSessionRegistry();
+    const service = sessionService(depsAbortable(), undefined, new LiveSessionRegistry());
 
     // Connection A starts the in-flight (abortable) turn.
     const connA = connection();
-    const handlersA = buildSessionHandlers(depsAbortable(), connA, undefined, registry);
+    const handlersA = buildSessionHandlers(service, connA);
     const { sessionId } = await handlersA['createSession']!.handle({ input: 'go' });
 
     // Connection B is a DIFFERENT `buildSessionHandlers` call (its own, empty
-    // per-connection state) that only shares the daemon-singleton registry — the
+    // per-connection state) that only shares the daemon-singleton service — the
     // reattach shape (e.g. a viewer that reconnects and never itself sent the
     // turn). Before the fix, B's own `control` map is empty, so this would
     // silently return `{ interrupted: false }` and never touch A's in-flight turn.
     const connB = connection();
-    const handlersB = buildSessionHandlers(deps([]), connB, undefined, registry);
+    const handlersB = buildSessionHandlers(service, connB);
 
     const result = await handlersB['interruptSession']!.handle({ id: sessionId });
     expect(result).toEqual({ interrupted: true });
@@ -1484,12 +1466,7 @@ describe('buildSessionHandlers — closeSession removes the live session from th
   it('registry.get returns undefined once closeSession has run', async () => {
     const registry = new LiveSessionRegistry();
     const conn = connection();
-    const handlers = buildSessionHandlers(
-      deps([{ t: 'text', text: 'x' }]),
-      conn,
-      undefined,
-      registry,
-    );
+    const handlers = handlersFor(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
 
@@ -1503,12 +1480,7 @@ describe('buildSessionHandlers — connection-close teardown (FIX #2b)', () => {
   it("unsubscribes this connection's sinks once its connection closes, so a later emit no longer reaches it", async () => {
     const conn = connection();
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(
-      deps([{ t: 'text', text: 'x' }]),
-      conn,
-      undefined,
-      registry,
-    );
+    const handlers = handlersFor(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
     const pushesBeforeClose = conn.pushes.length;
@@ -1530,12 +1502,13 @@ describe('buildSessionHandlers — connection-close teardown (FIX #2b)', () => {
 
   it('unsubscribes a subscribeSession (console reattach) sink too, once that connection closes', async () => {
     const registry = new LiveSessionRegistry();
+    const service = sessionService(depsSteerable([]), undefined, registry);
     const founder = connection();
-    const handlers = buildSessionHandlers(depsSteerable([]), founder, undefined, registry);
+    const handlers = buildSessionHandlers(service, founder);
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
 
     const watcher = connection();
-    const watcherHandlers = buildSessionHandlers(deps([]), watcher, undefined, registry);
+    const watcherHandlers = buildSessionHandlers(service, watcher);
     await watcherHandlers['subscribeSession']!.handle({ id: sessionId });
     const pushesBeforeClose = watcher.pushes.length;
 
@@ -1558,12 +1531,7 @@ describe('buildSessionHandlers — idle-timer touch on turn activity (FIX #1)', 
     const conn = connection();
     const registry = new LiveSessionRegistry();
     const touchSpy = vi.spyOn(registry, 'touch');
-    const handlers = buildSessionHandlers(
-      deps([{ t: 'text', text: 'x' }]),
-      conn,
-      undefined,
-      registry,
-    );
+    const handlers = handlersFor(deps([{ t: 'text', text: 'x' }]), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await conn.settled;
@@ -1769,7 +1737,7 @@ describe('buildSessionHandlers — a delivery is recorded where the model receiv
     const conn = connection();
     const adapters: OpenToolHeldAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsOpenTool(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     // The turn is parked mid-tool-call: the tool_use frame is out, the tool_result is not.
@@ -1809,7 +1777,7 @@ describe('buildSessionHandlers — a delivery is recorded where the model receiv
     const conn = connection();
     const adapters: OpenToolHeldAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsOpenTool(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await vi.waitFor(() => expect(adapters[0]).toBeDefined());
@@ -1834,7 +1802,7 @@ describe('buildSessionHandlers — a delivery is recorded where the model receiv
     const conn = connection();
     const adapters: OpenToolHeldAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsOpenTool(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await vi.waitFor(() => expect(adapters[0]).toBeDefined());
@@ -1856,7 +1824,7 @@ describe('buildSessionHandlers — a mid-turn throw does not strand a parked del
     const conn = connection();
     const adapters: OpenToolThrowAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsOpenToolThrow(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsOpenToolThrow(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     // The turn is parked mid-tool-call: the tool_use frame is out, no tool_result yet.
@@ -1908,7 +1876,7 @@ describe('buildSessionHandlers — a mid-turn throw does not strand a parked del
         return adapter;
       },
     };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await vi.waitFor(() =>
@@ -2072,7 +2040,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsHeldOpen(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsHeldOpen(adapters), conn, undefined, registry);
 
     await handlers['createSession']!.handle({ input: 'first', conversationId: 'h1' });
     await flush();
@@ -2088,7 +2056,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
   it('delivers a steer enqueued while running INTO the running turn, not into the input feed', async () => {
     const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsParkedHeldOpen(adapters),
       conn,
       undefined,
@@ -2124,12 +2092,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       const store = createConversationStore(dir);
       const adapters: HeldOpenAdapter[] = [];
       const conn = connection();
-      const handlers = buildSessionHandlers(
-        depsHeldOpen(adapters),
-        conn,
-        store,
-        new LiveSessionRegistry(),
-      );
+      const handlers = handlersFor(depsHeldOpen(adapters), conn, store, new LiveSessionRegistry());
 
       await handlers['createSession']!.handle({ input: 'first', conversationId: 'h1' });
       await flush();
@@ -2164,7 +2127,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
   it('surfaces an interrupt as a clean interrupted stop — never an error (a user stop, never an error)', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsHeldOpen(adapters, { abortable: true }),
       conn,
       undefined,
@@ -2203,7 +2166,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
         return adapter;
       },
     };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
 
     const { sessionId } = await handlers['createSession']!.handle({
       input: 'go',
@@ -2250,7 +2213,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
         return adapter;
       },
     };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
     const { sessionId } = await handlers['createSession']!.handle({
       input: 'go',
       conversationId: 'h1',
@@ -2279,7 +2242,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
   it("re-establishes a NEW query when a later turn switches model — not turn 1's query (config-change safety: the held-open query is keyed by model)", async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsHeldOpen(adapters),
       conn,
       undefined,
@@ -2310,7 +2273,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsHeldOpen(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsHeldOpen(adapters), conn, undefined, registry);
     const { sessionId } = await handlers['createSession']!.handle({
       input: 'go',
       conversationId: 'h1',
@@ -2329,7 +2292,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
   it('a one-turn SDK conversation is observably unchanged: running, the turn frames, done, idle', async () => {
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsHeldOpen(adapters),
       conn,
       undefined,
@@ -2356,7 +2319,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     const conn = connection();
     const adapters: OpenToolHeldAdapter[] = [];
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsOpenTool(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsOpenTool(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({ input: 'go' });
     await vi.waitFor(() => expect(adapters[0]).toBeDefined());
@@ -2378,7 +2341,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     // happened to run, so an idle steer stays exactly today's plain next turn.
     const adapters: HeldOpenAdapter[] = [];
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsHeldOpen(adapters),
       conn,
       undefined,
@@ -2416,7 +2379,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
         return adapter;
       },
     };
-    const handlers = buildSessionHandlers(customDeps, conn, undefined, new LiveSessionRegistry());
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
 
     // Turn A starts and parks (running).
     const { sessionId } = await handlers['createSession']!.handle({
@@ -2468,7 +2431,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       const store = createConversationStore(dir);
       const adapters: QueueSteerAdapter[] = [];
       const conn = connection();
-      const handlers = buildSessionHandlers(
+      const handlers = handlersFor(
         depsParkedHeldOpen(adapters),
         conn,
         store,
@@ -2515,7 +2478,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
   it("flushes a delivery stranded past the turn's last drain point as a plain next turn", async () => {
     const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
-    const handlers = buildSessionHandlers(
+    const handlers = handlersFor(
       depsParkedHeldOpen(adapters),
       conn,
       undefined,
@@ -2568,7 +2531,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsParkedHeldOpen(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsParkedHeldOpen(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({
       input: 'go',
@@ -2595,7 +2558,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
     const adapters: QueueSteerAdapter[] = [];
     const conn = connection();
     const registry = new LiveSessionRegistry();
-    const handlers = buildSessionHandlers(depsParkedHeldOpen(adapters), conn, undefined, registry);
+    const handlers = handlersFor(depsParkedHeldOpen(adapters), conn, undefined, registry);
 
     const { sessionId } = await handlers['createSession']!.handle({
       input: 'go',
@@ -2622,7 +2585,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
       const store = createConversationStore(dir);
       const adapters: QueueSteerAdapter[] = [];
       const conn = connection();
-      const handlers = buildSessionHandlers(
+      const handlers = handlersFor(
         depsParkedHeldOpen(adapters),
         conn,
         store,
@@ -2675,7 +2638,7 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
           return adapter;
         },
       };
-      const handlers = buildSessionHandlers(customDeps, conn, store, new LiveSessionRegistry());
+      const handlers = handlersFor(customDeps, conn, store, new LiveSessionRegistry());
 
       await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
       await flush();
@@ -2781,28 +2744,23 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     const store = createConversationStore(dir);
     const registry = new LiveSessionRegistry();
     const conn = connection();
-    let startChild: StartChildFn | undefined;
-    const handlers = buildSessionHandlers(
+    const service = sessionService(
       spawnableDeps(opts?.behaviors, opts?.recordSpend),
-      conn,
       store,
       registry,
-      {
-        listAgents: () => opts?.agents ?? AGENTS,
-        onStartChild: (fn) => {
-          startChild = fn;
-        },
-      },
+      () => opts?.agents ?? AGENTS,
     );
+    const handlers = buildSessionHandlers(service, conn);
     return {
       dispatch: (msg) => dispatch(msg, handlers),
       registry,
       store,
+      // Dispatched through the real port the governed `spawn_agent` tool is handed —
+      // `resolveSpawn(sessionId)` in the composition root — not a side channel.
       startChildForTest: (parentId, agentRef, overrides) => {
-        if (startChild === undefined) {
-          throw new Error('startChild was not wired by buildSessionHandlers');
-        }
-        return startChild(parentId, {
+        const spawn = service.spawnFor(parentId);
+        if (spawn === undefined) throw new Error('the session service exposed no spawn port');
+        return spawn.startChild({
           agentRef,
           description: overrides?.description ?? 'investigate the thing',
           prompt: overrides?.prompt ?? 'go look',
@@ -2957,13 +2915,8 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     const store = createConversationStore(dir);
     const registry = new LiveSessionRegistry();
     const conn = connection();
-    let startChild: StartChildFn | undefined;
-    const handlers = buildSessionHandlers(customDeps, conn, store, registry, {
-      listAgents: () => [modeledAgent],
-      onStartChild: (fn) => {
-        startChild = fn;
-      },
-    });
+    const service = sessionService(customDeps, store, registry, () => [modeledAgent]);
+    const handlers = buildSessionHandlers(service, conn);
     await dispatch(
       {
         jsonrpc: '2.0',
@@ -2980,7 +2933,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     );
     assembleCalls.length = 0; // drop the parent's own compile; only the child's is under test
 
-    const child = startChild!('root-1', {
+    const child = service.spawnFor('root-1')!.startChild({
       agentRef: 'modeled',
       description: 'd',
       prompt: 'p',
@@ -3113,13 +3066,16 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(registry.get(child!.sessionId)?.state).toBe('idle');
   });
 
-  it('does nothing when the daemon wires no spawn support — buildSessionHandlers behaves exactly as before', async () => {
+  it('exposes no spawn port at all when the daemon wires no agent list, and still serves turns', async () => {
     const conn = connection();
-    // No 5th argument at all — the pre-existing call shape, still legal.
-    const handlers = buildSessionHandlers(deps([]), conn, undefined, new LiveSessionRegistry());
+    // No store and no agent list — spawning needs both, so it stays unavailable rather
+    // than half-working, and every other verb is untouched.
+    const service = sessionService(deps([]), undefined, new LiveSessionRegistry());
+    expect(service.spawnFor('anything')).toBeUndefined();
+
     const response = await dispatch(
       { jsonrpc: '2.0', id: 1, method: 'createSession', params: { input: 'go' } },
-      handlers,
+      buildSessionHandlers(service, conn),
     );
     expect(response).toMatchObject({ result: { sessionId: 'sess-1', worktree: '/wt/sess-1' } });
     await conn.settled;

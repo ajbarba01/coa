@@ -21,10 +21,10 @@ import {
   ModelCatalogStore,
   packageSummaries,
   roleSummaries,
+  SessionService,
   type ModelCache,
   type ModelCacheAccount,
   type RpcServer,
-  type StartChildFn,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
@@ -218,34 +218,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
 
-  // The agent registry AND `startChild` (session-handlers.ts) both need to exist to
-  // resolve a session's spawn port, but neither does until AFTER `buildSessionDeps`
-  // returns (`registry` below needs `deps.checkpoint`/`releaseWorktree`, so it can't be
-  // built first either — an ordinary composition-root cycle). Broken by a holder:
-  // `startChild` is captured into it once, synchronously, inside the per-connection
-  // handler map below — before any connection can process an RPC call, and therefore
-  // before anything could ever reach a `spawn_agent` dispatch. `agentRegistry` itself
-  // is read directly (a `const` in this same scope; `resolveSpawn` only reads it once
-  // actually invoked, well after the `const` below has initialized).
-  const spawnHolder: { startChild?: StartChildFn } = {};
-
+  // The session service resolves a session's spawn port, but it can't exist until
+  // AFTER `buildSessionDeps` returns — and `buildSessionDeps` wants `resolveSpawn`
+  // (`registry` below needs `deps.checkpoint`/`releaseWorktree`, so it can't be built
+  // first either — an ordinary composition-root cycle). `resolveSpawn` reads the
+  // `const`s in this same scope DIRECTLY rather than through a holder: it fires only
+  // once a session is actually running a turn, long after every `const` below has
+  // initialized, since no session can exist before `bindDaemon` at the end of this
+  // function even accepts a connection.
   const { deps, handle, models, modelAccounts } = buildSessionDeps({
     walPath,
     root: process.cwd(),
-    resolveSpawn: (sessionId) => {
-      const startChild = spawnHolder.startChild;
-      if (startChild === undefined) {
-        // Should be unreachable: `startChild` is bound before any connection can
-        // process an RPC call, and no session can exist before that. Loud, never
-        // silent — governance must never block the loop with a throw, so this degrades to "spawning unavailable".
-        options.err('coa: spawn requested before startChild was wired — spawning unavailable');
-        return undefined;
-      }
-      return {
-        listAgents: () => agentRegistry.list().agents,
-        startChild: (req) => startChild(sessionId, req),
-      };
-    },
+    resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
   });
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected; core constructs the login manager over the port.
@@ -286,6 +270,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       if (s.worktree !== undefined) deps.releaseWorktree(s.worktree);
     },
   });
+  // The daemon's ONE owner of live-session lifetime: the drive loop, the spawn dispatch,
+  // and the conversation store all hang off this single instance. A connection never owns
+  // any of it — it only translates RPC into calls against this service, so a turn sent
+  // over a second console reaches exactly the same machinery as the first console's.
+  const sessions = new SessionService({
+    deps,
+    registry,
+    store,
+    listAgents: () => agentRegistry.list().agents,
+  });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
   // reply flushes first, then the teardown runs on the next tick (see `onShutdown`).
@@ -312,12 +306,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...agentHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
-    ...buildSessionHandlers(deps, connection, store, registry, {
-      listAgents: () => agentRegistry.list().agents,
-      onStartChild: (fn) => {
-        spawnHolder.startChild = fn;
-      },
-    }),
+    ...buildSessionHandlers(sessions, connection),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.

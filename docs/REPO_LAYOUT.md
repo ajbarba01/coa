@@ -90,13 +90,18 @@ core/src/
   session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
     agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store
     builtin-agents.ts the two code-shipped definitions (general-purpose, explorer)
+    session-service.ts the daemon's one owner of live-session lifetime: send-or-create,
+                      the drive loop, subagent dispatch, the conversation store. Built
+                      once at the composition root; a connection only translates onto it
+    session-handlers.ts the session-lifecycle JSON-RPC verbs, as pure translation over
+                      the service, plus the sinks/unsubscribes that die with the socket
     frame-recorder.ts the one writer of a turn's frames — push + durable append, the
                       delta/persist rule and the delivery-legality gate; parameterized by
                       the seq cursor + start handle so every drive strategy shares it
     turn-persistence.ts the per-turn conversation prelude (create/title/memory hand-off/
                       selection pin/user-prompt append) and the session-call hooks it feeds
-    turn-driver.ts    the contract a drive strategy is built against: the daemon + the
-                      per-connection state it must be handed, never reach for
+    turn-driver.ts    the contract a drive strategy is built against — all daemon-scoped;
+                      a turn's own per-send facts ride the queued turn instead
     per-turn-driver.ts   one session call per turn (every pure-API backend)
     held-open-driver.ts  one session call held open across turns, fed an input channel
   rpc/           M8 — JSON-RPC server plumbing
