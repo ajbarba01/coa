@@ -1,8 +1,4 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { rgPath } from '@vscode/ripgrep';
-import { globSync } from 'tinyglobby';
 import type { PieceRef, Producer, ProducerInput, SymbolRef } from '@coa/shared';
 import { compile } from '../compiler/compile.js';
 import { createGovernanceAnchorProducer } from '../context/governance-anchor.js';
@@ -13,6 +9,9 @@ import { Reconciler } from '../reconcile/reconciler.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
+import { listFilesFor } from '../workbench/file-listing.js';
+import { searchWithRipgrep } from '../workbench/ripgrep.js';
+import { createExec } from '../workbench/exec.js';
 import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
 import type { Summarizer } from '../workbench/web-tools.js';
 import type { LoginDriverPort, RuntimeUsage } from '@coa/spi';
@@ -330,71 +329,6 @@ function governedToolDeps(
 }
 
 /**
- * Wire the pure-API base-tool ports (Read/Glob/Grep/Write/Edit/Bash) to real disk +
- * process I/O: `@vscode/ripgrep`'s bundled binary backs `searchFiles`, `tinyglobby`
- * backs `listFiles`, and `exec` wraps `spawnSync` so a spawn failure degrades to a
- * non-zero exit rather than throwing (a user stop, never an error). Mirrors `governedToolDeps` — same
- * kernel, same forward-slash-normalized worktree root.
- */
-/** Always-ignored noise, regardless of the worktree's `.gitignore` (S-1-adjacent: keeps tool results sane). */
-const ALWAYS_IGNORE_GLOBS: readonly string[] = ['**/node_modules/**', '**/.git/**'];
-
-/**
- * Translate `.gitignore` lines into `tinyglobby` `ignore` globs. A reasonable, not
- * exhaustive, translation: comments (`#…`) and blank lines are dropped; a
- * leading-slash (root-anchored) entry becomes a root-relative glob; a bare or
- * trailing-slash directory name becomes a recursive "anywhere under a dir named
- * this" ignore; anything else (e.g. `*.log`) passes through unchanged. Never throws.
- */
-export function gitignoreToIgnoreGlobs(lines: readonly string[]): string[] {
-  const globs: string[] = [];
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (line.length === 0 || line.startsWith('#')) continue;
-    if (line.startsWith('/')) {
-      const rest = line.slice(1).replace(/\/$/, '');
-      globs.push(`${rest}/**`);
-      continue;
-    }
-    if (line.endsWith('/')) {
-      globs.push(`**/${line.slice(0, -1)}/**`);
-      continue;
-    }
-    if (!line.includes('/') && !line.includes('*') && !line.includes('.')) {
-      // A bare name with no extension-like dot or glob char: treat as a directory name.
-      globs.push(`**/${line}/**`);
-      continue;
-    }
-    globs.push(line);
-  }
-  return globs;
-}
-
-/** Read `<worktreeRoot>/.gitignore` (if present) and merge it with the always-ignore set. Never throws. */
-function ignoreGlobsFor(worktreeRoot: string): string[] {
-  try {
-    const text = readFileSync(join(worktreeRoot, '.gitignore'), 'utf8');
-    return [...ALWAYS_IGNORE_GLOBS, ...gitignoreToIgnoreGlobs(text.split('\n'))];
-  } catch {
-    return [...ALWAYS_IGNORE_GLOBS];
-  }
-}
-
-/**
- * The `listFiles` port body: glob under `baseAbsolute`, excluding node_modules/.git
- * plus anything the worktree's `.gitignore` names. Exported for focused unit
- * testing without a full `baseToolDeps`/kernel setup.
- */
-export function listFilesFor(
-  pattern: string,
-  baseAbsolute: string,
-  worktreeRoot?: string,
-): string[] {
-  const ignore = ignoreGlobsFor(worktreeRoot ?? baseAbsolute);
-  return globSync(pattern, { cwd: baseAbsolute, absolute: true, dot: false, ignore });
-}
-
-/**
  * Build the pure-API catalogue: governance + base tools, plus the web tools
  * (`WebSearch`/`WebFetch`) whenever `options.web` is configured — the free
  * floor guarantees `buildWebToolDeps` always returns deps in that case,
@@ -430,6 +364,11 @@ function buildBaseCatalogue(
   );
 }
 
+/**
+ * Wire the pure-API base-tool ports (Read/Glob/Grep/Write/Edit/Bash) to the real disk +
+ * process implementations the workbench owns. Mirrors `governedToolDeps` — same
+ * kernel, same forward-slash-normalized worktree root.
+ */
 function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
   const worktreeRoot = root.replace(/\\/g, '/');
   // Resolve the Bash shell once per session: Git Bash on Windows when present, so the
@@ -446,38 +385,8 @@ function baseToolDeps(kernel: ChangeKernel, root: string): BaseToolDeps {
     writeFile: (absolutePath, bytes) => writeFileSync(absolutePath, bytes),
     fileExists: (absolutePath) => existsSync(absolutePath),
     listFiles: (pattern, baseAbsolute) => listFilesFor(pattern, baseAbsolute, worktreeRoot),
-    searchFiles: ({ pattern, baseAbsolute, glob, mode }) => {
-      const args = [
-        mode === 'files' ? '--files-with-matches' : '--line-number',
-        ...(glob ? ['--glob', glob] : []),
-        '--',
-        pattern,
-        baseAbsolute,
-      ];
-      const out = spawnSync(rgPath, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-      const lines = (out.stdout ?? '').split('\n').filter((line) => line.length > 0);
-      if (mode === 'files') return lines.map((file) => ({ file: file.replace(/\\/g, '/') }));
-      return lines.map((line) => {
-        const m = /^(.*?):(\d+):(.*)$/.exec(line);
-        return m && m[1] !== undefined && m[2] !== undefined && m[3] !== undefined
-          ? { file: m[1].replace(/\\/g, '/'), line: Number(m[2]), text: m[3] }
-          : { file: line.replace(/\\/g, '/') };
-      });
-    },
-    exec: (command, opts) => {
-      const out = spawnSync(command, {
-        cwd: opts.cwd,
-        shell,
-        encoding: 'utf8',
-        maxBuffer: 32 * 1024 * 1024,
-        ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
-      });
-      return {
-        stdout: out.stdout ?? '',
-        stderr: out.stderr ?? (out.error ? String(out.error.message) : ''),
-        exitCode: out.status ?? (out.error ? -1 : 0),
-      };
-    },
+    searchFiles: (req) => searchWithRipgrep(req),
+    exec: createExec(shell),
     emit: (draft) => kernel.emit(draft),
   };
 }
