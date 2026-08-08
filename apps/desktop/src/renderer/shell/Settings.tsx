@@ -14,6 +14,7 @@ import type { ConsoleSettings } from '../../shared/settings.js';
 import { TextInput } from '../panels/fields.js';
 import { useAuthStore } from '../panels/authStore.js';
 import { useConsoleState } from './consoleStore.js';
+import { surfaceWrite } from './failures.js';
 import { useKeybinds } from './keys.js';
 import { useShell } from './store.js';
 
@@ -54,7 +55,7 @@ export function IsolatedBrowserRow(): React.JSX.Element {
       {!session.available && <span className="font-mono text-meta text-s7">No browser found</span>}
       <Toggle
         on={session.enabled}
-        onChange={(on) => void setOn(on).catch(() => {})}
+        onChange={(on) => void surfaceWrite('change that setting', setOn(on))}
         aria-label="Dedicated browser profile"
       />
     </span>
@@ -79,7 +80,7 @@ export function BrowserPathRow(): React.JSX.Element {
     // unhydrated store (profile cleanup only ever happens at the user's explicit request) — silently clear a real override the daemon still
     // has that this render never got to see.
     if (session.path === undefined && trimmed === resolved) return;
-    void setPath(trimmed).catch(() => {});
+    void surfaceWrite('save that browser path', setPath(trimmed));
   };
   return (
     <TextInput
@@ -108,7 +109,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
   const reclaimable = useAuthStore((s) => s.browserSession.reclaimable);
   const reclaim = useAuthStore((s) => s.reclaimBrowserProfiles);
   const [open, setOpen] = useState(false);
-  const run = (names: string[]): void => void reclaim(names).catch(() => {});
+  const run = (names: string[]): void => void surfaceWrite('delete those profiles', reclaim(names));
 
   if (reclaimable.length === 0) {
     return <span className="flex-none font-mono text-code text-s7">None</span>;

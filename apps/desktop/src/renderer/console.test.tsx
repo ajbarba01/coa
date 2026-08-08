@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   detectAuthFailure,
   modelSwitchNoteText,
@@ -10,6 +10,7 @@ import {
 import type { AgentFile, AgentSummary, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleState } from './panels/state.js';
 import { MOCK_AGENTS } from './testing/mockAgents.js';
+import { useNotices } from './shell/failures.js';
 
 /** A daemon-backed session + its persisted transcript, fed through the fake bridge. */
 const FAKE_SESSIONS = [
@@ -1166,5 +1167,94 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(bridge.listSessions).not.toHaveBeenCalled();
     expect(bridge.reloadConversation).not.toHaveBeenCalled();
     expect(last().ui.activeSessionId).toBe('c1');
+  });
+});
+
+describe('failed writes are said out loud', () => {
+  beforeEach(() => {
+    useNotices.setState({ notice: undefined });
+  });
+
+  it('announces a conversation that could not be deleted, and leaves the rail alone', async () => {
+    const bridge = fakeBridge({
+      deleteSession: vi.fn().mockRejectedValue(new Error('conversation is locked')),
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.deleteSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't delete that conversation",
+      detail: 'conversation is locked',
+    });
+    // Nothing was removed, so the session the user is looking at must not move.
+    expect(last().ui.activeSessionId).toBe('c1');
+  });
+
+  it('announces an account switch the daemon refused instead of rejecting into the void', async () => {
+    const bridge = fakeBridge({
+      useAccount: vi.fn().mockRejectedValue(new Error('no such login')),
+    });
+    const { last } = await mount(bridge);
+    vi.mocked(bridge.listAccounts).mockClear();
+
+    last().actions.switchAccount('work', 'claude');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({ title: "Couldn't switch accounts" });
+    // The daemon is still on the old account — there is nothing new to read.
+    expect(bridge.listAccounts).not.toHaveBeenCalled();
+  });
+
+  it('announces an agent write that failed, on top of snapping the list back', async () => {
+    const bridge = fakeBridge({ saveAgent: vi.fn().mockRejectedValue(new Error('read-only')) });
+    const { last } = await mount(bridge);
+    const before = last().data.agents;
+
+    last().actions.createAgent('project');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't create that agent",
+      detail: 'read-only',
+    });
+    expect(last().data.agents).toEqual(before);
+  });
+
+  it('keeps the drift banner honest when a recompile fails: the suppression stays put', async () => {
+    const bridge = fakeBridge({
+      recompilePrompt: vi.fn().mockRejectedValue(new Error('daemon is busy')),
+    });
+    const { last } = await mount(bridge);
+    // The banner was dismissed for this config earlier; the recompile is the OTHER action.
+    last().actions.onBannerAction('c1', 'drift', 'dismiss');
+    await new Promise((r) => setTimeout(r, 0));
+    const suppressed = last().ui.dismissedDrift['c1'];
+
+    last().actions.onBannerAction('c1', 'drift', 'recompile');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't recompile that prompt",
+      detail: 'daemon is busy',
+    });
+    // The prompt never recompiled, so the state that describes it must not have moved —
+    // clearing the suppression here is what made the button look like it did nothing.
+    expect(last().ui.dismissedDrift['c1']).toBe(suppressed);
+  });
+
+  it('clears the drift suppression once the daemon confirms the recompile', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.onBannerAction('c1', 'drift', 'dismiss');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.dismissedDrift['c1']).toBeDefined();
+
+    last().actions.onBannerAction('c1', 'drift', 'recompile');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.dismissedDrift['c1']).toBeUndefined();
+    expect(useNotices.getState().notice).toBeUndefined();
   });
 });

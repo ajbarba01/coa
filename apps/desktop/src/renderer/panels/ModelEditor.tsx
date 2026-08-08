@@ -14,6 +14,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import type { ModelEntry, ReasoningProfile } from '@coa/console-viewmodel';
+import { surfaceWrite } from '../shell/failures.js';
 import { useShell } from '../shell/store.js';
 import { TextInput } from './fields.js';
 import { RISE, SLIP_ENTER } from './motion.js';
@@ -230,7 +231,9 @@ function ModelRow({
         >
           <Toggle
             on={!hidden}
-            onChange={(on) => void setHidden(provider.id, model.id, !on).catch(() => {})}
+            onChange={(on) =>
+              void surfaceWrite('change that model', setHidden(provider.id, model.id, !on))
+            }
             aria-label={`${entryLabel(model)} in the pickers`}
           />
         </span>
@@ -252,7 +255,11 @@ function ModelRow({
           anchorPoint={menuAt}
         >
           <MenuItem onClick={() => setEditing(true)}>Edit…</MenuItem>
-          <MenuItem onClick={() => void setHidden(provider.id, model.id, !hidden).catch(() => {})}>
+          <MenuItem
+            onClick={() =>
+              void surfaceWrite('change that model', setHidden(provider.id, model.id, !hidden))
+            }
+          >
             {hidden ? 'Show in Pickers' : 'Hide from Pickers'}
           </MenuItem>
           {/* Confirm only for custom — a default re-adds from the catalog in two clicks. */}
@@ -261,7 +268,11 @@ function ModelRow({
               <span className="text-crit">Remove…</span>
             </MenuItem>
           ) : (
-            <MenuItem onClick={() => void removeModel(provider.id, model.id).catch(() => {})}>
+            <MenuItem
+              onClick={() =>
+                void surfaceWrite('remove that model', removeModel(provider.id, model.id))
+              }
+            >
               <span className="text-crit">Remove</span>
             </MenuItem>
           )}
@@ -384,7 +395,7 @@ function EditModelRow({
   useDismissLayer(true, onDone);
 
   const commit = (): void => {
-    void editModel(provider.id, model.id, { label, reasoning }).catch(() => {});
+    void surfaceWrite('save that model', editModel(provider.id, model.id, { label, reasoning }));
     onDone();
   };
 
@@ -433,7 +444,7 @@ function CreateCustomRow({
     const entry: { id: string; label?: string; reasoning?: ReasoningProfile } = { id: id.trim() };
     if (label.trim() !== '') entry.label = label.trim();
     if (reasoning.kind !== 'inherit') entry.reasoning = reasoning;
-    void addCustom(provider.id, entry).catch(() => {});
+    void surfaceWrite('add that model', addCustom(provider.id, entry));
     onDone();
   };
 
@@ -499,7 +510,9 @@ function AddFromDefaultsDialog({ provider }: { provider: ProviderDescriptor }): 
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const close = (): void => setOpen(undefined);
   const commit = (): void => {
-    if (picked.length > 0) void addFromDefaults(provider.id, picked).catch(() => {});
+    if (picked.length > 0) {
+      void surfaceWrite('add those models', addFromDefaults(provider.id, picked));
+    }
     close();
   };
 
@@ -591,7 +604,7 @@ function RemoveCustomConfirm({ provider }: { provider: ProviderDescriptor }): Re
             <Button
               variant="quiet"
               onClick={() => {
-                void removeModel(provider.id, model.id).catch(() => {});
+                void surfaceWrite('remove that model', removeModel(provider.id, model.id));
                 close();
               }}
             >

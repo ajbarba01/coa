@@ -28,6 +28,7 @@ import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { cacheKey, configKey } from './panels/banners.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
+import { reportFailure, reportNotice, surfaceWrite } from './shell/failures.js';
 import { applySettings } from './theme.js';
 
 /** Builds the "switched model" note text from an applied override, e.g.
@@ -362,7 +363,13 @@ export async function startConsole(
 
   const switchAccount = (label: string, provider?: string): void =>
     void (async () => {
-      await bridge.useAccount({ label, ...(provider !== undefined ? { provider } : {}) });
+      const switched = await surfaceWrite(
+        'switch accounts',
+        bridge.useAccount({ label, ...(provider !== undefined ? { provider } : {}) }),
+      );
+      // The switch was refused and said so — the daemon is still on the old account, so
+      // there is nothing new to read.
+      if (switched === undefined) return;
       await loadAccounts();
       // The merged model list is per-account (that provider's models change) — refetch.
       await loadModels();
@@ -377,7 +384,7 @@ export async function startConsole(
     // persisting is bookkeeping, never on the interaction path.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        void bridge.saveSettings(next);
+        void surfaceWrite('save that setting', bridge.saveSettings(next));
       }),
     );
   };
@@ -443,12 +450,16 @@ export async function startConsole(
    *  only on success — and restore the pre-edit list when the write failed, so what is
    *  rendered matches what is on disk. Without the restore a rejected write leaves the
    *  row looking saved, which is the console lying about durable state. Advisory
-   *  throughout: the failure surfaces as the list snapping back, never as a throw and
+   *  throughout: the failure ALSO surfaces as the list snapping back, never as a throw and
    *  never as a block. The reconcile runs either way and wins whenever the daemon read
-   *  succeeds, since disk is the authority over both the optimistic edit and the undo. */
-  function commitAgentWrite(write: Promise<unknown>, undo: AgentUndo): void {
+   *  succeeds, since disk is the authority over both the optimistic edit and the undo.
+   *
+   *  `action` names what the user asked for, because the rollback alone is a poor signal:
+   *  a row quietly reverting looks a lot like a row that was never edited. */
+  function commitAgentWrite(write: Promise<unknown>, undo: AgentUndo, action: string): void {
     void write
-      .catch(() => {
+      .catch((error: unknown) => {
+        reportFailure(action, error);
         agents = undo.agents;
         const selection = undo.selection;
         if (selection !== undefined && state.ui.selectedAgentRef === selection.claimed) {
@@ -482,7 +493,7 @@ export async function startConsole(
     agents = [...agents, { ...file, ref, scope }];
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     pushAgents();
-    commitAgentWrite(bridge.saveAgent({ ref, scope, file }), undo);
+    commitAgentWrite(bridge.saveAgent({ ref, scope, file }), undo, 'create that agent');
   };
 
   const updateAgent = (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>): void => {
@@ -512,7 +523,7 @@ export async function startConsole(
       nextScope === prevScope
         ? saved
         : saved.then(() => bridge.deleteAgent({ ref, scope: prevScope }));
-    commitAgentWrite(written, undo);
+    commitAgentWrite(written, undo, 'save that agent');
   };
 
   const deleteAgent = (ref: string): void => {
@@ -527,7 +538,7 @@ export async function startConsole(
     if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
     state = { ...state, ui };
     pushAgents();
-    commitAgentWrite(bridge.deleteAgent({ ref, scope: current.scope }), undo);
+    commitAgentWrite(bridge.deleteAgent({ ref, scope: current.scope }), undo, 'delete that agent');
   };
 
   const togglePinAgent = (ref: string): void => {
@@ -596,15 +607,20 @@ export async function startConsole(
 
   const newSession = (agentRef: string): void =>
     void (async () => {
-      const created = await settle(() => bridge.newSession({ agentRef }));
-      if (created.status !== 'ok') return;
+      const created = await surfaceWrite(
+        'start that conversation',
+        bridge.newSession({ agentRef }),
+      );
+      if (created === undefined) return;
       await refreshSessionList();
-      await openSession(created.value.id);
+      await openSession(created.id);
     })();
 
   const deleteSession = (id: string): void =>
     void (async () => {
-      await bridge.deleteSession({ id });
+      const deleted = await surfaceWrite('delete that conversation', bridge.deleteSession({ id }));
+      // Nothing was removed and the user has been told — the rail still shows the truth.
+      if (deleted === undefined) return;
       const wasActive = state.ui.activeSessionId === id;
       await refreshSessionList();
       if (wasActive) {
@@ -695,11 +711,29 @@ export async function startConsole(
     if (bannerId === 'drift' && actionId === 'recompile') {
       // Drop the frozen prompt server-side, then refresh so the session's promptConfig
       // clears — the drift derivation then reads "no running prompt" ⇒ no banner.
-      void bridge.recompilePrompt({ sessionId }).then(() => refreshSessionList());
-      const dismissedDrift = { ...state.ui.dismissedDrift };
-      delete dismissedDrift[sessionId];
-      state = { ...state, ui: { ...state.ui, dismissedDrift } };
-      push();
+      //
+      // The suppression is dropped only AFTER the daemon confirms. Clearing it up front
+      // made a failed recompile invisible in the worst way: the frozen prompt was still
+      // there, so the derivation re-raised the same banner, and the button read as a
+      // control that did nothing at all. Now a refusal says so and the banner is honestly
+      // still describing a prompt that never recompiled.
+      void surfaceWrite('recompile that prompt', bridge.recompilePrompt({ sessionId })).then(
+        async (result) => {
+          if (result === undefined) return;
+          if (!result.recompiled) {
+            reportNotice(
+              'Nothing to recompile',
+              'this conversation has no compiled prompt to drop.',
+            );
+            return;
+          }
+          const dismissedDrift = { ...state.ui.dismissedDrift };
+          delete dismissedDrift[sessionId];
+          state = { ...state, ui: { ...state.ui, dismissedDrift } };
+          push();
+          await refreshSessionList();
+        },
+      );
       return;
     }
     if (bannerId === 'drift' && actionId === 'dismiss') {
@@ -769,7 +803,7 @@ export async function startConsole(
   const steerSession = (sessionId: string, text: string): void => {
     const body = text.trim();
     if (body === '') return;
-    void bridge.steerSession({ id: sessionId, text: body }).catch(() => {});
+    void surfaceWrite('send that steer', bridge.steerSession({ id: sessionId, text: body }));
   };
 
   /** Set a session's in-chat model override; the next send routes there (and the

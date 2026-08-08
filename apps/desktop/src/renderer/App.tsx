@@ -6,6 +6,7 @@ import { reportActiveClaudeAuthFailure } from './panels/loginStore.js';
 import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
 import { DaemonGate } from './shell/DaemonGate.js';
 import { EditMenu } from './shell/EditMenu.js';
+import { FailureToast } from './shell/FailureToast.js';
 import { bindLayoutPersistence } from './shell/layoutPersistence.js';
 import { useShell } from './shell/store.js';
 import { Workbench } from './shell/Workbench.js';
@@ -110,6 +111,9 @@ export function App(): React.JSX.Element {
   return (
     <TooltipProvider>
       <EditMenu />
+      {/* The one failure surface, mounted with the chrome so a rejected write announces
+          itself from either side of the gate. */}
+      <FailureToast />
       {daemon === 'running' ? <Workbench /> : <DaemonGate />}
     </TooltipProvider>
   );

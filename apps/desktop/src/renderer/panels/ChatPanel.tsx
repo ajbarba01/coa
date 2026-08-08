@@ -1,4 +1,4 @@
-import { InlineMessage, Spinner, Toast } from '@coa/console-kit';
+import { InlineMessage, Spinner } from '@coa/console-kit';
 import { Transcript } from '@coa/console-transcript';
 import { PaneOverlayProvider } from '@coa/console-kit';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -6,6 +6,7 @@ import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
 import type { ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
+import { reportFailure } from '../shell/failures.js';
 import { matchesFind } from '../shell/keys.js';
 import { useShell } from '../shell/store.js';
 import { modelPickerLabel } from './AgentsPanel.js';
@@ -473,8 +474,6 @@ function EmptyConversation({
 function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   const [composerHeight, setComposerHeight] = useState(0);
   const composerRoRef = useRef<ResizeObserver | null>(null);
-  // A failed reveal-in-editor surfaces as a toast (surface, never block).
-  const [revealError, setRevealError] = useState<string | null>(null);
 
   // Queued follow-up messages (the composer's Queue action while a turn runs), held per active
   // session and released one at a time (FIFO) as a normal send when that session's turn ends. Kept
@@ -619,7 +618,9 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     const open = openPathRef.current;
     if (open === undefined) return;
     void open(path, line, sessionIdRef.current).then((res) => {
-      if (!res.ok) setRevealError(res.reason ?? 'Could not open the file.');
+      // Advisory: a failed reveal is announced on the shell's one failure surface and
+      // nothing about the conversation changes.
+      if (!res.ok) reportFailure('open that file', res.reason ?? 'the file could not be opened.');
     });
   }, []);
 
@@ -630,7 +631,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     const open = openUrlRef.current;
     if (open === undefined) return;
     void open(url).then((res) => {
-      if (!res.ok) setRevealError(res.reason ?? 'Could not open the URL.');
+      if (!res.ok) reportFailure('open that link', res.reason ?? 'the link could not be opened.');
     });
   }, []);
 
@@ -817,16 +818,6 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
           </div>
         </div>
       </div>
-      <Toast
-        open={revealError !== null}
-        onOpenChange={(open) => {
-          if (!open) setRevealError(null);
-        }}
-        tone="danger"
-        title="Couldn't open"
-      >
-        {revealError}
-      </Toast>
     </>
   );
 }

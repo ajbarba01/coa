@@ -15,6 +15,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { NO_DRAG } from '../shell/appRegion.js';
+import { surfaceWrite } from '../shell/failures.js';
 import { useShell } from '../shell/store.js';
 import { RISE, SLIP_ENTER } from './motion.js';
 import {
@@ -129,9 +130,10 @@ export function AuthStrip(): React.JSX.Element {
           type="button"
           aria-label="Re-read logins"
           onClick={() =>
-            void refresh()
-              .then(() => useAuthStore.getState().probeHealth())
-              .catch(() => {})
+            void surfaceWrite(
+              're-read your logins',
+              refresh().then(() => useAuthStore.getState().probeHealth()),
+            )
           }
           className="slip flex cursor-pointer items-center px-3.5 text-s7 hover:text-s10"
           style={NO_DRAG}
@@ -384,7 +386,10 @@ function RemoveCredentialDialog(): React.JSX.Element {
             <Button
               variant="quiet"
               onClick={() => {
-                void removeCredential(credential.id, alsoProfile).catch(() => {});
+                void surfaceWrite(
+                  'remove that login',
+                  removeCredential(credential.id, alsoProfile),
+                );
                 close();
               }}
             >
@@ -529,7 +534,9 @@ function ProviderRow({
         >
           <Toggle
             on={enabled}
-            onChange={(on) => void setProviderEnabled(provider.id, on).catch(() => {})}
+            onChange={(on) =>
+              void surfaceWrite('change that provider', setProviderEnabled(provider.id, on))
+            }
             aria-label={`${provider.label} enabled`}
           />
         </span>
@@ -573,7 +580,9 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
             <Tooltip label={enabled ? 'Bench this provider' : 'Un-bench this provider'} side="top">
               <Toggle
                 on={enabled}
-                onChange={(on) => void setProviderEnabled(providerId, on).catch(() => {})}
+                onChange={(on) =>
+                  void surfaceWrite('change that provider', setProviderEnabled(providerId, on))
+                }
                 aria-label={`${provider.label} enabled`}
               />
             </Tooltip>
@@ -755,7 +764,7 @@ function CredentialRow({
         <button
           type="button"
           aria-label={`Use ${credential.label}`}
-          onClick={() => void makeActive(credential.id).catch(() => {})}
+          onClick={() => void surfaceWrite('switch to that login', makeActive(credential.id))}
           className="absolute inset-0 cursor-pointer rounded-r3"
         />
       )}
@@ -861,14 +870,17 @@ function CredentialRow({
           {provider.group === 'backend' && (
             <MenuItem
               disabled={status === 'active' || status === 'disabled' || status === 'expired'}
-              onClick={() => void makeActive(credential.id).catch(() => {})}
+              onClick={() => void surfaceWrite('switch to that login', makeActive(credential.id))}
             >
               Make Active
             </MenuItem>
           )}
           <MenuItem
             onClick={() =>
-              void setCredentialDisabled(credential.id, !credential.disabled).catch(() => {})
+              void surfaceWrite(
+                credential.disabled ? 'un-bench that login' : 'bench that login',
+                setCredentialDisabled(credential.id, !credential.disabled),
+              )
             }
           >
             {credential.disabled ? 'Un-bench' : 'Bench'}
@@ -893,7 +905,9 @@ function CredentialRow({
             <MenuItem onClick={() => setReplacing(true)}>Replace {provider.noun}…</MenuItem>
           )}
           {status === 'cooling' && (
-            <MenuItem onClick={() => void clearCooldown(credential.id).catch(() => {})}>
+            <MenuItem
+              onClick={() => void surfaceWrite('clear that cooldown', clearCooldown(credential.id))}
+            >
               Clear Cooldown
             </MenuItem>
           )}
@@ -905,7 +919,7 @@ function CredentialRow({
               if (credential.hasProfile === true) {
                 useShell.getState().setConfirmRemoveCredential(credential.id);
               } else {
-                void removeCredential(credential.id, undefined).catch(() => {});
+                void surfaceWrite('remove that login', removeCredential(credential.id, undefined));
               }
             }}
           >
@@ -942,11 +956,14 @@ function AddCredentialRow({
 
   const commit = (): void => {
     if (secret.trim() === '') return;
-    void addCredential(
-      provider.id,
-      label.trim() === '' ? `${provider.id}-${existing + 1}` : label,
-      secret,
-    ).catch(() => {});
+    void surfaceWrite(
+      `save that ${provider.noun}`,
+      addCredential(
+        provider.id,
+        label.trim() === '' ? `${provider.id}-${existing + 1}` : label,
+        secret,
+      ),
+    );
     onDone();
   };
 
@@ -1020,10 +1037,13 @@ function EditCredentialRow({
     // Sequenced (not fired concurrently): each RPC reprojects the FULL view it returns, so
     // two in-flight calls would race on which one's response lands last and gets applied.
     if (renamed || repointed) {
-      void (async () => {
-        if (renamed) await renameCredential(credential.id, label);
-        if (repointed) await replaceSecret(credential.id, target);
-      })().catch(() => {});
+      void surfaceWrite(
+        'save that change',
+        (async () => {
+          if (renamed) await renameCredential(credential.id, label);
+          if (repointed) await replaceSecret(credential.id, target);
+        })(),
+      );
     }
     onDone();
   };
@@ -1085,7 +1105,7 @@ function ReplaceSecretRow({
 
   const commit = (): void => {
     if (secret.trim() === '') return;
-    void replaceSecret(credential.id, secret).catch(() => {});
+    void surfaceWrite(`save that ${provider.noun}`, replaceSecret(credential.id, secret));
     onDone();
   };
   return (
@@ -1207,10 +1227,13 @@ function AddProviderDialog({
     const chosenLabel = label.trim() === '' ? picked.id : label;
     // The provider must exist server-side before its first credential can attach to it —
     // sequenced, not fired concurrently.
-    void (async () => {
-      await addProvider(providerId);
-      await addCredential(providerId, chosenLabel, secret);
-    })().catch(() => {});
+    void surfaceWrite(
+      'add that provider',
+      (async () => {
+        await addProvider(providerId);
+        await addCredential(providerId, chosenLabel, secret);
+      })(),
+    );
     onAdded(providerId);
     close();
   };
