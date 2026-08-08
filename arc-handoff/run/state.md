@@ -34,7 +34,7 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | e223f13 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
+| `arc/architecture` | 77e6dd4 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
 | `arc/docs` | 9fb09db | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736).** Gates green (2928 tests, depcruise 418, docs-check 11). Verification OWED — both lenses died on a session limit |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
@@ -99,23 +99,25 @@ on the old machine.
    commit with exactly the predicted symptoms). See the journal for the one verification
    gap (G4 reattach / held-query-survives-interrupt lack independent confirmation).
 7. ~~Q9 archival~~ DONE 2026-08-07 (d57d5c0).
-8. **C5 — COMPLETE AND VERIFIED (15 commits, d57d5c0..e223f13).** Both verifiers found
-   real defects; all four blocking findings are fixed and were re-verified BY HAND after the
-   fix round's verifiers died on a session limit. Two mutation probes back the load-bearing
-   claims: reverting the delete fix reds a unit test AND an end-to-end RPC test; removing the
-   model notice reds the pure-API and Claude-preamble tests. Gate: 2928 passed / 30 skipped,
-   depcruise 418 modules, docs 60.
-   Remaining C5-adjacent debt, recorded not actioned: the crash-reason heuristic still shares
-   a stderr buffer with routine daemon logging (narrowed, not eliminated, by e223f13), and a
-   cross-scope duplicate is a reachable post-failure state with no diagnostic.
-9. **Stage 4 docs — LANDED on arc/docs (fa6a433 - a716bf4 - 9fb09db), VERIFICATION OWED.**
-   Writers finished; the closer and both verifiers died on the session limit (reset 5:40pm),
-   so the orchestrator finished the closing work by hand: four package READMEs still linked
-   the deleted corpora and were rewritten to the closer's own convention; a repo-wide search
-   for the retired paths now returns zero hits. Resume the two verifier lenses after the reset
-   with resumeFromRunId 'wf_1261f87e-ce1' — and TELL the closer its work is already committed
-   so it does not redo it. Unverified: the 20-claim prose-vs-tree sample, and rationale
-   survival for constraints whose decision records were deleted.
+8. **C5 — COMPLETE AND VERIFIED.** Both verifiers found real defects; all four blocking
+   findings fixed and hand-verified with mutation probes. Plus the charter item the SCRIPT had
+   dropped (a user-visible sample-data label on the usage surface, 7852763) — found by auditing
+   the plan against the tree, not by any test.
+8b. **C3's missing item — turn lifecycle — BUILT AND FIXED (fa437a1 · a1902f9 · 8b97c94 ·
+   77e6dd4).** One owned state machine replaces three hand-synced flags. Both verifiers returned
+   passed=false; the headline was that the refactor had introduced a NEW silent-failure mode (the
+   abandon-stop edge was deletable with the whole suite green, and its loss makes a later genuine
+   provider failure die with no error frame). Now pinned behaviourally and probe-proven.
+   STILL OWED on this charter, both small, both want a verifier: two call sites discard the
+   machine's `false` return (held-open re-arm, registry cascade), and `settle()` clears `inert`
+   (latent — the shipped Claude backend never takes the abort-fallback, but a trap for the next
+   held-open backend).
+9. **Stage 4 docs — LANDED on arc/docs (fa6a433 · a716bf4 · 9fb09db), draft PR #3 open,
+   VERIFICATION OWED.** The closer and both verifiers died on a session limit; the orchestrator
+   finished the close by hand (four package READMEs still linked the deleted corpora). Partial
+   lens-1 done by hand — see the journal for what was checked and what was NOT. Resume the two
+   lenses with resumeFromRunId 'wf_1261f87e-ce1' AFTER the limit resets, and TELL the closer its
+   work is already committed so it does not redo it.
 10. Stage 5 closeout: write questions for every parked charter/feature, push all
     branches, open draft PRs per workstream, final morning report in the journal.
     **PR #2's body is materially stale — Stage 5 owns rewriting it.**
