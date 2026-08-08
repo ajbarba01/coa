@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DaemonClient } from './daemon.js';
 import {
   createDaemonManager,
+  failureLine,
   type DaemonManagerDeps,
   type DaemonProcess,
 } from './daemon-manager.js';
@@ -52,7 +53,7 @@ describe('createDaemonManager', () => {
     const { deps: d, spawn } = deps();
     const mgr = createDaemonManager(d);
     const seen: string[] = [];
-    mgr.onStatus((s) => seen.push(s));
+    mgr.onStatus((r) => seen.push(r.status));
 
     expect(mgr.status()).toBe('stopped');
     await mgr.start();
@@ -85,7 +86,7 @@ describe('createDaemonManager', () => {
     expect(mgr.status()).toBe('running');
   });
 
-  it('goes to error when the connect never succeeds', async () => {
+  it('goes to error when the connect never succeeds, and keeps the last connect error as the reason', async () => {
     const { deps: d } = deps({
       connect: async () => {
         throw new Error('nope');
@@ -94,7 +95,115 @@ describe('createDaemonManager', () => {
     const mgr = createDaemonManager(d);
     await mgr.start();
     expect(mgr.status()).toBe('error');
+    expect(mgr.report()).toEqual({ status: 'error', reason: 'nope' });
     await expect(mgr.client()).rejects.toThrow(/not running/);
+  });
+
+  it('prefers what the daemon itself said over the connect symptom', async () => {
+    const proc: DaemonProcess = {
+      kill: vi.fn(),
+      failure: () => "Error: Cannot find module 'better-sqlite3'",
+    };
+    const { deps: d } = deps({
+      spawn: () => proc,
+      connect: async () => {
+        throw new Error('connect ENOENT');
+      },
+    });
+    const mgr = createDaemonManager(d);
+    await mgr.start();
+    // "connect failed" is what we watched happen; the child's stderr is why it happened.
+    expect(mgr.report().reason).toBe("Error: Cannot find module 'better-sqlite3'");
+  });
+
+  it('reports a NEW reason for the same status, so a second failure is not shown as the first', async () => {
+    let said = 'first failure';
+    const { deps: d } = deps({
+      connect: async () => {
+        throw new Error(said);
+      },
+    });
+    const mgr = createDaemonManager(d);
+    const seen: (string | undefined)[] = [];
+    mgr.onStatus((r) => seen.push(r.reason));
+    await mgr.start();
+    said = 'second failure';
+    await mgr.start();
+    expect(seen).toEqual([undefined, undefined, 'first failure', undefined, 'second failure']);
+  });
+
+  it('explains a crash with the daemon’s own dying words', async () => {
+    const proc: DaemonProcess = { kill: vi.fn(), failure: () => 'FATAL: pipe already bound' };
+    const { deps: d, closers } = deps({ spawn: () => proc });
+    const mgr = createDaemonManager(d);
+    await mgr.start();
+    closers[0]!();
+    expect(mgr.report()).toEqual({ status: 'error', reason: 'FATAL: pipe already bound' });
+  });
+
+  it('clears the reason once a stop succeeds — a deliberate stop is not a failure', async () => {
+    const { deps: d } = deps({
+      connect: async () => {
+        throw new Error('nope');
+      },
+    });
+    const mgr = createDaemonManager(d);
+    await mgr.start();
+    expect(mgr.report().reason).toBe('nope');
+    await mgr.stop();
+    expect(mgr.report()).toEqual({ status: 'stopped' });
+  });
+
+  it('adopt attaches to a daemon that is already serving', async () => {
+    const { deps: d, spawn } = deps({ probe: async () => true });
+    const mgr = createDaemonManager(d);
+    await mgr.adopt();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(mgr.status()).toBe('running');
+  });
+
+  it('adopt never spawns, and leaves the last failure standing when nothing is serving', async () => {
+    let refuse = true;
+    const { deps: d, spawn } = deps({
+      connect: async (_path, onClose) => {
+        if (refuse) throw new Error('cannot bind');
+        return { request: async () => ({ result: {} }), close: async () => onClose && undefined };
+      },
+    });
+    const mgr = createDaemonManager(d);
+    await mgr.start();
+    expect(mgr.report()).toEqual({ status: 'error', reason: 'cannot bind' });
+
+    refuse = false;
+    await mgr.adopt();
+    expect(spawn).toHaveBeenCalledOnce(); // the failed start's, never adopt's
+    // Nothing was serving, so there was nothing to attach to — and no new verdict to give.
+    expect(mgr.report()).toEqual({ status: 'error', reason: 'cannot bind' });
+  });
+});
+
+describe('failureLine', () => {
+  it('has nothing to say about an empty tail', () => {
+    expect(failureLine('')).toBeUndefined();
+    expect(failureLine('\n  \n')).toBeUndefined();
+  });
+
+  it('picks the line that names the failure out of a node stack trace', () => {
+    // Node prints the offending source line ABOVE the message and the frames below it,
+    // so neither end of the buffer is the answer.
+    const tail = [
+      'node:internal/modules/cjs/loader:1143',
+      '  throw err;',
+      '  ^',
+      '',
+      "Error: Cannot find module 'better-sqlite3'",
+      '    at Module._resolveFilename (node:internal/modules/cjs/loader:1143:15)',
+    ].join('\n');
+    expect(failureLine(tail)).toBe("Error: Cannot find module 'better-sqlite3'");
+  });
+
+  it('falls back to the last thing said when nothing names a failure', () => {
+    expect(failureLine('starting up\nlistening on pipe\n')).toBe('listening on pipe');
   });
 
   it('stop sends the shutdown verb, closes the client, kills the child, and reports stopped', async () => {

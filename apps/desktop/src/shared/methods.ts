@@ -108,12 +108,29 @@ export const PUSH_CHANNEL = 'coa:push';
  */
 export type DaemonStatus = 'stopped' | 'starting' | 'running' | 'error';
 export const DaemonStatusSchema = z.enum(['stopped', 'starting', 'running', 'error']);
-/** One-way main→renderer channel carrying {@link DaemonStatus} changes. */
+/**
+ * What main tells the renderer about the daemon: the state AND, when the state is a
+ * failure, why. The status alone can only ever say "something went wrong" — which
+ * leaves the gate telling the user a fact they cannot act on. `reason` is a plain
+ * human-readable line (the daemon's own stderr where it said anything, otherwise the
+ * error that ended the connect), absent whenever there is nothing to explain.
+ */
+export interface DaemonReport {
+  status: DaemonStatus;
+  reason?: string;
+}
+export const DaemonReportSchema = z.object({
+  status: DaemonStatusSchema,
+  reason: z.string().optional(),
+});
+/** One-way main→renderer channel carrying {@link DaemonReport} changes. */
 export const DAEMON_STATUS_CHANNEL = 'coa:daemon-status';
 /** Renderer→main invoke channels for the control actions. */
 export const DAEMON_CONTROL = {
   status: 'coa:daemon:status',
   start: 'coa:daemon:start',
+  /** Attach to a daemon that is already serving, never spawn one (see `DaemonManager.adopt`). */
+  adopt: 'coa:daemon:adopt',
   stop: 'coa:daemon:stop',
   restart: 'coa:daemon:restart',
 } as const;

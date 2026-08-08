@@ -1,6 +1,6 @@
 import { TooltipProvider } from '@coa/console-kit';
 import { useEffect, useRef } from 'react';
-import type { DaemonStatus } from '../shared/methods.js';
+import type { DaemonReport } from '../shared/methods.js';
 import { onAuthFailure, startConsole, type ConsoleController } from './console.js';
 import { reportActiveClaudeAuthFailure } from './panels/loginStore.js';
 import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
@@ -52,9 +52,9 @@ export function App(): React.JSX.Element {
   // one-way status stream. A transition INTO `running` (launch/restart) triggers
   // a refresh so the surfaces repopulate.
   useEffect(() => {
-    const apply = (status: DaemonStatus): void => {
-      const cameUp = status === 'running' && useShell.getState().daemon !== 'running';
-      useShell.getState().setDaemon(status);
+    const apply = (report: DaemonReport): void => {
+      const cameUp = report.status === 'running' && useShell.getState().daemon !== 'running';
+      useShell.getState().setDaemon(report.status, report.reason);
       if (cameUp) {
         void controllerRef.current?.refresh();
         // Recover the boot-time reads a cold start may have fired before the daemon

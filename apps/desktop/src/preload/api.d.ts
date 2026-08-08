@@ -17,7 +17,7 @@ import type {
   SessionSummary,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-import type { DaemonStatus } from '../shared/methods.js';
+import type { DaemonReport } from '../shared/methods.js';
 
 export {};
 declare global {
@@ -165,13 +165,16 @@ declare global {
       saveLayout(descriptor: unknown): Promise<void>;
       getSettings(): Promise<ConsoleSettings>;
       saveSettings(settings: ConsoleSettings): Promise<void>;
-      /** Title-bar daemon lifecycle control + a one-way status subscription. */
+      /** Title-bar daemon lifecycle control + a one-way status subscription. Every report
+       *  carries the reason behind a failure, so the gate can say why and not just that. */
       daemon: {
-        status(): Promise<DaemonStatus>;
+        status(): Promise<DaemonReport>;
         start(): Promise<void>;
+        /** Attach to an already-serving daemon; never spawns one. */
+        adopt(): Promise<void>;
         stop(): Promise<void>;
         restart(): Promise<void>;
-        onStatus(listener: (status: DaemonStatus) => void): () => void;
+        onStatus(listener: (report: DaemonReport) => void): () => void;
       };
       /** Custom (DOM) window controls + a one-way maximized-state subscription. */
       window: {
