@@ -57,6 +57,11 @@ export function App(): React.JSX.Element {
       const cameUp = report.status === 'running' && useShell.getState().daemon !== 'running';
       useShell.getState().setDaemon(report.status, report.reason);
       if (cameUp) {
+        // Whatever this renderer still thinks is running died with the old connection —
+        // a daemon that has only just come up cannot be driving a turn we started. Clear
+        // the claims BEFORE the reads, so nothing renders a spinner for a turn that is
+        // gone while the reattach is still in flight.
+        controllerRef.current?.clearRunState();
         void controllerRef.current?.refresh();
         // Recover the boot-time reads a cold start may have fired before the daemon
         // existed (they'd have settled into error Remotes with nothing else to retry

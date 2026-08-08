@@ -240,6 +240,10 @@ export interface ConsoleController {
    *  when `startConsole` fired them (they settled into error Remotes and nothing else
    *  ever retries them) — call this when the daemon transitions to `running`. */
   hydrate(): Promise<void>;
+  /** Forget every session this renderer believes is running — call it on the same daemon
+   *  transition as `hydrate`, and before it. A fresh daemon connection cannot be running a
+   *  turn this renderer started, so anything still in the map is a leftover claim. */
+  clearRunState(): void;
   toggleRaw(): void;
   dispose(): void;
 }
@@ -558,6 +562,17 @@ export async function startConsole(
     push();
   }
 
+  /** Drop a session's run entry — it is not running, whatever this renderer last thought.
+   *  The pill, the steer-mode composer and the queued-message release all hang off this
+   *  map, so a stale entry does not merely look wrong: it holds queued follow-ups forever. */
+  function clearRunStatus(sessionId: string): void {
+    if (state.ui.runStatus[sessionId] === undefined) return;
+    const runStatus = { ...state.ui.runStatus };
+    delete runStatus[sessionId];
+    state = { ...state, ui: { ...state.ui, runStatus } };
+    push();
+  }
+
   /** Open a session cache-first: the active id flips SYNCHRONOUSLY — a warm
    *  `turnsBySession` entry renders this same frame; a cold one shows the loading
    *  state — and the persisted-transcript reload reconciles in the background,
@@ -565,8 +580,8 @@ export async function startConsole(
    *  (re)subscribes to the daemon's live session (reattach — the session exists independent of any viewer) so a fresh mount —
    *  e.g. a reload mid-run — hydrates `runStatus` from the daemon's own snapshot
    *  instead of reconstructing it from this renderer's send-tracking (the daemon, not the renderer, owns the live session).
-   *  Fire-and-forget like `interruptSession`: the pill is driven by the resulting
-   *  status Push (the existing `onPush` handler below), not by this call's result. */
+   *  The pill is driven by the resulting status Push (the existing `onPush` handler
+   *  below) — with ONE exception, below: a refused subscribe pushes nothing at all. */
   async function openSession(id: string): Promise<void> {
     const cached = turnsBySession.get(id);
     state = {
@@ -578,7 +593,27 @@ export async function startConsole(
       ui: { ...state.ui, activeSessionId: id },
     };
     push();
-    void bridge.subscribeSession({ id }).catch(() => {});
+    // A reattach the daemon REFUSES is the reattach that matters: `subscribed: false`
+    // means it holds no live session for this conversation, so nothing can be running and
+    // no hydrating status push is coming. Ignoring that answer is what left a session
+    // spinning forever after the daemon died mid-turn — the renderer's own map was the
+    // only thing still claiming a turn. The daemon is the authority on liveness in both
+    // directions, not just when it says yes.
+    //
+    // Read the send counter first and only act if it hasn't moved: a send issued while
+    // this round trip was in flight is newer news than the answer coming back.
+    const sendsAtSubscribe = state.ui.sendNonce[id];
+    void bridge
+      .subscribeSession({ id })
+      .then((result) => {
+        if (result.subscribed) return;
+        if (state.ui.sendNonce[id] !== sendsAtSubscribe) return;
+        clearRunStatus(id);
+      })
+      .catch(() => {
+        // A failed reattach says nothing about liveness — the daemon being unreachable is
+        // already the gate's story, and guessing here would be the same lie inverted.
+      });
 
     const loaded = await settle(() => bridge.reloadConversation({ id }));
     if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
@@ -789,10 +824,21 @@ export async function startConsole(
   let youSeq = 0;
 
   /** The Stop/Esc affordance — a user-initiated stop (never a governance block).
-   *  Fire-and-forget: the running pill clears from the daemon's own `'interrupted'`
-   *  status Push (the existing `onPush` handler above), not from this call's result. */
+   *  On a real stop the running pill clears from the daemon's own `'interrupted'` status
+   *  Push (the existing `onPush` handler above), not from this call's result.
+   *
+   *  `interrupted: false` is the case that used to disappear: the daemon has no running
+   *  turn to stop, so no push is coming and Stop reads as a dead button. That answer is
+   *  authoritative — nothing is running — so the pill clears here and the console says
+   *  what happened rather than leaving the user pressing a control that does nothing. */
   const interruptSession = (sessionId: string): void => {
-    void bridge.interruptSession({ id: sessionId }).catch(() => {});
+    void surfaceWrite('stop that turn', bridge.interruptSession({ id: sessionId })).then(
+      (result) => {
+        if (result === undefined || result.interrupted) return;
+        clearRunStatus(sessionId);
+        reportNotice('Nothing to stop', 'that turn had already finished.');
+      },
+    );
   };
 
   /** Steer: reach the running turn at its next step, discarding nothing (a user
@@ -1057,6 +1103,24 @@ export async function startConsole(
    *  second, concurrent `initSessions()`. Settled boot loads make the guard's read honest:
    *  normal launch ⇒ ok+active ⇒ no re-run; cold boot ⇒ settled failures ⇒ recover.
    */
+  /**
+   * Forget every session this renderer believes is running. Called when a daemon
+   * connection comes up: a turn is owned by the daemon process that is driving it, so a
+   * connection that has only just been established cannot be running a turn this renderer
+   * started. Whatever is genuinely live re-announces itself through the reattach in
+   * `openSession` and the daemon's own pushes.
+   *
+   * This is the blanket half of the reconcile — `openSession` only ever speaks for the
+   * session it opens, and the map can hold background sessions the user never returns to.
+   * Only run state is cleared: the active conversation, its transcript and the rail are
+   * untouched, so a mid-use restart never moves the user somewhere else.
+   */
+  function clearRunState(): void {
+    if (Object.keys(state.ui.runStatus).length === 0) return;
+    state = { ...state, ui: { ...state.ui, runStatus: {} } };
+    push();
+  }
+
   async function hydrate(): Promise<void> {
     await bootLoads;
     await Promise.all([loadAccounts(), loadModels(), loadCatalogue(), initAgents()]);
@@ -1068,6 +1132,7 @@ export async function startConsole(
   return {
     refresh,
     hydrate,
+    clearRunState,
     toggleRaw,
     dispose: () => {
       unsubscribePush();

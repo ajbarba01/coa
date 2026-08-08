@@ -1258,3 +1258,128 @@ describe('failed writes are said out loud', () => {
     expect(useNotices.getState().notice).toBeUndefined();
   });
 });
+
+describe('the daemon is the authority on what is still running', () => {
+  beforeEach(() => {
+    useNotices.setState({ notice: undefined });
+  });
+
+  /** Put a session into the running state the only way the app does: a daemon status push. */
+  function pushRunning(emit: ((payload: unknown) => void) | undefined, sessionId: string): void {
+    emit?.({ kind: 'status', sessionId, worktree: 'w', state: 'running' });
+  }
+
+  it('clears the pill when a reattach comes back not-subscribed — the daemon has no such turn', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    // A daemon that died mid-turn and came back knows nothing about this conversation:
+    // it refuses the subscribe and sends no hydrating status at all.
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+      subscribeSession: vi.fn().mockResolvedValue({ subscribed: false }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    last().actions.selectSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('leaves a send issued while the reattach was in flight alone', async () => {
+    let answer!: (value: { subscribed: boolean }) => void;
+    const bridge = fakeBridge({
+      subscribeSession: vi
+        .fn()
+        .mockReturnValue(new Promise<{ subscribed: boolean }>((r) => (answer = r))),
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.selectSession('c1');
+    // The user types and sends before the daemon answers — the send is the newer news.
+    last().actions.sendMessage('carry on');
+    answer({ subscribed: false });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('a subscribe the daemon accepts leaves run state to the push stream', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+
+    last().actions.selectSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('forgets every running claim when a daemon connection comes up, without moving the user', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last, controller } = await mount(bridge);
+    pushRunning(emit, 'c1');
+    // A background conversation can hold a claim too — the map outlives the open session.
+    pushRunning(emit, 'c-other');
+    expect(Object.keys(last().ui.runStatus)).toHaveLength(2);
+
+    controller.clearRunState();
+
+    expect(last().ui.runStatus).toEqual({});
+    expect(last().ui.activeSessionId).toBe('c1');
+  });
+
+  it('says so when Stop finds nothing to stop, and drops the claim that said otherwise', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+      interruptSession: vi.fn().mockResolvedValue({ interrupted: false }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+
+    last().actions.interruptSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({ title: 'Nothing to stop' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('leaves a real stop to the daemon push and says nothing', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+
+    last().actions.interruptSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The daemon accepted the stop: the pill is still the push stream's to clear.
+    expect(useNotices.getState().notice).toBeUndefined();
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+});
