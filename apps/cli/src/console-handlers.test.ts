@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { dispatch } from '../rpc/router.js';
-import { buildDaemonConsoleHandlers, createDaemonCore, type DaemonCoreHandle } from './daemon.js';
+import { createDaemonCore, dispatch, type DaemonCoreHandle } from '@coa/core';
+import { buildDaemonConsoleHandlers } from './console-handlers.js';
 
 describe('buildDaemonConsoleHandlers — inspector reads served over the live daemon core', () => {
   let dir: string;
@@ -14,13 +14,14 @@ describe('buildDaemonConsoleHandlers — inspector reads served over the live da
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
   });
   afterEach(() => {
+    handle.kernel.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('serves the live cost-cap state', async () => {
     const res = await dispatch(
       { jsonrpc: '2.0', id: 1, method: 'capState' },
-      buildDaemonConsoleHandlers(handle),
+      buildDaemonConsoleHandlers(handle, { home: dir }),
     );
     expect(res).toMatchObject({ result: { capHit: false } });
   });
@@ -28,7 +29,7 @@ describe('buildDaemonConsoleHandlers — inspector reads served over the live da
   it('serves the user flag feed (empty floor on a fresh daemon)', async () => {
     const res = await dispatch(
       { jsonrpc: '2.0', id: 1, method: 'flagsForUser' },
-      buildDaemonConsoleHandlers(handle),
+      buildDaemonConsoleHandlers(handle, { home: dir }),
     );
     expect(res).toEqual({ jsonrpc: '2.0', id: 1, result: { expanded: [], collapsed: [] } });
   });
@@ -36,7 +37,7 @@ describe('buildDaemonConsoleHandlers — inspector reads served over the live da
   it('degrades the login verbs to idle when no login driver is injected', async () => {
     const res = await dispatch(
       { jsonrpc: '2.0', id: 1, method: 'loginState' },
-      buildDaemonConsoleHandlers(handle),
+      buildDaemonConsoleHandlers(handle, { home: dir }),
     );
     expect(res).toMatchObject({ result: { phase: 'idle' } });
   });
@@ -54,7 +55,7 @@ describe('buildDaemonConsoleHandlers — inspector reads served over the live da
         ptyCaptured: false,
       }),
     };
-    const handlers = buildDaemonConsoleHandlers(handle, { loginDriver });
+    const handlers = buildDaemonConsoleHandlers(handle, { loginDriver, home: dir });
     const res = await dispatch(
       { jsonrpc: '2.0', id: 1, method: 'startLogin', params: { email: 'a@b.c' } },
       handlers,

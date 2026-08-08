@@ -14,18 +14,8 @@ import { searchWithRipgrep } from '../workbench/ripgrep.js';
 import { createExec } from '../workbench/exec.js';
 import { buildWebToolDeps, type WebConfig } from '../workbench/web/web-config.js';
 import type { Summarizer } from '../workbench/web-tools.js';
-import type { LoginDriverPort, RuntimeUsage } from '@coa/spi';
-import { homedir } from 'node:os';
-import { buildConsoleHandlers } from '../rpc/console-handlers.js';
+import type { RuntimeUsage } from '@coa/spi';
 import { resolveShell } from './shell.js';
-import { buildAuthHandlers } from '../rpc/auth-handlers.js';
-import { AccountsRegistry } from '../auth/registry.js';
-import { LoginManager } from '../auth/login-manager.js';
-import { WebConfigStore } from '../workbench/web/web-config-store.js';
-import { KeyStateStore } from '../workbench/web/key-state-store.js';
-import { ConsoleStateStore } from '../console/console-state-store.js';
-import { BrowserSession } from '../auth/browser-session.js';
-import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
 
 /**
@@ -146,73 +136,6 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
   };
 
   return { core, kernel, flags, governance };
-}
-
-/** The backend plumbing the console handlers consume but core must not construct itself. */
-export interface DaemonConsoleDeps {
-  /**
-   * The rented CLI's driven-login plumbing (pty spawn + auth probe), built by the
-   * composition root over the backend package. Absent ⇒ no login manager is
-   * constructed and every login verb degrades to its idle floor (auth reads,
-   * account verbs, and key management still work).
-   */
-  loginDriver?: LoginDriverPort;
-}
-
-/**
- * Bind the daemon's live singletons to the read-only inspector handler map the
- * JSON-RPC router serves — the seam between the daemon core and the console's
- * CON-CAT reads. Pure projection wiring: each port reads an existing surface
- * (cost state, flag user feed), no new behavior. The transport layer
- * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
- */
-export function buildDaemonConsoleHandlers(
-  handle: DaemonCoreHandle,
-  deps: DaemonConsoleDeps = {},
-): RpcHandlers {
-  const accounts = new AccountsRegistry(homedir());
-  const consoleState = new ConsoleStateStore(homedir());
-  // The one place the three isolation facts meet: the user's setting, the provider's
-  // declared capability, and what browser this machine actually has.
-  const browser = new BrowserSession({
-    home: homedir(),
-    platform: process.platform,
-    env: process.env,
-    settings: () => {
-      const state = consoleState.read();
-      return {
-        enabled: state.isolatedBrowserLogins,
-        ...(state.browserPath !== undefined ? { browserPath: state.browserPath } : {}),
-      };
-    },
-  });
-  const loginManager =
-    deps.loginDriver === undefined
-      ? undefined
-      : new LoginManager(accounts, deps.loginDriver, {
-          browserSession: {
-            launcherFor: (email) => browser.launcherFor('claude', email),
-            // Fire-and-forget: the open waits briefly for the shim's relayed url, and a login
-            // must never block on a browser window.
-            openUrl: (email, url) => void browser.openUrl('claude', email, url),
-            removeProfile: (email) => browser.removeProfile(email),
-          },
-        });
-  return {
-    ...buildConsoleHandlers({
-      capState: (sessionId) => handle.governance.capState(sessionId),
-      flagsForUser: (scope) => handle.flags.flagsForUser(scope),
-      listTimeline: () => handle.kernel.listTimeline(),
-    }),
-    ...buildAuthHandlers({
-      accounts,
-      web: new WebConfigStore(homedir()),
-      keys: new KeyStateStore(homedir()),
-      console: consoleState,
-      ...(loginManager !== undefined ? { loginManager } : {}),
-      browser,
-    }),
-  };
 }
 
 /** The sweep scope for a reconciling producer's full-set recompute (any non-golden scope). */

@@ -2,14 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  buildDaemonConsoleHandlers,
-  createDaemonCore,
-  listen,
-  ModelCache,
-  ModelCatalogStore,
-  type RpcServer,
-} from '@coa/core';
+import { createDaemonCore, listen, ModelCache, ModelCatalogStore, type RpcServer } from '@coa/core';
+import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { runCli, startDaemon, listMergedModels, listEffectiveModels } from './cli.js';
 
 let n = 0;
@@ -27,7 +21,7 @@ describe('runCli — client read commands over a live daemon', () => {
     dir = mkdtempSync(join(tmpdir(), 'coa-cli-'));
     const handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     path = testPath();
-    server = await listen(path, buildDaemonConsoleHandlers(handle));
+    server = await listen(path, buildDaemonConsoleHandlers(handle, { home: dir }));
   });
   afterEach(async () => {
     await server.close();

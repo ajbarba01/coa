@@ -12,7 +12,13 @@ export { type Producer } from './flags/producer.js';
 export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
 export { connectClient } from './rpc/client.js';
 export { bindDaemon } from './rpc/lifecycle.js';
-export { buildAgentRegistryHandlers, buildRegistryHandlers } from './rpc/console-handlers.js';
+export { dispatch, type RpcHandlers } from './rpc/router.js';
+export {
+  buildAgentRegistryHandlers,
+  buildConsoleHandlers,
+  buildRegistryHandlers,
+} from './rpc/console-handlers.js';
+export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { buildModelHandlers, MODEL_PROVIDERS } from './rpc/model-handlers.js';
 export { loadGenerateFile } from './context/generate-config.js';
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
@@ -44,13 +50,12 @@ export { LiveSessionRegistry } from './session/live-registry.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
 export { createConversationStore } from './session/conversation-store.js';
-export {
-  createDaemonCore,
-  buildDaemonConsoleHandlers,
-  type DaemonConsoleDeps,
-  type DaemonCoreHandle,
-} from './session/daemon.js';
+export { createDaemonCore, type DaemonCoreHandle } from './session/daemon.js';
 export { AccountsRegistry } from './auth/registry.js';
+export { LoginManager } from './auth/login-manager.js';
+export { BrowserSession } from './auth/browser-session.js';
+export { ConsoleStateStore } from './console/console-state-store.js';
+export { KeyStateStore } from './workbench/web/key-state-store.js';
 export { ModelCatalogStore } from './models/model-catalog-store.js';
 export { effectiveModels } from './models/effective-models.js';
 export {
