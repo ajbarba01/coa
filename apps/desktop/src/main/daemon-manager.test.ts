@@ -206,6 +206,28 @@ describe('failureLine', () => {
     expect(failureLine('starting up\nlistening on pipe\n')).toBe('listening on pipe');
   });
 
+  it('reports the newest failure, not an older routine one still in the window', () => {
+    // The tail is a rolling window over the whole run, and the daemon reports its own
+    // routine trouble on stderr — so the first error-shaped line in it is usually an old
+    // one that has nothing to do with why the process just went away.
+    const tail = [
+      'conversation store: session c1 — 2 unreadable record(s), skipped',
+      'watcher error: observation stopped for /repo',
+      'Error: listen EADDRINUSE: address already in use',
+      '    at Server.setupListenHandle (node:internal/errors:1897:16)',
+    ].join('\n');
+    expect(failureLine(tail)).toBe('Error: listen EADDRINUSE: address already in use');
+  });
+
+  it('never reports a stack frame, even one whose own path says "errors"', () => {
+    const tail = [
+      'Error: boom',
+      '    at run (node:internal/errors:405:5)',
+      '    at node:internal/main/run_main_module:36:49',
+    ].join('\n');
+    expect(failureLine(tail)).toBe('Error: boom');
+  });
+
   it('stop sends the shutdown verb, closes the client, kills the child, and reports stopped', async () => {
     const client = fakeClient();
     const { deps: d, proc } = deps({ connect: async () => client });

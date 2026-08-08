@@ -36,8 +36,15 @@ export interface DaemonProcess {
 /**
  * Pick the line most likely to say WHY out of a captured stderr tail. Neither end of the
  * tail is reliable on its own: Node prints the offending source line ABOVE the message
- * and the stack frames below it, so this looks for the line that names a failure first
- * and only falls back to the last thing said.
+ * and the stack frames below it, so this looks for a line that NAMES a failure and only
+ * falls back to the last thing said.
+ *
+ * The MOST RECENT such line wins, not the first. The tail is a rolling window over
+ * everything the daemon has ever said, and the daemon reports its own routine trouble on
+ * stderr too (a conversation record it could not read, observation it had to stop) — so
+ * the oldest error-shaped line in the window is usually the least related to why the
+ * process just died. Stack frames are skipped on the way: a frame's own path can carry
+ * `errors` (`node:internal/errors`) without saying anything at all.
  */
 export function failureLine(tail: string): string | undefined {
   const lines = tail
@@ -45,8 +52,9 @@ export function failureLine(tail: string): string | undefined {
     .map((line) => line.trim())
     .filter((line) => line !== '');
   if (lines.length === 0) return undefined;
+  const said = lines.filter((line) => !/^at\s/.test(line));
   return (
-    lines.find((line) => /error|cannot|denied|refused|not found|missing/i.test(line)) ??
+    said.findLast((line) => /error|cannot|denied|refused|not found|missing/i.test(line)) ??
     lines.at(-1)
   );
 }
