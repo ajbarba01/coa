@@ -354,6 +354,42 @@ Workflow: flake-fixer → archiver → adversarial verifier (top lens: gate-chea
 - **New question queued: Q9** — health-profile.ts orphaned by health.ts's archival.
 - Gate at 658fbd8: 2858 passed / 30 skipped, depcruise clean (406 modules), docs 60.
 
+## C3 session-layer restructuring — BUILT (21bbc78 · f66d72b · ca8fbdf · f648551)
+
+**session-handlers.ts: 1411 lines -> 122.** Extraction phase (21bbc78, f66d72b) split it
+into frame-recorder.ts, turn-persistence.ts, turn-driver.ts, per-turn-driver.ts,
+held-open-driver.ts. The audit's central claim held exactly: the two drive strategies
+differed only by a seq-box and a started-handle (now injected), with the held-open
+path's two extras becoming optional hooks — an inert-gate for its stopped check and a
+settled hook for boundary counting. createDeliveryRecorder went from two construction
+sites to one, which is what makes the single-writer delivery rule enforceable rather
+than merely stated. The 3150-line test file was left BYTE-IDENTICAL and passed
+throughout — good evidence for the extraction, but NOT proof of equivalence (see the
+verification caveat below).
+
+**The latent bug is fixed and was proven real first (ca8fbdf).** Three regression tests
+drive two connections over one shared registry: connection A founds a session,
+connection B sends a turn to it. All three failed before the fix, one per consequence
+the audit predicted (dropped role, spurious held-query teardown, missing deferred
+subscribe). Then f648551 introduced a daemon-scoped SessionService constructed ONCE in
+apps/cli, leaving per-connection handlers as pure translation.
+Orchestrator-verified independently: `turnMeta`, `WeakMap`, `onStartChild`, and
+`spawnSupport` return ZERO hits repo-wide — the WeakMap and the late-bound spawn holder
+are genuinely deleted, not renamed or bypassed. SessionService is constructed at
+apps/cli/src/cli.ts:277.
+
+Gates green on every commit (2858 passed / 30 skipped; depcruise clean at 411 modules).
+
+**VERIFICATION DID NOT RUN WITH THE BUILD — both verifier agents died on a session
+limit.** The build phases are therefore self-reported. Verification was relaunched
+separately (three refute-framed lenses: invariants, the bug-and-its-proof including a
+scratch-worktree replay at the pre-fix commit, and behaviour drift in the unified hot
+path). Do not treat C3 as verified until that lands. Disclosed deviations to check:
+held-open query-scoped state moved into its driver though the brief said to leave
+makeRunTurn ownership alone; deriveTitle relocated; ADR 0031 still names the old home of
+the delivery recorder (left unedited because ADRs are immutable — the new module cites
+it instead, so the rule stays greppable).
+
 ## Rulings + prep while the session-layer work runs (2026-08-07 evening)
 
 - **Q2 RULED: strike R2 entirely.** Nothing removed; ledger row updated to STRUCK. The
