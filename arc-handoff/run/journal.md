@@ -1011,3 +1011,73 @@ a live run. Flagged rather than waved through.
 docs/ARCHITECTURE.md on arc/docs goes stale and must be rewritten — the same-commit doc rule
 cannot catch it because the doc lives on a different branch. Whoever lands the state machine
 owns that edit.
+
+## Turn lifecycle BUILT (fa437a1 · a1902f9) — both verifiers passed=false, and the best finding yet
+
+The charter's missing item is built: `packages/core/src/session/turn-lifecycle.ts` replaces THREE
+flags (`TurnControl.interrupted`, the held query's `stopped` and `terminated`) with one owned
+phase — running / stop-requested / stopped / settled — driven by a visible transition table.
+Illegal moves are unexpressible: they would need a new row in that one table, not a flag flipped
+in another file. `RunState` was deliberately NOT subsumed (it is a published wire fact, the turn
+lifecycle is internal), and the reasoning is written into the module header so it is not
+re-litigated. Gate: 2939 passed / 30 skipped, depcruise 419 modules, docs 60.
+
+**The executor ran its own mutation probes and found a real coverage gap with one.** Probe C
+(deleting the re-arm edge) initially reded only its own unit test — meaning a held-open query
+that stayed inert forever would have swallowed every later turn in silence while the whole suite
+stayed green. It wrote the missing integration test and re-ran the probe. That is the standard
+this arc has been trying to hold, applied by an agent to its own work unprompted.
+
+### Both verifiers returned passed=false; between them, five things worth acting on
+
+**BOTH found the same undisclosed divergence, independently, and both PROVED it by running
+against the pre-refactor commit.** The report claimed exactly one deliberate divergence and that
+"nothing observable to the console changed". False on the per-turn path: a double-click Stop used
+to answer interrupted:true twice, push two interrupted statuses, and write a **duplicate PERSISTED
+interrupt marker frame** — settleInterrupt is not idempotent — corrupting the durable transcript
+for every later reload. It now answers false the second time and writes one marker.
+The new behaviour is a genuine bug fix. What was wrong was the RECORD, and it took two
+independent agents running the same experiment to catch a claim of "nothing observable changed"
+that was made in good faith and was simply not true.
+
+**The refactor introduced a NEW silent-failure mode — the most important finding.** The
+abandon-stop edge has no integration coverage: delete it and the entire repo suite stays green
+but for one line of an isolated unit test. The consequence was demonstrated, not theorised: press
+Stop on a held-open session while its query is idle between turns (a common path — the interrupt
+closure returns false whenever nothing is in flight), and the withdrawal never happens;
+`stoppedByUser` stays true forever, and the settlement's "a user stop is not an error" early-return
+then SWALLOWS a later genuine provider failure. No error frame, no error status, the session dies
+quietly. This risk did not exist before: the old code cleared the flag by unconditional assignment,
+which cannot fail. Routing it through a table lookup that CAN silently no-op is exactly the kind of
+regression a refactor is supposed to be checked for.
+
+**An invariant documented in a comment that nothing enforces.** per-turn-driver asserts both
+strategies close a stop in the same settle-first order. Two mutations to shipped code — swapping
+the order, and deleting the closeStop call outright — leave all 349 session tests green, because
+per-turn supplies no inert hook and stoppedByUser is true in both phases. Held-open's equivalent
+ordering IS enforced. So the comment claims a cross-strategy guarantee that holds on one strategy.
+
+**Two more edges pinned only by unit tests** (settle-from-running, which is what stops a
+re-establish from hanging on a dead feed), **two call sites discarding the machine's false return**
+— the property the whole design rests on — and **`settle()` silently clearing `inert`**, latent
+today because the shipped Claude backend always reports the turn-level interrupt, but a trap for
+the next held-open backend.
+
+Both verifiers respected read-only: every probe restored and proven byte-identical by hash, with
+`git diff HEAD` empty and HEAD unchanged.
+
+### Fix round launched (wf_d8e133e2-e82)
+
+workflow-scripts/c3-lifecycle-fixes.js: integration-cover the abandon-stop edge (and prove the new
+test reds when the edge is removed), resolve the per-turn ordering honestly — enforce it with a
+test or delete the dead call and rewrite the comment, no third option — cover the remaining
+silent edges, pin the redundant-Stop consequence at one marker, and CORRECT the deviation record.
+The verifier is told an edge guarded only by a unit test asserting the machine's own phase does
+not count as covered.
+
+**The lesson, which generalises past this charter:** the executor mutation-probed its own work and
+still shipped a claim that was false, because it probed the transitions it had written rather than
+the behaviour a user would see. Two verifiers caught it by running the OLD code and comparing.
+Comparing against the parent commit keeps being the step that separates "my change did this" from
+"my change revealed this" — it found the daemon-root defect this morning and a duplicated persisted
+frame this afternoon.
