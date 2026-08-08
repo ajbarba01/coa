@@ -34,11 +34,12 @@
 |---|---|---|
 | `main` | d97c118 | untouched, as the arc found it |
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | 77e6dd4 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
-| `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
+| `arc/architecture` | 77e6dd4 | Stage 2 COMPLETE except C4: C1, de-slop, C2 (all 3 parts, adapter unification landed), the cost-cap archive (R1), the Q7 cleanups, C3 built+verified (including the turn-lifecycle state machine, fa437a1..77e6dd4), Q9 archival, C5 complete+verified (the data-loss fix f59bdc3, the honesty fixes incl. 7852763, a real hermeticity defect fixed at 7c379ad). All gates green (2928 tests, depcruise 418 modules, docs 60 — pre-Stage-4-retirement count). **STILL OWED: two small turn-lifecycle leftovers (ITEM 5a/5b), running now as wf_9086e1f2-f2b.** C4 unbuilt, unblocked, parked on Fable/UX allocation |
 | `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
+
+`arc/wip-adapter-unify` deleted 2026-08-08 (local + `origin`) — confirmed by `merge-base --is-ancestor` fully contained in `arc/architecture` before deletion, per Q5's ruling anticipating exactly this as the closeout step. Nothing lost; every commit lives on in `arc/architecture`.
 
 The 5 Stage-0 baseline commits that were on the old machine's local `main` (tip
 a13e46d) are reachable in `arc/reset-knife`'s ancestry — recreate with
