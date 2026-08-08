@@ -317,3 +317,28 @@ across three files are precisely what produced C3's original connection-ownershi
 **Done instead:** recorded with file:line so it can be executed without re-deriving it; NOT
 attempted by hand, because a refactor of this shape without an available verifier is how a
 subtle regression lands on a green suite.
+
+### Q13 RESOLVED (2026-08-08) — the C3 item was built, and it was a real bug, not a hygiene nit
+Built at 5c232df: `TurnLifecycle.inert` now covers `settled`, and `live-registry.ts`'s `#closeOne`
+calls `closeStop()` before aborting. An adversarial verifier (working off the UNFIXED code, since
+the executor died before writing anything) built two working reproductions BEFORE any fix
+existed: a straggler frame rendering below the `interrupted` marker via the everyday Stop button
+(no exotic backend required), and a second, independent leak on the registry cascade-close path
+that never even reached the `stopped` phase. Both directly falsified code comments claiming this
+couldn't happen. Fixed, mutation-probed (each half reverted independently and confirmed to red),
+and independently re-verified by a second, fresh adversarial agent (passed=true) — full detail in
+the journal. This closes C3's last outstanding item; C3 is now fully complete.
+
+## Q14 — a closed session can still dispatch a leftover queued turn, invisible to the registry (found 2026-08-08)
+**Context:** raised by the independent verifier checking the 5c232df fix, as an explicitly adjacent
+finding — NOT caused by that commit and not affecting its verdict, reproduces identically before
+and after it. `LiveSession.close()`/`nextTurn()` (live-session.ts:212-236) never clears `#queue`: a
+turn already queued when a session is closed (`registry.close`/`#closeOne`, or `closeSession`) still
+gets drained and dispatched afterward. Because the session is already settled by the time this
+happens, it routes through `establishHeldQuery` (a brand-new backend query), not `continueHeldQuery`
+— but the registry has already deleted the session's entry from `#entries`, so this new query is
+invisible to every registry-level operation (idle eviction, cascade-close, `coa cap`/inspect reads).
+**Needed:** a decision on whether this is worth its own small charter (clear `#queue` on close, or
+reject/drain it explicitly) or is acceptable as documented behavior for now. Not blocking; no user-
+visible symptom has been observed, only reasoned about.
+**Done instead:** recorded with file:line so it can be executed without re-deriving it.

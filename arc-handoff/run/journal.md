@@ -1278,4 +1278,26 @@ one machine having a bad five minutes.
 Launched a fresh, independent, read-only adversarial verifier against this fix (single agent, not
 a full workflow — this is a single well-scoped check, not a multi-stage charter) specifically
 because I designed both the fix AND its own tests, which is exactly the shape of confirmation bias
-this arc's history warns about. Its result is still pending as this entry is written.
+this arc's history warns about.
+
+### Independent verification returned passed=true, and it earned it
+
+It did not just re-read my reasoning — it re-derived the `continueHeldQuery`/`beginTurn()`
+reachability claim from `run-live-session.ts`'s actual dispatch loop (a file I hadn't cited), walked
+all four reachable phases through the transition table for the `#closeOne` pair by hand, grepped
+every `record(`/`isInert` call site in the package (finding `per-turn-driver.ts` supplies no
+`isInert` hook at all, so the `inert`-covers-`settled` change cannot touch it), ran the two new
+integration tests 15 consecutive times hunting for their own flakiness, and — critically — did a
+REAL parent-commit comparison: swapped the three production files back to their 77e6dd4 content
+(keeping HEAD's new tests) and confirmed exactly 4 tests red, restored via `git checkout --`, and
+confirmed `git diff HEAD` empty afterward. All gates re-run clean.
+
+**One adjacent, pre-existing, out-of-scope finding surfaced along the way** (now Q14): closing a
+session never clears `LiveSession`'s own turn queue, so a turn already queued at close time can
+still spin up a brand-new backend query afterward, invisible to the registry (its entry is already
+deleted by then). Explicitly not caused by 5c232df and reproduces identically before it — recorded
+rather than fixed, since scope-creeping a verified charter to also fix an unrelated finding is how a
+clean commit stops being reviewable as one thing.
+
+**C3 is now fully complete.** This was its last outstanding item (Q13), and it turned out to be a
+real, provable bug rather than the hygiene nit its own state.md description undersold it as.
