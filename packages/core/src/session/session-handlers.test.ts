@@ -1286,6 +1286,118 @@ describe('buildSessionHandlers — one live session across turns (P-α multi-tur
   });
 });
 
+/**
+ * A daemon owns ONE live session per conversation, and every connection talks to that one
+ * session. So the connection that happened to FOUND a session must not be the only one
+ * whose turns are honored in full: a second console — a reload, a second window, the
+ * desktop app beside the CLI — sends against the same conversation id and its turn has to
+ * carry its own role into prompt assembly and hydrate its own sink, exactly as the
+ * founder's did. Anything the founding connection captured privately is invisible to it.
+ */
+describe('buildSessionHandlers — a turn sent over a connection that did not found the session', () => {
+  /** Two connections onto one daemon: the founder plus a later arrival, sharing the one
+   *  live-session registry the way `apps/cli` wires them. `assembledRoles` records the role
+   *  each turn actually compiles under. No store, so nothing freezes the first turn's
+   *  prompt — every turn assembles, making that role directly observable. */
+  function twoConnections(shared?: SessionDeps): {
+    assembledRoles: string[];
+    founder: ReturnType<typeof connection>;
+    second: ReturnType<typeof connection>;
+    founderHandlers: ReturnType<typeof buildSessionHandlers>;
+    secondHandlers: ReturnType<typeof buildSessionHandlers>;
+  } {
+    const registry = new LiveSessionRegistry();
+    const assembledRoles: string[] = [];
+    const sessionDeps: SessionDeps = {
+      ...(shared ?? deps([{ t: 'text', text: 'ok' }])),
+      assemblePieces: (ctx) => {
+        assembledRoles.push(ctx.role);
+        return { pieces: [], frame: { allow: [], deny: [] } };
+      },
+    };
+    const founder = connection();
+    const second = connection();
+    return {
+      assembledRoles,
+      founder,
+      second,
+      founderHandlers: buildSessionHandlers(sessionDeps, founder, undefined, registry),
+      secondHandlers: buildSessionHandlers(sessionDeps, second, undefined, registry),
+    };
+  }
+
+  it("carries that turn's role into prompt assembly, not the empty default", async () => {
+    const { assembledRoles, founderHandlers, secondHandlers } = twoConnections();
+
+    await founderHandlers['createSession']!.handle({
+      conversationId: 'shared-1',
+      input: 'first',
+      role: 'alpha',
+    });
+    await flush();
+    await secondHandlers['createSession']!.handle({
+      conversationId: 'shared-1',
+      input: 'second',
+      role: 'beta',
+    });
+    await flush();
+    await flush();
+
+    expect(assembledRoles).toEqual(['alpha', 'beta']);
+  });
+
+  it("hydrates the sending connection with that turn's true first status", async () => {
+    const { second, founderHandlers, secondHandlers } = twoConnections();
+
+    await founderHandlers['createSession']!.handle({
+      conversationId: 'shared-2',
+      input: 'first',
+      role: 'alpha',
+    });
+    await flush();
+    await secondHandlers['createSession']!.handle({
+      conversationId: 'shared-2',
+      input: 'second',
+      role: 'alpha',
+    });
+    await flush();
+    await flush();
+
+    // The deferred subscribe the founder got, fired for this connection too: hydration
+    // lands on `running`, never a spurious leading `idle`.
+    expect(pushesOf(second.pushes)[0]).toEqual({
+      kind: 'status',
+      sessionId: 'shared-2',
+      worktree: '/wt/sess-1',
+      state: 'running',
+    });
+  });
+
+  it('rides the open held-open query instead of tearing it down and re-establishing', async () => {
+    const adapters: HeldOpenAdapter[] = [];
+    const { founderHandlers, secondHandlers } = twoConnections(depsHeldOpen(adapters));
+
+    // Both sends name the SAME role, so the query's pinned prompt-shaping config is
+    // unchanged and there is nothing legitimate to re-establish for.
+    await founderHandlers['createSession']!.handle({
+      conversationId: 'h-shared',
+      input: 'first',
+      role: 'alpha',
+    });
+    await flush();
+    await secondHandlers['createSession']!.handle({
+      conversationId: 'h-shared',
+      input: 'second',
+      role: 'alpha',
+    });
+    await flush();
+    await flush();
+
+    expect(adapters.length).toBe(1);
+    expect(adapters[0]?.consumed).toEqual(['first', 'second']);
+  });
+});
+
 describe('buildSessionHandlers — subscribeSession (console reattach)', () => {
   it('hydrates a newly subscribing connection with the running status of an in-flight session', async () => {
     const registry = new LiveSessionRegistry();

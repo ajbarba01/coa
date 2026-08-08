@@ -1,10 +1,10 @@
 import { describeLoopFailure } from './loop-failure.js';
-import type { LiveSession, TurnRequest } from './live-session.js';
+import type { LiveSession, QueuedTurn } from './live-session.js';
 
 /** A single turn's execution, dispatched by `runLiveSession` for each queued
- *  `TurnRequest`. Encapsulates the backend-specific work (e.g. the per-turn
+ *  turn. Encapsulates the backend-specific work (e.g. the per-turn
  *  `createSession` call); the loop itself stays backend-neutral. */
-export type RunTurn = (turn: TurnRequest, session: LiveSession) => Promise<void>;
+export type RunTurn = (turn: QueuedTurn, session: LiveSession) => Promise<void>;
 
 /**
  * The daemon-owned turn loop: drains `session`'s queued turns one at a time,
@@ -17,7 +17,7 @@ export type RunTurn = (turn: TurnRequest, session: LiveSession) => Promise<void>
  */
 export async function runLiveSession(session: LiveSession, runTurn: RunTurn): Promise<void> {
   let seq = 0;
-  let turn: TurnRequest | undefined;
+  let turn: QueuedTurn | undefined;
   while ((turn = await session.nextTurn()) !== undefined) {
     try {
       await runTurn(turn, session);

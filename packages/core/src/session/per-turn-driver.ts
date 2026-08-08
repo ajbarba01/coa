@@ -1,9 +1,9 @@
 import type { ConversationStore } from './conversation-store.js';
 import { createFrameRecorder, type SeqBox, type StartedRef } from './frame-recorder.js';
-import type { LiveSession, TurnRequest } from './live-session.js';
+import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
-import type { TurnDriverDeps } from './turn-driver.js';
+import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
 /**
@@ -19,13 +19,12 @@ import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistenc
  */
 export async function runPerTurn(
   ctx: TurnDriverDeps,
-  turn: TurnRequest,
+  turn: QueuedTurn,
   session: LiveSession,
   persistentStore: ConversationStore | undefined,
 ): Promise<void> {
-  const meta = ctx.turnMeta(turn);
   const seqBox: SeqBox = { value: 0 };
-  const prep = prepareTurnPersistence(turn, session, meta?.role ?? '', persistentStore, seqBox);
+  const prep = prepareTurnPersistence(turn, session, turn.role ?? '', persistentStore, seqBox);
   const startedRef: StartedRef = { current: undefined };
   const recorder = createFrameRecorder({
     session,
@@ -75,8 +74,8 @@ export async function runPerTurn(
           // running-aware idle timer in live-registry.ts.
           ctx.registry.touch(session.id);
           // Hydration reflects the true first status ('running') — this fires AFTER setState.
-          if (meta?.subscribe !== undefined) ctx.addUnsubscriber(session.subscribe(meta.subscribe));
-          meta?.onReady?.(s);
+          attachSubscriber(session, turn);
+          turn.onReady?.(s);
         },
         onTurn: recorder.record,
       },

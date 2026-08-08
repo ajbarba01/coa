@@ -1,28 +1,20 @@
-import type { StartedHandle } from './frame-recorder.js';
-import type { LiveSession, Sink, TurnRequest } from './live-session.js';
+import type { LiveSession, QueuedTurn } from './live-session.js';
 import type { LiveSessionRegistry } from './live-registry.js';
 import type { SessionDeps } from './session.js';
 
 /**
  * The contract every drive strategy is built against.
  *
- * A drive strategy runs a turn, but the facts it needs to do so are split across two
- * scopes: the daemon's (the session deps, the live-session registry) and the ONE RPC
- * connection that asked for the turn (which sink to hydrate, which unsubscribes to collect
- * at close, which role this particular request carried). The connection-scoped half is why
- * the strategies were nested closures to begin with. Passing it as an explicit object keeps
- * a driver a plain function of its inputs — testable and readable on its own — without
- * smuggling per-connection state into module scope, where two concurrent connections would
- * silently share it.
+ * Everything here is DAEMON-scoped and lives as long as the daemon does: the session
+ * deps, the live-session registry, the one status funnel. Nothing a single caller owns
+ * appears in it, because a live session outlives — and is shared by — every caller that
+ * ever talks to it. The per-turn facts a strategy also needs (which role this request
+ * carried, which sink to hydrate, who is waiting on the worktree) ride the
+ * {@link QueuedTurn} itself, so they reach the driver whoever queued the turn.
  */
 export interface TurnDriverDeps {
   deps: SessionDeps;
   registry: LiveSessionRegistry;
-  /** This turn's connection-scoped extras, if the connection recorded any. */
-  turnMeta: (turn: TurnRequest) => TurnMeta | undefined;
-  /** Hand back an unsubscribe for the connection to run when it closes — a dropped console
-   *  must not leave a sink fanned out to forever. */
-  addUnsubscriber: (off: () => void) => void;
   /** Report a turn's terminal status. The single funnel every strategy's settlement goes
    *  through, so a child session's parent gets told exactly once, however the turn ended. */
   emitStatus: (
@@ -38,21 +30,14 @@ export interface TurnDriverDeps {
 export type TerminalState = 'done' | 'error' | 'interrupted';
 
 /**
- * The per-turn bookkeeping `TurnRequest` (live-session.ts) has no room for:
- * the legacy singular `role` field (superseded by `roles` but still read by
- * `assemblePieces`/the config-hash), the one-shot connection to (re)subscribe once this
- * turn's `onStart` fires, and the one-shot resolver the founding session-creation call
- * awaits to learn the worktree. Held by the connection in a map keyed by object identity,
- * so it never leaks past the turn it describes.
+ * Attach the sender's sink to the session's fan-out, and hand the unsubscribe back.
+ * Called from inside a strategy's `onStart` — never earlier — so hydration lands on the
+ * turn's TRUE first status instead of a spurious leading `idle`; both strategies do this
+ * identically, so the rule lives here once. A turn with no subscription (the sender is
+ * already attached, or has no sink at all) is a no-op.
  */
-export interface TurnMeta {
-  role: string;
-  /** Set only the first time a given connection sends against this conversation
-   *  id — consumed (once) inside `onStart`, so hydration coincides with the
-   *  turn's true first status instead of a spurious leading `idle`. */
-  subscribe?: Sink;
-  /** Set only for the FOUNDING turn (a brand-new `LiveSession`) — resolves the
-   *  RPC response with the worktree once `onStart` fires, mirroring today's
-   *  early, non-blocking `ready` resolution. */
-  onReady?: (started: StartedHandle) => void;
+export function attachSubscriber(session: LiveSession, turn: QueuedTurn): void {
+  const subscription = turn.subscribe;
+  if (subscription === undefined) return;
+  subscription.onAttached(session.subscribe(subscription.sink));
 }

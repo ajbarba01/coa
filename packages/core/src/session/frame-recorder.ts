@@ -1,7 +1,7 @@
 import type { TurnFrame } from '@coa/shared';
 import type { Delivery } from '@coa/spi';
 import type { ConversationStore } from './conversation-store.js';
-import type { LiveSession } from './live-session.js';
+import type { LiveSession, StartedHandle } from './live-session.js';
 
 /**
  * The ONE place a turn's frames become visible: pushed to the session's subscribers and
@@ -31,12 +31,6 @@ export interface PersistIn {
  *  its earlier turns already wrote. A fresh per-turn turn gets its own box. */
 export interface SeqBox {
   value: number;
-}
-
-/** Where a turn is running, as the backend reports it at `onStart`. */
-export interface StartedHandle {
-  id: string;
-  worktree: string;
 }
 
 /** The started handle, boxed: a recorder is built before the `onStart` that fills it (and,

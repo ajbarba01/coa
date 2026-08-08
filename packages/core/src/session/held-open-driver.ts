@@ -8,10 +8,10 @@ import {
   type StartedRef,
 } from './frame-recorder.js';
 import { InputChannel } from './input-channel.js';
-import type { LiveSession, TurnRequest } from './live-session.js';
+import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
-import type { TurnDriverDeps } from './turn-driver.js';
+import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
 /**
@@ -97,12 +97,12 @@ function deferred(): Deferred {
  * query — the prompt/model were fixed when it was created — so the driver re-establishes.
  * The model IS part of the key (unlike the drift hash), since the held query pinned it.
  */
-function configKeyOf(turn: TurnRequest, role: string): string {
+function configKeyOf(turn: QueuedTurn): string {
   return JSON.stringify({
     provider: turn.model?.provider ?? 'claude',
     model: turn.model?.model ?? null,
     reasoning: turn.model?.reasoning ?? null,
-    role,
+    role: turn.role ?? '',
     roles: turn.roles ? [...turn.roles].sort() : null,
     packageIds: turn.packageIds ?? null,
     exclude: turn.exclude ?? null,
@@ -115,7 +115,7 @@ function configKeyOf(turn: TurnRequest, role: string): string {
 export interface HeldOpenDriver {
   /** Run `turn`, establishing a query or continuing the open one, and resolve when the turn
    *  boundaries. */
-  run: (turn: TurnRequest, session: LiveSession) => Promise<void>;
+  run: (turn: QueuedTurn, session: LiveSession) => Promise<void>;
   /** Retire any open query (its input feed closes, the query terminates after its last
    *  result). Awaited by the dispatcher before it hands a turn to another strategy. */
   close: () => Promise<void>;
@@ -142,7 +142,7 @@ export function createHeldOpenDriver(
   return {
     close,
     run: async (turn, session) => {
-      const configKey = configKeyOf(turn, ctx.turnMeta(turn)?.role ?? '');
+      const configKey = configKeyOf(turn);
       // Re-establish (rather than continue) when the open query can no longer serve this
       // turn — otherwise a continue pushes into a feed with no consumer and hangs on a
       // boundary that never resolves. Two cases: (1) it has TERMINATED — a prior interrupt
@@ -182,7 +182,7 @@ export function createHeldOpenDriver(
  */
 async function establishHeldQuery(
   ctx: TurnDriverDeps,
-  turn: TurnRequest,
+  turn: QueuedTurn,
   session: LiveSession,
   configKey: string,
   persistentStore: ConversationStore | undefined,
@@ -190,9 +190,8 @@ async function establishHeldQuery(
   startedRef: StartedRef,
   setHeld: (q: HeldQuery) => void,
 ): Promise<void> {
-  const meta = ctx.turnMeta(turn);
   startedRef.current = undefined;
-  const prep = prepareTurnPersistence(turn, session, meta?.role ?? '', persistentStore, seqBox);
+  const prep = prepareTurnPersistence(turn, session, turn.role ?? '', persistentStore, seqBox);
   const channel = new InputChannel();
   const controller = new AbortController();
   const boundary = deferred();
@@ -366,8 +365,8 @@ async function establishHeldQuery(
         });
         session.setState('running', s.worktree);
         ctx.registry.touch(session.id);
-        if (meta?.subscribe !== undefined) ctx.addUnsubscriber(session.subscribe(meta.subscribe));
-        meta?.onReady?.(s);
+        attachSubscriber(session, turn);
+        turn.onReady?.(s);
       },
       onTurn: recorder.record,
     },
@@ -394,13 +393,12 @@ async function establishHeldQuery(
  */
 async function continueHeldQuery(
   ctx: TurnDriverDeps,
-  turn: TurnRequest,
+  turn: QueuedTurn,
   session: LiveSession,
   query: HeldQuery,
   seqBox: SeqBox,
   startedRef: StartedRef,
 ): Promise<void> {
-  const meta = ctx.turnMeta(turn);
   // A bare stop closed the PREVIOUS turn but kept this query alive (turn-level interrupt).
   // Re-arm it: frames flow again, and the stale `interrupted` flag must not make this turn's
   // settlement look like a user stop.
@@ -416,9 +414,9 @@ async function continueHeldQuery(
   if (started !== undefined) {
     session.setState('running', started.worktree);
     ctx.registry.touch(session.id);
-    // A connection sending its first turn to an already-live session subscribes here
+    // A caller sending its first turn to an already-live session subscribes here
     // (there is no fresh `onStart` on a continue turn).
-    if (meta?.subscribe !== undefined) ctx.addUnsubscriber(session.subscribe(meta.subscribe));
+    attachSubscriber(session, turn);
   }
   const boundary = deferred();
   query.boundary = boundary;

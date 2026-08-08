@@ -5,12 +5,12 @@ import type { RpcConnection } from '../rpc/stream.js';
 import type { SessionDeps } from './session.js';
 import type { ConversationStore } from './conversation-store.js';
 import { renderChildEnded, type SessionEndReason } from './notify.js';
-import type { LiveSession, Sink, TurnRequest } from './live-session.js';
+import type { LiveSession, QueuedTurn, Sink, TurnSubscription } from './live-session.js';
 import type { LiveSessionRegistry } from './live-registry.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
 import { createHeldOpenDriver } from './held-open-driver.js';
 import { runPerTurn } from './per-turn-driver.js';
-import type { TerminalState, TurnDriverDeps, TurnMeta } from './turn-driver.js';
+import type { TerminalState, TurnDriverDeps } from './turn-driver.js';
 import { deriveTitle } from './turn-persistence.js';
 
 /**
@@ -25,17 +25,20 @@ import { deriveTitle } from './turn-persistence.js';
  * (docs/adr/0011): a {@link LiveSessionRegistry}, keyed by conversation id, holds one
  * {@link LiveSession} per conversation across every turn it ever runs. `createSession` is
  * **send-or-create**: it resolves (or mints) the conversation id, enqueues the request as a
- * `TurnRequest`, and — only the first time — starts a daemon-owned turn loop
+ * {@link QueuedTurn}, and — only the first time — starts a daemon-owned turn loop
  * (`runLiveSession`) that drains the session's queue one turn at a time. A connection is a
  * stateless, reattachable subscriber: it fans into the live session via `subscribe`, which
  * immediately hydrates it with the session's CURRENT run-status — the console-reattach seam.
  * A live session runs headless with zero subscribers; nothing about its lifecycle depends on
  * any one connection.
  *
- * That is also why this function is called once per connection and threads its own state
- * (which sinks it opened, which conversations it already subscribed to, what each queued
- * turn carried) into the drivers explicitly, as {@link TurnDriverDeps}. Two consoles talking
- * to one daemon share every live session and share none of this.
+ * Which is exactly why a send's own per-turn facts — the role it asked for, the sink it
+ * wants hydrated, the answer it is waiting on — ride the QUEUED TURN rather than any
+ * bookkeeping the sending connection keeps. The loop draining that queue belongs to
+ * whichever connection happened to found the session, so anything a later sender kept to
+ * itself would be invisible to it: the turn would silently lose its role and never hydrate
+ * its sink. Two consoles talking to one daemon share every live session, and each turn
+ * carries its own sender's intent to it.
  *
  * When the request carries a `conversationId` and a {@link ConversationStore} is wired, the
  * conversation is **persistent**: the store supplies the prior backend session id to resume
@@ -68,12 +71,11 @@ const interruptParams = z.object({ id: z.string() });
 const steerParams = z.object({ id: z.string(), text: z.string() });
 const subscribeParams = z.object({ id: z.string() });
 
-/** Build the per-turn queue payload from a `createSession` request (the fields
- *  `TurnRequest` — live-session.ts — actually carries; `role` rides separately
- *  in `TurnMeta`, turn-driver.ts). */
-function turnRequestFromParams(params: CreateParams): TurnRequest {
+/** Build the per-turn queue payload from a `createSession` request. */
+function turnRequestFromParams(params: CreateParams): QueuedTurn {
   return {
     input: params.input,
+    role: params.role,
     scope: params.scope,
     ...(params.model !== undefined ? { model: params.model } : {}),
     ...(params.roles !== undefined ? { roles: params.roles } : {}),
@@ -166,7 +168,6 @@ export function buildSessionHandlers(
     );
   }
 
-  const turnMeta = new WeakMap<TurnRequest, TurnMeta>();
   // Which conversation ids THIS connection has already arranged to (re)subscribe
   // to — so a second send on the same conversation doesn't queue a redundant
   // onStart-time subscribe (subscribe() always re-hydrates on every call).
@@ -182,15 +183,15 @@ export function buildSessionHandlers(
     subscribedSessions.clear();
   });
 
-  /** The per-connection half of what a drive strategy needs — passed, never reached for,
-   *  so two connections can drive the same daemon without sharing any of it. */
-  const driverDeps: TurnDriverDeps = {
-    deps,
-    registry,
-    turnMeta: (turn) => turnMeta.get(turn),
-    addUnsubscriber: (off) => unsubscribers.push(off),
-    emitStatus,
-  };
+  const driverDeps: TurnDriverDeps = { deps, registry, emitStatus };
+
+  /** This connection's request to be attached to a session's fan-out at the turn's true
+   *  first status — handed to the drivers on the turn, and collecting its unsubscribe
+   *  here so a dropped connection releases the sink. */
+  const subscribeOnStart = (): TurnSubscription => ({
+    sink: emit,
+    onAttached: (off) => unsubscribers.push(off),
+  });
 
   /**
    * The turn dispatcher, built once per live session. It consults the injected, abstract
@@ -253,9 +254,10 @@ export function buildSessionHandlers(
         root,
       });
 
-      const turn: TurnRequest = {
+      const turn: QueuedTurn = {
         input: req.prompt,
         scope,
+        role: agent?.roles?.[0] ?? '',
         // Model choice routes through the agent DEFINITION, never the spawn call — the
         // whole reason dispatch goes via the registry. An agentRef the registry no
         // longer recognizes by the time this runs (a narrow TOCTOU on a hand-edited
@@ -275,7 +277,6 @@ export function buildSessionHandlers(
         ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
         ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
       };
-      turnMeta.set(turn, { role: agent?.roles?.[0] ?? '' });
 
       // Non-blocking (the design's re-entrancy retirement): start the loop and return
       // immediately, never awaiting its completion. `runLiveSession` never rejects — a
@@ -296,20 +297,18 @@ export function buildSessionHandlers(
       const { session, created } = registry.getOrCreate(id);
 
       const turn = turnRequestFromParams(params);
-      const meta: TurnMeta = { role: params.role };
-      turnMeta.set(turn, meta);
       // Subscribe THIS connection (once) — deferred to inside the driver's `onStart`, so
       // hydration lands on the turn's true first status instead of firing here, ahead of
       // it, as a spurious leading `idle`.
       if (!subscribedSessions.has(id)) {
-        meta.subscribe = emit;
+        turn.subscribe = subscribeOnStart();
         subscribedSessions.add(id);
       }
 
       let ready: Promise<string> | undefined;
       if (created) {
         ready = new Promise<string>((resolve) => {
-          meta.onReady = (s) => resolve(s.worktree);
+          turn.onReady = (s) => resolve(s.worktree);
         });
         void runLiveSession(
           session,

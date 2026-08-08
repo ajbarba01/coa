@@ -15,6 +15,10 @@ export type RunState = 'idle' | 'running';
  */
 export interface TurnRequest {
   input: string;
+  /** The legacy singular role — superseded by `roles`, but still what `assemblePieces`
+   *  and the config hash read. It rides the turn (rather than the sender's own
+   *  bookkeeping) because the daemon, not the sender, is what drives the turn. */
+  role?: string;
   model?: ModelSelection;
   roles?: string[];
   scope?: string;
@@ -24,6 +28,39 @@ export interface TurnRequest {
 
 /** A subscriber callback that receives every push fanned out by a session. */
 export type Sink = (push: Push) => void;
+
+/** Where a turn is running, as the backend reports it at `onStart`. */
+export interface StartedHandle {
+  id: string;
+  worktree: string;
+}
+
+/**
+ * A caller's request to join this session's fan-out AT THE TURN'S TRUE FIRST STATUS
+ * rather than right now — hydrating on arrival would push a spurious leading `idle`
+ * ahead of the run it is meant to describe. `onAttached` hands the unsubscribe back so
+ * the caller can release the sink when it goes away (a dropped console must not leave a
+ * sink fanned out to forever).
+ */
+export interface TurnSubscription {
+  sink: Sink;
+  onAttached: (off: () => void) => void;
+}
+
+/**
+ * What actually rides a session's queue: the request, plus the one-shot callbacks the
+ * SENDER attached to this particular turn. They travel WITH the turn because a live
+ * session is driven by the daemon, not by whichever caller founded it — anything the
+ * founder kept privately would be invisible to every later sender's turn.
+ */
+export interface QueuedTurn extends TurnRequest {
+  /** Set only the first time a given caller sends against this session — consumed
+   *  (once) inside the driver's `onStart`. */
+  subscribe?: TurnSubscription;
+  /** Set only for the FOUNDING turn (a brand-new session) — resolves the caller's
+   *  pending answer with the worktree as soon as the turn starts. */
+  onReady?: (started: StartedHandle) => void;
+}
 
 /**
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
@@ -72,8 +109,8 @@ export class LiveSession {
   readonly deliveries = new DeliveryQueue();
 
   #sinks = new Set<Sink>();
-  #queue: TurnRequest[] = [];
-  #waiter: ((turn: TurnRequest | undefined) => void) | undefined;
+  #queue: QueuedTurn[] = [];
+  #waiter: ((turn: QueuedTurn | undefined) => void) | undefined;
   #closed = false;
   #steerSink: ((text: string) => void) | undefined = undefined;
   #interruptClosure: (() => boolean) | undefined = undefined;
@@ -158,7 +195,7 @@ export class LiveSession {
 
   /** Queue `turn` for the loop to drain, resolving a pending `nextTurn()` waiter
    *  immediately if one is parked. */
-  enqueue(turn: TurnRequest): void {
+  enqueue(turn: QueuedTurn): void {
     if (this.#waiter) {
       const waiter = this.#waiter;
       this.#waiter = undefined;
@@ -170,10 +207,10 @@ export class LiveSession {
 
   /** Resolve with the next queued turn, or wait for one to be enqueued. Once
    *  `close()` has been called and the queue is drained, resolves `undefined`. */
-  async nextTurn(): Promise<TurnRequest | undefined> {
+  async nextTurn(): Promise<QueuedTurn | undefined> {
     if (this.#queue.length > 0) return this.#queue.shift();
     if (this.#closed) return undefined;
-    return new Promise<TurnRequest | undefined>((resolve) => {
+    return new Promise<QueuedTurn | undefined>((resolve) => {
       this.#waiter = resolve;
     });
   }
