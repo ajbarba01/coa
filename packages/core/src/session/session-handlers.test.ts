@@ -1067,6 +1067,46 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
     expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(false);
   });
 
+  it('answers a redundant Stop with nothing-to-stop and records the interrupt marker ONCE', async () => {
+    // A double-click on Stop. Only a RUNNING turn can be stopped, so the second press finds
+    // an already-stopped turn and reports it. That answer is not cosmetic: the close-out is
+    // not idempotent, so a second press that got through would settle the partial again and
+    // append a SECOND interrupt marker — and the durable transcript is what every later
+    // reload reads, so the model would be told it was cut off twice, forever.
+    const dir = mkdtempSync(join(tmpdir(), 'coa-int2-'));
+    try {
+      const store = createConversationStore(dir);
+      const conn = connection();
+      const handlers = handlersFor(depsAbortable(), conn, store, new LiveSessionRegistry());
+      const { sessionId } = await handlers['createSession']!.handle({
+        input: 'go',
+        conversationId: 'c1',
+      });
+
+      // Both presses land against the SAME in-flight turn: the second is issued before the
+      // first press's abort has had a chance to unwind the loop.
+      const first = handlers['interruptSession']!.handle({ id: sessionId });
+      const second = handlers['interruptSession']!.handle({ id: sessionId });
+      expect(await first).toEqual({ interrupted: true });
+      expect(await second).toEqual({ interrupted: false });
+      await flush();
+
+      const pushes = pushesOf(conn.pushes);
+      expect(pushes.filter((p) => p.kind === 'turn' && p.frame.t === 'interrupted')).toHaveLength(
+        1,
+      );
+      expect(pushes.filter((p) => p.kind === 'status' && p.state === 'interrupted')).toHaveLength(
+        1,
+      );
+      expect(store.reload('c1').turns.map((t) => t.frame)).toEqual([
+        { t: 'text', text: 'go', role: 'user' },
+        { t: 'interrupted' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('routes a per-turn steer through steerSession into the delivery queue, not a mode buffer', async () => {
     // There is only one steer left: a running per-turn backend has no held-open sink, so
     // `steerSession` pushes straight onto `session.deliveries` — the same queue the
@@ -2073,6 +2113,41 @@ function depsParkedHeldOpen(adapters: QueueSteerAdapter[]): SessionDeps {
   };
 }
 
+/**
+ * A held-open adapter that runs its turns to completion until turn `failOnTurn`, where it
+ * throws mid-turn: a dropped provider connection, with no user stop anywhere near it. That
+ * is the failure a settlement must still be able to SURFACE — it is the honest end of the
+ * run, not something to swallow.
+ */
+class HeldOpenDropAdapter implements RuntimeAdapter {
+  readonly consumed: string[] = [];
+
+  constructor(
+    readonly init: SessionAdapterInit,
+    /** Which consumed turn (1-based) drops the connection. */
+    readonly failOnTurn = 1,
+  ) {}
+  renderNative(): BackendConfig {
+    return { systemPrompt: '', allowedTools: [], disallowedTools: [], perAgent: {} };
+  }
+  registerTools(): void {}
+  denyBuiltins(): void {}
+  interceptTool(_c: CanUseTool): void {}
+  interceptStop(_s: StopPredicate): void {}
+  async runLoop(): Promise<void> {
+    const input = this.init.input;
+    if (typeof input === 'string')
+      throw new Error('HeldOpenDropAdapter expects a streamed held-open input');
+    for await (const text of input) {
+      this.consumed.push(text);
+      if (this.consumed.length === this.failOnTurn) throw new Error('provider connection dropped');
+      this.init.onTurn?.({ t: 'text', text: `reply:${text}` });
+      this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.25 });
+      this.init.onTurn?.({ t: 'turn-boundary', role: 'assistant' });
+    }
+  }
+}
+
 describe('buildSessionHandlers — held-open SDK streaming-input strategy', () => {
   it('feeds two turns of one live session into ONE held-open query, not two createSession calls', async () => {
     const adapters: HeldOpenAdapter[] = [];
@@ -2274,6 +2349,90 @@ describe('buildSessionHandlers — held-open SDK streaming-input strategy', () =
         .slice(beforeNextSend)
         .some((p) => p.kind === 'turn' && p.frame.t === 'text' && p.frame.text === 'partial'),
     ).toBe(true);
+  });
+
+  it('still surfaces a genuine failure on the turn after a Stop that found nothing to stop', async () => {
+    // A held-open query holds its control state BETWEEN turns, so Stop pressed while it
+    // idles reaches a close-out that reports there was no turn in flight — a common, real
+    // path, not an exotic one. The stop request has to be WITHDRAWN there. Left standing, it
+    // marks the run as user-stopped for the rest of its life, and every settlement after it
+    // reads that mark and stays deliberately silent — so the NEXT turn's genuine provider
+    // drop would kill the session with no error frame and no error status at all.
+    const adapters: HeldOpenDropAdapter[] = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter = new HeldOpenDropAdapter(init, 2);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    const { sessionId } = await handlers['createSession']!.handle({
+      input: 'go',
+      conversationId: 'h1',
+    });
+    await conn.settled; // turn one reached its boundary; the query now idles between turns
+    await flush();
+    expect(adapters[0]?.consumed).toEqual(['go']);
+
+    // Nothing is running, so the press finds no turn to close and answers so.
+    expect(await handlers['interruptSession']!.handle({ id: sessionId })).toEqual({
+      interrupted: false,
+    });
+    await flush();
+
+    await handlers['createSession']!.handle({ input: 'again', conversationId: 'h1' });
+    await flush();
+    await flush();
+    await flush();
+
+    const pushes = pushesOf(conn.pushes);
+    // THE ASSERTION THAT MATTERS: the withdrawn stop left nothing behind, so the next turn's
+    // real failure still reaches the user as a failure rather than dying quietly.
+    expect(pushes.some((p) => p.kind === 'turn' && p.frame.t === 'error')).toBe(true);
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'error')).toBe(true);
+    // …and the press that found nothing never claimed a stop had happened.
+    expect(pushes.some((p) => p.kind === 'status' && p.state === 'interrupted')).toBe(false);
+  });
+
+  it('re-establishes after a mid-turn provider drop, so the next turn runs instead of hanging on the dead query', async () => {
+    // The companion to the interrupt case below: a query can also die from a genuine
+    // failure, with no user stop anywhere in it. Either way its input feed has no consumer
+    // left, so continuing it would push text into nothing and park on a boundary that never
+    // comes — the next turn must start a fresh query instead.
+    const adapters: Array<HeldOpenDropAdapter | HeldOpenAdapter> = [];
+    const conn = connection();
+    const customDeps: SessionDeps = {
+      ...deps([]),
+      sessionStrategy: (provider) => (provider === 'claude' ? 'held-open' : 'per-turn'),
+      createAdapter: (init) => {
+        const adapter =
+          adapters.length === 0 ? new HeldOpenDropAdapter(init, 1) : new HeldOpenAdapter(init);
+        adapters.push(adapter);
+        return adapter;
+      },
+    };
+    const handlers = handlersFor(customDeps, conn, undefined, new LiveSessionRegistry());
+
+    await handlers['createSession']!.handle({ input: 'go', conversationId: 'h1' });
+    await conn.settled; // the drop surfaced as an error status
+    await flush();
+
+    await handlers['createSession']!.handle({ input: 'after', conversationId: 'h1' });
+    await flush();
+    await flush();
+
+    expect(adapters.length).toBe(2);
+    expect(adapters[1]?.consumed).toEqual(['after']);
+    const states = pushesOf(conn.pushes).flatMap((p) => (p.kind === 'status' ? [p.state] : []));
+    expect(states).toContain('error');
+    // The follow-up turn reached a terminal `done`: the session recovered rather than
+    // hanging on the dead query.
+    expect(states.filter((s) => s === 'done')).toHaveLength(1);
   });
 
   it('re-establishes after an interrupt so the next turn runs instead of hanging on the dead query (a user stop, never an error)', async () => {
