@@ -36,7 +36,7 @@
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
 | `arc/architecture` | 77e6dd4 | Stage 2: C1, de-slop, **C2 complete (all 3 parts)**, the cost-cap archive, the Q7 cleanups, **C3 complete and verified**, Q9 archival, **the C5 data-loss fix (f59bdc3, mutation-probed)**, **the compose extraction's workbench half (a29908a)** and **a real hermeticity defect (7c379ad: startDaemon hardcoded process.cwd(), so a test booted a daemon over the whole checkout)**. All gates green (2873 tests, depcruise 414 modules, docs 60). Remaining: C4 (needs Fable/UX), C5's apps/cli compose half + honest-core + honest-shell + verify (running as wf_aecdfa02-e2d) |
 | `arc/wip-adapter-unify` | 1b70e47 | **GATED 2026-08-07** (3 gate-fix commits) and fast-forwarded into arc/architecture — Q5 resolved, branch can be deleted at closeout |
-| `arc/docs` | 9fb09db | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736).** Gates green (2928 tests, depcruise 418, docs-check 11). Verification OWED — both lenses died on a session limit |
+| `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
@@ -112,15 +112,25 @@ on the old machine.
    machine's `false` return (held-open re-arm, registry cascade), and `settle()` clears `inert`
    (latent — the shipped Claude backend never takes the abort-fallback, but a trap for the next
    held-open backend).
-9. **Stage 4 docs — LANDED on arc/docs (fa6a433 · a716bf4 · 9fb09db), draft PR #3 open,
-   VERIFICATION OWED.** The closer and both verifiers died on a session limit; the orchestrator
-   finished the close by hand (four package READMEs still linked the deleted corpora). Partial
-   lens-1 done by hand — see the journal for what was checked and what was NOT. Resume the two
-   lenses with resumeFromRunId 'wf_1261f87e-ce1' AFTER the limit resets, and TELL the closer its
-   work is already committed so it does not redo it.
+9. **Stage 4 docs — LANDED on arc/docs (fa6a433 · a716bf4 · 9fb09db · 388272e · 14b55ac),
+   VERIFIED, draft PR #3 body rewritten to match.** Resumed wf_1261f87e-ce1: the five writers
+   replayed from cache, the closer found and reverted an uncommitted ROADMAP.md edit that had
+   wrongly claimed two arc/architecture-only fixes (turn-lifecycle, sample-data label) as done
+   here, and separately committed a pre-existing 942-line prose-tightening pass on
+   ARCHITECTURE.md (388272e) after reading the whole diff. Both verifier lenses then ran for
+   real: lens 1 (prose-vs-tree, 24 claims sampled) passed clean and independently confirmed the
+   ROADMAP.md revert was correct; lens 2 (rationale survival) found one real gap — ADR 0015's
+   two color exceptions (a third-party brand mark's own color, the chart series palette) were
+   deleted with the ADR and left docs/UI.md's "no raw values" law contradicted by live code with
+   no documented exception. Fixed by hand (14b55ac): both exceptions and their reasoning are now
+   named directly in UI.md. Gate green after the fix (2928 tests, depcruise 418, docs-check 11).
+   Pushed to origin/arc/docs. Left alone as genuinely optional (not a docs-check failure): lens 2
+   also noted `docs/recipes/openai-bridge.md` isn't in AGENTS.md's nav table — it's reachable via
+   README so nothing is broken, and the table's shape is "one row per domain authority," which a
+   how-to recipe doesn't cleanly fit.
 10. Stage 5 closeout: write questions for every parked charter/feature, push all
     branches, open draft PRs per workstream, final morning report in the journal.
-    **PR #2's body is materially stale — Stage 5 owns rewriting it.**
+    PR #2 and PR #3 bodies are both current as of this session.
 
 ## Standing operational facts (do not rediscover)
 
@@ -144,6 +154,20 @@ on the old machine.
   text-mode write converts LF to CRLF on Windows, and the launcher rejects the script for
   control characters.
 - Never push `main`; never force-push anything on origin except the arc's own branches.
+- **A Workflow's agents check out branches directly in the shared main working directory —
+  there is no automatic isolation.** Launching a workflow (e.g. stage4-docs.js, which needs
+  arc/docs checked out) while ALSO reading/editing a different branch's files in that same main
+  tree is a real hazard, not a theoretical one: mid-run, a file that exists on arc/architecture
+  briefly read back as "not found" because the workflow had switched HEAD to arc/docs underneath
+  an unrelated `git status`/`Read` call. If you need to work a different branch while a workflow
+  runs, use a separate `git worktree add <scratch> <branch>` and do that work there, or simply
+  sequence the two rather than parallelizing them.
+- **2026-08-08: a fresh `pnpm check` run threw 10 timeouts across 5 desktop-panel test files
+  (ChatPanel.test.tsx x2, ShowcasePanel.test.tsx, +2 unrecorded) immediately after an 8-agent,
+  1M-token workflow finished on the same machine.** Re-ran `pnpm test` alone seconds later with
+  zero code changes in between: fully green, exact baseline (281/2928). This is the same family
+  as Q10 — recorded there as a new data point, not treated as a regression (the only diff in the
+  tree at the time was a markdown-only edit, which cannot affect JS/TS test timing).
 
 ## Model allocation (maintainer decision, 2026-08-07 afternoon)
 
@@ -164,5 +188,24 @@ wind-down. On resume: set a hard token budget on every workflow (the budget mech
 throws when exhausted), run fewer agents per phase, use cheaper tiers for mechanical
 passes, and check actual account spend between stages.
 
+## Workspace cleanup, 2026-08-08 (maintainer-directed)
+
+- **The stray `.claude/worktrees/conversation-canvas` worktree is GONE — removed, not just
+  flagged.** Before deleting, checked what it actually was: 431 commits (2026-07-01..07-11) of a
+  console-redesign prototyping workbench, not nothing — but it is fully preserved on a local-only
+  branch `backup/pre-squash` (tip 88b6a33), so nothing was lost. Deletion also had to close 4
+  zombie Electron processes it had left running since earlier that day, loaded from its own stale
+  binary via the exact module-resolution hijack this file already documented — that is what was
+  locking `default_app.asar` and blocking the directory delete. Verified before killing them: all
+  4 traced to that stray path specifically, none to the real `apps/desktop`.
+- **`allowBuilds: electron: false` in pnpm-workspace.yaml stays `false`.** Maintainer left the
+  call to the orchestrator. Decision: the file's own comment already documents the tradeoff
+  deliberately (postinstall only fetches a prebuilt binary, not needed for typecheck/bundle); the
+  repo is headed toward open-sourcing (see MEMORY's PHI-scrub note), so the tighter default that
+  keeps a stranger's `pnpm install` from running Electron's postinstall unconditionally is the
+  right posture. The documented one-time manual zip-extraction repair remains the path for
+  interactive dev.
+
 ## Open questions: 3 parked (Q1–Q3 in questions.md) + every parked charter/feature
-## Approximate cost so far: ~4.4M subagent tokens over ~6h wall-clock
+## Approximate cost so far: ~4.4M subagent tokens over ~6h wall-clock (pre-2026-08-08) + Stage 4
+## re-verification (~1M tokens, 8 agents) on 2026-08-08

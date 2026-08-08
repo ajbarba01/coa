@@ -1125,3 +1125,92 @@ the registry cascade), which is the property the design rests on; ITEM 5(b) — 
 clears `inert`, latent because the shipped Claude backend always reports the turn-level
 interrupt so the abort-fallback never fires, but a trap for the next held-open backend. Both are
 small and both want a verifier. Queue them with the Stage 4 verification for after 6:10pm.
+
+## Session reconsolidation, 2026-08-08 — workspace cleanup, then Stage 4 verification for real
+
+New orchestrator session. Before touching the priority queue, restored the handoff worktree and
+cross-checked every claim in it against the live repo (branch tips, PR states, `git stash list`)
+rather than trusting the docs blind — everything matched exactly, nothing had drifted.
+
+**Stray worktree removed.** The maintainer authorized deleting `.claude/worktrees/conversation-canvas`
+("i dont think it has any necessary work"), but it wasn't nothing: 431 commits (2026-07-01..07-11) of
+a console-redesign prototyping workbench. Checked before deleting — it's fully preserved on a
+local-only `backup/pre-squash` branch (tip 88b6a33), so the deletion loses no history. Deleting it
+also required closing 4 zombie Electron processes (PIDs traced via `Get-CimInstance Win32_Process`)
+that had been running since 2:24pm that day, loaded from the stray worktree's own Electron binary via
+the exact module-resolution hijack this handoff already documented — that binary lock
+(`default_app.asar` "used by another process") is what blocked the directory delete in the first
+place. Verified all 4 processes' command lines traced to that stray path before killing them, not to
+the real `apps/desktop`. Windows's `git worktree remove` failed with "Filename too long" on the
+worktree's own deeply-nested `.pnpm` store; cleared it with a robocopy-mirror-to-empty-dir trick
+(handles long paths where `Remove-Item -Recurse` does not).
+
+**`allowBuilds: electron: false` left as-is** (maintainer delegated the call). The file's own comment
+already documents the tradeoff deliberately; kept the tighter default given this repo is headed
+toward open-sourcing (MEMORY's PHI-scrub note) — a stranger's `pnpm install` should not
+unconditionally run Electron's postinstall. The documented manual zip-extraction repair remains the
+path for interactive dev.
+
+**New operational hazard found and now documented in state.md: a Workflow's agents check out
+branches directly in the shared main working directory, with no isolation.** Launched the Stage 4
+resume (`stage4-docs.js`, `resumeFromRunId: 'wf_1261f87e-ce1'`) and then, while it was running,
+continued investigating the turn-lifecycle leftovers (item 2) in that SAME main tree. A file
+(`turn-lifecycle.ts`) that had just been read successfully came back "not found" moments later —
+not corruption, the workflow had checked out `arc/docs` underneath the ongoing session (that branch
+predates the turn-lifecycle refactor, so the file genuinely isn't there). Diagnosed via
+`git rev-parse --abbrev-ref HEAD` mid-investigation. Moved the turn-lifecycle investigation into a
+separate `git worktree add <scratch> arc/architecture` for the rest of the session, and prepared (but
+did not launch) `c3-lifecycle-leftovers.js` for item 2, to run only after Stage 4 released the main
+tree. Lesson for future sessions: don't parallelize a Workflow launch with manual multi-branch work
+in the main tree; either isolate or sequence.
+
+**Stage 4 verification, resumed for real this time — both lenses ran.** 8 agents, ~1M tokens, 422
+tool calls, ~32 min wall-clock. The five writers replayed from cache. The closer (not cached, ran
+live) found the working tree carrying two pieces of uncommitted state left over from the earlier
+session-limit death: (1) an edit to `ROADMAP.md` falsely claiming two `arc/architecture`-only fixes
+(the turn-lifecycle state machine, the usage-surface sample-data label) as done on `arc/docs` — it
+verified against actual source (no `turn-lifecycle.ts`, no "sample data" string in `apps/desktop` on
+this branch) and reverted the two hunks, net diff zero so no separate commit was needed; (2) an
+already-in-progress, harmless 942-line prose-tightening pass on `docs/ARCHITECTURE.md` (bullets to
+flowing prose, same register as the rest of the doc) — read the whole diff, confirmed zero new
+factual claims, committed it as 388272e after a full gate pass.
+
+Both verifier lenses then ran live (previously they'd died on the session limit):
+- **Lens 1 (prose vs. tree, `passed: true`).** Sampled 24 concrete claims — exact package/app
+  lists, dependency-cruiser rule names, the cost-cap's `{remaining: null, capHit: false}` shape, the
+  SDK's 3-of-30 registered hooks, the 13-member terminal-reason union, the 8-tool built-in floor,
+  README's quick-start commands, all 11 doc footers — every one checked out true against the tree.
+  It also independently re-verified the closer's ROADMAP.md revert: `git merge-base --is-ancestor`
+  confirms neither `fa437a1` nor `7852763` is an ancestor of `arc/docs` HEAD, so the revert was
+  correct, not just plausible. One non-disqualifying process note: `docs/WORKFLOW.md` still says
+  "single main branch, no PRs/worktrees/branch ceremony yet" while this very arc runs as a fan-out
+  across long-lived branches — flagged as something to reconcile when arc/docs and arc/architecture
+  eventually land on main, not a false statement about the codebase.
+- **Lens 2 (rationale survival, `passed: false`) — found a real gap.** Of 27 harvested ADR
+  rationales, 26 survived intact in the new docs. One did not: **ADR 0015's two color exceptions**
+  (a third-party brand mark wearing its own color in `BrandMark.tsx`, and the chart series palette in
+  `sand-dark.css`) were deleted with the ADR and left `docs/UI.md`'s own "no raw values" authoring law
+  contradicted by live code with no documented exception — exactly the kind of thing that would make
+  a future reader correctly-per-the-doc-but-wrongly flag `BrandMark.tsx` as a violation. Dead links,
+  orphans, and deletion scope all checked out clean.
+
+**Fixed by hand (14b55ac).** Pulled the distilled rationale from the harvest
+(`run/harvest/adr-rationale.md`) rather than re-deriving it, and named both exceptions plus their
+reasoning directly in `UI.md`'s "No raw values" bullet, explicitly closing the exception set at three
+(title-bar pixel, brand mark, series palette) so it reads as a bounded decision, not an opening for a
+fourth. Left the lens's other, explicitly-optional observation alone: `docs/recipes/openai-bridge.md`
+isn't in `AGENTS.md`'s nav table (it's reachable via README, so `docs-check` is unaffected, and the
+table's shape — one row per domain authority — doesn't cleanly fit a how-to recipe anyway).
+
+**Gate note:** the first `pnpm check` after the fix threw 10 timeouts across 5 desktop-panel test
+files (ChatPanel.test.tsx twice, ShowcasePanel.test.tsx, +2 not individually recorded), run
+immediately after the 1M-token Stage 4 workflow finished on the same machine. Re-ran `pnpm test`
+alone seconds later with zero code changes in between: fully green at the exact documented baseline
+(281 files / 2928 tests). Since the only tree change at the time was a markdown-only edit, this
+cannot be a regression from that change. Recorded as a new Q10 data point, not chased further.
+
+**Pushed and closed out.** `arc/docs` pushed to origin (9fb09db..14b55ac, 2 new commits). PR #3's
+body rewritten to describe the finding and fix and drop the "verification owed" caveat — Stage 4 is
+now fully landed and verified, no longer a draft blocked on anything.
+
+Next: launch the prepared `c3-lifecycle-leftovers.js` now that Stage 4 has released the main tree.

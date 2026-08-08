@@ -202,6 +202,16 @@ deserve the same treatment rather than a timeout bump: look for a test doing rea
 against the real tree before concluding anything about timing.
 Q10 stays OPEN for the three panel suites, which are untouched by this fix.
 
+### Q10 UPDATE (2026-08-08, later) — another data point, same shape
+A `pnpm check` run immediately after an 8-agent/1M-token workflow finished threw 10 timeouts across
+5 desktop-panel test files (ChatPanel.test.tsx x2, ShowcasePanel.test.tsx, +2 unrecorded). Re-ran
+`pnpm test` alone seconds later, zero code changes in between: fully green at the documented baseline
+(281/2928). The only tree change at the time was a markdown-only doc edit, which cannot affect JS/TS
+test timing — so this cannot be a regression, and it matches the load-dependent, all-timeout shape
+already on record here rather than the daemon-root defect's shape (which was a real bug that merely
+looked like a flake). Recorded as one more instance for whoever eventually sizes the deterministic-
+waits pass Q10 recommends; still not chased on its own.
+
 ## Q11 — ambient paths defeat the daemon's `root` seam; auth key paths bypass their own deps (2026-08-08)
 **Context:** raised by the C5 compose agent when asked to report (not fix) composition entry
 points that bake in a working directory or home directory. 7c379ad added a `root` override to
