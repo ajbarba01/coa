@@ -305,6 +305,34 @@ describe('conversation store', () => {
     expect(store.loadBackendMessages('c2')).toEqual({ messages: [], skipped: 0 });
   });
 
+  it('getEvents returns the raw stream with `full` intact, unlike reload', () => {
+    store.create({ id: 'c3', agentRef: 'r', title: 't', scope: '' });
+    store.append('c3', [
+      { seq: 0, frame: { t: 'text', text: 'hi', role: 'user' } },
+      {
+        seq: 1,
+        frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' },
+        full: 'FULLBODY',
+      },
+    ]);
+    expect(store.getEvents('c3')).toEqual({
+      events: [
+        { seq: 0, frame: { t: 'text', text: 'hi', role: 'user' } },
+        {
+          seq: 1,
+          frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' },
+          full: 'FULLBODY',
+        },
+      ],
+      skipped: 0,
+    });
+  });
+
+  it('getEvents is empty for a session with no events, same floor as loadBackendMessages', () => {
+    store.create({ id: 'c4', agentRef: 'r', title: 't', scope: '' });
+    expect(store.getEvents('c4')).toEqual({ events: [], skipped: 0 });
+  });
+
   it('freezes and reloads a session compilation; a corrupt one reads as none', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
     expect(store.getCompilation('c1')).toBeUndefined();

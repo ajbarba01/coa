@@ -8,6 +8,7 @@ import type {
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { ConversationStore } from './conversation-store.js';
 import { createHeldOpenDriver } from './held-open-driver.js';
+import { descendantsOf } from './lineage.js';
 import type { LiveSessionRegistry } from './live-registry.js';
 import {
   DEFAULT_PERMISSION_MODE,
@@ -21,6 +22,7 @@ import { renderChildEnded, type SessionEndReason } from './notify.js';
 import { runPerTurn } from './per-turn-driver.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
 import type { SessionDeps } from './session.js';
+import { foldTreeToTranscript, latestAssistantText } from './transcript-projection.js';
 import type { TerminalState, TurnDriverDeps } from './turn-driver.js';
 import { deriveTitle } from './turn-persistence.js';
 
@@ -468,6 +470,9 @@ export class SessionService {
     const parentSession = this.#registry.get(meta.parent);
     const reason: SessionEndReason =
       state === 'done' ? 'completed' : state === 'error' ? 'errored' : 'stopped';
+    // The result only matters (and is only worth the extra read) for a genuine
+    // completion — an errored/stopped child has no answer to quote, just `detail`.
+    const result = reason === 'completed' ? this.#childResultText(session.id) : undefined;
     // A sealed queue silently drops this — the cancel-guard doing its job after a
     // cascade stop (delivery.ts), not an error to handle. An already-gone parent
     // (`registry.get` returns undefined) is the same: nothing left to notify.
@@ -477,7 +482,35 @@ export class SessionService {
         agentRef: meta.agentRef,
         reason,
         ...(detail !== undefined ? { detail } : {}),
+        ...(result !== undefined ? { result } : {}),
       }),
     );
+  }
+
+  /**
+   * A completed child's own final answer, for `#notifyParentIfChild`'s notice.
+   * Folds the child's event log — and, if it spawned any children of its own,
+   * theirs too — via `foldTreeToTranscript` (a read-time join, never a second
+   * writer) rather than re-deriving transcript joining here, then takes the
+   * last assistant message via `latestAssistantText`. `descendantsOf` walks the
+   * STORE's session list (not the live registry): a completed child's own
+   * children may have already been torn down, but their durable event logs are
+   * exactly what a full answer needs. `undefined` when there is no store, the
+   * child produced no assistant text, or its events could not be read — the
+   * caller's fallback sentence covers all three identically (SC-1: this never
+   * throws and never blocks the notice on a read that didn't pan out).
+   */
+  #childResultText(childId: string): string | undefined {
+    const store = this.#store;
+    if (store === undefined) return undefined;
+    const rootEvents = store.getEvents(childId).events;
+    const descendantIds = descendantsOf(
+      childId,
+      store.list().map((m) => ({ id: m.id, parent: m.parent })),
+    );
+    const descendants = new Map(
+      descendantIds.map((id) => [id, store.getEvents(id).events] as const),
+    );
+    return latestAssistantText(foldTreeToTranscript(rootEvents, descendants));
   }
 }

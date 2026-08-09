@@ -199,6 +199,12 @@ export interface ConversationStore {
   clearBackendSession(id: string): void;
   /** Append events to the session's log (bumps updatedAt). */
   append(id: string, events: PersistedEvent[]): void;
+  /** The raw persisted event stream — `full` kept, unlike {@link reload} — plus the
+   *  count of stored events too corrupt to read. The one read {@link foldTreeToTranscript}
+   *  needs (it folds several sessions' raw streams together), so a tree-spanning
+   *  read shares the exact same on-disk parse `loadBackendMessages` already uses
+   *  rather than re-deriving it. */
+  getEvents(id: string): { events: PersistedEvent[]; skipped: number };
   /** The persisted turn sequence (up to and including `toSeq`, when given) — the frame
    *  stream, `full` dropped (the UI view) — plus the count of stored events too corrupt
    *  to read, so a truncated transcript can be shown as truncated. */
@@ -353,6 +359,10 @@ export function createConversationStore(
       const lines = events.map((e) => `${JSON.stringify(e)}\n`).join('');
       appendFileSync(eventsPath(id), lines, 'utf8');
       touch(id, {});
+    },
+
+    getEvents(id) {
+      return readEvents(id);
     },
 
     reload(id, toSeq) {

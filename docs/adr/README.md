@@ -58,11 +58,12 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0030](0030-delivery-one-intent-realized-per-backend.md) — Delivery is one intent, realized per backend
 - [0031](0031-a-steer-is-recorded-when-the-model-receives-it.md) — A steer is recorded when the model receives it
 - [0032](0032-the-cost-cap-bounds-fan-out.md) — The cost cap bounds fan-out, not a depth counter (superseded by 0035)
-- [0033](0033-a-notice-is-not-a-message.md) — A notice is not a message
+- [0033](0033-a-notice-is-not-a-message.md) — A notice is not a message (superseded in part by 0038)
 - [0034](0034-a-subagent-is-a-session-with-a-parent-link.md) — A subagent is a session with a parent link
 - [0035](0035-the-close-gate-is-the-only-block.md) — The close gate is the only block; the cost ceiling is archived
 - [0036](0036-model-metadata-catalog-and-attachment-wire-shape.md) — A merged model-metadata catalog, and attachments ride the existing message shape
 - [0037](0037-worktree-isolation-is-opt-in-bound-once-reaped-explicitly.md) — Worktree isolation is opt-in, bound once, and reaped explicitly
+- [0038](0038-a-completion-notice-may-quote-the-childs-own-result.md) — A completion notice may quote the child's own result (supersedes 0033's "never the child's output" clause)
 
 ---
 

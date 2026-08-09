@@ -2,6 +2,14 @@
 
 - Status: accepted
 - Date: 2026-08-06
+- **Superseded in part by [ADR-0038](0038-a-completion-notice-may-quote-the-childs-own-result.md)
+  (2026-08-09):** the Content contract's "never the child's output" clause is replaced — a
+  `completed` notice may now quote a bounded, sanitized, read-time-folded excerpt of the child's
+  own final answer. Every other clause here — the unforgeable `system` origin, the
+  reachability-constrained producer, the enumerated three-outcome vocabulary, the parent's own
+  full-transcript read as the fallback for anything past the excerpt — **stands unchanged**; read
+  0038 for why quoting an excerpt does not reopen the forgeability question this ADR was written to
+  close.
 
 ## Context and problem
 
