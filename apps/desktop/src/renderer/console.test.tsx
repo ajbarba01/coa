@@ -1550,6 +1550,56 @@ describe('F2 — permission modes', () => {
     expect(last().ui.pendingApprovalsBySession['c1']).toEqual([]);
   });
 
+  it('a terminal status push (interrupted/done/error) drops any pending ask still queued for that session — Stop mid-ask must never gate-lock the composer forever', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'run tests',
+      tool: 'Bash',
+      toolClass: 'exec',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+
+    // The turn that raised the ask just stopped — the daemon fail-safe-denies its own
+    // copy on this exact transition, but only THIS console-side clear stops the composer
+    // from staying gate-locked on a request nothing could ever answer.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'interrupted' });
+
+    expect(last().ui.pendingApprovalsBySession['c1']).toBeUndefined();
+  });
+
+  it('a running status push leaves a live pending ask alone', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'run tests',
+      tool: 'Bash',
+    });
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+  });
+
   it('leaves the live pending queue untouched, and never calls the RPC, for an id that is not a genuinely live request', async () => {
     const bridge = fakeBridge();
     const { last } = await mount(bridge);

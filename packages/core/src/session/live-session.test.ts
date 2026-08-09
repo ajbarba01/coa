@@ -284,4 +284,38 @@ describe('LiveSession — F2 ask/response round trip', () => {
     await expect(pending).resolves.toBe('deny');
     expect(s.pendingApprovals()).toEqual([]);
   });
+
+  it('abandonPendingApprovals fail-safe-denies every still-pending ask (a stopped turn will never make the call it was blocking)', async () => {
+    const s = new LiveSession('c1');
+    const first = s.requestApproval(call, 'write');
+    const second = s.requestApproval({ ...call, tool: 'Bash' }, 'exec');
+    expect(s.pendingApprovals()).toHaveLength(2);
+
+    s.abandonPendingApprovals();
+
+    await expect(first).resolves.toBe('deny');
+    await expect(second).resolves.toBe('deny');
+    expect(s.pendingApprovals()).toEqual([]);
+  });
+
+  it('abandonPendingApprovals emits no running/idle reflection of its own — unlike resolveApproval, it leaves the caller free to emit its own terminal status right after', () => {
+    const s = new LiveSession('c1');
+    s.setState('running', '/wt');
+    const got: Push[] = [];
+    // Subscribe first so its hydration push lands before the ask, then clear it — the
+    // point under test is what `abandonPendingApprovals` ITSELF emits, not subscribe's.
+    s.subscribe((p) => got.push(p));
+    void s.requestApproval(call, 'write');
+    got.length = 0;
+
+    s.abandonPendingApprovals();
+
+    expect(got).toEqual([]);
+  });
+
+  it('abandonPendingApprovals on a session with nothing pending is a harmless no-op', () => {
+    const s = new LiveSession('c1');
+    expect(() => s.abandonPendingApprovals()).not.toThrow();
+    expect(s.pendingApprovals()).toEqual([]);
+  });
 });

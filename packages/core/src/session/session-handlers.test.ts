@@ -18,6 +18,7 @@ import { createConversationStore, type ConversationStore } from './conversation-
 import { configHashOf } from './prompt-freeze.js';
 import { unreadableMemoryNotice } from './memory-plan.js';
 import { LiveSessionRegistry } from './live-registry.js';
+import { TurnLifecycle } from './turn-lifecycle.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import { dispatch } from '../rpc/router.js';
@@ -1073,6 +1074,26 @@ describe('buildSessionHandlers — F2 permission-mode verbs', () => {
         decision: 'approve',
       }),
     ).toEqual({ resolved: false });
+  });
+
+  it('interruptSession fail-safe-denies and clears a pending ask — a Stop mid-ask must never leave the composer gate-locked on a request nothing can still answer', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1');
+    // A turn genuinely in flight — `interruptSession` requires this to do anything.
+    session.control = { controller: new AbortController(), lifecycle: new TurnLifecycle() };
+    session.setInterruptClosure(() => true);
+
+    const pending = session.requestApproval(
+      { tool: 'Bash', args: { command: 'rm -rf /' }, sessionId: 'c1' },
+      'exec',
+    );
+    expect(session.pendingApprovals()).toHaveLength(1);
+
+    expect(await handlers['interruptSession']!.handle({ id: 'c1' })).toEqual({
+      interrupted: true,
+    });
+    await expect(pending).resolves.toBe('deny');
+    expect(session.pendingApprovals()).toEqual([]);
   });
 });
 

@@ -185,6 +185,11 @@ export class SessionService {
       lifecycle.abandonStop();
       return false;
     }
+    // F2: the stopped turn will never make the tool call any pending ask of its was
+    // blocking — fail-safe-deny it now (same reasoning as the session-teardown fail-safe
+    // in `LiveSession.close`) rather than leaving it hanging: unanswerable forever, and
+    // gate-locking the composer with a request no response could ever reach.
+    session.abandonPendingApprovals();
     this.#emitStatus(session, session.worktree ?? '', 'interrupted');
     return true;
   }

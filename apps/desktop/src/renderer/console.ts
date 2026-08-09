@@ -1064,6 +1064,20 @@ export async function startConsole(
       // arrive on this same push stream. Closing blocks or synthesizing a marker here would
       // diverge from what a reload folds out of the log — the live-vs-reload mismatch.
       state = { ...state, ui: { ...state.ui, runStatus } };
+      // F2: a turn that just ended — however it ended — leaves no in-flight tool call
+      // still waiting on an answer; a pending ask belongs to the turn that raised it,
+      // and that turn is now over. The daemon fail-safe-denies its own copy on exactly
+      // this transition (`SessionService.interrupt`/`LiveSession.close`), but that alone
+      // never tells THIS console to drop the card it's still showing — without this, Stop
+      // mid-ask left the composer gate-locked on a request nothing could ever answer.
+      if (
+        (data.state === 'done' || data.state === 'error' || data.state === 'interrupted') &&
+        (state.ui.pendingApprovalsBySession[data.sessionId]?.length ?? 0) > 0
+      ) {
+        const pendingApprovalsBySession = { ...state.ui.pendingApprovalsBySession };
+        delete pendingApprovalsBySession[data.sessionId];
+        state = { ...state, ui: { ...state.ui, pendingApprovalsBySession } };
+      }
       if (data.state === 'done') void refreshSessionList();
       push();
       return;

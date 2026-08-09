@@ -328,6 +328,25 @@ export class LiveSession {
     return [...this.#pendingApprovals.values()].map((p) => p.snapshot);
   }
 
+  /**
+   * F2: fail-safe-resolve every still-pending ask as denied WITHOUT the
+   * intermediate running/idle reflection {@link resolveApproval} emits (the
+   * caller is about to emit its own terminal status right after — `interrupted`
+   * from a user Stop, or nothing at all from {@link close}'s hard teardown —
+   * so an extra flip back to running first would be a lie no one asked to see).
+   * Called from a user Stop (`SessionService.interrupt`): a turn that just
+   * stopped will never make the tool call its ask was blocking, so leaving the
+   * ask pending would hang the daemon's `#pendingApprovals` entry forever (and
+   * a later reattach's `sessionMode` snapshot would keep reporting a request
+   * for a tool call that will never happen) while gate-locking the composer,
+   * which has no answer it could ever send. Also the tail of {@link close}'s own
+   * fail-safe, so there is exactly one place this logic lives.
+   */
+  abandonPendingApprovals(): void {
+    for (const pending of this.#pendingApprovals.values()) pending.resolve('deny');
+    this.#pendingApprovals.clear();
+  }
+
   /** Add `sink` to the fan-out set, hydrate it with the current status push,
    *  and return an unsubscribe function. */
   subscribe(sink: Sink): () => void {
@@ -397,8 +416,7 @@ export class LiveSession {
     // F2 fail-safe: a still-pending ask must not hang forever once the session is
     // torn down — resolve every one as denied so its awaiting `canUseTool` call
     // unblocks instead of leaking a promise nothing will ever settle.
-    for (const pending of this.#pendingApprovals.values()) pending.resolve('deny');
-    this.#pendingApprovals.clear();
+    this.abandonPendingApprovals();
     // Finalizers first (and once): ending the held-open input feed lets the backend
     // query drain its last result before the parked loop wakes and exits.
     const finalizers = this.#onClose;
