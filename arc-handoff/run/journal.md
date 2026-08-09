@@ -1467,3 +1467,110 @@ Rescuing C4's unpushed work is the immediate next action: finish the six mechani
 migrations, diagnose the two real failures, gate, commit, push, open the draft PR. Then F10's
 verification — now Opus work like everything else — then Stage 3's features. Q10, Q11 and Q14
 remain open and unblocking.
+
+---
+
+# C4 rescued, finished, and F10 measured — 2026-08-08, overnight
+
+Picked up from `CONTINUATION-HANDOFF.md`. C4 is now complete: the swap is committed, the branch is
+pushed, draft PR #4 is open, and **F10 was measured in the running app** rather than inferred.
+
+## Preservation came first, and origin was not where the handoff assumed
+
+The scratch worktree had survived, with all three commits and the full 32-file uncommitted set
+intact. Before touching anything: pushed `arc/c4-console` and snapshotted the uncommitted swap as
+its own commit on `backup/c4-swap-wip`, then soft-reset so the working tree was byte-identical
+again. **`origin/arc/c4-console` already existed but pointed at `5c232df`** — the base commit, not
+the work — so "not pushed" was true of the commits while the ref itself looked present. Anyone
+checking only for the branch's existence would have been misled.
+
+## The "six mechanical, two real" split did not survive contact
+
+The handoff recorded six files failing only on the deleted `consoleStore.js` import and two
+(`ChatPanel`, `Browser`) with "real assertion failures needing actual diagnosis." **All eight had
+the same single cause.** `Browser` and `ChatPanel` never imported `consoleStore` at all — they
+compiled fine and failed at runtime because their render helpers still passed the `state` prop that
+the swap removed from every surface, so both rendered from unseeded slices and nearly every
+assertion in both files missed. 19 and 24 failures, one line each.
+
+That is worth recording as a diagnosis lesson: a file that fails at *collection* and a file that
+fails at *assertion* looked like two different problems and were one. The prior session inferred
+the split from where the failures appeared, not from what caused them, and the inference was wrong
+in the direction that made the remaining work look harder than it was.
+
+Underneath, two genuinely separate one-line issues did exist:
+
+- `AgentsPanel > skeletons while loading and shows errors inline` mounted two surfaces in one test
+  and then queried globally. Under the whole-state prop each container held its own state; under
+  slices both surfaces read the same store, so seeding the error state repainted the first
+  container too and `getByRole('alert')` matched twice. Split into two tests.
+- `Center > marks the clicked tab selected immediately` pinned the optimistic marker, which the
+  swap deleted on purpose. Its own mock never moved `activeSessionId`, so nothing marked. Verified
+  the premise before deleting the behavior: `activateSession` calls `setActiveSession(id)`
+  synchronously and only then materializes, so selection genuinely is same-frame and the optimistic
+  marker was redundant machinery. Re-expressed the test to drive that real path.
+
+A third deliberate deletion: `Workbench > renders no surface before the first console-state publish`
+pinned the old store's `undefined`-until-published gate. Slices are always readable, so a surface
+paints on the first frame — the test now pins that instead of the removed gap.
+
+Mechanically, 49 `state={…}` props in `AgentsPanel.test.tsx`, 10 in `Browser.test.tsx` and 35 in
+`ChatPanel.test.tsx` were hoisted to `seedState(…)` before the render by a brace-balanced script
+(multi-line expressions and `rerender` transitions included), then prettier re-formatted. Added
+`seedState(fullState)` beside `seedStores(overrides)` in the fixtures so tests that compose a whole
+`ConsoleState` by hand seed it as a unit.
+
+## Gate
+
+Green, verified in the MAIN repo at the commit (not in the scratch worktree — see below):
+**2959 passed | 30 skipped, 283 files; depcruise 428 modules, no violations; docs-check 60 docs.**
+Commit `48e863f`, pushed. Draft PR #4 opened against `arc/architecture`.
+
+**New tripwire — depcruise is not trustworthy inside a junctioned worktree.** In the scratch
+worktree the gate reported **9 `backend-isolation` violations** in `packages/adapter-claude-sdk`,
+a package C4 never touched. The junctioned `node_modules` makes resolution escape the worktree, so
+depcruise cruised **672 modules / 2016 dependencies** instead of 428 / 1280 and matched rules
+against `../../../../Documents/Side Projects/coa/...` paths. The same commit cruises clean in a real
+tree. Run depcruise where the install is real, or read its failures as environment noise.
+
+## F10, measured
+
+Built the app at the commit and drove it over CDP with real synthesized input events. Each switch
+recorded the click (capture-phase listener), the transcript host's class change (MutationObserver),
+and the animation frames in between. **15 real switches across 3 passes:**
+
+- click → DOM commit: **min 3.8 ms · median 5.9 ms · max 30.5 ms**
+- **0 / 15** crossed an animation-frame boundary — and a paint needs a frame, so no switch ever
+  showed a stale transcript first
+- **zero preload-bridge calls on any switch** — the direct evidence for "no navigation path awaits
+  I/O". 10 of 11 transcript hosts are hidden rather than unmounted, so a switch is a display swap.
+- renderer JS heap 12.3 MB used / 21.4 MB total, 11 mounted hosts (8 with content)
+
+**Two parts of F10's "done means" are NOT covered.** The 20+ open-tab memory ceiling was never
+exercised (8 tabs, 11 hosts), and **no cap policy for materialized hosts has been settled** — the
+handoff asked for one and this run did not produce it. Scroll-without-loading was not measured
+either. Both are recorded as Q15 rather than quietly folded into a pass.
+
+## Operational facts this cost real time to learn
+
+- **The desktop app will not build or launch from a clean checkout here.** `electron` is linked only
+  into `apps/desktop/node_modules`, and `electron-vite` resolves `electron/package.json` from its own
+  store location, so `build` dies on `Cannot find module 'electron/package.json'`. Fixed locally with
+  a root junction: `mklink /J node_modules\electron node_modules\.pnpm\electron@34.5.8\node_modules\electron`.
+  This is a consequence of `allowBuilds: electron: false` plus pnpm's strict layout — it is left in
+  place (gitignored) but a fresh machine will hit it again.
+- **`ELECTRON_RUN_AS_NODE` is set in this shell.** `electron.exe --version` printed `v20.19.1`;
+  `env -u ELECTRON_RUN_AS_NODE` printed `v34.5.8`. The repo's own `scripts/dev.mjs` already strips
+  it, but a direct `electron.exe` launch does not.
+- **An occluded Electron window stalls `requestAnimationFrame` entirely** (0 frames in 300 ms), which
+  silently invalidates any frame-based measurement — the first two measurement runs produced
+  confident-looking numbers that meant nothing. `Page.bringToFront` did not fix it and neither did
+  `SetForegroundWindow` (Windows refuses a foreground raise from a background process). Launch with
+  `--disable-background-timer-throttling --disable-renderer-backgrounding
+  --disable-backgrounding-occluded-windows` and assert `document.visibilityState === 'visible'` plus
+  a live rAF count BEFORE trusting a single number.
+- **The title bar is a `-webkit-app-region: drag` surface and swallows mouse events**, and the tab
+  strip scrolls the selected tab into view on every selection. Coordinates computed once go stale
+  after the first switch, and tabs scrolled under the chrome are not hit-testable. Recompute each
+  tab's rect and confirm `document.elementFromPoint` lands inside it immediately before each click.
+- Synthetic `element.click()` did not drive the tab strip; CDP `Input.dispatchMouseEvent` did.

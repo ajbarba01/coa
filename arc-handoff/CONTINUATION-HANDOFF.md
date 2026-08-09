@@ -1,9 +1,13 @@
 # Arc continuation handoff — one track, all Opus
 
-Last rewritten 2026-08-08 (late evening). **This is the arc's single continuation handoff.** It
-replaces the two-track split that existed earlier the same day (an Opus brief for backend work,
-a separate Fable brief for C4 and the Stage 3 UX features) — that split is retired, and
-`C4-STAGE3-HANDOFF.md` is deleted, its still-live content folded in below.
+Last rewritten 2026-08-08 (overnight, after C4 landed). **This is the arc's single continuation
+handoff.** It replaces the two-track split that existed earlier the same day (an Opus brief for
+backend work, a separate Fable brief for C4 and the Stage 3 UX features) — that split is retired,
+and `C4-STAGE3-HANDOFF.md` is deleted, its still-live content folded in below.
+
+**Where the arc stands: every architecture charter is done.** C4 was the last one; it is finished,
+pushed, measured, and open as draft PR #4. **Stage 3's features are the only substantial work
+left**, alongside four open questions (Q10, Q11, Q14, Q15).
 
 ## What changed, and why there is only one track now
 
@@ -26,11 +30,11 @@ git -C "C:\Users\Zander\Documents\Side Projects\coa" worktree add <your-scratchp
 
 Then read, in order:
 
-1. `arc-handoff/run/state.md` — branches, tips, stage status. **Stage 0/1/2-except-C4/4/5 are
-   COMPLETE and independently verified. C4 is partially built (see below) and Stage 3 is
-   untouched — those two are all that remain.**
-2. `arc-handoff/run/journal.md` — the last few entries, ending with the C4 partial entry.
-3. `arc-handoff/run/questions.md` — the queue and every ruling. **Q10, Q11, Q14 are open.**
+1. `arc-handoff/run/state.md` — branches, tips, stage status. **Stages 0/1/2/4/5 are COMPLETE and
+   independently verified. Stage 3 is untouched and is all that remains.**
+2. `arc-handoff/run/journal.md` — the last few entries, ending with the C4 completion entry
+   (which also carries the desktop-app launch recipe and the depcruise-in-a-worktree tripwire).
+3. `arc-handoff/run/questions.md` — the queue and every ruling. **Q10, Q11, Q14, Q15 are open.**
 4. `SESSION-HANDOFF.md` (same folder) — longer-running operational memory: Windows gotchas, the
    `git stash` denial, workflow/main-tree collision hazards, gate commands. Still worth one skim.
 
@@ -55,76 +59,55 @@ For the UX work that now also lives on this track, add:
 | `arc/reset-knife` | `cc78b9f` | done, draft PR #1 |
 | `arc/architecture` | `5c232df` | Stage 2 done except C4, draft PR #2 |
 | `arc/docs` | `14b55ac` | Stage 4 done + verified, draft PR #3 |
-| `arc/c4-console` | `00717d5` **local only — NOT pushed** | C4 partially built. See below |
+| `arc/c4-console` | `48e863f` **pushed, draft PR #4** | **C4 COMPLETE.** See below |
+| `backup/c4-swap-wip` | (snapshot) | the rescued uncommitted swap, pushed before any edits |
 | `arc/handoff` | — | this transport branch |
 
-PRs #1–#3 are draft, current, and stacked. Verify none of this has drifted before trusting it.
+PRs #1–#4 are draft, current, and stacked. Verify none of this has drifted before trusting it.
 
-### ⚠ C4 has unpushed commits and a large uncommitted working set, in a temp worktree
+### C4 is done — Stage 2 is closed
 
-The C4 session ran out of budget mid-charter. Its work lives in a **session-scoped scratch
-worktree** (`…/b881ccfb-…/scratchpad/c4-console-wt`) that will not survive cleanup, and **nothing
-has been pushed.** Preserving it is the first order of business.
+Rescued and finished 2026-08-08 overnight. The scratch worktree had survived; its three commits
+and the whole uncommitted swap were pushed before anything was edited (`arc/c4-console` plus a
+`backup/c4-swap-wip` snapshot). Note for the record: **`origin/arc/c4-console` already existed,
+pointing at the base commit `5c232df`** — the branch looked present while none of the work was on
+it.
 
-**Committed on `arc/c4-console` (3 commits, local):**
+`48e863f` landed the component swap and fixed all eight failing test files. **The handoff's
+"six mechanical, two real" split was wrong — all eight had one cause:** `Browser` and `ChatPanel`
+never imported `consoleStore` at all; their render helpers still passed the `state` prop the swap
+had removed, so they rendered from unseeded slices. Full detail, including the three behaviors
+deliberately dropped rather than ported, is in the journal.
 
-- `878528f` — reloaded frames now carry the same ids their live pushes carried (`sessionId:seq`
-  for both), which is what makes a reload-merge dedupe by identity instead of guessing.
-- `20e4f2b` — **the store itself**: `apps/desktop/src/renderer/store/` — four zustand slices
-  (per-session transcript map, session list/run-status, slow daemon reads, local UI state), a
-  controller owning push routing / rAF batching / boot+hydrate, a stable module-level action
-  surface, and the injected `ConsoleBridge` seam preserved. **83 contract tests pass**, including
-  every invariant ported by name out of the old 1020-line `console.test.tsx`: per-session push
-  routing, the stale-reload guard, live==reload after an interrupt, cache-first open, the
-  reattach `subscribed:false` authority, hydrate's launch-race dedupe.
-- `00717d5` — preload RPC wrappers moved out of the controller into `panels/rpc.ts`.
+Gate green in a real tree: **2959 tests · depcruise 428 modules · docs-check 60 docs.**
 
-**Uncommitted (the swap):** every component moved off the deleted whole-state store onto slice
-subscriptions — `ChatPanel` (with a memoized `TabTranscript` so each open tab subscribes to its
-own entry and stays live while hidden), `Center`, `Nav`, `Work`, `Browser`, `Palette`,
-`NewSession`, `Settings`, `Workbench`, `keys`, and `App.tsx` booting the new controller. The old
-`console.ts` closure, its test, `consoleStore.ts`, and the `Freeze` component are deleted.
-**Production typecheck is green.**
-
-**What is broken:** 8 desktop test files fail. Six (`AgentsPanel`, `Center`, `Nav`, `Settings`,
-`Workbench`, `keys`) fail only because they still import the deleted `consoleStore.js` — they
-need the same mechanical conversion to the `seedStores`/`resetStores` helpers already added to
-`testing/fixtures.ts`, which worked cleanly for `Work`, `Palette`, `NewSession`, `Flags`,
-`Timeline`, `App` and `store`. The other two (`ChatPanel.test.tsx`, `Browser.test.tsx`) have real
-assertion failures needing actual diagnosis.
-
-**What was never reached:** F10 was never verified — the app was never launched, so the
-instant-navigation claim is unproven. No push, no draft PR, no journal entry beyond this.
+**F10 was measured, not inferred** — the app was built, launched with CDP attached, and driven
+with real input events. 15 real tab switches: click→DOM median 5.9 ms (max 30.5 ms), **0 of 15
+crossed an animation-frame boundary**, and **zero preload-bridge calls on any switch**. Two of
+F10's four "done means" clauses — 20+ tab memory, and scroll-without-loading — were never
+exercised, and no materialized-host cap policy was settled. That is **Q15**, recorded rather than
+papered over.
 
 ## What to actually do, in order
 
-1. **Rescue and finish C4.** Migrate the six test files, diagnose the two real failures, get the
-   full gate green, commit the swap, **push `arc/c4-console`**, and open a draft PR based on
-   `arc/architecture` (`gh pr create --base arc/architecture --draft`). This is mechanical and
-   should not need design judgment.
-2. **Verify F10 for real** — this is C4's acceptance criterion and the first genuinely UX-shaped
-   task on this track. Run the app (`pnpm --filter @coa/desktop dev`; the `run` skill and CDP
-   driving are available), open several sessions, stream a turn in one, switch tabs. F10's "done
-   means": tab switch to any opened session is sub-frame to first paint of an already-materialized
-   transcript, no navigation path awaits I/O, scrolling needs no loading, memory stays sane on
-   20+ open tabs. Measure it; don't infer it from passing unit tests. Journal whatever cap policy
-   you settle on for materialized tabs. Expect craft fallout here — a loading state that now
-   never fires, a switch that reveals a scroll-restore seam — and fix it with `docs/UI.md` and the
-   `impeccable` / `frontend-design` skills as the design engine.
-3. **Stage 3's features** (`feature-plans.md`), which are now Opus work like everything else.
+1. **Stage 3's features** (`feature-plans.md`) — now the only substantial work left.
    Sequencing from that file: R12b → F3 attachments · R12c → F2 · R12d → F9 · R12e → F5; F6 early
    (F3 depends on it); F7 with F1; F4 before F8. F2 (permission modes) is the natural first pick
    and was already flagged as C4's follow-on.
-4. **Q10 — desktop/console-kit suite reliability.** Full-suite runs have thrown 37–50 failures
+2. **Q15 — F10's two unmeasured clauses.** 20+ open-tab memory and scroll-without-loading were
+   never exercised, and nothing bounds materialized-host growth (a transcript is evicted only when
+   its session is deleted). Small charter: open 20+ tabs, measure the heap curve, settle a cap
+   policy — or rule the current keep-alive adequate and record that as the answer.
+3. **Q10 — desktop/console-kit suite reliability.** Full-suite runs have thrown 37–50 failures
    concentrated in `apps/desktop/renderer`, `console-kit`, `console-transcript`, while
    package-isolated reruns are 100% green. Two candidate causes are recorded in Q10's escalation
    (file-handle exhaustion from many sequential vitest spawns; memory pressure from repeated large
    workflow runs) — rule those out cheaply before sizing a deterministic-waits pass.
-5. **Q11 — the daemon's root/home path seam** is honored in one place and bypassed in ~6 others.
+4. **Q11 — the daemon's root/home path seam** is honored in one place and bypassed in ~6 others.
    `packages/core/src/rpc/auth-handlers.ts` computes secret key-file paths from `homedir()` at 9
    call sites, bypassing its own injected `AuthHandlerDeps`. Full file:line inventory in Q11.
    Small, mechanical, well-scoped.
-6. **Q14 — a closed session's leftover queued turn is invisible to the registry.**
+5. **Q14 — a closed session's leftover queued turn is invisible to the registry.**
    `LiveSession.close()`/`nextTurn()` (`live-session.ts:212-236`) never clears `#queue`, so a turn
    queued when a session closes still dispatches afterward through a backend query the registry
    has no record of. Reasoned about, never observed. Cheap fix; good warm-up.
@@ -150,6 +133,21 @@ Don't skip it.
   to the **worktree's own** packages, not the main repo's, or `tsc -b` silently checks the wrong
   sources. Remove such a worktree with `git worktree remove`, never a recursive delete — the
   junctions point at the real dependency tree.
+- **depcruise is meaningless inside a junctioned worktree.** Resolution escapes the worktree, so it
+  cruises ~672 modules instead of 428 and reports false `backend-isolation` violations in packages
+  you never touched. Run it where the install is real (the main repo, detached at your commit) —
+  `git checkout --detach <sha>` works even while another worktree holds that branch.
+- **Running the desktop app here needs three fixes, none of them obvious.** (a) `electron` is linked
+  only into `apps/desktop/node_modules`, so `electron-vite` cannot resolve it — add a root junction
+  (`mklink /J node_modules\electron node_modules\.pnpm\electron@34.5.8\node_modules\electron`);
+  (b) this shell sets `ELECTRON_RUN_AS_NODE`, so launch under `env -u ELECTRON_RUN_AS_NODE` (the
+  tell: `electron.exe --version` prints a Node version); (c) an occluded window stalls
+  `requestAnimationFrame` completely, silently invalidating any timing measurement — launch with
+  `--disable-background-timer-throttling --disable-renderer-backgrounding
+  --disable-backgrounding-occluded-windows` and assert a live rAF count before believing a number.
+  Driving: CDP `Input.dispatchMouseEvent` (synthetic `.click()` does not drive the tab strip), and
+  recompute element rects before every click — selection scrolls the strip, and the title bar's
+  `-webkit-app-region: drag` swallows events over anything under it.
 - **`git stash` is DENIED** in this harness; a denied call means adapt (copy files aside), not
   halt. It has stranded finished work before — check `git stash list` before concluding a dead
   agent produced nothing.

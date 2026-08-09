@@ -342,3 +342,23 @@ invisible to every registry-level operation (idle eviction, cascade-close, `coa 
 reject/drain it explicitly) or is acceptable as documented behavior for now. Not blocking; no user-
 visible symptom has been observed, only reasoned about.
 **Done instead:** recorded with file:line so it can be executed without re-deriving it.
+
+## Q15 — F10 passed on the two clauses that were measured; two others were never exercised (2026-08-08)
+**Context:** C4's acceptance criterion was verified in the running app (15 real tab switches, none
+crossing an animation-frame boundary, zero preload-bridge calls per switch — see the journal entry
+for method and numbers). That covers "sub-frame to first paint of an already-materialized
+transcript" and "no navigation path awaits I/O". **It does not cover the other two clauses.**
+- **"memory stays sane on 20+ open tabs"** — the run had 8 tabs and 11 materialized hosts, heap
+  12.3 MB used / 21.4 MB total. Nothing was learned about the shape of the curve at 20+, and the
+  keep-alive design means hosts accumulate by construction.
+- **"scrolling needs no loading"** — not measured at all.
+- **No cap policy for materialized hosts exists.** The handoff explicitly asked the C4 session to
+  settle one and journal it; the store evicts a transcript only when its session is deleted
+  (`sessionOps.deleteSession` → `evictTranscript`), so nothing bounds growth from opening tabs.
+**Needed:** a decision on whether to size a follow-up that opens 20+ tabs, measures the heap curve,
+and sets an eviction/cap policy — or to accept the current unbounded keep-alive as adequate for an
+attended single-user console and record that as the answer.
+**Recommendation:** cheap and worth doing, but as its own small charter, not folded into PR #4 —
+the measured half is genuinely verified and should not be held hostage to the unmeasured half.
+**Done instead:** recorded with the exact numbers and the eviction call site so it can be executed
+without re-deriving it; PR #4's body states plainly which clauses are unverified.
