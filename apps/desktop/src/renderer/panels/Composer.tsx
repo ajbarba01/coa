@@ -166,12 +166,16 @@ export function Composer({
               <span aria-hidden className="font-mono text-meta text-s6">
                 {i === 0 ? '⇥ next' : `⇥ ${i + 1}`}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sec text-s10">{q.text}</span>
+              <Tooltip label={q.text} side="top">
+                <span tabIndex={0} className="min-w-0 flex-1 truncate text-sec text-s10">
+                  {q.text}
+                </span>
+              </Tooltip>
               <button
                 type="button"
                 aria-label={`remove queued message: ${q.text}`}
                 onClick={() => onRemoveQueued?.(q.id)}
-                className="slip cursor-pointer text-s7 hover:text-s10"
+                className="slip slip-press cursor-pointer rounded-r1 p-0.5 text-s7 hover:bg-s4 hover:text-s10 focus-visible:outline-focus active:scale-[0.97]"
               >
                 <Icon name="close" />
               </button>
