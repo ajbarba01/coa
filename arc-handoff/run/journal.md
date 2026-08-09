@@ -1839,3 +1839,131 @@ doesn't currently justify live spend — parked as an explicit open item rather 
 silently claimed done, same treatment this arc gave Q15/F10's unmeasured clauses.
 
 Next: F3 (per-model info + context health + attachments).
+
+## [Fable-orchestrated continuation session opens] — 2026-08-09
+
+Handed off from the Sonnet-orchestrated session per the maintainer's call (remaining Stage 3 work
+is heavily UX-weighted). Restored `arc/handoff` (reused a still-live worktree from a prior session
+rather than fighting a worktree-add lock on the same branch), updated `coa-stage3-watchdog.ps1`'s
+`$sessionId` to this session and touched the heartbeat marker, then retried F3's verify per the
+handoff's first instruction.
+
+**Before trusting the handoff doc's characterization of the two ADR-0036 gaps, read the actual
+diff.** The "Composer → RPC → session → adapter input doesn't plumb attachments end-to-end" line
+turned out to be stale prose describing a mid-session snapshot, not the final shipped state — the
+diff shows it genuinely IS wired end-to-end for every OpenAI-compatible provider (traced
+session-handlers.ts's `SessionCapabilities` injection through to the adapter factory). Only the
+Claude SDK adapter's total lack of an attachment seam is real, and it's an intentional,
+documented, strict-superset-honest scope boundary (`createClaudeAdapter` throws a typed
+`AttachmentCapabilityError`), not a hidden defect. Included this grounding directly in the verify
+agent's brief so it would check the claim for itself rather than re-deriving it blind.
+
+**F3's verify workflow (3 rounds, the arc's standard cap) found FOUR real bugs, not one** — every
+single round surfaced something genuine, extending this arc's unbroken pattern:
+1. (round 1) The composer's context ring double-counted prompt-cache-read tokens for every
+   OpenAI-compatible backend (deepseek/openai/longcat/openrouter): `usedContextTokens` computed
+   `tokensIn + cacheReadTokens + tokensOut`, but those adapters' `tokensIn` already INCLUDES the
+   cache hit on the wire (their own `pricing.ts` billing math already knew this and subtracted it
+   before charging — the new ring math didn't). Proven with a throwaway probe: a session at a real
+   41% context usage rendered as 79% and flipped the ring into a false amber "needs-you" alarm.
+2. (round 1) Composer's staged attachments/draft text were unscoped local React state — no
+   session-keyed remount (unlike the transcript panes, which ARE correctly `key`ed) — so a file
+   staged on session A could silently ride a send to session B, including a session whose backend
+   can't carry attachments at all.
+3. (round 2) A past-turn image attachment sitting in replayed conversation history broke EVERY
+   future plain-text turn once the user switched to a non-vision model in the same conversation:
+   `toWireMessage` applied the CURRENT model's vision-support check to every message in the
+   history array, not just the live turn's own attachment, so an old image poisoned the whole
+   conversation with no in-app recovery short of switching back to a vision model.
+4. (round 3) `parseOpenRouterCatalog`/`parseModelsDevCatalog` return `[]` (not `undefined`) on a
+   schema-mismatched payload; `fetchOpenRouterCatalog`/`fetchModelsDevCatalog` only signal
+   `undefined` for a non-OK response or a thrown fetch — so a 200-OK-but-malformed body (a
+   realistic third-party API failure mode: rate-limit notices, upstream schema drift) flowed
+   through as "genuinely fetched, zero rows" and `ModelMetadataCatalog.refresh()` treated that as
+   a real update, silently wiping a previously-good, disk-persisted cache. Directly contradicted
+   ADR 0036's own stated design driver and one of F3's explicitly ruled test requirements.
+
+Bugs 1–3 were fixed inside the verify loop itself (commits `c438624`, `0af70d1`, `bba28c3`, all
+pushed) with non-vacuous regression tests (revert→red→restore→green discipline applied to each).
+Bug 4 surfaced on the loop's THIRD and final round, so it hit the arc's standing 3-round cap before
+a fix landed — the round-3 agent inconsistently marked `passed: true` despite reporting a Major
+finding with no commit addressing it; **did not trust that flag**, independently re-read
+`metadata-openrouter.ts`/`metadata-modelsdev.ts`/`metadata-catalog.ts` myself first (confirmed the
+mechanism exactly as reported: `refresh()`'s `if (openrouter !== undefined)` check treats `[]` as
+"changed"), then dispatched one focused fix+verify pair (not a full loop restart) per this arc's
+established precedent for a cap-exhausted-but-well-scoped finding (same treatment F2's dual-seam
+bug got). Fix approach: treat a zero-rows parse result the same as a fetch failure in the
+`fetch*Catalog` wrapper functions specifically (not the pure `parse*Catalog` functions, whose
+"never throws, resolves to no rows" contract is intentional and already pinned by their own
+tests) — justified because neither OpenRouter's nor models.dev's catalog is ever validly empty in
+practice, so a zero-row 200 response is always some flavor of failure, and D85 strict-superset
+means a refresh attempt must never leave the catalog worse off than before it ran. Result pending
+at time of writing; will record the outcome once the fix+verify pair reports back.
+
+**Bug 4 fix+verify pair reported back: passed clean.** The fix (`fetchOpenRouterCatalog`/
+`fetchModelsDevCatalog` now resolve to `undefined` when a 200-OK response parses to zero rows,
+same as a non-OK/thrown response) landed as commit `2ef458a`. The independent verifier didn't just
+trace the new tests by hand — it physically swapped the pre-fix source files back into the working
+tree (keeping the new tests), watched all 3 new regression tests fail with the exact predicted
+symptom, then restored the fix and confirmed green; full gate green throughout (303 files/3255
+tests). Also confirmed the pure `parse*Catalog` functions were untouched (only the `fetch*`
+wrappers changed), matching the fix brief exactly.
+
+The round-1 verify agent's uncommitted ADR 0036 correction (the stale "not yet plumbed
+end-to-end" line) was reviewed, confirmed accurate against the shipped code independently by the
+orchestrator earlier in this session, and committed (`c94f029`) alongside pushing the cache-wipe
+fix. **F3 is DONE**: merged into `arc/stage3` clean (no conflicts — `merge: per-model info,
+context ring, and gated attachments`, `cf117c7`), full gate green post-merge (3252 tests, depcruise
+441 modules/1299 deps, docs-check 61 docs), pushed. Four real bugs found and fixed across F3's
+verify pass — the arc's per-feature verify-finds-something-real streak now extends to every
+single feature built this session (F11, F2, F3).
+
+**Process gap flagged, not glossed over**: checked F3's diff/commits/journal for any trace of the
+reference-shortlist sources named for this feature (big-AGI's metadata ledger, opencode's
+models.dev consumption, LibreChat's capability gating, Continue's attachment UX) — found none.
+Unlike F2/F11, which both have explicit reference callouts, F3's actual build (done by the prior
+Sonnet-orchestrated session before this handoff) left no record of consulting or adapting from any
+of them. Can't tell from the artifacts whether they were used and not journaled, or skipped
+outright. Recorded here so the remaining features (F1+F7 next) don't repeat it — the maintainer's
+standing instruction is to actively use the shortlist and journal every adaptation.
+
+## [operational] — `isolation: 'worktree'` — RESOLVED, 2026-08-09
+
+The maintainer opened a separate, parallel Claude Code session on this same machine (per a
+debugging handoff prompt this session wrote) specifically to root-cause the worktree-isolation
+bug flagged earlier tonight. It found the real mechanism, distinct from either hypothesis on
+record at the time: **the pre-flight check compares paths case-sensitively, and the harness holds
+the project root as both a lowercase- and uppercase-drive-letter string within one session
+(`c:\...` vs `C:\...`), while git's own `rev-parse --show-toplevel` always emits the uppercase
+form** — so a lowercase-pinned path never string-compares equal to git's own reported path, and
+the run is refused with the same "core.worktree redirect" message this session saw all night. Not
+a separator bug (separators ARE normalized, contrary to this session's leading hypothesis); not
+the space in "Side Projects" either (confirmed that path works fine standalone) — both of this
+session's candidate mechanisms were wrong, which is itself worth remembering: the diagnostic
+subagent's inability to reproduce the failure in a disposable scratch repo was correctly read as
+"the git plumbing itself is fine," but the leap from there to "therefore it's a separator-
+normalization bug in the harness" was an unverified guess, not a confirmed mechanism. The
+debugging session verified the real fix live: two agents given separate worktrees committed
+independently (`e77df7b`/`ec54623`) with zero collision, main checkout untouched.
+
+**Practical consequence: `isolation: 'worktree'` is usable again.** The trigger condition is
+narrow — the case-sensitivity check fires ONLY when the worktree directory already exists (a
+fresh spawn always resolves the path correctly; a re-entered or retried worktree is what can trip
+it). Operational rules going forward: sweep leftovers (`git worktree prune` + delete stale
+`.claude/worktrees/*` dirs) before each mutating workflow; keep parallel fan-out modest (≤4) since
+concurrent `git worktree add` calls can race `.git/config.lock` and a failed `add` is what strands
+a directory that later trips the case-sensitivity check; treat a recurrence as transient (prune,
+delete, retry) rather than reverting to sequential-only. Caveat carried forward honestly: the
+mechanism and a fresh-spawn success are both proven, but "sweeping prevents recurrence" is
+inference — the lowercase-drive pin can't be forced on demand to test directly, so this isn't
+airtight, just meaningfully better than sequential-only. Cleaned up the debugging session's own
+~900 MB of stranded worktree dirs (`wf_bb3ac976-a28-{1,2}` under `.claude/worktrees/`) after
+confirming their work was already safely merged into `arc/stage3` via `arc/q11-root-home-seam`/
+`arc/q14-close-queue-leak` — used `robocopy /MIR` against an empty source directory to clear the
+pnpm store's Windows long-path entries before `Remove-Item` would succeed on it, a known-good
+Windows trick for exactly this failure mode.
+
+Not yet re-architected around this for the remaining features — F1+F7 builds next using
+`isolation: 'worktree'` per the new rules, still core→UI→verify staged (that dependency is real,
+not a tooling artifact), but the orchestrator's own read/merge work in the main tree no longer
+has to avoid overlapping with a running workflow's mutations.

@@ -72,24 +72,19 @@ substantially further along, matching PR #1–#4's stacked shape.
 
 ## What to actually do, in order
 
-1. **Retry F3's verify.** The branch `arc/f3-model-info-attachments` has real, complete,
-   gate-green work on it (core: model-metadata catalog with static/models.dev/OpenRouter fallback
-   chain + attachment wire format + typed capability rejection; UI: context ring, capability-gated
-   attach control, model-picker hover card — read the journal's F3 entry for the exact data
-   shapes/RPC verbs built). The verify agent's own API call failed with `ENOTFOUND` — this is
-   infrastructure, not a code problem. Re-run one verify pass (same adversarial brief the journal
-   records) before trusting it; if it finds something real, this arc's pattern is a bounded fix
-   round (cap at ~3 attempts total) then re-verify, same as F11 and F2 both needed.
-   **Known gaps the core agent already flagged, not hidden**: `adapter-claude-sdk` (the Claude
-   backend) was never wired to carry an attachment — only `adapter-openai-compat` was. The live
-   single-turn send path (Composer → RPC → session composition) doesn't yet thread an
-   attachment/vision-capability through either — only the adapter/loop-driver seam and
-   history-replay do. Decide whether closing those is in scope for F3's own verify pass or a
-   separate follow-up; ADR 0036 records both gaps for the record either way.
-2. **Merge F3 into `arc/stage3`, gate-check, push** (same pattern every prior feature used — see
-   below).
-3. **F1 + F7** (spawn-with-isolation option; F7's worktree manager). Sequenced together per the
-   plan (F7 rides F1's spawn option).
+1. ~~Retry F3's verify.~~ **DONE.** Three rounds (the arc's standard cap) found FOUR real bugs —
+   context-ring cache-token double-counting, session-unscoped composer attachments, resent-history
+   images breaking later plain-text turns on a non-vision model, and a malformed-200 metadata fetch
+   silently wiping a good disk cache (this last one hit the round cap before a fix landed; verified
+   the finding by hand, then closed it with one focused fix+verify pair rather than restarting the
+   loop — see the journal). All four fixed, gate green throughout.
+2. ~~Merge F3 into `arc/stage3`, gate-check, push.~~ **DONE** (`cf117c7`, 3252 tests, depcruise
+   441/1299, docs-check 61).
+3. **F1 + F7** (spawn-with-isolation option; F7's worktree manager) — **NEXT.** Sequenced together
+   per the plan (F7 rides F1's spawn option). `isolation: 'worktree'` is usable again as of
+   2026-08-09 (see the journal's "RESOLVED" entry and the standing-facts section below) — use it
+   for this build's mutating stages, per the new operational rules (sweep leftovers first, cap
+   fan-out ≤4).
 4. **F4** (Library: skills + MCP manager) — before F8, since F8's viewer needs to show injected
    skills.
 5. **F8** (Viewer surface).
@@ -130,18 +125,21 @@ docs describe intent, not always exact file:line, since the tree moves under you
 
 ## Standing facts that still apply (all confirmed fresh tonight)
 
-- **`Workflow`'s `isolation: 'worktree'` option is BROKEN on this machine — do not use it,
-  confirmed by a dedicated diagnostic subagent.** 6/6 mutating agents failed an identical
-  pre-flight check across two early runs, despite the worktrees' own git plumbing being
-  structurally correct on manual inspection. Root cause is almost certainly the harness's own
-  pre-flight check comparing a forward-slash `git rev-parse` path against a backslash
-  `path.join`-derived path without normalizing separators (a real precedent for this bug class:
-  [terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976)) — not a repo problem,
-  not fixable here. **Workaround, used successfully all night: every mutating workflow stage runs
-  strictly sequentially** (plain `for`/`await` over `agent()` calls, never `pipeline`/`parallel`
-  for anything that checks out a branch or writes files) instead of relying on worktree isolation
-  for concurrent-agent safety. This costs wall-clock parallelism, nothing else. Full diagnosis in
-  the journal's "isolation: 'worktree' is broken" entry.
+- **`Workflow`'s `isolation: 'worktree'` was broken, then RESOLVED same-day (2026-08-09) — it is
+  usable again.** The night's original diagnosis (an unnormalized forward-slash/backslash path
+  comparison) turned out to be wrong. A separate debugging session found the real mechanism:
+  the pre-flight check compares paths **case-sensitively**, and the harness holds the project root
+  as both `c:\...` and `C:\...` within one session while git's own `rev-parse --show-toplevel`
+  always emits the uppercase form — a lowercase-pinned path never compares equal to git's, and the
+  check fires ONLY when the worktree directory already exists (fresh spawns always pass). Verified
+  fixed live: two agents in separate worktrees committed independently with zero collision.
+  **Operational rules now that it's usable**: sweep leftovers before each mutating workflow
+  (`git worktree prune` + delete stale `.claude/worktrees/*` dirs); keep parallel fan-out modest
+  (≤4, since concurrent `git worktree add` can race `.git/config.lock`); treat a recurrence as
+  transient (prune, delete, retry) rather than reverting to sequential-only. Full diagnosis in the
+  journal's "isolation: 'worktree' — RESOLVED" entry. (Sequential-only is no longer required, but
+  the Core→UI→Verify staging within one feature build is still real and unrelated to this — each
+  stage genuinely depends on the previous one's actual output, not just on tooling isolation.)
 - **Merging a feature branch into `arc/stage3` is done BY THE ORCHESTRATOR directly** (not
   delegated to an agent), in the main working tree, sequentially — never while a Workflow is also
   mutating that same tree. Pattern used all night: `git checkout arc/stage3 && git pull && git

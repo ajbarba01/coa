@@ -38,7 +38,7 @@
 | `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
 | `arc/c4-console` | 48e863f **pushed** | **C4 COMPLETE.** The push-fed slice store (83 contract tests) plus the component swap, all 8 previously-failing test files fixed, gate green in a real tree (2959 tests · depcruise 428 · docs-check 60), **draft PR #4** open against `arc/architecture`. F10 measured in the running app: 15 switches, 0 crossed an animation-frame boundary, zero bridge calls. Two `done means` clauses remain uncovered — see Q15 |
 | `backup/c4-swap-wip` | (snapshot) | The uncommitted swap as it stood at rescue time, pushed before any edits. Safe to delete once PR #4 lands |
-| `arc/stage3` | 7a1e6c3 | Stage 3's rolling integration branch, off `arc/architecture` @ 5c232df. Q11, Q14, all 4 UX-polish clusters, **F11 (DONE, live-verified)**, and **F2 (permission modes — DONE: 3-round adversarial verify caught+fixed 3 real bugs incl. an architectural dual-seam canUseTool double-invocation; live-smoke-against-a-real-backend parked as Q17)** merged and gated green (3117 tests, depcruise 429/1258, docs-check 60). Each feature/fix lands on its own `arc/f<N>-<name>` (or `arc/qNN-<name>`) branch, merged into this one as it gates green; PR opens against `arc/architecture` once the stage is substantially done |
+| `arc/stage3` | cf117c7 | Stage 3's rolling integration branch, off `arc/architecture` @ 5c232df. Q11, Q14, all 4 UX-polish clusters, **F11 (DONE, live-verified)**, **F2 (permission modes — DONE: 3-round adversarial verify caught+fixed 3 real bugs incl. an architectural dual-seam canUseTool double-invocation; live-smoke-against-a-real-backend parked as Q17)**, and **F3 (per-model info + attachments — DONE: verify loop found 4 real bugs across 3 rounds — ring double-counted cached tokens, composer attachments leaked across session switches, resent-history images broke later plain-text turns on non-vision models, and a malformed-200 metadata fetch wiped a good disk cache — all fixed, gate green)** merged and gated green (3252 tests, depcruise 441/1299, docs-check 61). Each feature/fix lands on its own `arc/f<N>-<name>` (or `arc/qNN-<name>`) branch, merged into this one as it gates green; PR opens against `arc/architecture` once the stage is substantially done |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
@@ -177,20 +177,36 @@ in the file is prior-session detail, kept for the record.
   zero code changes in between: fully green, exact baseline (281/2928). This is the same family
   as Q10 — recorded there as a new data point, not treated as a regression (the only diff in the
   tree at the time was a markdown-only edit, which cannot affect JS/TS test timing).
-- **2026-08-09: `Workflow`'s `isolation: 'worktree'` option is broken on this machine — do not use
-  it.** 6/6 mutating agents across two runs failed identical pre-flight checks ("git resolves its
-  working tree to <itself>..."), despite the worktrees' own git plumbing being verified correct by
-  hand. A diagnostic subagent reproduced the exact shape in a disposable scratch repo and could not
-  get git itself to misresolve anything — root cause is almost certainly the harness's own
-  pre-flight check comparing a forward-slash `git rev-parse` path against a backslash
-  `path.join`-derived path without normalizing separators (precedented by
-  [terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976)); a second,
-  space-sensitive candidate (whitespace-splitting `git worktree list`'s plain output) was also
-  reproduced as a mechanism but the repo path's space is likely a red herring, since the
-  separator-mismatch mechanism reproduces with no space at all. Full detail in the journal's
-  "isolation: 'worktree' is broken" entry. Workaround: run every mutating workflow stage strictly
-  sequentially (plain `for`/`await`, no `pipeline`/`parallel` on anything that checks out a branch
-  or writes files) instead of relying on worktree isolation for concurrent-agent safety.
+- **2026-08-09, SUPERSEDED same day: `Workflow`'s `isolation: 'worktree'` was broken, then RESOLVED
+  by a dedicated debugging session.** Original finding (now corrected): 6/6 mutating agents across
+  two runs failed identical pre-flight checks ("git resolves its working tree to <itself>..."),
+  despite the worktrees' own git plumbing being verified correct by hand; the working hypothesis at
+  the time was an unnormalized forward-slash/backslash path comparison
+  ([terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976)). **A follow-up
+  debugging session (run in parallel via a separate Claude Code session on this same machine, per a
+  handoff prompt) found the REAL root cause: the pre-flight check compares paths
+  case-sensitively, and the harness holds the project root as both a lowercase- and
+  uppercase-drive-letter string within one session (`c:\...` vs `C:\...`) while git's own
+  `rev-parse --show-toplevel` always emits the uppercase form — so a lowercase-pinned path never
+  string-compares equal to git's, and the run is refused with the same bogus "core.worktree
+  redirect" message.** Not a separator bug (separators ARE normalized); not the space in "Side
+  Projects" (verified that path works fine on its own). The check fires ONLY when the worktree
+  directory already exists (fresh spawns always pass; a re-entered/retried worktree can trip it).
+  Verified fixed live: two agents given separate worktrees committed independently
+  (`e77df7b`/`ec54623`) with zero collision and the main checkout untouched. **`isolation:
+  'worktree'` is usable again — sequential-only is no longer required.** Operational rules while
+  using it: (1) before each mutating workflow, sweep leftovers (`git worktree prune`, then delete
+  any stale dirs under `.claude/worktrees/`); (2) keep parallel worktree fan-out modest (≤4 at a
+  time) — concurrent `git worktree add` calls can race `.git/config.lock`, and a failed `add` is
+  what strands the directory that trips the case-sensitivity check later; (3) if it fires anyway,
+  treat it as transient — prune, delete that one worktree dir, retry the agent. Caveat carried
+  forward from the debugging session: the fix mechanism and a fresh-spawn success are both proven;
+  "sweeping prevents recurrence" is inference, since the lowercase-drive pin can't be forced on
+  demand to test it directly — stay alert for a recurrence rather than trusting this as airtight.
+  A leftover ~900 MB of stranded worktree dirs from the debugging session's own repro
+  (`wf_bb3ac976-a28-{1,2}`, work already safely on `arc/q11-root-home-seam`/`arc/q14-close-queue-
+  leak`, both confirmed merged into `arc/stage3`) was cleaned up same-day. Full detail in the
+  journal's "isolation: 'worktree' is broken" and "isolation: 'worktree' — RESOLVED" entries.
 
 ## Model allocation — SUPERSEDED AGAIN 2026-08-09 (maintainer decision, Max plan)
 
