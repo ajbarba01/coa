@@ -1,6 +1,7 @@
 import { groupSessionTree, sessionGroupFor } from '@coa/console-viewmodel';
 import { CapsLabel, cx, StatusDot, Tooltip } from '@coa/console-kit';
 import { usd } from '../panels/format.js';
+import { SurfaceEmpty } from '../panels/surfaceStates.js';
 import { DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
@@ -51,7 +52,7 @@ export function Work(): React.JSX.Element {
         className="flex h-(--titlebar-h) flex-none items-stretch border-b border-s4"
         style={DRAG}
       >
-        <CapsLabel className="self-center px-3.5 pt-0 pb-0">Agents</CapsLabel>
+        <CapsLabel className="self-center px-4 pt-0 pb-0">Agents</CapsLabel>
         <div className="flex-1" />
         <AppWindowControls />
       </div>
@@ -60,7 +61,7 @@ export function Work(): React.JSX.Element {
         <div className="flex-1 overflow-y-auto pb-1">
           <div className="flex items-center gap-2 px-3.5 py-1 text-sec font-[550] text-s12">
             <StatusDot status={running ? 'running' : 'idle'} />
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{session.title}</span>
+            <span className="min-w-0 flex-1 truncate">{session.title}</span>
             {/* Names what lineage makes this session, not the panel itself. A
                 spawned child can be the active tab, so a hardcoded "Root" would
                 state something false rather than degrade to a floor. */}
@@ -120,7 +121,7 @@ export function Work(): React.JSX.Element {
           )}
         </div>
       ) : (
-        <div className="px-3.5 pt-4 text-code text-s7">No session</div>
+        <SurfaceEmpty title="No session" />
       )}
 
       <div className="mt-auto flex items-center border-t border-s3 px-3.5 py-2">
@@ -129,7 +130,7 @@ export function Work(): React.JSX.Element {
             type="button"
             aria-label="Hide session panel"
             onClick={toggleWork}
-            className="slip ml-auto cursor-pointer font-mono text-body text-s7 hover:text-s9"
+            className="slip ml-auto flex h-8 w-8 cursor-pointer items-center justify-center font-mono text-body text-s7 hover:text-s9"
           >
             »
           </button>

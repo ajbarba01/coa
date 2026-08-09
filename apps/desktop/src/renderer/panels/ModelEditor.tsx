@@ -208,7 +208,7 @@ function ModelRow({
             {entryLabel(model)}
           </span>
           {model.origin === 'custom' && (
-            <span className="flex-none rounded-r1 border border-s5 px-1 font-mono text-[9px] text-s7">
+            <span className="flex-none rounded-r1 border border-s5 px-1 font-mono text-caps text-s7">
               Custom
             </span>
           )}
@@ -541,7 +541,7 @@ function AddFromDefaultsDialog({ provider }: { provider: ProviderDescriptor }): 
                 <span
                   aria-hidden
                   className={cx(
-                    'flex h-3.5 w-3.5 flex-none items-center justify-center rounded-r1 border text-[8px]',
+                    'flex h-3.5 w-3.5 flex-none items-center justify-center rounded-r1 border text-caps',
                     on ? 'border-s10 bg-s10 text-s1' : 'border-s6 text-transparent',
                   )}
                 >
