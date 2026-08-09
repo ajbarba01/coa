@@ -58,7 +58,10 @@ export function projectEndpointId(
   root: string,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  return createHash('sha256').update(canonicalProjectRoot(root, platform)).digest('hex').slice(0, 16);
+  return createHash('sha256')
+    .update(canonicalProjectRoot(root, platform))
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /**

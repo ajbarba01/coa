@@ -19,6 +19,7 @@ import {
 } from '@coa/console-viewmodel';
 import { z } from 'zod';
 import { ConsoleSettingsSchema } from './settings.js';
+import { RecentProjectSchema } from './projects.js';
 
 /** Params/result for starting a governed session from the console (proxies the daemon `createSession`). */
 export const StartSessionParamsSchema = z.object({
@@ -97,6 +98,37 @@ export const PickDirectoryParamsSchema = z.object({
   defaultPath: z.string().optional(),
 });
 export const PickDirectoryResultSchema = z.object({ path: z.string().optional() });
+
+/**
+ * F11 — open (or switch to) a project. `target: 'new'` opens a fresh window;
+ * `target: 'current'` swaps the CALLING window to `root` in place. Either way, if
+ * `root` is ALREADY open in some window, that window is focused instead — coa
+ * never runs two daemons over the same project (a concurrent-write hazard on its
+ * `.coa/local/` state), so "already open" always wins over the requested target.
+ *
+ * The CALLER owns confirming with the user before calling this with
+ * `target: 'current'` while its own project has a turn actively running — main
+ * performs the swap unconditionally once called; it does not itself gate on
+ * in-flight work (only the calling window knows whether one is running).
+ */
+export const OpenProjectParamsSchema = z.object({
+  root: z.string(),
+  target: z.enum(['current', 'new']),
+});
+export const OpenProjectResultSchema = z.object({
+  /** What actually happened: a fresh window was opened, the CALLING window was
+   *  rebound to this project, or a window ALREADY open on this exact project was
+   *  focused instead (never a second window/daemon for the same project). */
+  opened: z.enum(['new', 'current', 'focused-existing']),
+  workspace: z.object({ name: z.string(), root: z.string() }),
+});
+
+/** The recent-projects list (the picker's MRU), each entry decorated with whether
+ *  it's open in some window RIGHT NOW — computed live from the window registry,
+ *  never persisted — so the picker can show an "already open" affordance instead
+ *  of a redundant open control. */
+export const RecentProjectViewSchema = RecentProjectSchema.extend({ open: z.boolean() });
+export const ListRecentProjectsResultSchema = z.array(RecentProjectViewSchema);
 
 /** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
 export const PUSH_CHANNEL = 'coa:push';
@@ -207,6 +239,8 @@ export type MethodName =
   | 'openPath'
   | 'openExternal'
   | 'pickDirectory'
+  | 'openProject'
+  | 'listRecentProjects'
   | 'editCommand'
   | 'getWorkspace'
   | 'getLayout'
@@ -340,9 +374,14 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   openPath: { params: OpenPathParamsSchema, result: OpenPathResultSchema },
   openExternal: { params: OpenExternalParamsSchema, result: OpenExternalResultSchema },
   pickDirectory: { params: PickDirectoryParamsSchema, result: PickDirectoryResultSchema },
+  /** Open/switch/focus a project window — see {@link OpenProjectParamsSchema}. */
+  openProject: { params: OpenProjectParamsSchema, result: OpenProjectResultSchema },
+  /** The recent-projects MRU, each entry live-annotated with whether it's open. */
+  listRecentProjects: { result: ListRecentProjectsResultSchema },
   editCommand: { params: EditCommandParamsSchema, result: z.void() },
-  /** The open project (name + root), derived by main from the daemon's cwd —
-   *  the renderer never guesses a workspace. */
+  /** The CALLING window's open project (name + root), derived by main from which
+   *  project that specific window is bound to (F11: one daemon/root per window,
+   *  never one app-wide workspace) — the renderer never guesses a workspace. */
   getWorkspace: { result: z.object({ name: z.string(), root: z.string() }) },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },

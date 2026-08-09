@@ -18,6 +18,7 @@ import type {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import type { DaemonReport } from '../shared/methods.js';
+import type { RecentProject } from '../shared/projects.js';
 
 export {};
 declare global {
@@ -121,6 +122,20 @@ declare global {
       /** The native directory picker (a directory field's browse affordance). Cancelling
        *  returns no path — the caller keeps whatever the field already held. */
       pickDirectory(params: { defaultPath?: string }): Promise<{ path?: string }>;
+      /** F11 — open/switch/focus a project. `target: 'new'` always opens a fresh window;
+       *  `target: 'current'` swaps THIS window in place. If `root` is already open in some
+       *  window, that window is focused instead, regardless of `target` — coa never runs
+       *  two daemons over the same project. The caller must confirm with the user BEFORE
+       *  calling this with `target: 'current'` while its own project has a turn actively
+       *  running (main performs the swap unconditionally once called; it does not itself
+       *  gate on in-flight work — only the caller knows whether one is running). */
+      openProject(params: { root: string; target: 'current' | 'new' }): Promise<{
+        opened: 'new' | 'current' | 'focused-existing';
+        workspace: { name: string; root: string };
+      }>;
+      /** The recent-projects MRU (picker backing list), each entry decorated with a live
+       *  `open` flag (true iff some window currently has it open) computed at call time. */
+      listRecentProjects(): Promise<Array<RecentProject & { open: boolean }>>;
       /** The edit menu's actions — main drives Chromium's native editing commands on the
        *  focused element (the renderer never touches the clipboard itself). */
       editCommand(params: { command: 'cut' | 'copy' | 'paste' | 'selectAll' }): Promise<void>;

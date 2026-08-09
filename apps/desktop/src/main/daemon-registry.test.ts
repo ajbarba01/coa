@@ -134,9 +134,7 @@ describe('createDaemonRegistry', () => {
   it('disposeAll tears every registered manager down immediately, bypassing refcounting', () => {
     const a = fakeManager();
     const b = fakeManager();
-    const reg = createDaemonRegistry(
-      deps((root) => (root.includes('alpha') ? a : b)),
-    );
+    const reg = createDaemonRegistry(deps((root) => (root.includes('alpha') ? a : b)));
     reg.acquire('C:\\repos\\alpha');
     reg.acquire('C:\\repos\\beta');
 
