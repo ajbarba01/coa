@@ -177,6 +177,20 @@ in the file is prior-session detail, kept for the record.
   zero code changes in between: fully green, exact baseline (281/2928). This is the same family
   as Q10 — recorded there as a new data point, not treated as a regression (the only diff in the
   tree at the time was a markdown-only edit, which cannot affect JS/TS test timing).
+- **2026-08-09: `Workflow`'s `isolation: 'worktree'` option is broken on this machine — do not use
+  it.** 6/6 mutating agents across two runs failed identical pre-flight checks ("git resolves its
+  working tree to <itself>..."), despite the worktrees' own git plumbing being verified correct by
+  hand. A diagnostic subagent reproduced the exact shape in a disposable scratch repo and could not
+  get git itself to misresolve anything — root cause is almost certainly the harness's own
+  pre-flight check comparing a forward-slash `git rev-parse` path against a backslash
+  `path.join`-derived path without normalizing separators (precedented by
+  [terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976)); a second,
+  space-sensitive candidate (whitespace-splitting `git worktree list`'s plain output) was also
+  reproduced as a mechanism but the repo path's space is likely a red herring, since the
+  separator-mismatch mechanism reproduces with no space at all. Full detail in the journal's
+  "isolation: 'worktree' is broken" entry. Workaround: run every mutating workflow stage strictly
+  sequentially (plain `for`/`await`, no `pipeline`/`parallel` on anything that checks out a branch
+  or writes files) instead of relying on worktree isolation for concurrent-agent safety.
 
 ## Model allocation — SUPERSEDED AGAIN 2026-08-09 (maintainer decision, Max plan)
 

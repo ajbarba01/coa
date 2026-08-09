@@ -1623,3 +1623,38 @@ Q15's measurement charter slotted after F1/F7/F8, on a new rolling integration b
 green. A separate, roughly concurrent workstream sweeps already-built surfaces for polish (raw
 wrapping/spacing/consistency issues) using Fable per the maintainer's explicit ask, since new-UX
 design and existing-UX polish are independent of each other and of the Stage 3 feature sequence.
+
+## [operational] — `isolation: 'worktree'` is broken on this Windows machine, 2026-08-09
+
+Both the warm-up workflow and the UX polish workflow's Fix phase used the Workflow tool's
+`isolation: 'worktree'` option to let parallel agents mutate files without colliding in the shared
+main checkout. 6 of 6 mutating agents across the two runs failed identically at setup:
+`Refusing to use <path> as an isolation worktree: git resolves its working tree to <same path> (a
+core.worktree redirect, or a checkout discovered above it)...`. Manual inspection of one failed
+worktree before cleanup showed completely correct git plumbing (`.git` file, admin `gitdir`
+back-reference, `HEAD` — all structurally sound), which was the first sign this wasn't a real
+repo-side hazard.
+
+**Dispatched a diagnostic subagent (read-only reproduction in a disposable scratch repo, never
+touching the live tree) to dig further — root cause is a harness bug, not a git or repo problem.**
+It reproduced the exact worktree shape (space-in-path and without, nested inside the parent's own
+tree and external to it) and git resolved every path correctly, every time, under every
+invocation style tried. Most likely mechanism: the harness's own pre-flight check compares a
+`git rev-parse`-derived path (always forward-slash on Windows/MSYS) against a Node
+`path.join`-derived path (backslash on win32) without normalizing separators first, so
+structurally-identical paths never compare equal — a real precedent for exactly this bug class is
+[terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976). A second candidate
+(whitespace-splitting `git worktree list`'s non-porcelain, column-padded output, which would
+mis-parse the space in "Side Projects" specifically) is precedented by
+[gitlens#1864](https://github.com/gitkraken/vscode-gitlens/issues/1864), but the first mechanism
+reproduces identically with NO space in the path, so the space in this repo's location is very
+likely a red herring, not the cause — moving/renaming the repo path is not a reliable fix and
+wasn't attempted.
+
+**Practical consequence for the rest of this arc:** don't retry `isolation: 'worktree'` on this
+machine. Every mutating workflow stage from here runs strictly sequentially (plain `for` + `await`
+over agent() calls, no `pipeline`/`parallel` for anything that checks out a branch or writes
+files) instead of relying on worktree isolation to make concurrent mutation safe. This costs some
+wall-clock parallelism but nothing else — the two affected runs recovered cleanly (Q11/Q14's
+actual fixes had already landed real commits before verify failed; the UX audit's 37 findings were
+fully intact) and a sequential recovery run replaced the broken parallel stages with no work lost.
