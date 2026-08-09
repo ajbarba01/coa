@@ -52,6 +52,14 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
   },
   // On-demand — pulled in via find_tools/load_tool when needed.
   {
+    name: 'find_agent',
+    partition: 'on-demand',
+    group: 'read',
+    description:
+      'search the agents you may spawn via spawn_agent, by ref/name/description keyword — ' +
+      'omit the query to list the whole roster',
+  },
+  {
     name: 'get_piece',
     partition: 'on-demand',
     group: 'read',

@@ -261,6 +261,35 @@ describe('renderToolResult', () => {
         'no symbols in src/empty.ts',
       );
     });
+
+    it('find_agent → the sanitized JSON rows, one per line', () => {
+      const rows = ['{"ref":"explorer","name":"Explorer","description":"read-only"}'];
+      expect(renderToolResult('find_agent', { applied: true, agents: rows, omitted: 0 })).toBe(
+        rows[0],
+      );
+    });
+
+    it('find_agent with no matches → a message, not an empty string', () => {
+      expect(renderToolResult('find_agent', { applied: true, agents: [], omitted: 0 })).toBe(
+        'no matching agents',
+      );
+    });
+
+    it('find_agent appends the omitted-count line without re-flattening the already-sanitized rows', () => {
+      const rows = ['{"ref":"a","name":"A","description":"d"}'];
+      expect(renderToolResult('find_agent', { applied: true, agents: rows, omitted: 3 })).toBe(
+        `${rows[0]}\n… 3 more agents not shown`,
+      );
+    });
+
+    it('find_agent when unwired → the error message', () => {
+      expect(
+        renderToolResult('find_agent', {
+          applied: false,
+          error: { code: 'unavailable', message: 'agent discovery is not wired here' },
+        }),
+      ).toBe('agent discovery is not wired here');
+    });
   });
 
   describe('web tools', () => {
@@ -342,6 +371,16 @@ describe('renderToolResult', () => {
     it('Grep / Glob: an empty result is NOT a failure', () => {
       expect(toolResultOk('Grep', { hits: [] })).toBe(true);
       expect(toolResultOk('Glob', { matches: [] })).toBe(true);
+    });
+
+    it('find_agent: applied gate; a zero-match roster is NOT a failure', () => {
+      expect(toolResultOk('find_agent', { applied: true, agents: [], omitted: 0 })).toBe(true);
+      expect(
+        toolResultOk('find_agent', {
+          applied: false,
+          error: { code: 'unavailable', message: 'm' },
+        }),
+      ).toBe(false);
     });
 
     it('an unmapped tool or an unrecognized shape ⇒ true (never falsely fails)', () => {

@@ -6,6 +6,7 @@ import type {
 } from './retrieve.js';
 import type { MutateResult } from './mutate.js';
 import type { GetSpecResult } from './inspect.js';
+import type { FindAgentResult } from './spawn.js';
 import type { CoaError, FeedView, SymbolRecord } from '@coa/shared';
 
 /**
@@ -63,6 +64,7 @@ const RENDERERS: Record<string, Renderer> = {
   run_checks: (r) => renderChecks(r as FeedView),
   find_references: (r) => renderReferences(r as ReferencesResult),
   outline: (r) => renderOutline(r as OutlineResult),
+  find_agent: (r) => renderFindAgent(r as FindAgentResult),
 };
 
 /**
@@ -105,6 +107,7 @@ const OK_PREDICATES: Record<string, (result: unknown) => boolean> = {
   apply_patch: (r) => okBool(r, 'applied'),
   WebFetch: (r) => okBool(r, 'fetched'),
   // WebSearch: empty results is not an error (default true).
+  find_agent: (r) => okBool(r, 'applied'),
 };
 
 /**
@@ -235,6 +238,17 @@ function renderOutline(r: OutlineResult): string {
     r.symbols.map((s: SymbolRecord) => s.signature ?? s.name),
     `no symbols in ${r.path}`,
   );
+}
+
+/** Each row is already a sanitized, bounded JSON object (`spawn.ts`'s
+ *  `listKnownAgents`) — this only joins them and appends the omitted-count line,
+ *  never re-flattens or re-delimits, so it cannot reopen the decoy-row risk that
+ *  sanitizing already closed. */
+function renderFindAgent(r: FindAgentResult): string {
+  if (!r.applied) return r.error.message;
+  const rows = [...r.agents];
+  if (r.omitted > 0) rows.push(`… ${r.omitted} more agent${r.omitted === 1 ? '' : 's'} not shown`);
+  return renderLines(rows, 'no matching agents');
 }
 
 /** Join a list one-per-line, substituting a message when the list is empty. */

@@ -90,6 +90,7 @@ describe('buildGovernedTools', () => {
         'apply_patch',
         'context_status',
         'edit_symbol',
+        'find_agent',
         'get_piece',
         'get_spec',
         'run_checks',
@@ -184,6 +185,53 @@ describe('buildGovernedTools — spawn_agent', () => {
       { agentRef: 'explorer', description: 'd', prompt: 'p', isolate: true },
     ]);
     expect(res.result).toMatchObject({ applied: true, sessionId: 'kid-1' });
+  });
+});
+
+describe('buildGovernedTools — find_agent', () => {
+  it('is in the on-demand partition (pulled via find_tools/load_tool)', () => {
+    const tools = buildGovernedTools(makeDeps());
+    expect(tools.find((t) => t.name === 'find_agent')?.partition).toBe('on-demand');
+  });
+
+  it('returns an unapplied result, never a throw, when deps.spawn is unwired', async () => {
+    const tools = buildGovernedTools(makeDeps());
+    const tool = tools.find((t) => t.name === 'find_agent');
+    const res = await tool!.invoke({});
+    expect(res.result).toMatchObject({ applied: false, error: { code: 'unavailable' } });
+  });
+
+  it('dispatches to the live spawn port’s listAgents when wired, reusing it rather than a second registry', async () => {
+    const tools = buildGovernedTools({
+      ...makeDeps(),
+      spawn: {
+        listAgents: () => [
+          {
+            ref: 'explorer',
+            scope: 'builtin',
+            name: 'Explorer',
+            description: 'read-only search',
+            icon: 'bot',
+            color: 'slate',
+          },
+          {
+            ref: 'reviewer',
+            scope: 'project',
+            name: 'Reviewer',
+            description: 'reviews diffs',
+            icon: 'bot',
+            color: 'slate',
+          },
+        ],
+        startChild: () => ({ sessionId: 'kid-1' }),
+      },
+    });
+    const tool = tools.find((t) => t.name === 'find_agent');
+    const res = await tool!.invoke({ query: 'review' });
+    const result = res.result as { applied: true; agents: string[]; omitted: number };
+    expect(result.applied).toBe(true);
+    expect(result.agents).toHaveLength(1);
+    expect(JSON.parse(result.agents[0]!)).toMatchObject({ ref: 'reviewer' });
   });
 });
 

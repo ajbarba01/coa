@@ -16,7 +16,7 @@ import { enrich, type EnrichDeps } from './enrich.js';
 import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
 import { applyPatch, editSymbol, type WorkbenchDeps } from './mutate.js';
 import { contextStatus, getSpec, runChecks, type InspectDeps } from './inspect.js';
-import { sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
+import { findAgent, sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
 
 // The dispatch primitives moved to their own leaf module; re-exported so
 // existing importers of this module keep working unchanged.
@@ -100,6 +100,18 @@ const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
       };
     },
   ),
+  find_agent: spec({ query: z.string().optional() }, (a, d) => {
+    if (d.spawn !== undefined) return findAgent(a, d.spawn);
+    const safeQuery = a.query !== undefined ? sanitizeEchoedText(a.query) : 'all';
+    return {
+      result: {
+        applied: false,
+        error: { code: 'unavailable', message: 'agent discovery is not wired here' },
+      },
+      handle: 'find_agent:unavailable',
+      pointer: safeQuery,
+    };
+  }),
 };
 
 /** Validate, dispatch, and enrich one tool call (never throws, never denies). */
