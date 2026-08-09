@@ -140,6 +140,19 @@ docs describe intent, not always exact file:line, since the tree moves under you
   journal's "isolation: 'worktree' — RESOLVED" entry. (Sequential-only is no longer required, but
   the Core→UI→Verify staging within one feature build is still real and unrelated to this — each
   stage genuinely depends on the previous one's actual output, not just on tooling isolation.)
+- **NEVER junction/symlink an isolated worktree's `node_modules` (or anything else) to the main
+  tree.** This caused a real incident (2026-08-09, F1+F7 build, see the journal's "a cleanup
+  command deleted 605 tracked files" entry): a `robocopy /MIR` cleanup of a stranded worktree,
+  missing the `/XJ` flag, followed a cross-tree `node_modules` junction plus pnpm's own internal
+  workspace symlinks straight into the main tree's real `packages/*`/`apps/cli` source and deleted
+  605 tracked files (fully recovered via `git restore` — nothing was ever committed over, but it
+  was a close call caught only by chance). Just run a real `pnpm install --frozen-lockfile` inside
+  an isolated worktree instead — pnpm's global store is warm, so it takes ~10 seconds, not minutes,
+  and is completely self-contained. If a stray worktree ever needs manual cleanup and
+  `git worktree remove` fails (the known "Filename too long" issue on deep `.pnpm` paths), enumerate
+  its reparse points first (`Get-ChildItem -Recurse -Attributes ReparsePoint`) and confirm none
+  point outside it, THEN use `robocopy /MIR /XJ` (never bare `/MIR`) or an equivalent junction-safe
+  method — never a bulk recursive delete without first ruling out cross-tree links.
 - **Merging a feature branch into `arc/stage3` is done BY THE ORCHESTRATOR directly** (not
   delegated to an agent), in the main working tree, sequentially — never while a Workflow is also
   mutating that same tree. Pattern used all night: `git checkout arc/stage3 && git pull && git

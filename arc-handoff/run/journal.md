@@ -1967,3 +1967,89 @@ Not yet re-architected around this for the remaining features — F1+F7 builds n
 `isolation: 'worktree'` per the new rules, still core→UI→verify staged (that dependency is real,
 not a tooling artifact), but the orchestrator's own read/merge work in the main tree no longer
 has to avoid overlapping with a running workflow's mutations.
+
+## [incident] — a cleanup command deleted 605 tracked files from the main tree, fully recovered, 2026-08-09
+
+**What happened.** The F1+F7 build workflow (first launch) got orphaned when the harness process
+restarted mid-run — no fault of the workflow itself, just an interrupted session. On resume, the
+Critique phase replayed from cache but Core-1 (F7's worktree manager) had to re-run from scratch,
+since its first attempt never returned a result. That first attempt's worktree
+(`.claude/worktrees/wf_4f42a67d-b83-2`) had real, uncommitted progress — salvaged to a local
+`backup/f1-f7-core1-wip` branch (later pushed) before cleanup, per the standing "don't discard
+uncommitted work" rule. Cleaning up that stranded worktree directory hit the same Windows
+long-path failure this arc had already hit once tonight (`git worktree remove` fails with
+"Filename too long" on deep `.pnpm` store paths) — and the SAME `robocopy /MIR` fix that worked
+earlier tonight (see the entry above) was reused **without stopping to ask whether the target this
+time was different in a way that mattered.** It was: this worktree, per this session's own
+build-brief instructions, had a Windows **junction** at its `node_modules` pointing directly at
+the main tree's real `node_modules` (created to skip a slow reinstall). `robocopy /MIR` **without
+`/SL` or `/XJ`** follows reparse points by default during traversal — it walked through that
+junction into the main tree's real `node_modules`, then kept going through **pnpm's own internal
+workspace symlinks** (`node_modules/@coa/core` → `../../packages/core`, the standard pnpm
+workspace-linking pattern), and "mirrored" (i.e. deleted) everything it found there against an
+empty source. That cascaded the deletion into the real, git-tracked `packages/*` and `apps/cli/*`
+source — 605 files gone from disk, confirmed by direct existence checks, not just `git status`
+noise.
+
+**How it was caught.** Not by any gate or test — by the maintainer asking, mid-build, why
+`pnpm --filter @coa/desktop dev` wasn't working. Running `git status` as a matter of routine before
+investigating that (per this harness's own standing git-safety habit) surfaced 605 deleted files
+completely unrelated to the question asked. Worth naming plainly: this could easily have gone
+unnoticed for a long time if the maintainer hadn't happened to ask an unrelated question at the
+right moment — nothing in the build workflow's own success path would have surfaced it, since the
+damage was in the ORCHESTRATOR's cleanup action, entirely outside any agent's own gate run.
+
+**Response, in order.** (1) Confirmed the resumed F1+F7 workflow was still running and could
+plausibly be the cause — stopped it immediately via `TaskStop` before investigating further, on the
+principle that halting a possibly-still-destructive process outranks root-causing it first. (2)
+Traced the actual timeline precisely (UTC timestamps in the workflow's own per-agent transcripts,
+compared against the affected directories' mtimes) rather than guessing — this is what proved the
+resumed agent was NOT the cause (its own junction-creation command post-dated the deletion by over
+an hour) and pinned it on the earlier manual `robocopy` cleanup instead. (3) Ran `git fsck` before
+touching anything — confirmed the object database itself was untouched (only ordinary dangling
+objects, no corruption); `HEAD` had never moved and nothing was ever committed over the deletion.
+(4) `git restore --source=HEAD --worktree -- .` — full recovery, verified with `git diff HEAD
+--stat` (empty) and direct content checks (real line counts, not empty stubs) on several restored
+files. (5) Cleaned up the one remaining worktree MUCH more carefully this time: enumerated every
+reparse point inside it first (`Get-ChildItem -Recurse -Attributes ReparsePoint`), confirmed
+**zero** pointed anywhere outside that worktree, only then ran `robocopy /MIR` again — this time
+WITH `/XJ` (exclude junctions, never follow them) — before removing the now-safe directory. (6)
+`node_modules` itself (gitignored, not git-restorable) needed a real `pnpm install --frozen-
+lockfile`; caught and worked around a stale `.modules.yaml` short-circuit that made a first attempt
+silently install almost nothing ("Already up to date" after zero content existed) by removing
+`node_modules` outright before reinstalling for real.
+
+**The maintainer's actual question, answered as a side effect of all this.** Once the tree and
+`node_modules` were both genuinely restored, `pnpm --filter @coa/desktop dev` still failed with
+`Error: Electron uninstall` — but this turned out to be a DIFFERENT, pre-existing, already-
+documented issue, not caused by the incident: `pnpm-workspace.yaml` deliberately pins
+`allowBuilds.electron: false` (a real security posture, not a bug — the file's own comment says so),
+so Electron's postinstall (which fetches its real binary) never runs by default. Fixed locally
+without touching the checked-in config (preserving the deliberate safe-by-default posture for a
+stranger's `pnpm install`): ran `node node_modules/.pnpm/electron@34.5.8/node_modules/electron/
+install.js` directly to fetch+extract the real binary, recreated the root `node_modules/electron`
+junction electron-vite needs to resolve it (a separate, correctly-scoped, main-tree-internal
+junction — not the cross-tree kind that caused the incident), and launched with `env -u
+ELECTRON_RUN_AS_NODE` per this arc's own already-documented gotcha. The app now builds and starts
+Electron cleanly; a separate "daemon not running" connection error remains (the desktop app isn't
+finding/spawning its backend daemon in dev mode) — flagged as a possible follow-up, not yet chased.
+
+**Corrected going forward, immediately, before resuming the build**: rewrote the build workflow's
+own instructions to build agents — DROPPED the junction-node_modules-to-main-tree technique
+entirely. An agent that measured it during this same incident showed a real `pnpm install
+--frozen-lockfile` in a fresh worktree takes ~10 seconds (pnpm's global content-addressable store
+is already warm), which is fast enough that the junction "optimization" bought nothing worth this
+risk class. New standing instruction to every build/verify/fix agent this arc dispatches with
+`isolation: 'worktree'`: never create a junction or symlink pointing at anything outside your own
+worktree, for any reason — just run a real, fully self-contained install.
+
+**New standing operational rule**: any bulk/recursive delete against a directory that might contain
+Windows junctions or symlinks (worktree cleanup, stray directory removal, anything using
+`robocopy`, `Remove-Item -Recurse`, or similar) MUST either (a) use a junction-safe flag (`robocopy
+/XJ`, never `/MIR` alone) or (b) enumerate reparse points first and confirm none point outside the
+target before proceeding. `git worktree remove` remains the first choice when it works; its
+"Filename too long" failure mode on deep `.pnpm` store paths is real and needs a fallback, but the
+fallback must never regress to an unsafe recursive mirror/delete again. This applies to every
+future worktree-isolated build for the rest of this arc, not just F1+F7.
+
+Nothing was lost. The build resumed from the corrected script immediately after.
