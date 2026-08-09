@@ -330,8 +330,87 @@ arc's call, journaled).
 
 ---
 
+## F11 — Project selection + window management (maintainer-added 2026-08-09)
+
+**State at HEAD:** coa can only govern its own source tree. One daemon process app-wide,
+bound to one fixed named pipe (`\\.\pipe\coa`), root frozen at launch to wherever
+Electron's `process.cwd()` walks up to a `pnpm-workspace.yaml`
+(`apps/desktop/src/main/index.ts:44-47,181,191-196`). `requestSingleInstanceLock()`
+assumes exactly one window (`index.ts:31,546-556`); `getWorkspace` is a read-only IPC
+method (`index.ts:461-464`); `pickDirectory` exists but is unwired for project-open
+(`index.ts:452-453`); `Nav.tsx`'s `ProjectButton` modal explicitly says "Opening another
+project is not available yet" (`Nav.tsx:209-255`). No recent-projects persistence exists.
+
+**Requirements (ruled 2026-08-09, interview trail below):**
+1. **One daemon per project.** Spawned on open, killed the instant its last window
+   closes — no headless daemons (attended-v1: no daemon runs with zero windows watching
+   it). Pipe naming becomes a deterministic function of the project root (hash of the
+   normalized absolute path), replacing the one fixed pipe — this also gives free
+   CLI/desktop interop (a `coa serve`/`coa run` from a terminal cd'd into that project
+   resolves the same pipe name) and free "already open → focus that window" behavior
+   without a second discovery mechanism.
+2. **Same project opened twice → focus the existing window,** never a second daemon.
+   Confirmed correct, not just cheap: two daemon processes writing the same project's
+   `.coa/local/` state (ledger, conversation store) is a real correctness hazard, and
+   this is the same place VS Code itself landed after a decade of an open, unresolved
+   "open the same folder in two windows" request (microsoft/vscode#2686, #201939) —
+   JetBrains Gateway's remote-dev backend is likewise one process per project/environment.
+3. **Swap-in-current-window:** silent if the window's current project is idle; confirms
+   first if a turn is actively running (swapping stops it — interrupting in-flight work
+   is the honest cost, never hidden).
+4. **Launch restores the last session's open project(s)/window(s)** (majority convention
+   — VS Code, JetBrains — and fits an attended tool you sit back down at), not a
+   mandatory picker every launch.
+5. **State split:** conversation store / ledger / sessions are project-scoped (already
+   root-relative on disk — this is why Q11's fix is a hard prerequisite, not cleanup:
+   `cli.ts`'s `AgentRegistry`/`conversation store`/`ModelCatalogStore`/login-driver home
+   paths and `session-deps.ts`'s `WebConfigStore`/`AccountsRegistry` must actually honor
+   an injected root/home before it's safe to point a daemon at an arbitrary user folder).
+   UI chrome (theme, layout, panel sizing) stays app-global, one `settings.json`,
+   unrelated to which project is open.
+6. **Non-git folders** degrade to shared root honestly — inherited verbatim from F7's
+   existing strict-superset ruling, not re-litigated here.
+7. Entry points (Open Project / Open in New Window affordances), the recent-projects
+   list, and keyboard shortcuts are craft — left to the same "maximum design freedom over
+   placement/layout, only listed functionality is binding" ruling that governs S1–S7.
+   `pickDirectory`'s native dialog is the open mechanism; a persisted recent-projects list
+   (same `persistence.ts` readJson/writeJson pattern as `settings.json`/`layout.json`)
+   backs a picker/welcome surface.
+
+**Design decisions:** `daemon-manager.ts` generalizes from a singleton to a registry
+keyed by project root (spawn-if-absent, refcount by window, kill on refcount 0); IPC
+gains `openProject(root, target: 'current' | 'new')` and `listRecentProjects`; the main
+process's `mainWindow: BrowserWindow | undefined` singleton becomes a `Map<windowId,
+{ browserWindow, projectRoot }>`; `second-instance` handling and window-scoped IPC
+(daemon-status push, `revealPath`/`editCommand`, window controls) become windowId-routed
+instead of assuming the one global `mainWindow`.
+
+**References:** VS Code (MIT — window/workspace lifecycle, the same-folder-twice
+resolution) · JetBrains Gateway docs (study-only, proprietary — backend-per-project
+thin-client model) · Podman Desktop (Apache-2.0 — typed IPC bridge patterns for
+per-resource state, already a Tier-1 reference).
+
+**Tests:** daemon-manager registry pure logic (spawn/refcount/kill-on-zero, pipe-name
+determinism from root); IPC routing by windowId (no cross-window leakage); root/home
+seam honored end-to-end (Q11's fix, exercised against a fixture project outside the
+checkout); restore-last-session round-trip through `persistence.ts`; swap-while-active
+confirm gating.
+
+**Done means:** live smoke: open an arbitrary folder outside the coa checkout, work a
+session in it, open a second unrelated project in a new window, confirm both daemons
+are independent (kill one, the other keeps running), reopen the first project and land
+on its focused window rather than a duplicate, quit and relaunch and land back on both.
+
+---
+
 ## Cross-feature sequencing (knife → build pairs)
 
 R12b → F3 attachments · R12c → F2 · R12d → F9 · R12e → F5. F6 early (F3 depends).
 F7 with F1 (spawn option). F4 before F8's skills-in-compilation visibility. F10 rides
 the architecture workstream but gates console-touching features' "done".
+
+**Updated 2026-08-09 (F11 added):** Q11 + Q14 fixes → **F11** (root/home seam is F11's
+hard prerequisite; do F11 early so every later feature builds against a real
+multi-project app instead of needing retrofit) → F2 → F3 → F1 + F7 → F4 → F8 → F9 → F5
+last. Q15's measurement charter slots in once F1/F7/F8 have added more materialized-tab
+surface, before F5 needs the final surface set.

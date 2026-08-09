@@ -38,6 +38,7 @@
 | `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
 | `arc/c4-console` | 48e863f **pushed** | **C4 COMPLETE.** The push-fed slice store (83 contract tests) plus the component swap, all 8 previously-failing test files fixed, gate green in a real tree (2959 tests · depcruise 428 · docs-check 60), **draft PR #4** open against `arc/architecture`. F10 measured in the running app: 15 switches, 0 crossed an animation-frame boundary, zero bridge calls. Two `done means` clauses remain uncovered — see Q15 |
 | `backup/c4-swap-wip` | (snapshot) | The uncommitted swap as it stood at rescue time, pushed before any edits. Safe to delete once PR #4 lands |
+| `arc/stage3` | (opening 2026-08-09) | **NEW — Stage 3's rolling integration branch, off `arc/architecture` @ 5c232df.** Each feature/fix lands on its own `arc/f<N>-<name>` (or `arc/qNN-<name>`) branch, merged into this one as it gates green; PR opens against `arc/architecture` once the stage is substantially done, keeping the existing stack shape |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
@@ -61,8 +62,11 @@ on the old machine.
   component swap, and an F10 measurement taken in the running app; its remaining gaps (20+ tab
   memory, a materialized-host cap policy, scroll-without-loading) are recorded as Q15, not silently
   passed. Draft PR #4.
-- **Stage 3 (features)** — NOT STARTED except F6, which rode C2 and shipped. F1–F5, F7–F10
-  untouched.
+- **Stage 3 (features)** — **STARTING 2026-08-09.** F6 rode C2 and shipped; F1–F5, F7–F10 were
+  untouched going into this session. A new feature was added by the maintainer, grilled to a full
+  design, and written up as **F11** (project selection + window management) in `feature-plans.md`.
+  Sequencing: Q11+Q14 warm-up fixes → F11 → F2 → F3 → F1+F7 → F4 → F8 → F9 → F5, with Q15's
+  measurement charter after F1/F7/F8. Orchestrated as an overnight run on `arc/stage3`.
 - **Stage 4 (docs)** — COMPLETE AND VERIFIED. Landed on `arc/docs`, both adversarial lenses ran
   and their one real finding (ADR 0015's rationale) is fixed. See branch table above.
 - **Stage 5 (closeout)** — COMPLETE. See the "STAGE 5 CLOSEOUT" journal entry for the full
@@ -174,7 +178,16 @@ in the file is prior-session detail, kept for the record.
   as Q10 — recorded there as a new data point, not treated as a regression (the only diff in the
   tree at the time was a markdown-only edit, which cannot affect JS/TS test timing).
 
-## Model allocation — SUPERSEDED 2026-08-08 (maintainer decision)
+## Model allocation — SUPERSEDED AGAIN 2026-08-09 (maintainer decision, Max plan)
+
+**Fable is available again** — the maintainer moved to the Max plan. The 2026-08-08 "everything
+runs on Opus" note below is stale on this one point (accurate on everything else). The arc's
+original standing rule is live again: Fable for UX-sensitive and design-sensitive work (this
+matters most in Stage 3, the arc's most UX-heavy stage — both new-feature UX design and a polish
+pass over already-built surfaces), cheaper/mechanical-appropriate tiers elsewhere. Verified live
+this session (`model_check: "Fable 5"`) before committing any UX workstream to it.
+
+## Model allocation — SUPERSEDED 2026-08-08 (maintainer decision) — see above, now stale
 
 **All Fable credit is now exhausted. Everything remaining — UX included — runs on Opus.**
 The plan's Fable-on-UX hard rule no longer applies, and nothing is parked waiting on model

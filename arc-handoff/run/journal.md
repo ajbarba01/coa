@@ -1574,3 +1574,52 @@ either. Both are recorded as Q15 rather than quietly folded into a pass.
   after the first switch, and tabs scrolled under the chrome are not hit-testable. Recompute each
   tab's rect and confirm `document.elementFromPoint` lands inside it immediately before each click.
 - Synthetic `element.click()` did not drive the tab strip; CDP `Input.dispatchMouseEvent` did.
+
+---
+
+## [Stage 3 orchestrator session opens] — 2026-08-09
+
+Maintainer opened a new session naming this the arc's Stage 3 orchestrator, with instructions to
+run overnight without stopping except at genuine blockers, to actively use the reference shortlist
+rather than let it sit unused, and to hold the bar at "genuinely impressive, professional, polished."
+
+**Model allocation corrected first.** The 2026-08-08 "everything runs on Opus, Fable credit
+exhausted" note is stale: the maintainer is now on the Max plan and Fable is available again.
+Verified live before trusting it — a smoke-test agent spawned with `model: 'fable'` returned
+`model_check: "Fable 5"` — rather than assuming the `/model fable` local-command output ("needs a
+one-time consent · pick Fable from /model in an interactive session") meant it was blocked for
+subagent calls too. It is not; the consent note is about the interactive `/model` picker UI, not
+the `model` override on `Agent`/`Workflow` calls.
+
+**New feature added and grilled: F11 — project selection + window management.** The maintainer
+wants to open an arbitrary repo/dir in coa and work in it, choosing the current window or a new
+one — something coa cannot do today (it can only govern its own source tree; one daemon, one fixed
+pipe, root frozen at Electron's own launch-time `process.cwd()`). Explored the current architecture
+first (`daemon-manager.ts`, `index.ts`'s `mainWindow` singleton, the dead `ProjectButton` modal, the
+unwired `pickDirectory` handler) rather than grilling blind. One open design fork — how the daemon
+should relate to multiple open projects — was resolved with actual research rather than a coin
+flip: asked the maintainer whether to optimize for "industry correct" over "less invasive," then
+searched and found VS Code has an *unresolved, decade-old* feature request for opening the same
+folder in two windows (microsoft/vscode#2686, #201939) because its extension-host/server model
+can't safely share, and JetBrains Gateway's remote-dev backend is one process per project/
+environment. Landed on: one daemon per project, killed when its last window closes (no headless
+daemons — consistent with attended-v1), same-project-reopened focuses the existing window rather
+than spawning a second daemon against the same on-disk state (ledger/conversation store races were
+the real reason, not just efficiency), launch restores the last session's open project(s), and
+Q11's root/home-seam fix becomes a **hard prerequisite** rather than just cleanup — F11 cannot
+safely point a daemon at an arbitrary folder while ~9 call sites still resolve paths from ambient
+`homedir()`/`process.cwd()`. Full ruling set written into `feature-plans.md`'s new F11 section;
+resolution recorded in `questions.md`'s Q16.
+
+**The four open questions (Q10, Q11, Q14, Q15) were evaluated and ruled, not re-parked** — each
+already had enough diagnostic evidence on record to answer without punting back to the maintainer.
+Q11 and Q14 promoted to warm-up charters (Q11 doubly so, being F11's prerequisite); Q10 ruled as
+operational discipline for tonight's own workflow load rather than a charter; Q15 sequenced after
+F1/F7/F8 add more materialized-tab surface. Full rulings in `questions.md`.
+
+**Sequencing for the night:** Q11+Q14 warm-up → F11 → F2 → F3 → F1+F7 → F4 → F8 → F9 → F5, with
+Q15's measurement charter slotted after F1/F7/F8, on a new rolling integration branch `arc/stage3`
+(off `arc/architecture` @ 5c232df) — each feature/fix on its own branch, merged in as it gates
+green. A separate, roughly concurrent workstream sweeps already-built surfaces for polish (raw
+wrapping/spacing/consistency issues) using Fable per the maintainer's explicit ask, since new-UX
+design and existing-UX polish are independent of each other and of the Stage 3 feature sequence.

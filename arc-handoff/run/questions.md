@@ -362,3 +362,45 @@ attended single-user console and record that as the answer.
 the measured half is genuinely verified and should not be held hostage to the unmeasured half.
 **Done instead:** recorded with the exact numbers and the eviction call site so it can be executed
 without re-deriving it; PR #4's body states plainly which clauses are unverified.
+
+---
+
+# Maintainer answers — 2026-08-09 (Stage 3 orchestrator session opens)
+
+Model allocation corrected: the maintainer is back on the Max plan, so **Fable is available
+again**, superseding the Opus-only note in CONTINUATION-HANDOFF.md/this file's earlier entries.
+Fable resumes its standing role — UX-sensitive and design-sensitive work — for all of Stage 3.
+
+- **Q10 — RULED: operational discipline, not a charter.** The evidence (different failing sets
+  each run, package-isolated reruns 100% green, EPIPE = broken pipe racing test teardown) points
+  at resource exhaustion from this machine's heavy sequential vitest/workflow load, not a code
+  bug — while the 2026-08-08 update proved at least one instance *was* a real bug wearing load
+  noise as a disguise. Since tonight's orchestration will itself generate the exact load pattern
+  that triggers this, the ruling is: keep concurrent workflow fan-out bounded, avoid stacking gate
+  runs back-to-back without headroom, and — per the standing rule — verify any gate failure in
+  isolation before writing it off as load. No separate charter.
+- **Q11 — RULED: fix it, early.** Thread `root`/`home` through `startDaemon`/`session-deps`; make
+  `auth-handlers.ts` honor its injected `AuthHandlerDeps` instead of calling `homedir()` at its 9
+  sites. This is now a **hard prerequisite for F11** (below), not just cleanup — F11 cannot safely
+  point a daemon at an arbitrary user-chosen folder while the seam leaks to ambient paths in ~6
+  places. Sequenced first, warm-up alongside Q14.
+- **Q14 — RULED: fix it.** A query the registry has no record of is invisible spend and invisible
+  activity — precisely the failure mode coa's honesty invariants exist to prevent, "no user-visible
+  symptom yet" notwithstanding. Clear/reject `#queue` in `LiveSession.close()`. Small charter,
+  paired with Q11.
+- **Q15 — RULED: do the follow-up charter**, sized right after F1/F7/F8 land (more materialized-tab
+  surface by then, not less) rather than in isolation now: open 20+ tabs, measure the heap curve,
+  settle an actual LRU-style eviction policy over materialized transcript hosts past a tunable cap
+  — not the current unbounded keep-alive.
+
+## Q16 — new feature added: F11, project selection + window management (2026-08-09)
+The maintainer added a feature not in the original Stage 3 scope: proper project/repo selection
+and window management — open a repo/dir in coa, choose current window or a new one. Grilled to a
+full design (see `feature-plans.md`'s new F11 section for the complete ruling set and rationale);
+the short version: one daemon per project (industry-grounded, not just cheaper — VS Code's own
+unresolved same-folder-two-windows history and JetBrains Gateway's backend-per-project model both
+point the same way), killed on last-window-close, launch restores last session, Q11's fix is a
+hard prerequisite. Sequenced early (right after the Q11/Q14 warm-up) since every later Stage 3
+feature now builds against a real multi-project app rather than needing retrofit. Not a question —
+recorded so the "F1-F10" framing elsewhere in this arc's docs is understood as superseded by
+F1-F9 + F11 (F10 remains the cross-cutting instant-nav criterion).
