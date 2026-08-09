@@ -11,6 +11,7 @@ import {
   roleRegistry,
   shellLabel,
   WebConfigStore,
+  WorktreeManager,
   type ActiveAccountResolution,
   type DaemonCoreHandle,
   type ModelCacheAccount,
@@ -27,10 +28,12 @@ import { buildWebTools } from './web-tools.js';
  * real daemon core plus the Claude adapter factory. This is the one
  * place the whole closure meets the backend; a spike script then calls
  * `createSession(req, deps)` to drive the rented loop end to end. The worktree
- * binder is the current floor (the session worktree is the configured root);
- * the coupling-aware worktree manager and the OS-socket daemon host are later.
- * The generation producers are assembled from the worktree's committed
- * `.coa/generate.yaml`, so the SSOT-constraint producer fires on real relations.
+ * binder (F7) hands every session the shared `root` unless its spawn asked for
+ * isolation, in which case a real `WorktreeManager` binds it a dedicated `git
+ * worktree` instead — see that module's own doc for the directory convention and
+ * the non-git degrade. The generation producers are assembled from the worktree's
+ * committed `.coa/generate.yaml`, so the SSOT-constraint producer fires on real
+ * relations.
  */
 export interface DaemonSessionOptions {
   /** The change-event spine's WAL path; its parent directory must exist. */
@@ -62,6 +65,11 @@ export interface BuiltSession {
   models: ModelCache;
   /** The active account to fetch models from, per provider — the merged model list's sources. */
   modelAccounts: () => ModelCacheAccount[];
+  /** F7: the real worktree-per-subagent binder `bindWorktree` is wired to — exposed
+   *  so a caller (e.g. `cli.ts`'s daemon composition) can back a future reap/list
+   *  RPC verb or UI action against the SAME instance a live session's `isolate`
+   *  request actually bound through. */
+  worktrees: WorktreeManager;
 }
 
 /** Construct the daemon core and bind it (plus the Claude backend) into session deps. */
@@ -88,10 +96,18 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   // Session auth: the model names its provider; that provider's active account authenticates.
   const activeAccount = (provider: string): ActiveAccountResolution =>
     resolveActiveAccount(registry, provider);
+  // F7: worktree-per-subagent isolation. `bind` returns the shared `root` for
+  // every session that doesn't ask (today's floor, unchanged) and a dedicated
+  // `git worktree` for one that does — see `WorktreeManager`'s own doc for the
+  // directory convention and the honest non-git degrade. The idle-cleanup sweep
+  // runs once, right here (this function IS "daemon start" for session infra):
+  // never throws, so a sweep failure can't block a session from ever starting.
+  const worktrees = new WorktreeManager({ root });
+  worktrees.sweepIdle();
   const deps = composeSessionDeps(handle.core, {
     createAdapter,
     sessionStrategy,
-    bindWorktree: () => root,
+    bindWorktree: (sessionId, _scope, isolate) => worktrees.bind(sessionId, isolate ?? false).path,
     assemblePieces: createRegistryAssemblePieces({
       roles: roleRegistry(),
       packages: packageRegistry(),
@@ -106,7 +122,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   });
   const models = new ModelCache({ fetch: fetchModels });
   const modelAccounts = (): ModelCacheAccount[] => activeModelAccounts(registry);
-  return { deps, handle, models, modelAccounts };
+  return { deps, handle, models, modelAccounts, worktrees };
 }
 
 /** Resolve a provider's active account into the session's login pointer + label (ambient ⇒ no pointer). */

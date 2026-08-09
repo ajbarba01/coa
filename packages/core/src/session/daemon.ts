@@ -144,12 +144,19 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
     baseCatalogue: buildBaseCatalogue(kernel, governance, flags, options),
-    catalogueFor: (sessionId, spawn) =>
+    // F7: `worktree`, when given, is THIS session's own bound worktree (a real
+    // isolated one, or the shared root re-stated) — always preferred over the
+    // daemon's configured `options.root` so an isolated session's tool calls
+    // (edit_symbol/apply_patch/Read/Write/…) actually confine to and touch its
+    // OWN directory, not the shared tree every other session uses. Absent
+    // (a session-less daemon-wide read, or a caller that hasn't been updated)
+    // falls back to `options.root ?? '.'`, byte-identical to before this existed.
+    catalogueFor: (sessionId, spawn, worktree) =>
       buildGovernedTools(
-        governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),
+        governedToolDeps(kernel, governance, flags, worktree ?? options.root ?? '.', sessionId, spawn),
       ),
-    baseCatalogueFor: (sessionId, spawn) =>
-      buildBaseCatalogue(kernel, governance, flags, options, sessionId, spawn),
+    baseCatalogueFor: (sessionId, spawn, worktree) =>
+      buildBaseCatalogue(kernel, governance, flags, options, sessionId, spawn, worktree),
   };
 
   return { core, kernel, flags, governance };
@@ -313,14 +320,17 @@ function buildBaseCatalogue(
   options: DaemonCoreOptions,
   sessionId = 'daemon',
   spawn?: SpawnDeps,
+  /** F7: this session's own bound worktree; see `catalogueFor`'s doc above. */
+  worktree?: string,
 ) {
+  const root = worktree ?? options.root ?? '.';
   const web = options.webTools?.({
     recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
   });
   return buildGovernedTools(
     {
-      ...governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),
-      base: baseToolDeps(kernel, options.root ?? '.'),
+      ...governedToolDeps(kernel, governance, flags, root, sessionId, spawn),
+      base: baseToolDeps(kernel, root),
       ...(web ? { web } : {}),
     },
     { includeBaseTools: true, ...(web ? { includeWebTools: true } : {}) },

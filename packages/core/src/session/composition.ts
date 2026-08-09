@@ -64,18 +64,28 @@ export interface DaemonCore {
    * Absent entirely ⇒ `session.ts` falls back to `catalogue` unchanged — a session that
    * never spawns is byte-identical to before this seam existed.
    */
-  catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  catalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    /** F7: the session's ACTUAL bound worktree — see `SessionDeps.catalogueFor`. */
+    worktree?: string,
+  ) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers) — see its doc:
    *  BOTH catalogues carry `spawn_agent`, and both need this seam covered. */
-  baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  baseCatalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    worktree?: string,
+  ) => ToolCatalogue;
 }
 
 /** The per-session injection points: the backend factory + the not-yet-built worktree/context floors. */
 export interface SessionWiring {
   /** Construct the per-session backend adapter (backend-coupled; lives outside core). */
   createAdapter: (init: SessionAdapterInit) => RuntimeAdapter;
-  /** Bind a git worktree for the session; returns its path. */
-  bindWorktree: (sessionId: string, scope: string) => string;
+  /** Bind a git worktree for the session; returns its path. See
+   *  `SessionDeps.bindWorktree` for `isolate` (F7). */
+  bindWorktree: (sessionId: string, scope: string, isolate?: boolean) => string;
   /** Release the session's worktree at close (defaults to a no-op floor). */
   releaseWorktree?: (worktree: string) => void;
   /** Gather the session's pieces + frame (baseline + assembled context; defaults to the empty/vanilla floor). */

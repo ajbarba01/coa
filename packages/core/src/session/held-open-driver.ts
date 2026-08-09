@@ -295,6 +295,9 @@ async function establishHeldQuery(
       role: prep.role,
       ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
       scope: turn.scope ?? '',
+      // F7: see the per-turn driver's identical spread — a spawn-time request
+      // riding the session, not a per-turn choice.
+      ...(session.isolate ? { isolate: true } : {}),
       input: channel,
       ...(turn.model ? { model: turn.model } : {}),
       ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),

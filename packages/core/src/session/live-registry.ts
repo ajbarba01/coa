@@ -63,7 +63,7 @@ export class LiveSessionRegistry {
    *  ignored when the session already existed (a reattach never resets mode). */
   getOrCreate(
     id: string,
-    lineage?: { parent?: string; root?: string },
+    lineage?: { parent?: string; root?: string; isolate?: boolean },
     defaultMode?: PermissionMode,
   ): { session: LiveSession; created: boolean } {
     const existing = this.#entries.get(id);

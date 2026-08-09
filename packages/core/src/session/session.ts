@@ -145,8 +145,11 @@ export interface AssemblePiecesContext {
 /** The live core references the session layer holds and wires per session (all injected; the session layer sorts last). */
 export interface SessionDeps {
   newSessionId: () => string;
-  /** Bind a git worktree for the session; returns its path. */
-  bindWorktree: (sessionId: string, scope: string) => string;
+  /** Bind a git worktree for the session; returns its path. `isolate` (F7) is the
+   *  spawn-time request for a DEDICATED worktree rather than the shared root —
+   *  absent/`false` ⇒ today's shared-root behavior, byte-identical; a request is
+   *  never a guarantee (see `WorktreeManager.bind`'s honest-degrade floor). */
+  bindWorktree: (sessionId: string, scope: string, isolate?: boolean) => string;
   /** Release the session's worktree at close. */
   releaseWorktree: (worktree: string) => void;
   /** Gather the session's pieces + capability frame (baseline scaffold + assembled context → compiler input). */
@@ -195,9 +198,21 @@ export interface SessionDeps {
    * calls it with `resolveSpawn`'s result); absent ⇒ falls back to `catalogue` unchanged —
    * a session that never spawns behaves byte-identically to before this seam existed.
    */
-  catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  catalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    /** F7: this session's ACTUAL bound worktree (`bindWorktree`'s return) — so the
+     *  workbench tools an isolated session gets confine reads/writes to ITS OWN
+     *  worktree, not the daemon's shared root. Absent ⇒ the daemon's configured
+     *  root (byte-identical to before this parameter existed). */
+    worktree?: string,
+  ) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers). */
-  baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  baseCatalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    worktree?: string,
+  ) => ToolCatalogue;
   /** change-event-spine checkpoint at the session boundary. */
   checkpoint: () => void;
   /**
@@ -236,6 +251,10 @@ export async function createSession(
     /** The chosen roles (assembly selection); preferred over `role` when present. */
     roles?: string[];
     scope: string;
+    /** F7: this session's spawn-time request for its own dedicated worktree — see
+     *  `SessionDeps.bindWorktree`. Absent/`false` ⇒ byte-identical to before this
+     *  field existed. */
+    isolate?: boolean;
     /** This session's family-tree root (a spawned child's top-of-tree ancestor id); the
      *  caller — the one place that knows a session's lineage — supplies it, absent for a
      *  session with no lineage, the overwhelming common case. Reaches the settled
@@ -286,7 +305,7 @@ export async function createSession(
   deps: SessionDeps,
 ): Promise<Session> {
   const sessionId = req.sessionId ?? deps.newSessionId();
-  const worktree = deps.bindWorktree(sessionId, req.scope);
+  const worktree = deps.bindWorktree(sessionId, req.scope, req.isolate);
   req.onStart?.({ id: sessionId, worktree });
   // Reuse the frozen compilation when the session already has one; otherwise compile
   // once and report it up so it can be frozen for every later turn.
@@ -365,7 +384,7 @@ export async function createSession(
   const catalogueFor = provider === 'claude' ? deps.catalogueFor : deps.baseCatalogueFor;
   const catalogue =
     catalogueFor !== undefined
-      ? catalogueFor(sessionId, spawn)
+      ? catalogueFor(sessionId, spawn, worktree)
       : provider === 'claude'
         ? deps.catalogue
         : deps.baseCatalogue;

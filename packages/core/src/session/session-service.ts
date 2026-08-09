@@ -91,6 +91,12 @@ export interface StartChildRequest {
   agentRef: string;
   description: string;
   prompt: string;
+  /** F7: this child wants its OWN worktree rather than sharing its root's — an
+   *  opt-in the spawning model states because IT knows whether the child will
+   *  write (a read-only helper has no reason to ask); absent/`false` ⇒ today's
+   *  shared-root behavior, byte-identical. A request, not a guarantee — see
+   *  `WorktreeManager.bind`. */
+  isolate?: boolean;
 }
 
 export class SessionService {
@@ -370,7 +376,7 @@ export class SessionService {
     // what it IS, not of whatever the parent happened to be set to).
     const { session } = this.#registry.getOrCreate(
       id,
-      { parent: parentId, root },
+      { parent: parentId, root, isolate: req.isolate ?? false },
       this.#resolveDefaultMode(agent?.ref),
     );
     store.create({

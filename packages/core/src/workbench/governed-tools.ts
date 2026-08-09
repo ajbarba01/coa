@@ -77,21 +77,38 @@ const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
   ),
   context_status: spec({}, (_a, d) => contextStatus(d.inspect)),
   get_spec: spec({ ref: z.string() }, (a, d) => getSpec(a, d.inspect)),
-  spawn_agent: spec({ agent: z.string(), description: z.string(), prompt: z.string() }, (a, d) => {
-    if (d.spawn !== undefined) return spawnAgent(a, d.spawn);
-    // `a.agent` is model-chosen text with no format guarantee on this branch
-    // either (the port is absent, so nothing has resolved it against the
-    // registry yet) — sanitize before it rides `pointer` back to the model.
-    const safeRef = sanitizeEchoedText(a.agent);
-    return {
-      result: {
-        applied: false,
-        error: { code: 'unavailable', message: 'subagent dispatch is not wired here' },
-      },
-      handle: 'spawn_agent:unavailable',
-      pointer: safeRef,
-    };
-  }),
+  spawn_agent: spec(
+    {
+      agent: z.string(),
+      description: z.string(),
+      prompt: z.string(),
+      isolate: z
+        .boolean()
+        .optional()
+        .describe(
+          'true ⇒ give this child its own dedicated git worktree instead of sharing the ' +
+            "parent's — ask for this when the child will WRITE files, so its edits can't " +
+            "collide with the parent's (or a sibling's); omit/false for a read-only child " +
+            '(the default — matches today\'s shared-worktree behavior). Degrades honestly ' +
+            'to the shared worktree when the project has no git repo.',
+        ),
+    },
+    (a, d) => {
+      if (d.spawn !== undefined) return spawnAgent(a, d.spawn);
+      // `a.agent` is model-chosen text with no format guarantee on this branch
+      // either (the port is absent, so nothing has resolved it against the
+      // registry yet) — sanitize before it rides `pointer` back to the model.
+      const safeRef = sanitizeEchoedText(a.agent);
+      return {
+        result: {
+          applied: false,
+          error: { code: 'unavailable', message: 'subagent dispatch is not wired here' },
+        },
+        handle: 'spawn_agent:unavailable',
+        pointer: safeRef,
+      };
+    },
+  ),
 };
 
 /** Validate, dispatch, and enrich one tool call (never throws, never denies). */

@@ -147,6 +147,14 @@ export class LiveSession {
   readonly parent: string | undefined;
   /** This session's family-tree root — itself, for a root session. */
   readonly root: string;
+  /** Whether this session's spawn REQUESTED its own dedicated worktree (F7) —
+   *  set once at creation, from `StartChildRequest.isolate`; a root session (a
+   *  person's own, never spawned) is always `false`. Read by the drive strategies
+   *  (`per-turn-driver.ts`/`held-open-driver.ts`) to forward into `createSession`'s
+   *  `bindWorktree` call — the worktree manager treats it as a request, not a
+   *  guarantee (a non-git project, or a failed `git worktree add`, degrades to the
+   *  shared root regardless). */
+  readonly isolate: boolean;
   worktree: string | undefined;
   state: RunState = 'idle';
   /** The currently in-flight turn's control state; `undefined` when idle. */
@@ -183,12 +191,13 @@ export class LiveSession {
 
   constructor(
     id: string,
-    lineage?: { parent?: string; root?: string },
+    lineage?: { parent?: string; root?: string; isolate?: boolean },
     defaultMode: PermissionMode = DEFAULT_PERMISSION_MODE,
   ) {
     this.id = id;
     this.parent = lineage?.parent;
     this.root = lineage?.root ?? id;
+    this.isolate = lineage?.isolate ?? false;
     this.mode = defaultMode;
   }
 

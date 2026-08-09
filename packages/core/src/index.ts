@@ -52,6 +52,11 @@ export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
 export { createConversationStore } from './session/conversation-store.js';
 export { createDaemonCore, type DaemonCoreHandle } from './session/daemon.js';
+export {
+  WorktreeManager,
+  type BoundWorktree,
+  type WorktreeRecord,
+} from './session/worktree-manager.js';
 export { AccountsRegistry } from './auth/registry.js';
 export { LoginManager } from './auth/login-manager.js';
 export { BrowserSession } from './auth/browser-session.js';

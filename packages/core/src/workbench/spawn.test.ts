@@ -48,6 +48,38 @@ describe('spawnAgent', () => {
     expect(JSON.stringify(res.result)).toContain('kid-7');
   });
 
+  it('forwards an explicit isolate request to startChild', () => {
+    const started: unknown[] = [];
+    spawnAgent(
+      { agent: 'reviewer', description: 'd', prompt: 'p', isolate: true },
+      {
+        listAgents: () => AGENTS,
+        startChild: (req) => {
+          started.push(req);
+          return { sessionId: 'kid-iso' };
+        },
+      },
+    );
+    expect(started).toEqual([
+      { agentRef: 'reviewer', description: 'd', prompt: 'p', isolate: true },
+    ]);
+  });
+
+  it('omits isolate from startChild when the caller never asked for it (byte-identical default)', () => {
+    const started: unknown[] = [];
+    spawnAgent(
+      { agent: 'reviewer', description: 'd', prompt: 'p' },
+      {
+        listAgents: () => AGENTS,
+        startChild: (req) => {
+          started.push(req);
+          return { sessionId: 'kid-shared' };
+        },
+      },
+    );
+    expect(started).toEqual([{ agentRef: 'reviewer', description: 'd', prompt: 'p' }]);
+  });
+
   it('returns an unapplied result naming what exists for an unknown ref', () => {
     let calls = 0;
     const res = spawnAgent(

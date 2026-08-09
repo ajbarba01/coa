@@ -45,6 +45,12 @@ export async function runPerTurn(
         role: prep.role,
         ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
         scope: turn.scope ?? '',
+        // F7: a request stated once at spawn time (`session.isolate`, set from
+        // `StartChildRequest.isolate`) — not a per-turn choice, so it rides the
+        // session, not the turn. `false` (the overwhelming common case, and every
+        // root session) is omitted rather than sent explicitly, so `bindWorktree`
+        // sees byte-identical args to before this field existed.
+        ...(session.isolate ? { isolate: true } : {}),
         input: turn.input,
         ...(turn.attachments !== undefined ? { attachments: turn.attachments } : {}),
         ...(turn.visionSupported !== undefined ? { visionSupported: turn.visionSupported } : {}),

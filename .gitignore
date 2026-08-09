@@ -10,6 +10,9 @@ build/
 # coa local (rebuildable projections / inferred graph half) + daemon runtime WAL
 .coa/local/
 .coa/wal/
+# worktree-per-subagent isolation (F7) — real `git worktree add` checkouts, one per
+# isolated session; reaped explicitly (see WorktreeManager), never committed.
+.coa/worktrees/
 
 # logs / os
 *.log
