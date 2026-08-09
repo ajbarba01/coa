@@ -54,7 +54,7 @@ export function RunChecks({ output, failed = false }: RunChecksProps): React.JSX
   if (parsed === undefined) {
     if (failed) {
       return (
-        <div className="overflow-x-auto whitespace-pre px-3 py-1.5 font-mono text-[11px] leading-[1.65] text-s10">
+        <div className="overflow-x-auto whitespace-pre px-3 py-2 font-mono text-code leading-[1.7] text-s10">
           {output.split('\n').map((ln, i) => (
             <div key={i}>{markErrors(ln)}</div>
           ))}
@@ -62,7 +62,7 @@ export function RunChecks({ output, failed = false }: RunChecksProps): React.JSX
       );
     }
     return (
-      <div className="overflow-x-auto whitespace-pre px-3 py-1.5 font-mono text-[11px] leading-[1.65] text-s8">
+      <div className="overflow-x-auto whitespace-pre px-3 py-2 font-mono text-code leading-[1.7] text-s8">
         {output}
       </div>
     );
