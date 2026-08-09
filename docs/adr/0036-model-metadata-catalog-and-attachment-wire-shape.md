@@ -65,9 +65,12 @@ knowledge — every consumer of `BackendMessage` already round-trips it for free
 similar-sounding names; a future reader must check which one a given field belongs to. Accepted: their
 lifecycles are genuinely different (user-editable SOT vs. a read-only merged mirror of public data), and
 folding them into one shape would force the enumeration catalog's "coa is authoritative" posture onto data
-coa has no authority over. The live single-turn send path (Composer → RPC → session → adapter `input`) does
-not yet plumb an attachment end-to-end — this ADR's wire shape and adapter seam are ready for it, but the
-UI-facing wiring is separate follow-up work, not covered here.
+coa has no authority over. The live single-turn send path (Composer → RPC → session → adapter `input`) now
+plumbs an attachment end-to-end for every OpenAI-compatible provider. The Claude Agent SDK adapter is the one
+exception: its live-turn prompt is a plain string with no attachment seam, so `supportsAttachments('claude')`
+reports `false` and the RPC edge refuses an attachment-carrying send to it (`AttachmentCapabilityError`,
+defended again inside `createClaudeAdapter` itself) rather than silently dropping the attachment — accepted as
+this ADR's scope, not a gap left for follow-up.
 
 ---
 
