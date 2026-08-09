@@ -45,7 +45,7 @@ export function Select({ options, value, onChange, ...aria }: SelectProps): Reac
     >
       <BaseSelect.Trigger
         className={cx(
-          'slip flex-none cursor-pointer rounded-r1 border px-2 py-[3px] font-mono text-code',
+          'slip slip-press flex-none cursor-pointer rounded-r1 border px-2 py-[3px] font-mono text-code active:scale-[0.97]',
           open ? 'border-s5 text-s11' : 'border-s4 text-s9 hover:border-s5 hover:text-s11',
         )}
         {...aria}
