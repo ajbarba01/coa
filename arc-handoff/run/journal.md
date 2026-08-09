@@ -2053,3 +2053,47 @@ fallback must never regress to an unsafe recursive mirror/delete again. This app
 future worktree-isolated build for the rest of this arc, not just F1+F7.
 
 Nothing was lost. The build resumed from the corrected script immediately after.
+
+## [operational] — `isolation: 'worktree'` recurred; reverted to sequential for the rest of the arc, 2026-08-09
+
+F1+F7's corrected build (junction-free, real `pnpm install` per worktree) ran two Core stages
+successfully with `isolation: 'worktree'` — F7's worktree manager (pushed `5c88718`) and F1's
+completion-delivery/discovery/cost-park trio (pushed `0a2070c`) — but the THIRD stage (A2A
+messaging) failed at the isolation pre-flight step itself with the exact same `WorktreeIsolationError`
+the debugging session (see the "RESOLVED" entry above) reported fixed, on a freshly-numbered
+worktree path (`wf_4f42a67d-b83-4`) that had never existed before. **The "RESOLVED" fix was real but
+incomplete** — its own caveat said as much ("sweeping prevents recurrence is inference... stay alert
+for a recurrence"), and this is that recurrence.
+
+A second, DIFFERENT problem compounded it: the harness does not tear down an isolated worktree
+after its agent finishes if that agent made real commits (only cleans up an unchanged worktree) —
+so F7's worktree (`wf_4f42a67d-b83-2`) stayed registered with `arc/f1-f7-orchestration` checked out
+even after that agent's turn ended. When F1's plumbing agent got its OWN fresh isolated worktree and
+tried the script's own explicit `git checkout arc/f1-f7-orchestration`, git correctly refused (a
+branch can't be checked out in two worktrees at once) — that agent improvised a differently-named
+local branch tracking the same remote ref and pushed to the correct name at the end (a real, working
+workaround, journaled in its own report), but it's evidence the build script's assumption (each
+agent's worktree is gone before the next one needs the same branch) doesn't hold.
+
+**Decision: reverted the remaining stages (A2A messaging, UI, verify, fix) to run WITHOUT
+`isolation: 'worktree'`**, back in the shared main tree with each agent's own explicit
+fetch/checkout/reset sequence — the exact pattern that ran reliably all night before tonight's
+isolation experiment. Verified this was safe to do mid-run: the `Workflow` tool caches each
+`agent()` call by its exact `(prompt, opts)` signature, so editing only the NOT-YET-SUCCEEDED
+calls' opts (dropping `isolation: 'worktree'`) let the two already-succeeded Core stages replay
+from cache untouched (confirmed via the journal: no new `started` entries for either), while the
+failed stage re-ran fresh in the main tree.
+
+Also cleaned up three leftover worktrees this produced (`wf_4f42a67d-b83-{2,3,4}`) plus five stray
+local branches (`arc/f1-f7-orchestration`, `f1-orchestration-work`, three harness-auto-named
+`worktree-wf_...` branches) — verified every one was a `merge-base --is-ancestor` of origin's
+`arc/f1-f7-orchestration` tip before deleting anything, and verified zero external junctions in any
+of the three worktree directories (per the corrected safe-cleanup practice) before the `robocopy
+/MIR /XJ` clear-and-remove.
+
+**Standing revision to the earlier "RESOLVED" note**: `isolation: 'worktree'` is NOT reliable enough
+to build on for the rest of this arc. Don't re-attempt it without a stronger fix than tonight's —
+sequential execution in the main tree, with each agent doing its own explicit git plumbing, is the
+one pattern that has worked without exception all night, incident or not. If a future session wants
+to try isolation again, treat it as an experiment to validate on something small and low-stakes
+first, not as the default for a multi-stage feature build.

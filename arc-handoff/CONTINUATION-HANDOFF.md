@@ -125,21 +125,20 @@ docs describe intent, not always exact file:line, since the tree moves under you
 
 ## Standing facts that still apply (all confirmed fresh tonight)
 
-- **`Workflow`'s `isolation: 'worktree'` was broken, then RESOLVED same-day (2026-08-09) — it is
-  usable again.** The night's original diagnosis (an unnormalized forward-slash/backslash path
-  comparison) turned out to be wrong. A separate debugging session found the real mechanism:
-  the pre-flight check compares paths **case-sensitively**, and the harness holds the project root
-  as both `c:\...` and `C:\...` within one session while git's own `rev-parse --show-toplevel`
-  always emits the uppercase form — a lowercase-pinned path never compares equal to git's, and the
-  check fires ONLY when the worktree directory already exists (fresh spawns always pass). Verified
-  fixed live: two agents in separate worktrees committed independently with zero collision.
-  **Operational rules now that it's usable**: sweep leftovers before each mutating workflow
-  (`git worktree prune` + delete stale `.claude/worktrees/*` dirs); keep parallel fan-out modest
-  (≤4, since concurrent `git worktree add` can race `.git/config.lock`); treat a recurrence as
-  transient (prune, delete, retry) rather than reverting to sequential-only. Full diagnosis in the
-  journal's "isolation: 'worktree' — RESOLVED" entry. (Sequential-only is no longer required, but
-  the Core→UI→Verify staging within one feature build is still real and unrelated to this — each
-  stage genuinely depends on the previous one's actual output, not just on tooling isolation.)
+- **`Workflow`'s `isolation: 'worktree'` — broken, reported RESOLVED, then RECURRED same day
+  (2026-08-09). Treat it as unreliable; do not use it as the default for the rest of this arc.**
+  A debugging session found a real mechanism (paths compared case-sensitively; `c:\...` vs
+  `C:\...` never string-match) and verified a fix live — but the very next multi-stage build hit
+  the identical `WorktreeIsolationError` on a brand-new worktree path a few stages later, plus a
+  SEPARATE problem: the harness doesn't tear down a worktree after its agent finishes if that
+  agent made real commits, so a later stage's own explicit `git checkout <branch>` collides with
+  an earlier stage's still-registered worktree (git correctly refuses — a branch can't be checked
+  out in two worktrees at once). **Standing rule now: run every mutating workflow stage WITHOUT
+  `isolation: 'worktree'`, sequentially in the shared main tree, each agent doing its own explicit
+  git fetch/checkout/reset** — this is the one pattern that ran without exception all night,
+  incident-free. If a future session wants to retry isolation, validate it on something small and
+  low-stakes first, never as the default for a multi-stage feature build. Full detail in the
+  journal's "isolation: 'worktree' — RESOLVED" and "recurred; reverted to sequential" entries.
 - **NEVER junction/symlink an isolated worktree's `node_modules` (or anything else) to the main
   tree.** This caused a real incident (2026-08-09, F1+F7 build, see the journal's "a cleanup
   command deleted 605 tracked files" entry): a `robocopy /MIR` cleanup of a stranded worktree,
