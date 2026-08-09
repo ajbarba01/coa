@@ -57,7 +57,7 @@ export function Toast({
       // target for a message you have finished reading.
       onClick={() => onOpenChange?.(false)}
       className={cx(
-        'slip fixed right-3 bottom-3 z-(--z-toast) flex w-80 cursor-pointer items-start gap-2 rounded-r3 border bg-s3 px-3 py-2 text-sec shadow-lg',
+        'slip fixed right-3 bottom-3 z-(--z-toast) flex w-80 cursor-pointer items-start gap-2 rounded-r3 border bg-s3 px-3 py-2 text-sec shadow-float',
         TONE[tone],
       )}
     >
