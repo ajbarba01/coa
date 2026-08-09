@@ -9,6 +9,7 @@ import {
   buildAgentRegistryHandlers,
   buildConversationHandlers,
   buildModelHandlers,
+  buildModelMetadataHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
   classifyTool,
@@ -19,6 +20,7 @@ import {
   LiveSessionRegistry,
   MODEL_PROVIDERS,
   ModelCatalogStore,
+  ModelMetadataCatalog,
   packageSummaries,
   roleSummaries,
   SessionService,
@@ -307,6 +309,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   });
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
   const modelCatalog = new ModelCatalogStore(home);
+  // The per-model info catalog (context window/pricing/modalities/reasoning) the
+  // console's context ring, model-picker hover card, and attach-control gating read.
+  // Construction is synchronous and network-free (static floor + last-good disk
+  // cache); `refresh()` runs off the critical path — daemon startup never waits on
+  // models.dev/OpenRouter, and a failed refresh just keeps today's data.
+  const modelMetadata = new ModelMetadataCatalog({ home });
+  void modelMetadata.refresh().catch(() => {
+    // refresh() itself never rejects (each fetch tier is independently fault-tolerant) —
+    // this catch is belt-and-suspenders against a future regression breaking that contract.
+  });
   // The agent-assembly catalogue the console picker reads (starter registry today).
   const registryHandlers = buildRegistryHandlers({
     listRoles: () => roleSummaries(),
@@ -385,6 +397,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...shutdownHandlers,
     ...buildSessionHandlers(sessions, connection),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
+    ...buildModelMetadataHandlers(modelMetadata),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.
     listModels: {

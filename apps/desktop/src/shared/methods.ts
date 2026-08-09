@@ -9,6 +9,7 @@ import {
   ListAgentsResultSchema,
   LoginSnapshotSchema,
   ModelCatalogViewSchema,
+  ModelMetadataViewSchema,
   PackageSummaryListSchema,
   permissionModeSchema,
   ReasoningProfileSchema,
@@ -274,6 +275,7 @@ export type MethodName =
   | 'sessionMode'
   | 'listModels'
   | 'modelCatalog'
+  | 'modelMetadata'
   | 'addModels'
   | 'addCustomModel'
   | 'editModel'
@@ -394,6 +396,13 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   sessionMode: { params: z.object({ id: z.string() }), result: SessionModeResultSchema },
   listModels: { result: z.array(modelDescriptorSchema) },
   modelCatalog: { result: ModelCatalogViewSchema },
+  /** Per-model info (context window/pricing/modalities/reasoning) — the context
+   *  ring, the model-picker hover card, and attach-control capability gating all
+   *  read this. Proxies the daemon `modelMetadata`. */
+  modelMetadata: {
+    params: z.object({ provider: z.string().optional() }).optional(),
+    result: ModelMetadataViewSchema,
+  },
   addModels: {
     params: z.object({ providerId: z.string(), ids: z.array(z.string()) }),
     result: ModelCatalogViewSchema,

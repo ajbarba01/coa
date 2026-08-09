@@ -1,0 +1,60 @@
+{
+  "anthropic": {
+    "id": "anthropic",
+    "env": ["ANTHROPIC_API_KEY"],
+    "npm": "@ai-sdk/anthropic",
+    "name": "Anthropic",
+    "models": {
+      "claude-sonnet-4-6": {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "family": "claude-sonnet",
+        "attachment": true,
+        "reasoning": true,
+        "reasoning_options": [
+          { "type": "effort", "values": ["low", "medium", "high", "max"] },
+          { "type": "budget_tokens", "min": 1024 }
+        ],
+        "tool_call": true,
+        "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+        "open_weights": false,
+        "knowledge": "2025-08-31",
+        "limit": { "context": 1000000, "output": 128000 },
+        "cost": { "input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75 }
+      }
+    }
+  },
+  "deepseek": {
+    "id": "deepseek",
+    "env": ["DEEPSEEK_API_KEY"],
+    "name": "DeepSeek",
+    "models": {
+      "deepseek-v4-flash": {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "attachment": false,
+        "reasoning": true,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "open_weights": true,
+        "knowledge": "2025-05",
+        "limit": { "context": 1000000, "output": 384000 },
+        "cost": { "input": 0.14, "output": 0.28, "cache_read": 0.0028 }
+      }
+    }
+  },
+  "cohere": {
+    "id": "cohere",
+    "name": "Cohere",
+    "models": {
+      "command-r-plus": {
+        "id": "command-r-plus",
+        "name": "Command R+",
+        "attachment": false,
+        "reasoning": false,
+        "modalities": { "input": ["text"], "output": ["text"] },
+        "open_weights": true,
+        "limit": { "context": 128000, "output": 4000 }
+      }
+    }
+  }
+}

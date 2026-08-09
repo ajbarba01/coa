@@ -29,6 +29,17 @@ export {
   type ClaudeEffort,
   type ModelDescriptor,
 } from '@coa/shared';
+// The per-model info catalog (context window/pricing/modalities/reasoning) the
+// context ring, model-picker hover card, and attach-control capability gating all
+// read, plus the pure vision-capability predicate they gate on.
+export {
+  modelMetadataSchema,
+  modelImageInputSupport,
+  type ModelMetadata,
+  type ModelPricing,
+  type ModelModalities,
+  type CapabilitySupport,
+} from '@coa/shared';
 // F2: the permission-mode wire vocabulary — re-exported so the console edge (the
 // composer chip, the ask/response round trip) validates the real shared wire shape
 // without every consumer taking a direct @coa/shared dependency.

@@ -20,6 +20,7 @@ export {
 } from './rpc/console-handlers.js';
 export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { buildModelHandlers, MODEL_PROVIDERS } from './rpc/model-handlers.js';
+export { buildModelMetadataHandlers } from './rpc/model-metadata-handlers.js';
 export { loadGenerateFile } from './context/generate-config.js';
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
 export { assembleProducers } from './context/producers.js';
@@ -58,6 +59,7 @@ export { ConsoleStateStore } from './console/console-state-store.js';
 export { KeyStateStore } from './workbench/web/key-state-store.js';
 export { ModelCatalogStore } from './models/model-catalog-store.js';
 export { effectiveModels } from './models/effective-models.js';
+export { ModelMetadataCatalog, modelMetadataCachePath } from './models/metadata-catalog.js';
 export {
   WebConfigStore,
   webConfigPath,

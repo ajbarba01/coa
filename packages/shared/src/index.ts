@@ -25,6 +25,8 @@ export * from './change-event.js';
 export * from './permission.js';
 export * from './push.js';
 export * from './backend-message.js';
+export * from './attachment.js';
+export * from './model-metadata.js';
 export * from './rpc.js';
 export * from './auth.js';
 export { consoleStateSchema, type ConsoleState } from './console-state.js';

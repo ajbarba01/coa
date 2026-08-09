@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { attachmentSchema } from './attachment.js';
 
 /**
  * The neutral chat-transcript record for a pure-API backend's conversation memory
@@ -31,5 +32,11 @@ export const backendMessageSchema = z.object({
   toolCalls: z.array(loopToolCallSchema).optional(),
   /** On a `tool` message: which assistant tool call this result answers. */
   toolCallId: z.string().optional(),
+  /**
+   * Attachments the user (rarely: a tool result) added to this message — the ONE
+   * shape every adapter maps to its own wire format (see {@link attachmentSchema}).
+   * Absent ⇒ no attachments, byte-identical to today.
+   */
+  attachments: z.array(attachmentSchema).optional(),
 });
 export type BackendMessage = z.infer<typeof backendMessageSchema>;
