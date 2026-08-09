@@ -155,6 +155,13 @@ export interface DaemonOptions {
    * over the whole checkout, so its cost grows with the repo rather than with the test.
    */
   root?: string;
+  /**
+   * The home the user-global `~/.coa` stores (agents, models, web/account config, the
+   * driven-login manager) live under; defaults to the real `os.homedir()`. Overridable
+   * for the same reason as `root`: a daemon-per-project future (and any test that leaves
+   * this at the default) must not read or write the operator's actual home directory.
+   */
+  home?: string;
   /** How the `shutdown` verb tears the process down (injected for tests); defaults to close-then-exit. */
   onShutdown?: (server: RpcServer) => void;
 }
@@ -225,6 +232,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
 
+  // The one root/home resolution for this daemon instance — every store built below
+  // reuses these two `const`s rather than reaching for `process.cwd()`/`homedir()`
+  // ambiently, so a caller that overrides either gets a daemon fully scoped to it.
+  const root = options.root ?? process.cwd();
+  const home = options.home ?? homedir();
+
   // The session service resolves a session's spawn port, but it can't exist until
   // AFTER `buildSessionDeps` returns — and `buildSessionDeps` wants `resolveSpawn`
   // (`registry` below needs `deps.checkpoint`/`releaseWorktree`, so it can't be built
@@ -235,23 +248,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // function even accepts a connection.
   const { deps, handle, models, modelAccounts } = buildSessionDeps({
     walPath,
-    root: options.root ?? process.cwd(),
+    root,
+    home,
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
   });
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected into the login manager the handler map constructs.
   const consoleHandlers = buildDaemonConsoleHandlers(handle, {
-    loginDriver: buildClaudeLoginDriver(homedir()),
+    loginDriver: buildClaudeLoginDriver(home),
+    home,
   });
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
-  const modelCatalog = new ModelCatalogStore(homedir());
+  const modelCatalog = new ModelCatalogStore(home);
   // The agent-assembly catalogue the console picker reads (starter registry today).
   const registryHandlers = buildRegistryHandlers({
     listRoles: () => roleSummaries(),
     listPackages: () => packageSummaries(),
   });
   // The agent-definition registry: built-in ∪ ~/.coa/agents ∪ <repo>/.coa/agents.
-  const agentRegistry = new AgentRegistry(homedir(), process.cwd());
+  const agentRegistry = new AgentRegistry(home, root);
   const agentHandlers = buildAgentRegistryHandlers({
     listAgents: () => agentRegistry.list(),
     saveAgent: (ref, file, scope) => agentRegistry.save(ref, file, scope),
@@ -261,16 +276,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // Reads there never throw — they return what they could read — so anything they had to
   // drop is logged here. Otherwise a conversation that lost part of its record comes back
   // looking whole, both to the console and to the model being handed its own memory.
-  const store = createConversationStore(
-    join(process.cwd(), '.coa', 'local', 'conversation'),
-    undefined,
-    {
-      reportUnreadable: ({ sessionId, file, count }) =>
-        console.error(
-          `conversation store: session ${sessionId} — ${count} unreadable record(s) in ${file}, skipped`,
-        ),
-    },
-  );
+  const store = createConversationStore(join(root, '.coa', 'local', 'conversation'), undefined, {
+    reportUnreadable: ({ sessionId, file, count }) =>
+      console.error(
+        `conversation store: session ${sessionId} — ${count} unreadable record(s) in ${file}, skipped`,
+      ),
+  });
   const conversationHandlers = buildConversationHandlers(store);
   // The daemon-authoritative home for every conversation's live session (the daemon,
   // not any client, owns a live session across turns),
