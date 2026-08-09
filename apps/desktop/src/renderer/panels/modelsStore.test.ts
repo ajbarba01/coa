@@ -14,27 +14,28 @@ const view = {
 // outer `const` (a reference to it before initialization throws) — the inline-`vi.fn()` shape
 // matches AuthPanel.test.tsx's idiom for the same reason. The `rpc` alias built below (after
 // the mocked module is imported) is what the assertions below read.
-vi.mock('../console.js', () => ({
+vi.mock('./rpc.js', () => ({
   rpcModelCatalog: vi.fn(),
   rpcAddModels: vi.fn(),
   rpcAddCustomModel: vi.fn(),
   rpcEditModel: vi.fn(),
   rpcRemoveModel: vi.fn(),
   rpcSetModelHidden: vi.fn(),
+}));
+vi.mock('../console.js', () => ({
   notifyModelsChanged: vi.fn(),
   onModelsChanged: vi.fn(),
 }));
 
+import { notifyModelsChanged, onModelsChanged } from '../console.js';
 import {
-  notifyModelsChanged,
-  onModelsChanged,
   rpcAddCustomModel,
   rpcAddModels,
   rpcEditModel,
   rpcModelCatalog,
   rpcRemoveModel,
   rpcSetModelHidden,
-} from '../console.js';
+} from './rpc.js';
 
 const rpc = {
   rpcModelCatalog: vi.mocked(rpcModelCatalog),

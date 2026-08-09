@@ -14,7 +14,7 @@ const rpc = vi.hoisted(() => ({
   rpcProbeHealth: vi.fn(),
   rpcReportAuthFailure: vi.fn(),
 }));
-vi.mock('../console.js', () => rpc);
+vi.mock('./rpc.js', () => rpc);
 // A mutable stand-in for the auth store's state, so `hydrate` can simulate populating
 // `activeByProvider` the way the real store's `apply()` does on a real `authView` read.
 const authState = vi.hoisted(() => ({ activeByProvider: {} as Record<string, string> }));

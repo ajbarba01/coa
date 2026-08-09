@@ -21,7 +21,7 @@ import { useModels } from './modelsStore.js';
 // pointer vs. a secret gets masked) are exercised by the daemon's own suite, not re-tested
 // here: this file only asserts that the right verb is called with the right args, and that
 // the view it resolves with lands in the store.
-vi.mock('../console.js', () => ({
+vi.mock('./rpc.js', () => ({
   rpcAuthView: vi.fn(),
   rpcAddProvider: vi.fn(),
   rpcRemoveProvider: vi.fn(),
@@ -41,8 +41,6 @@ vi.mock('../console.js', () => ({
   rpcEditModel: vi.fn(),
   rpcRemoveModel: vi.fn(),
   rpcSetModelHidden: vi.fn(),
-  notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
-  onModelsChanged: vi.fn(),
   // The driven-login flow (LoginFlow + loginStore) rides the surface too.
   rpcStartLogin: vi.fn(),
   rpcLoginState: vi.fn(),
@@ -51,6 +49,10 @@ vi.mock('../console.js', () => ({
   rpcResolveLoginMismatch: vi.fn(),
   rpcProbeHealth: vi.fn(),
   rpcReportAuthFailure: vi.fn(),
+}));
+vi.mock('../console.js', () => ({
+  notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
+  onModelsChanged: vi.fn(),
 }));
 
 import {
@@ -67,7 +69,7 @@ import {
   rpcSetCredentialDisabled,
   rpcSetProviderEnabled,
   rpcStartLogin,
-} from '../console.js';
+} from './rpc.js';
 import { useLogin } from './loginStore.js';
 
 // The store is module-level (it feeds the surface AND the rail HUD), so each test starts from
