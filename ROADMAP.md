@@ -190,10 +190,16 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   refusing it. **A child's completion reaches the parent as a system-authored notice, never a
   message** (ADR-0033) — `origin: 'system'` on the `Delivery` port ADR-0030 built, hardcoded and
   unreachable from any tool handler, carrying only the fact of completion (`completed`/`errored`/
-  `stopped`), never the child's output; the parent reads the child's own transcript for the result
-  (agent-to-agent messaging is not built). **A read-time, session-scoped transcript join is built but
-  unwired** (`foldTreeToTranscript`): it has no production caller — a parent reads a child's
-  `events.ndjson` directly, and the console groups by lineage instead. Nor is it the turn-level
+  `stopped`). **The notice now carries the child's own result text too** (ADR-0038, extending
+  ADR-0033's content contract): `session-service.ts`'s `#childResultText` folds the completed
+  child's own event log — and, if it spawned any children of its own, theirs too — via
+  `foldTreeToTranscript` (finally wired, its first production caller) and
+  `transcript-projection.ts`'s new `latestAssistantText`, then `notify.ts`'s `renderChildEnded`
+  sanitizes and caps it (2000 chars, same flatten-control-chars treatment as the errored-detail
+  path, plus an explicit truncation note) before it rides the unforgeable `system` envelope as
+  quoted DATA — a fact about what the child said, never an assertion the envelope vouches for. The
+  full transcript is still reachable exactly as before (`store.getEvents`/`reload`) for anything
+  past the cap. Nor is the new wiring the turn-level
   `parentTurn`/`subagent` `TurnFrame` link the original M10 design proposed (that seam likewise stays
   reserved, unwired). Unit-proven to nest to arbitrary depth (a grandchild fixture) and to merge
   deterministically by `(seq, sessionId)`, which is a total order, **not** a shared chronology across
@@ -224,9 +230,15 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   (kernel/on-demand, the schema-budget axis) and package `toolRefs` (the availability axis) are
   orthogonal** — `edit_symbol`/`apply_patch` are kernel-partition yet deliberately opt-in-only via
   the `coding` package, so an edit-less role stays edit-less; a regression guard now asserts every
-  `TOOL_CATALOGUE` entry is granted by at least one starter package. **Next: discovery** — the
-  agent-list Piece and `find_agent` (a model must be handed a ref today, or use a built-in) — is
-  its own plan, along with the cost roll-up's RPC producer (below).
+  `TOOL_CATALOGUE` entry is granted by at least one starter package. **Discovery now ships**: a
+  `find_agent` on-demand tool (`workbench/spawn.ts`) searches the same live roster `spawn_agent`
+  resolves against — `ref`/`name`/`description` substring match, case-insensitive, query optional
+  (omit it to list the whole roster) — reusing `SpawnDeps.listAgents` and the sanitized/bounded
+  JSON-per-line rendering `spawn_agent`'s own unknown-ref reply already built (`listKnownAgents`,
+  factored out so both share one sanitizer and one row cap), rather than a second registry. Granted
+  by the Core package's `toolRefs` alongside `spawn_agent`, so anywhere a model may spawn it may
+  also discover. The cost roll-up's RPC producer (below) is a separate, harder gap — parked, not
+  shipped with this.
 
 ## Remaining work (keystones first)
 
@@ -317,20 +329,39 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   since the predicate now reaches it via `PreToolUse`. The delegation deny probe is
   retired-by-success: the floor removes the tool, so the path is unreachable until P1c
   chooses to alias `Agent` onto a governed spawn.
-- **M. Subagent discovery + the cost roll-up's RPC producer [S–M].** Two gaps the subagent
-  orchestration arc named but did not build (see the workstream entry above;
+- **M. Subagent discovery — done. The cost roll-up's RPC producer — investigated, parked [S–M].**
+  Two gaps the subagent orchestration arc named but did not build (see the workstream entry above;
   [ADR-0032](docs/adr/0032-the-cost-cap-bounds-fan-out.md)/[0033](docs/adr/0033-a-notice-is-not-a-message.md)/[0034](docs/adr/0034-a-subagent-is-a-session-with-a-parent-link.md)).
-  **Discovery [M]**, the next plan: today a model must be handed an agent `ref` or fall back to a
-  built-in — `spawn_agent`'s unknown-ref reply lists the live registry, but there is no proactive
-  agent-list Piece or `find_agent` tool, so a model that does not already know a ref has to spawn
-  wrong once and read the retry listing (exactly what the live run's own defect forced). **The cost
-  roll-up's producer [S]**: `SessionMeta.root`/`LedgerRecord.root` and the summation logic exist
-  and are unit-tested, but nothing wires them to an RPC a client can read —
-  `conversation-handlers.ts`'s `listSessions` maps the conversation store straight through with no
-  `costUsd` field, and the ledger's `root` key lives in `ledger.entries()`, in-process only. Ship it
-  deferred was the maintainer's ruling for this arc; picking it up means adding `costUsd` to the
-  persisted session record (or a read-time join against the ledger) and surfacing it through
-  `listSessions`, so the console's already-built summation stops reading "Not tracked yet".
+  **Discovery — done**: `find_agent` (on-demand, granted via Core alongside `spawn_agent`) searches
+  the live roster by `ref`/`name`/`description`; see the workstream entry above for the full
+  wiring. **The cost roll-up's producer — investigated and PARKED, not a cheap RPC wire-up**: the
+  original framing (add `costUsd` to `listSessions`, join against the ledger) undersold the gap.
+  The ledger's `LedgerRecord` allow-list (`packages/core/src/governance/ledger.ts`) has **no
+  session-identifying field at all** — only `root` (the top-of-tree ancestor), and even that is
+  attached *only* when `session.parent !== undefined`
+  (`session.ts:348`/`per-turn-driver.ts:56`/`held-open-driver.ts:304`, all guarded identically,
+  deliberately: "a root session's own spend stays root-less"). Two concrete consequences: (1) a
+  ROOT session's own direct spend carries no field that could ever attribute it back to that
+  session's id — it is indistinguishable from any other root session's spend once redacted; (2)
+  every CHILD under the same root shares the exact same `root` value, so siblings' spends are
+  indistinguishable from each other too. The daemon-global `CostCap.charge()`
+  (`packages/core/src/governance/cost-cap.ts`) doesn't help either — its `sessionId` parameter is
+  received and ignored (`_sessionId`), feeding one process-wide running total. Meanwhile the
+  consumer already built and wired (`console-viewmodel/session-tree.ts`'s `groupSessionTree`, live
+  in `Work.tsx`'s Cost floor) and the wire schema's own doc comment
+  (`console-viewmodel/agents.ts`'s `SessionSummary.costUsd`: *"this session's own recorded spend...
+  a family tree's total is the sum of every session's `costUsd` that shares its root... never just
+  the root's own"*) both expect genuinely PER-SESSION numbers, root included — precisely what
+  nothing in the runtime can produce today. This is not "expensive to compute" (an O(n) scan would
+  be fine, the ledger is process-local and small) — it is data that was **never captured**, for
+  either session class. **What a real fix needs**: extend `LedgerRecord`'s allow-list with a
+  `sessionId` field, stamp it on *every* settlement (root and child alike — drop the
+  `session.parent !== undefined` guard), then either an O(n) `listSessions`-time aggregation over
+  `ledger.entries()` grouped by `sessionId`, or an incrementally-maintained `Map<sessionId, number>`
+  updated inside `recordSpend`/`Ledger.record` and read synchronously by `listSessions` — the
+  properly cheap version, but a genuine data-model change either way, not a wiring task. Left
+  undone; `listSessions` still maps the conversation store straight through with no `costUsd`
+  field, and the console's session-cost UI still honestly reads "Not tracked yet".
   **A production-code live smoke belongs under `packages/core/src/`, not `adapter-claude-sdk`**:
   `packages/core` already depends on both `@coa/adapter-claude-sdk` and `@coa/adapter-deepseek`
   (real, non-dev dependencies — `packages/core/package.json`), and `dependency-cruiser` excludes
@@ -634,4 +665,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-08-05_
+_Last reviewed: 2026-08-09_
