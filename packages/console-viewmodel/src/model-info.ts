@@ -8,7 +8,14 @@ import { modelImageInputSupport, type CapabilitySupport, type ModelMetadata } fr
  * nothing in this module invents a value the backend never reported.
  */
 
-/** The last settled turn's usage, as the daemon's `usage` push carries it. */
+/**
+ * The last settled turn's usage, as the daemon's `usage` push carries it.
+ * `tokensIn` MUST be fresh (non-cached) input only — `cacheReadTokens` is additive,
+ * never a subset of it. Every `RuntimeUsage` producer normalizes to this contract
+ * at its own boundary (see packages/adapter-openai-compat/src/pricing.ts, which
+ * subtracts the cache hit out of the OpenAI-wire `prompt_tokens` that otherwise
+ * double-counts it) so `usedContextTokens` below can sum the three fields blind.
+ */
 export interface SessionUsage {
   tokensIn: number;
   tokensOut: number;
