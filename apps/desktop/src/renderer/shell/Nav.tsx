@@ -3,7 +3,6 @@ import {
   Icon,
   MenuItem,
   Meter,
-  ModalShell,
   PopoverCard,
   StatusDot,
   Tooltip,
@@ -24,9 +23,9 @@ import { accountUsage } from '../panels/mockUsage.js';
 import { hudChoices, hudRows, useUsageHud } from '../panels/usageHud.js';
 import { providerById } from '../panels/providers.js';
 import type { ConsoleState, Remote } from '../panels/state.js';
-import { DRAG, NO_DRAG } from './appRegion.js';
 import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
+import { ProjectButton } from './ProjectSwitcher.js';
 import { useShell } from './store.js';
 
 interface SurfaceSpec {
@@ -208,61 +207,6 @@ function DaemonButton(): React.JSX.Element {
         </MenuItem>
       </PopoverCard>
     </div>
-  );
-}
-
-/** The project switch — a level above the surfaces. The dialog is the honest
- *  floor: the daemon is one process on one pipe, and the workspace is derived
- *  from its cwd, so there is no second project to switch to yet. */
-function ProjectButton(): React.JSX.Element {
-  const open = useShell((s) => s.projectOpen);
-  const setOpen = useShell((s) => s.setProjectOpen);
-  const workspace = useShell((s) => s.workspace);
-  const name = workspace?.name ?? '…';
-
-  return (
-    <>
-      {/* the segment is drag surface; the button's hitbox is its content, not
-          the whole sidebar width */}
-      <div
-        className="flex h-(--titlebar-h) w-full flex-none items-center justify-center border-b border-s4"
-        style={DRAG}
-      >
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="slip group flex h-full min-w-0 cursor-pointer items-center gap-2 px-3.5"
-          style={NO_DRAG}
-        >
-          <span className="slip font-mono text-icon text-s8 group-hover:text-s10">▣</span>
-          <span className="slip truncate text-sec font-semibold text-s11 group-hover:text-s12">
-            {name}
-          </span>
-          <span className="slip font-mono text-icon text-s7 group-hover:text-s9">⇄</span>
-        </button>
-      </div>
-
-      <ModalShell
-        open={open}
-        onClose={() => setOpen(false)}
-        aria-label="Switch Project"
-        className="w-105"
-      >
-        <CapsLabel className="border-b border-s3 px-4 py-2.5">Projects</CapsLabel>
-        <div className="flex w-full flex-col gap-0.5 bg-s3 px-4 py-2.5 text-left">
-          <span className="flex items-center gap-2 text-body font-[550] text-s11">
-            {name}
-            <span className="ml-auto font-mono text-caps text-s7">Open</span>
-          </span>
-          {workspace?.root !== undefined && (
-            <span className="truncate font-mono text-meta text-s7">{workspace.root}</span>
-          )}
-        </div>
-        <p className="border-t border-s4 px-4 py-2.5 text-meta text-s7">
-          Opening another project is not available yet.
-        </p>
-      </ModalShell>
-    </>
   );
 }
 
