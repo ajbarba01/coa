@@ -23,9 +23,9 @@ import { usd } from '../panels/format.js';
 import { accountUsage } from '../panels/mockUsage.js';
 import { hudChoices, hudRows, useUsageHud } from '../panels/usageHud.js';
 import { providerById } from '../panels/providers.js';
-import type { ConsoleState, Remote } from '../panels/state.js';
+import type { AccountsInfo, Remote } from '../panels/state.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
-import { useConsoleState } from './consoleStore.js';
+import { useDaemonData } from '../store/data.js';
 import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 
@@ -66,7 +66,7 @@ export function Nav(): React.JSX.Element {
   const setSurface = useShell((s) => s.setSurface);
   const navWidth = useShell((s) => s.navWidth);
   const setSettingsOpen = useShell((s) => s.setSettingsOpen);
-  const flags = useConsoleState((s) => s?.data.flags);
+  const flags = useDaemonData((s) => s.flags);
   const crit = critCount(flags);
   // The generic attention channel on the auth tab: logins the probe flagged (badge
   // surface #1). Amber — the everyday needs-you, one severity below the flags red.
@@ -280,7 +280,6 @@ function HudDash(): React.JSX.Element {
   // menu closes it and vice versa), and its card ref lets the edit menu on its own
   // search field ride above it as a sub-layer instead of closing it.
   useExclusivePopover(open, () => setOpen(false), { rootRef: cardRef });
-  const state = useConsoleState((s) => s);
 
   const hits = HUDS.filter((h) => HUD_LABEL[h].toLowerCase().includes(q.trim().toLowerCase()));
   const highlighted: Hud = open ? (hits[Math.min(hi, hits.length - 1)] ?? hud) : hud;
@@ -389,8 +388,8 @@ function HudDash(): React.JSX.Element {
 
       {/* while the picker is open, the panel previews the highlighted HUD */}
       {highlighted === 'usage' && <UsageHud />}
-      {highlighted === 'account' && <AccountHud state={state} />}
-      {highlighted === 'flags' && <FlagsHud state={state} />}
+      {highlighted === 'account' && <AccountHud />}
+      {highlighted === 'flags' && <FlagsHud />}
     </div>
   );
 }
@@ -559,13 +558,12 @@ function Tick({ on }: { on: boolean }): React.JSX.Element {
   );
 }
 
-function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
+function AccountHud(): React.JSX.Element {
   const activeByProvider = useAuthStore((s) => s.activeByProvider);
   const credentials = useAuthStore((s) => s.credentials);
   const startRelogin = useStartRelogin();
-  const accounts = state?.data.accounts;
-  if (accounts === undefined || accounts.status === 'loading')
-    return <Unresolved text="Reading accounts…" />;
+  const accounts: Remote<AccountsInfo> = useDaemonData((s) => s.accounts);
+  if (accounts.status === 'loading') return <Unresolved text="Reading accounts…" />;
   if (accounts.status === 'error') return <Unresolved text="Accounts unavailable" />;
   const active = Object.entries(accounts.value.active);
   if (active.length === 0) return <Unresolved text="Ambient credentials" />;
@@ -599,10 +597,9 @@ function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.E
   );
 }
 
-function FlagsHud({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
-  const flags = state?.data.flags;
-  if (flags === undefined || flags.status === 'loading')
-    return <Unresolved text="Reading flags…" />;
+function FlagsHud(): React.JSX.Element {
+  const flags = useDaemonData((s) => s.flags);
+  if (flags.status === 'loading') return <Unresolved text="Reading flags…" />;
   if (flags.status === 'error') return <Unresolved text="Flags unavailable" />;
   const crit = flags.value.expanded.filter((f) => f.severity === 'crit').length;
   const advisory =

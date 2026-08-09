@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { NewSessionDialog } from './NewSession.js';
 import { useShell } from './store.js';
 
@@ -26,13 +25,11 @@ const AGENTS_WITH_BUILTIN = [
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
 function mount(newSession = vi.fn()): ReturnType<typeof vi.fn> {
-  publishConsoleState(
-    makeState({ data: { agents: { status: 'ok', value: AGENTS } }, actions: { newSession } }),
-  );
+  seedStores({ data: { agents: { status: 'ok', value: AGENTS } }, actions: { newSession } });
   useShell.getState().setNewSessionOpen(true);
   render(<NewSessionDialog />);
   return newSession;
@@ -40,7 +37,7 @@ function mount(newSession = vi.fn()): ReturnType<typeof vi.fn> {
 
 describe('NewSessionDialog', () => {
   it('is closed until something opens it', () => {
-    publishConsoleState(makeState({ data: { agents: { status: 'ok', value: AGENTS } } }));
+    seedStores({ data: { agents: { status: 'ok', value: AGENTS } } });
     render(<NewSessionDialog />);
     expect(screen.queryByPlaceholderText(/^new session with…$/i)).toBeNull();
   });
@@ -62,9 +59,7 @@ describe('NewSessionDialog', () => {
   });
 
   it('labels a built-in agent "Built-in", not "Personal" — the three-scope picker', () => {
-    publishConsoleState(
-      makeState({ data: { agents: { status: 'ok', value: AGENTS_WITH_BUILTIN } } }),
-    );
+    seedStores({ data: { agents: { status: 'ok', value: AGENTS_WITH_BUILTIN } } });
     useShell.getState().setNewSessionOpen(true);
     render(<NewSessionDialog />);
 

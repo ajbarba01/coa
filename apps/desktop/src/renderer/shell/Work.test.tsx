@@ -2,8 +2,7 @@
 import type { TurnFrame } from '@coa/console-viewmodel';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { useShell } from './store.js';
 import { Work } from './Work.js';
 
@@ -17,27 +16,23 @@ const SESSION = {
 };
 
 function publish(runStatus: Record<string, { since: number }> = {}): void {
-  publishConsoleState(
-    makeState({
-      data: { sessions: { status: 'ok', value: [SESSION] } },
-      ui: { activeSessionId: 'c1', runStatus },
-    }),
-  );
+  seedStores({
+    data: { sessions: { status: 'ok', value: [SESSION] } },
+    ui: { activeSessionId: 'c1', runStatus },
+  });
 }
 
 function renderWorkWithTurns(turns: TurnFrame[]): void {
-  publishConsoleState(
-    makeState({
-      data: { sessions: { status: 'ok', value: [SESSION] }, turns: { status: 'ok', value: turns } },
-      ui: { activeSessionId: 'c1' },
-    }),
-  );
+  seedStores({
+    data: { sessions: { status: 'ok', value: [SESSION] }, turns: { status: 'ok', value: turns } },
+    ui: { activeSessionId: 'c1' },
+  });
   render(<Work />);
 }
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
   (window as unknown as { coa: unknown }).coa = { platform: 'win32' };
 });
 
@@ -59,12 +54,10 @@ describe('Work', () => {
       parent: 'c1',
       root: 'c1',
     };
-    publishConsoleState(
-      makeState({
-        data: { sessions: { status: 'ok', value: [root, child] } },
-        ui: { activeSessionId: 'child1' },
-      }),
-    );
+    seedStores({
+      data: { sessions: { status: 'ok', value: [root, child] } },
+      ui: { activeSessionId: 'child1' },
+    });
     render(<Work />);
     expect(screen.getByText('first child')).toBeTruthy();
     expect(screen.getByText(/^subagent$/i)).toBeTruthy();
@@ -72,7 +65,7 @@ describe('Work', () => {
   });
 
   it('falls to the quiet empty line with no active session', () => {
-    publishConsoleState(makeState({ data: { sessions: { status: 'ok', value: [] } } }));
+    seedStores({ data: { sessions: { status: 'ok', value: [] } } });
     render(<Work />);
     expect(screen.getByText(/^no session$/i)).toBeTruthy();
   });
@@ -131,12 +124,10 @@ describe('Work', () => {
       root: 'c1',
       costUsd: 5,
     };
-    publishConsoleState(
-      makeState({
-        data: { sessions: { status: 'ok', value: [root, child1, child2] } },
-        ui: { activeSessionId: 'c1' },
-      }),
-    );
+    seedStores({
+      data: { sessions: { status: 'ok', value: [root, child1, child2] } },
+      ui: { activeSessionId: 'c1' },
+    });
     render(<Work />);
     expect(screen.getByText('$16.00')).toBeTruthy();
     expect(screen.queryByText('$1.00')).toBeNull();
@@ -153,12 +144,10 @@ describe('Work', () => {
       root: 'c1',
       costUsd: 10,
     };
-    publishConsoleState(
-      makeState({
-        data: { sessions: { status: 'ok', value: [root, child] } },
-        ui: { activeSessionId: 'child1' }, // viewing the CHILD's own tab
-      }),
-    );
+    seedStores({
+      data: { sessions: { status: 'ok', value: [root, child] } },
+      ui: { activeSessionId: 'child1' }, // viewing the CHILD's own tab
+    });
     render(<Work />);
     expect(screen.getByText('$11.00')).toBeTruthy();
   });

@@ -3,9 +3,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FeedView } from '@coa/console-viewmodel';
-import { makeState } from '../testing/fixtures.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { useAuthStore } from '../panels/authStore.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { Nav, critCount } from './Nav.js';
 import { useShell } from './store.js';
 
@@ -13,7 +12,7 @@ const initialShell = useShell.getState();
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
 const flag = (severity: 'crit' | 'high', fingerprint: string): FeedView['expanded'][number] => ({
@@ -59,18 +58,16 @@ describe('Nav', () => {
 
   it('wears the red count on flags only when criticals exist', () => {
     const { rerender } = render(<Nav />);
-    // No published state yet — no count anywhere.
+    // Nothing seeded yet — flags are still loading, so no count anywhere.
     expect(screen.queryByText('2')).toBeNull();
-    publishConsoleState(
-      makeState({
-        data: {
-          flags: {
-            status: 'ok',
-            value: { expanded: [flag('crit', 'a'), flag('crit', 'b')], collapsed: [] },
-          },
+    seedStores({
+      data: {
+        flags: {
+          status: 'ok',
+          value: { expanded: [flag('crit', 'a'), flag('crit', 'b')], collapsed: [] },
         },
-      }),
-    );
+      },
+    });
     rerender(<Nav />);
     expect(screen.getByText('2')).toBeTruthy();
   });

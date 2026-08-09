@@ -1,24 +1,22 @@
 import { InlineMessage, Spinner } from '@coa/console-kit';
 import { Transcript } from '@coa/console-transcript';
 import { PaneOverlayProvider } from '@coa/console-kit';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
 import type { ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
-import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
 import { reportFailure } from '../shell/failures.js';
 import { matchesFind } from '../shell/keys.js';
 import { useShell } from '../shell/store.js';
+import { consoleActions } from '../store/actions.js';
+import { useDaemonData } from '../store/data.js';
+import { useSessions } from '../store/sessions.js';
+import { useTranscripts } from '../store/transcripts.js';
+import { useConsoleUi } from '../store/ui.js';
 import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners, type ChatNotice } from './banners.js';
 import { Composer } from './Composer.js';
-import type { ConsoleState } from './state.js';
-
-// Keep-alive tab caches (module scope — they outlive renders): the last frames
-// and send-nonce each session rendered with, so a hidden tab keeps its DOM
-// showing what it last showed. The ACTIVE tab always renders the live vm.
-const framesBySession = new Map<string, TranscriptFrame[]>();
-const nonceBySession = new Map<string, number>();
+import type { ConsoleActions, ConsoleData, ConsoleUi } from './state.js';
 
 /** Keep the last real composer measure — a hidden (display:none) pass reports
  *  0, which would collapse the transcript's reserve spacer and make its return
@@ -278,17 +276,28 @@ export function interleaveNotes(
   return result;
 }
 
-/** Pure: projects the polled turn stream + agent/session state into the chat vm.
- *  In raw mode every frame becomes its verbatim line (raw is the verbatim, unfiltered projection); "switched model" notes are
- *  a console-local synthetic frame (never sent to the agent) interleaved only in
- *  governed mode — raw stays the verbatim, unfiltered projection. */
-export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOString()): ChatVm {
-  const r = state.data.turns;
-  if (r.status !== 'ok') return r;
-  const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
-  const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const { rawMode, resolvedApprovals, activeSessionId } = state.ui;
-  const governedFrames = r.value.map((f) => {
+/** The subset of the console shape the chat vm reads, assembled from the slice stores
+ *  (`data.turns` is the ACTIVE session's transcript entry). */
+export interface ChatVmState {
+  data: Pick<ConsoleData, 'turns' | 'agents' | 'sessions' | 'models'>;
+  ui: Omit<ConsoleUi, 'settings'>;
+  actions: ConsoleActions;
+}
+
+/** Pure: project one session's wire frames into transcript frames (governed or raw),
+ *  lifting the newest unresolved approval out for the composer dock. Shared by the
+ *  active vm and every open tab's host, so a background tab renders exactly what it
+ *  will show when it becomes active. */
+export function projectTranscript(
+  turns: TurnFrame[],
+  opts: {
+    sessionId: string;
+    rawMode: boolean;
+    resolvedApprovals: Record<string, 'approved' | 'denied'>;
+    notes: { afterCount: number; text: string }[];
+  },
+): { frames: TranscriptFrame[]; pendingApproval?: Extract<TranscriptFrame, { kind: 'approval' }> } {
+  const governedFrames = turns.map((f) => {
     let base = governedFrameCache.get(f);
     if (base === undefined) {
       base = toGovernedFrame(f);
@@ -296,8 +305,8 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     }
     // The approval-resolved overlay depends on ui state, so it is layered on fresh each
     // time (never cached) — every other frame reuses its cached, stable identity.
-    if (base.kind === 'approval' && resolvedApprovals[base.requestId] !== undefined) {
-      return { ...base, resolved: resolvedApprovals[base.requestId] };
+    if (base.kind === 'approval' && opts.resolvedApprovals[base.requestId] !== undefined) {
+      return { ...base, resolved: opts.resolvedApprovals[base.requestId] };
     }
     return base;
   });
@@ -305,7 +314,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   // lifted out of the transcript and docked to the composer instead (it blocks the
   // input, so it belongs at the input). Raw mode stays the untouched, verbatim
   // projection: an approval never surfaces there at all.
-  const pendingApproval = rawMode
+  const pendingApproval = opts.rawMode
     ? undefined
     : [...governedFrames]
         .reverse()
@@ -313,8 +322,8 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
           (f): f is Extract<TranscriptFrame, { kind: 'approval' }> =>
             f.kind === 'approval' && f.resolved === undefined,
         );
-  const frames: TranscriptFrame[] = rawMode
-    ? r.value.map((f) => {
+  const frames: TranscriptFrame[] = opts.rawMode
+    ? turns.map((f) => {
         let raw = rawFrameCache.get(f);
         if (raw === undefined) {
           raw = { id: f.id, kind: 'raw', text: frameToRawLine(f) };
@@ -326,9 +335,28 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
         pendingApproval !== undefined
           ? governedFrames.filter((f) => f.id !== pendingApproval.id)
           : governedFrames,
-        activeSessionId !== undefined ? (state.ui.notesBySession[activeSessionId] ?? []) : [],
-        activeSessionId ?? '',
+        opts.notes,
+        opts.sessionId,
       );
+  return pendingApproval !== undefined ? { frames, pendingApproval } : { frames };
+}
+
+/** Pure: projects the active session's transcript + agent/session state into the chat vm.
+ *  In raw mode every frame becomes its verbatim line (raw is the verbatim, unfiltered projection); "switched model" notes are
+ *  a console-local synthetic frame (never sent to the agent) interleaved only in
+ *  governed mode — raw stays the verbatim, unfiltered projection. */
+export function selectChatVm(state: ChatVmState, nowIso = new Date().toISOString()): ChatVm {
+  const r = state.data.turns;
+  if (r.status !== 'ok') return r;
+  const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
+  const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
+  const { rawMode, resolvedApprovals, activeSessionId } = state.ui;
+  const { frames, pendingApproval } = projectTranscript(r.value, {
+    sessionId: activeSessionId ?? '',
+    rawMode,
+    resolvedApprovals,
+    notes: activeSessionId !== undefined ? (state.ui.notesBySession[activeSessionId] ?? []) : [],
+  });
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const models = state.data.models.status === 'ok' ? state.data.models.value : [];
   const activeAgent = agents.find((a) => a.ref === activeSession?.agentRef);
@@ -471,7 +499,103 @@ function EmptyConversation({
   );
 }
 
-function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
+/**
+ * One open tab's mounted, LIVE transcript host. Subscribes to its OWN session's store
+ * entry (frames, send nonce, run status), so a hidden tab keeps streaming into real DOM
+ * and re-renders only when ITS data moves — activation is a pure display swap of an
+ * already-materialized transcript. Memoized so the active conversation's renders never
+ * cascade into the hidden tabs.
+ */
+const TabTranscript = memo(function TabTranscript({
+  sessionId,
+  isActive,
+  shellMode,
+  composerHeight,
+  pendingPins,
+  emptyAgent,
+  emptyModel,
+  emptyEffort,
+  onOpenPath,
+  onOpenUrl,
+}: {
+  sessionId: string;
+  isActive: boolean;
+  shellMode: 'work' | 'search';
+  composerHeight: number;
+  /** The active tab's in-flight steer pins, appended after the real frames (governed
+   *  mode only — a pin is console state, not loop output). Hidden tabs carry none. */
+  pendingPins?: TranscriptFrame[] | undefined;
+  emptyAgent?: string | undefined;
+  emptyModel?: string | undefined;
+  emptyEffort?: string | undefined;
+  onOpenPath: (path: string, line?: number) => void;
+  onOpenUrl: (url: string) => void;
+}): React.JSX.Element | null {
+  const entry = useTranscripts((s) => s.bySession[sessionId]);
+  const rawMode = useConsoleUi((s) => s.rawMode);
+  const resolvedApprovals = useConsoleUi((s) => s.resolvedApprovals);
+  const notes = useConsoleUi((s) => s.notesBySession[sessionId]);
+  const nonce = useSessions((s) => s.sendNonce[sessionId] ?? 0);
+  const runningSince = useSessions((s) => s.runStatus[sessionId]?.since);
+  if (entry === undefined || entry.status === 'loading') {
+    // A cold open's loading circle — a warm switch never sees this (cache-first).
+    return isActive ? (
+      <div className="flex h-full flex-1 items-center justify-center">
+        <Spinner label="Loading conversation" />
+      </div>
+    ) : null;
+  }
+  if (entry.status === 'error') {
+    return isActive ? (
+      <div className="p-3.5">
+        <InlineMessage tone="danger">{entry.message}</InlineMessage>
+      </div>
+    ) : null;
+  }
+  const { frames } = projectTranscript(entry.value, {
+    sessionId,
+    rawMode,
+    resolvedApprovals,
+    notes: notes ?? [],
+  });
+  const shown =
+    isActive && pendingPins !== undefined && !rawMode ? [...frames, ...pendingPins] : frames;
+  if (shown.length === 0) {
+    return isActive ? (
+      <EmptyConversation
+        agent={emptyAgent ?? 'agent'}
+        model={emptyModel ?? 'model'}
+        effort={emptyEffort ?? ''}
+      />
+    ) : null;
+  }
+  return (
+    <Transcript
+      frames={shown}
+      // Hidden tabs (and search mode) stand down: keys, the stick-to-bottom
+      // observer, scroll saves. Reactivation restores the remembered scroll place.
+      active={isActive && shellMode === 'work'}
+      // the find chord is rebindable, so the registry names it — not the kit
+      findMatch={matchesFind}
+      onOpenPath={onOpenPath}
+      onOpenUrl={onOpenUrl}
+      label="Conversation"
+      busy={isActive && runningSince !== undefined}
+      busySince={isActive ? runningSince : undefined}
+      jumpNonce={nonce}
+      bottomInset={composerHeight}
+      scrollKey={sessionId}
+    />
+  );
+});
+
+function ChatView({
+  vm,
+  activeSessionId,
+}: {
+  vm: ChatVm;
+  activeSessionId: string | undefined;
+}): React.JSX.Element {
   const [composerHeight, setComposerHeight] = useState(0);
   const composerRoRef = useRef<ResizeObserver | null>(null);
 
@@ -660,55 +784,37 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     composerRoRef.current = ro;
   }, []);
 
-  if (vm.status !== 'ready') {
-    return (
-      <div className="flex h-full min-h-0 flex-col bg-s1 p-3.5">
-        {vm.status === 'loading' && (
-          // The loading circle, centered — shown only on a cold cache; warm
-          // switches render instantly from `turnsBySession`.
-          <div className="flex flex-1 items-center justify-center">
-            <Spinner label="Loading conversation" />
-          </div>
-        )}
-        {vm.status === 'error' && <InlineMessage tone="danger">{vm.message}</InlineMessage>}
-      </div>
-    );
-  }
+  const readyVm = vm.status === 'ready' ? vm : undefined;
   const queuedMessages = activeQueue.map((text, i) => ({ id: String(i), text }));
   // Appended after the real frames, never spliced in: a pending steer has not happened
-  // yet, so it cannot sit anywhere but last. Governed-path only (mirrors `pendingApproval`
-  // being excluded from raw) — a pin is console state, not loop output.
-  const framesWithPending: TranscriptFrame[] = [
-    ...vm.frames,
-    ...(vm.rawMode
-      ? []
-      : activePending.map((pin) => ({
-          // Keyed on the pin's OWN id, not its array position — an earlier pin clearing
-          // must not reshuffle a survivor's id (that remounts its row for no reason; see
-          // `PendingSteer`).
-          id: `pending:${activeId ?? ''}:${pin.id}`,
-          role: 'you' as const,
-          kind: 'text' as const,
-          text: pin.text,
-          pending: true,
-        }))),
+  // yet, so it cannot sit anywhere but last.
+  const pendingPinFrames: TranscriptFrame[] = activePending.map((pin) => ({
+    // Keyed on the pin's OWN id, not its array position — an earlier pin clearing
+    // must not reshuffle a survivor's id (that remounts its row for no reason; see
+    // `PendingSteer`).
+    id: `pending:${activeId ?? ''}:${pin.id}`,
+    role: 'you' as const,
+    kind: 'text' as const,
+    text: pin.text,
+    pending: true,
+  }));
+  // THE TAB MODEL: every OPEN tab keeps a mounted, live transcript host — switching is
+  // a display swap of already-materialized DOM, never a rebuild, and a hidden tab keeps
+  // streaming through its own store subscription (no frozen snapshots, no module caches).
+  const activeTabId = activeSessionId ?? 'none';
+  const openTabs = [
+    ...new Set([...tabs, ...(activeSessionId !== undefined ? [activeSessionId] : [])]),
   ];
-  // Refresh the keep-alive caches for the active session, then derive which
-  // tabs stay mounted: every open tab already visited (cache hit) + the active
-  // one. Unvisited tabs mount lazily on their first activation.
-  const activeTabId = vm.activeSessionId ?? 'none';
-  if (vm.activeSessionId !== undefined) {
-    framesBySession.set(vm.activeSessionId, vm.frames);
-    nonceBySession.set(vm.activeSessionId, vm.sendNonce);
-  }
-  const keepAlive = [...new Set([...tabs.filter((t) => framesBySession.has(t)), activeTabId])];
-  const currentModelDesc = vm.models.find((m) => m.id === vm.currentModelId);
+  const currentModelDesc = readyVm?.models.find((m) => m.id === readyVm.currentModelId);
   const currentModelLabel =
     currentModelDesc !== undefined
       ? modelPickerLabel(currentModelDesc)
-      : (vm.currentModelId ?? 'model');
+      : (readyVm?.currentModelId ?? 'model');
   const currentEffortLabel =
-    vm.effortOptions.find((e) => e.value === vm.effortValue)?.label ?? vm.effortValue;
+    readyVm !== undefined
+      ? (readyVm.effortOptions.find((e) => e.value === readyVm.effortValue)?.label ??
+        readyVm.effortValue)
+      : '';
   return (
     <>
       {/* Session-switching chrome (title bar, session switcher, agent rail) is retired here —
@@ -727,50 +833,30 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               expanding a deeply-scrolled row covers the transcript region only, never the
               window, and the floating composer stays over its bottom edge. */}
           <PaneOverlayProvider className="flex-1 bg-s1">
-            {/* THE TAB MODEL: every visited open tab keeps its transcript mounted —
-                switching is a display swap, not a rebuild (and search mode hides,
-                never unmounts). Only a tab's FIRST mount is heavy, and that one
-                goes through a transition (DeferredCanvas) so the switch paints
-                before the rows do. Hidden tabs render their last-seen frames from
-                the module cache; the active tab always renders the live vm. */}
-            {keepAlive.map((tid) => {
+            {/* No conversation selected: teach the register (nothing to subscribe to). */}
+            {activeSessionId === undefined && (
+              <EmptyConversation
+                agent={readyVm?.agentName ?? 'agent'}
+                model={currentModelLabel}
+                effort={currentEffortLabel}
+              />
+            )}
+            {openTabs.map((tid) => {
               const isActive = tid === activeTabId;
-              const frames = isActive ? framesWithPending : (framesBySession.get(tid) ?? []);
               return (
                 <div key={tid} className={isActive ? 'h-full' : 'hidden'}>
-                  {/* Frozen while hidden: live publishes must not re-render
-                      background tabs (that cost is the switching slowdown). */}
-                  <Freeze frozen={!isActive}>
-                    <DeferredCanvas id={tid}>
-                      {frames.length === 0 ? (
-                        isActive ? (
-                          <EmptyConversation
-                            agent={vm.agentName ?? 'agent'}
-                            model={currentModelLabel}
-                            effort={currentEffortLabel}
-                          />
-                        ) : null
-                      ) : (
-                        <Transcript
-                          frames={frames}
-                          // Hidden tabs (and search mode) stand down: keys, the
-                          // stick-to-bottom observer, scroll saves. Reactivation
-                          // restores the session's remembered scroll place.
-                          active={isActive && shellMode === 'work'}
-                          // the find chord is rebindable, so the registry names it — not the kit
-                          findMatch={matchesFind}
-                          onOpenPath={onOpenPath}
-                          onOpenUrl={onOpenUrl}
-                          label="Conversation"
-                          busy={isActive && vm.sessionStatus === 'running'}
-                          busySince={isActive ? vm.runningSince : undefined}
-                          jumpNonce={isActive ? vm.sendNonce : nonceBySession.get(tid)}
-                          bottomInset={composerHeight}
-                          scrollKey={tid}
-                        />
-                      )}
-                    </DeferredCanvas>
-                  </Freeze>
+                  <TabTranscript
+                    sessionId={tid}
+                    isActive={isActive}
+                    shellMode={shellMode}
+                    composerHeight={composerHeight}
+                    pendingPins={isActive ? pendingPinFrames : undefined}
+                    emptyAgent={isActive ? readyVm?.agentName : undefined}
+                    emptyModel={isActive ? currentModelLabel : undefined}
+                    emptyEffort={isActive ? currentEffortLabel : undefined}
+                    onOpenPath={onOpenPath}
+                    onOpenUrl={onOpenUrl}
+                  />
                 </div>
               );
             })}
@@ -781,48 +867,92 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               the height-measuring ResizeObserver (see `composerRef`) and to
               give the composer's focused Escape a place to fall through to the
               Stop affordance (a user stop, never a governance block). */}
-          <div
-            ref={composerRef}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && vm.sessionStatus === 'running') {
-                e.preventDefault();
-                vm.onInterrupt();
-              }
-            }}
-          >
-            <Composer
-              notices={vm.banners}
-              onNoticeAction={vm.onBannerAction}
-              running={vm.sessionStatus === 'running'}
-              disabled={vm.activeSessionId === undefined}
-              queued={queuedMessages}
-              approval={vm.approval}
-              models={vm.models}
-              currentModelId={vm.currentModelId}
-              onPickModel={vm.onPickModel}
-              effortOptions={vm.effortOptions}
-              effortValue={vm.effortValue}
-              onPickEffort={vm.onPickEffort}
-              onSend={vm.onSend}
-              onQueue={handleQueue}
-              onSteer={handleSteer}
-              onStop={vm.onInterrupt}
-              onRemoveQueued={(id) => dequeue(Number(id))}
-              onApprove={(id) => vm.onRespond(id, 'approve')}
-              onDeny={(id) => vm.onRespond(id, 'deny')}
-              onRedirect={(id, text) => {
-                vm.onRespond(id, 'deny');
-                vm.onSend(text);
+          {readyVm !== undefined && (
+            <div
+              ref={composerRef}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && readyVm.sessionStatus === 'running') {
+                  e.preventDefault();
+                  readyVm.onInterrupt();
+                }
               }}
-            />
-          </div>
+            >
+              <Composer
+                notices={readyVm.banners}
+                onNoticeAction={readyVm.onBannerAction}
+                running={readyVm.sessionStatus === 'running'}
+                disabled={readyVm.activeSessionId === undefined}
+                queued={queuedMessages}
+                approval={readyVm.approval}
+                models={readyVm.models}
+                currentModelId={readyVm.currentModelId}
+                onPickModel={readyVm.onPickModel}
+                effortOptions={readyVm.effortOptions}
+                effortValue={readyVm.effortValue}
+                onPickEffort={readyVm.onPickEffort}
+                onSend={readyVm.onSend}
+                onQueue={handleQueue}
+                onSteer={handleSteer}
+                onStop={readyVm.onInterrupt}
+                onRemoveQueued={(id) => dequeue(Number(id))}
+                onApprove={(id) => readyVm.onRespond(id, 'approve')}
+                onDeny={(id) => readyVm.onRespond(id, 'deny')}
+                onRedirect={(id, text) => {
+                  readyVm.onRespond(id, 'deny');
+                  readyVm.onSend(text);
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </>
   );
 }
 
-/** State-fed surface: computes the vm from console state and renders the chat pane. */
-export function ChatSurface({ state }: { state: ConsoleState }): React.JSX.Element {
-  return <ChatView vm={selectChatVm(state)} />;
+const NO_SESSION_TURNS: ConsoleData['turns'] = { status: 'ok', value: [] };
+const TURNS_LOADING: ConsoleData['turns'] = { status: 'loading' };
+
+/** Assemble the chat vm input from the slice stores — subscribes to exactly what the
+ *  active conversation renders (the ACTIVE session's transcript entry rides
+ *  `data.turns`, matching the vm-input shape's contract). */
+function useChatVmState(): ChatVmState {
+  const activeSessionId = useSessions((s) => s.activeSessionId);
+  const turns = useTranscripts((s) =>
+    activeSessionId === undefined
+      ? NO_SESSION_TURNS
+      : (s.bySession[activeSessionId] ?? TURNS_LOADING),
+  );
+  const agents = useDaemonData((s) => s.agents);
+  const sessions = useSessions((s) => s.list);
+  const models = useDaemonData((s) => s.models);
+  const rawMode = useConsoleUi((s) => s.rawMode);
+  const resolvedApprovals = useConsoleUi((s) => s.resolvedApprovals);
+  const modelOverride = useConsoleUi((s) => s.modelOverride);
+  const dismissedDrift = useConsoleUi((s) => s.dismissedDrift);
+  const dismissedCache = useConsoleUi((s) => s.dismissedCache);
+  const notesBySession = useConsoleUi((s) => s.notesBySession);
+  const runStatus = useSessions((s) => s.runStatus);
+  const sendNonce = useSessions((s) => s.sendNonce);
+  return {
+    data: { turns, agents, sessions, models },
+    ui: {
+      rawMode,
+      resolvedApprovals,
+      ...(activeSessionId !== undefined ? { activeSessionId } : {}),
+      modelOverride,
+      dismissedDrift,
+      dismissedCache,
+      runStatus,
+      sendNonce,
+      notesBySession,
+    },
+    actions: consoleActions,
+  };
+}
+
+/** Slice-fed surface: assembles the vm input from the stores and renders the chat pane. */
+export function ChatSurface(): React.JSX.Element {
+  const state = useChatVmState();
+  return <ChatView vm={selectChatVm(state)} activeSessionId={state.ui.activeSessionId} />;
 }

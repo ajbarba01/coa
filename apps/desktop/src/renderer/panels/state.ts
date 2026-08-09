@@ -12,7 +12,6 @@ import type {
   TurnFrame,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
-import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 /** A single async read's UI state — carries loading/error/value through the
  *  pure selectors so panels can render states-first. */
@@ -144,40 +143,14 @@ export interface ConsoleActions {
   steerSession: (sessionId: string, text: string) => void;
 }
 
-/** The single object pushed into the engine via setDaemonState: data down,
- *  actions up. Every panel's pure selectVm reads only what it needs. */
+/** The console's view-input vocabulary: `data` down, `actions` up. No single object of
+ *  this whole shape exists at runtime anymore — state lives in the slice stores
+ *  (`renderer/store/`), and each surface assembles the SUBSET of this shape its pure
+ *  `selectVm` reads (`data.turns` is always the ACTIVE session's transcript there).
+ *  The full type remains the shared reference the per-surface subsets `Pick` from,
+ *  and the one shape test fixtures build. */
 export interface ConsoleState {
   data: ConsoleData;
   ui: ConsoleUi;
   actions: ConsoleActions;
-}
-
-export function initialState(actions: ConsoleActions): ConsoleState {
-  return {
-    data: {
-      cap: { status: 'loading' },
-      flags: { status: 'loading' },
-      timeline: { status: 'loading' },
-      accounts: { status: 'loading' },
-      turns: { status: 'loading' },
-      agents: { status: 'loading' },
-      agentDiagnostics: [],
-      sessions: { status: 'loading' },
-      models: { status: 'loading' },
-      roles: { status: 'loading' },
-      packages: { status: 'loading' },
-    },
-    ui: {
-      settings: DEFAULT_SETTINGS,
-      rawMode: false,
-      resolvedApprovals: {},
-      modelOverride: {},
-      dismissedDrift: {},
-      dismissedCache: {},
-      runStatus: {},
-      sendNonce: {},
-      notesBySession: {},
-    },
-    actions,
-  };
 }

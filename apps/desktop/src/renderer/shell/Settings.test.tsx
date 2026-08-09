@@ -3,8 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../panels/authStore.js';
-import { makeState } from '../testing/fixtures.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import {
   BrowserPathRow,
   IsolatedBrowserRow,
@@ -17,7 +16,7 @@ const initialShell = useShell.getState();
 const initialAuth = useAuthStore.getState();
 
 function open(setSettings = vi.fn()): ReturnType<typeof vi.fn> {
-  publishConsoleState(makeState({ actions: { setSettings } }));
+  seedStores({ actions: { setSettings } });
   useShell.getState().setSettingsOpen(true);
   render(<SettingsDialog />);
   return setSettings;
@@ -25,7 +24,7 @@ function open(setSettings = vi.fn()): ReturnType<typeof vi.fn> {
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
   useAuthStore.setState(initialAuth, true);
 });
 
@@ -193,7 +192,7 @@ describe('login settings rows', () => {
     const hydrate = vi.fn().mockResolvedValue(undefined);
     useAuthStore.setState({ hydrate });
     useShell.getState().setSettingsOpen(false);
-    publishConsoleState(makeState({ actions: { setSettings: vi.fn() } }));
+    seedStores({ actions: { setSettings: vi.fn() } });
     render(<SettingsDialog />);
     expect(hydrate).not.toHaveBeenCalled();
 

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 import { App } from '../App.js';
-import { useConsoleState } from './consoleStore.js';
+import { resetStores } from '../testing/fixtures.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -47,7 +47,7 @@ function stubCoa(daemonStatus: 'running' | 'stopped'): void {
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
 describe('App', () => {

@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { Palette } from './Palette.js';
 import { useShell } from './store.js';
 
@@ -10,17 +9,17 @@ const initialShell = useShell.getState();
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
-function open(overrides: Parameters<typeof makeState>[0] = {}): void {
-  publishConsoleState(makeState(overrides));
+function open(overrides: Parameters<typeof seedStores>[0] = {}): void {
+  seedStores(overrides);
   useShell.getState().setPaletteOpen(true);
 }
 
 describe('Palette', () => {
   it('renders nothing while closed', () => {
-    publishConsoleState(makeState());
+    seedStores();
     const { container } = render(<Palette />);
     expect(container.firstChild).toBeNull();
   });

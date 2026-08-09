@@ -1,6 +1,7 @@
 import { StatusDot } from '@coa/console-kit';
 import type { FeedView } from '@coa/console-viewmodel';
-import type { ConsoleState } from './state.js';
+import { useDaemonData } from '../store/data.js';
+import type { ConsoleData } from './state.js';
 import { SkeletonLines, SurfaceError, SurfaceEmpty } from './surfaceStates.js';
 
 export type FlagsVm =
@@ -8,7 +9,12 @@ export type FlagsVm =
   | { status: 'error'; message: string }
   | { status: 'ok'; value: FeedView };
 
-export function selectFlagsVm(state: ConsoleState): FlagsVm {
+/** The subset of the console shape this surface reads (assembled from the data slice). */
+export interface FlagsVmState {
+  data: Pick<ConsoleData, 'flags'>;
+}
+
+export function selectFlagsVm(state: FlagsVmState): FlagsVm {
   return state.data.flags;
 }
 
@@ -49,7 +55,9 @@ function FlagsView({ vm }: { vm: FlagsVm }): React.JSX.Element {
   );
 }
 
-/** State-fed surface: computes the vm from console state and renders the flags pane. */
-export function FlagsSurface({ state }: { state: ConsoleState }): React.JSX.Element {
-  return <FlagsView vm={selectFlagsVm(state)} />;
+/** Slice-fed surface: subscribes to the flags feed alone, so nothing else that moves
+ *  (streamed frames, session churn) ever re-renders it. */
+export function FlagsSurface(): React.JSX.Element {
+  const flags = useDaemonData((s) => s.flags);
+  return <FlagsView vm={selectFlagsVm({ data: { flags } })} />;
 }

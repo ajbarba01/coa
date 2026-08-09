@@ -1,8 +1,9 @@
 import { groupSessionTree, sessionGroupFor } from '@coa/console-viewmodel';
 import { CapsLabel, cx, StatusDot, Tooltip } from '@coa/console-kit';
 import { usd } from '../panels/format.js';
+import { useSessions } from '../store/sessions.js';
+import { useTranscripts } from '../store/transcripts.js';
 import { DRAG } from './appRegion.js';
-import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
@@ -20,12 +21,17 @@ export function Work(): React.JSX.Element {
   const toggleWork = useShell((s) => s.toggleWork);
   // In search mode the column previews whichever session the browser hovers.
   const previewId = useShell((s) => s.previewId);
-  const state = useConsoleState((s) => s);
-  const activeId = previewId ?? state?.ui.activeSessionId;
-  const sessions = state?.data.sessions.status === 'ok' ? state.data.sessions.value : [];
+  const activeSessionId = useSessions((s) => s.activeSessionId);
+  const activeId = previewId ?? activeSessionId;
+  const list = useSessions((s) => s.list);
+  const sessions = list.status === 'ok' ? list.value : [];
   const session = sessions.find((s) => s.id === activeId);
-  const running = activeId !== undefined && state?.ui.runStatus[activeId] !== undefined;
-  const turns = state?.data.turns.status === 'ok' ? state.data.turns.value : [];
+  const runStatus = useSessions((s) => s.runStatus);
+  const running = activeId !== undefined && runStatus[activeId] !== undefined;
+  // The plan reads the PREVIEWED session's own transcript entry — per-session
+  // materialization means a hovered session shows ITS plan, not the active one's.
+  const entry = useTranscripts((s) => (activeId === undefined ? undefined : s.bySession[activeId]));
+  const turns = entry?.status === 'ok' ? entry.value : [];
   // The session's LAST plan frame (the agent replaces the whole checklist as it works).
   const planItems = (() => {
     for (let i = turns.length - 1; i >= 0; i--) {

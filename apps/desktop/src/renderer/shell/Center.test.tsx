@@ -2,10 +2,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
+import { setActiveSession } from '../store/sessions.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { MOCK_AGENTS } from '../testing/mockAgents.js';
 import { buildRailItems, Center } from './Center.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -20,21 +20,19 @@ const SESSIONS = [
   { id: 'c2', title: 'fix the seam', agentRef: 'roles/dev', updatedAt: '2026-07-11T01:00:00.000Z' },
 ];
 
-function publish(overrides: Parameters<typeof makeState>[0] = {}): ReturnType<typeof vi.fn> {
+function publish(overrides: Parameters<typeof seedStores>[0] = {}): ReturnType<typeof vi.fn> {
   const selectSession = vi.fn();
-  publishConsoleState(
-    makeState({
-      data: { sessions: { status: 'ok', value: SESSIONS }, ...overrides.data },
-      ui: { activeSessionId: 'c1', ...overrides.ui },
-      actions: { selectSession, ...overrides.actions },
-    }),
-  );
+  seedStores({
+    data: { sessions: { status: 'ok', value: SESSIONS }, ...overrides.data },
+    ui: { activeSessionId: 'c1', ...overrides.ui },
+    actions: { selectSession, ...overrides.actions },
+  });
   return selectSession;
 }
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
   (window as unknown as { coa: unknown }).coa = { platform: 'win32' };
 });
 
@@ -60,11 +58,11 @@ describe('Center tabs', () => {
     expect(tab.className).not.toContain('max-w-52');
   });
 
-  it('marks the clicked tab selected immediately, before the session finishes opening', () => {
-    // selectSession is a mock — the published activeSessionId NEVER moves off c1. The strip
-    // must not wait for it: the marker is optimistic, so the click is answered on the frame
-    // it happens instead of after the canvas swap commits.
-    publish();
+  it('marks the clicked tab selected in the same frame as the click', () => {
+    // `activateSession` flips the active id synchronously and only then materializes, so the
+    // strip can read selection straight from the slice — no optimistic marker, no transition.
+    // The mock mirrors that first synchronous act; the assertions run with nothing awaited.
+    publish({ actions: { selectSession: (id: string) => setActiveSession(id) } });
     useShell.getState().openTab('c1');
     useShell.getState().openTab('c2');
     render(<Center />);

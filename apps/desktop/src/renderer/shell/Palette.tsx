@@ -1,6 +1,8 @@
 import { StatusDot, useModalLayer } from '@coa/console-kit';
 import { Command } from 'cmdk';
-import { useConsoleState } from './consoleStore.js';
+import { consoleActions } from '../store/actions.js';
+import { useSessions } from '../store/sessions.js';
+import { useConsoleUi } from '../store/ui.js';
 import { bindFor } from './keys.js';
 import { SURFACES } from './Nav.js';
 import { useShell } from './store.js';
@@ -21,18 +23,20 @@ export function Palette(): React.JSX.Element | null {
   // A modal layer, not a plain one: the palette takes the screen on a keystroke, so
   // nothing closes an open menu on the way in unless this does.
   useModalLayer(open, () => setOpen(false));
-  const state = useConsoleState((s) => s);
+  const list = useSessions((s) => s.list);
+  const activeId = useSessions((s) => s.activeSessionId);
+  const runStatus = useSessions((s) => s.runStatus);
+  const rawMode = useConsoleUi((s) => s.rawMode);
 
-  if (!open || state === undefined) return null;
+  if (!open) return null;
 
   const run = (fn: () => void): void => {
     fn();
     setOpen(false);
   };
   const shell = useShell.getState();
-  const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const activeId = state.ui.activeSessionId;
-  const running = activeId !== undefined && state.ui.runStatus[activeId] !== undefined;
+  const sessions = list.status === 'ok' ? list.value : [];
+  const running = activeId !== undefined && runStatus[activeId] !== undefined;
 
   return (
     <div
@@ -58,15 +62,15 @@ export function Palette(): React.JSX.Element | null {
           <Command.Empty>Nothing matches</Command.Empty>
 
           <Command.Group heading="Actions">
-            <Command.Item onSelect={() => run(() => state.actions.toggleRaw())}>
+            <Command.Item onSelect={() => run(() => consoleActions.toggleRaw())}>
               <span className="glyph">≡</span>
-              {state.ui.rawMode ? 'Raw Mode Off' : 'Raw Mode On (show the unfiltered loop)'}
+              {rawMode ? 'Raw Mode Off' : 'Raw Mode On (show the unfiltered loop)'}
             </Command.Item>
             <Command.Item
               disabled={!running}
               onSelect={() =>
                 run(() => {
-                  if (activeId !== undefined) state.actions.interruptSession(activeId);
+                  if (activeId !== undefined) consoleActions.interruptSession(activeId);
                 })
               }
             >
@@ -104,9 +108,9 @@ export function Palette(): React.JSX.Element | null {
             {sessions.slice(0, 20).map((s) => (
               <Command.Item
                 key={s.id}
-                onSelect={() => run(() => state.actions.selectSession(s.id))}
+                onSelect={() => run(() => consoleActions.selectSession(s.id))}
               >
-                <StatusDot status={state.ui.runStatus[s.id] !== undefined ? 'running' : 'idle'} />
+                <StatusDot status={runStatus[s.id] !== undefined ? 'running' : 'idle'} />
                 {s.title}
               </Command.Item>
             ))}

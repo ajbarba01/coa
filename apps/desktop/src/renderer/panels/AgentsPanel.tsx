@@ -55,7 +55,9 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { NO_DRAG } from '../shell/appRegion.js';
-import { useConsoleState } from '../shell/consoleStore.js';
+import { consoleActions } from '../store/actions.js';
+import { useDaemonData } from '../store/data.js';
+import { useConsoleUi } from '../store/ui.js';
 import { useAgentsUi } from './agentsUi.js';
 import { TEXT_INPUT_CLASS, TextInput } from './fields.js';
 import { RISE } from './motion.js';
@@ -72,7 +74,7 @@ import {
 } from './resolvedSet.js';
 import { SkeletonLines, SurfaceEmpty, SurfaceError } from './surfaceStates.js';
 import { useNarrow } from './useNarrow.js';
-import type { ConsoleState } from './state.js';
+import type { ConsoleActions, ConsoleData } from './state.js';
 
 // The model-picking vocabulary lives with the picker itself now; re-exported here so the
 // surface stays the one import site for anything about an agent.
@@ -115,8 +117,34 @@ export type AgentsVm =
       togglePinAgent: (ref: string) => void;
     };
 
+/** The subset of the console shape this surface reads (assembled from the slices). */
+export interface AgentsVmState {
+  data: Pick<ConsoleData, 'agents' | 'models' | 'roles' | 'packages'>;
+  ui: { selectedAgentRef?: string | undefined; settings: { pinnedAgents: string[] } };
+  actions: Pick<
+    ConsoleActions,
+    'selectAgent' | 'createAgent' | 'updateAgent' | 'deleteAgent' | 'togglePinAgent'
+  >;
+}
+
+/** Assemble this surface's vm input from the slice stores (a hook — subscribes to
+ *  exactly what the editor renders). */
+function useAgentsVmState(): AgentsVmState {
+  const agents = useDaemonData((s) => s.agents);
+  const models = useDaemonData((s) => s.models);
+  const roles = useDaemonData((s) => s.roles);
+  const packages = useDaemonData((s) => s.packages);
+  const selectedAgentRef = useConsoleUi((s) => s.selectedAgentRef);
+  const pinnedAgents = useConsoleUi((s) => s.settings.pinnedAgents);
+  return {
+    data: { agents, models, roles, packages },
+    ui: { selectedAgentRef, settings: { pinnedAgents } },
+    actions: consoleActions,
+  };
+}
+
 /** Pure: the editor opens on ui.selectedAgentRef, falling back to the first agent. */
-export function selectAgentsVm(state: ConsoleState): AgentsVm {
+export function selectAgentsVm(state: AgentsVmState): AgentsVm {
   const r = state.data.agents;
   if (r.status !== 'ok') return r;
   const agents = r.value;
@@ -1268,12 +1296,12 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
  *  reachable even from inside the drill-down. The FILTER is not here: it belongs to the
  *  list it filters, and lives at the head of that column. */
 export function AgentsStrip(): React.JSX.Element {
-  const state = useConsoleState((s) => s);
+  const agentsRemote = useDaemonData((s) => s.agents);
+  const selectedRef = useConsoleUi((s) => s.selectedAgentRef);
   const narrow = useAgentsUi((s) => s.narrow);
   const open = useAgentsUi((s) => s.open);
   const setOpen = useAgentsUi((s) => s.setOpen);
-  const agents = state?.data.agents.status === 'ok' ? state.data.agents.value : [];
-  const selectedRef = state?.ui.selectedAgentRef;
+  const agents = agentsRemote.status === 'ok' ? agentsRemote.value : [];
   const drilled = narrow && open ? agents.find((a) => a.ref === selectedRef) : undefined;
 
   return (
@@ -1304,7 +1332,7 @@ export function AgentsStrip(): React.JSX.Element {
         <Button
           variant="text"
           className="mr-3"
-          onClick={() => state?.actions.createAgent('project')}
+          onClick={() => consoleActions.createAgent('project')}
         >
           + New Agent
         </Button>
@@ -1417,8 +1445,10 @@ function AgentDiagnosticsBanner({
 /** State-fed surface: computes the vm from console state and renders the master–detail
  *  agents editor. Master–detail at width; the SAME two components stack into a
  *  drill-down when the pane is narrow (the auth-surface pattern). */
-export function AgentsSurface({ state }: { state: ConsoleState }): React.JSX.Element {
-  const vm = selectAgentsVm(state);
+export function AgentsSurface(): React.JSX.Element {
+  const vmState = useAgentsVmState();
+  const agentDiagnostics = useDaemonData((s) => s.agentDiagnostics);
+  const vm = selectAgentsVm(vmState);
   const query = useAgentsUi((s) => s.query);
   const narrow = useAgentsUi((s) => s.narrow);
   const setNarrowUi = useAgentsUi((s) => s.setNarrow);
@@ -1440,7 +1470,7 @@ export function AgentsSurface({ state }: { state: ConsoleState }): React.JSX.Ele
 
   return (
     <div ref={hostRef} className="flex min-h-0 flex-1 flex-col">
-      <AgentDiagnosticsBanner diagnostics={state.data.agentDiagnostics} />
+      <AgentDiagnosticsBanner diagnostics={agentDiagnostics} />
       {vm.status === 'loading' && <SkeletonLines widths={['w-40', 'w-64', 'w-52']} />}
       {vm.status === 'error' && <SurfaceError message={vm.message} />}
       {vm.status === 'empty' && (

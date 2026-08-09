@@ -1,21 +1,7 @@
 import { Spinner } from '@coa/console-kit';
-import { memo, startTransition, useEffect, useState } from 'react';
+import { startTransition, useEffect, useState } from 'react';
 
 type TransitionFn = (cb: () => void) => void;
-
-/** Skips re-rendering its subtree entirely while frozen — for HIDDEN kept-alive
- *  canvases, which would otherwise re-render on every live publish (the poll,
- *  every streamed frame), making the console slower with each visited surface.
- *  Thawing re-renders in the same commit as the visibility flip, so the tab
- *  never shows stale content. */
-export const Freeze = memo(
-  function Freeze({ children }: { frozen: boolean; children: React.ReactNode }): React.JSX.Element {
-    return <>{children}</>;
-  },
-  // memo contract: returning true skips the render — exactly and only while
-  // the NEXT state is frozen.
-  (_prev, next) => next.frozen,
-);
 
 /** True once `id`'s content has committed. Every `id` change (and the first
  *  mount) routes through a React transition: the urgent render paints the

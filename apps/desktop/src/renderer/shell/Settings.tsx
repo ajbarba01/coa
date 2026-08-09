@@ -13,7 +13,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { TextInput } from '../panels/fields.js';
 import { useAuthStore } from '../panels/authStore.js';
-import { useConsoleState } from './consoleStore.js';
+import { consoleActions } from '../store/actions.js';
+import { useConsoleUi } from '../store/ui.js';
 import { surfaceWrite } from './failures.js';
 import { useKeybinds } from './keys.js';
 import { useShell } from './store.js';
@@ -207,14 +208,14 @@ const SECTIONS: SectionSpec[] = [
 export function SettingsDialog(): React.JSX.Element {
   const open = useShell((s) => s.settingsOpen);
   const setOpen = useShell((s) => s.setSettingsOpen);
-  const state = useConsoleState((s) => s);
+
   const [q, setQ] = useState('');
   const [active, setActive] = useState(SECTIONS[0]?.id ?? '');
   const contentRef = useRef<HTMLDivElement>(null);
   const keybinds = useKeybinds();
 
-  const settings = state?.ui.settings;
-  const apply = (patch: Partial<ConsoleSettings>): void => state?.actions.setSettings(patch);
+  const settings = useConsoleUi((s) => s.settings);
+  const apply = (patch: Partial<ConsoleSettings>): void => consoleActions.setSettings(patch);
 
   // The login rows' `browserSession` read lives here, not on either row: a search query
   // can leave only one of the two mounted, and the dialog is the one thing guaranteed
@@ -267,17 +268,16 @@ export function SettingsDialog(): React.JSX.Element {
         <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
           {/* rows cap at a readable width even when the dialog runs wide */}
           <div className="max-w-160">
-            {settings !== undefined &&
-              visible.map((s) => (
-                <div key={s.id} data-section={s.id} className="pt-4">
-                  <CapsLabel className="p-0 pb-1">{s.title}</CapsLabel>
-                  {s.rows.map((r) => (
-                    <SettingRow key={r.id} name={r.name} desc={r.desc}>
-                      {r.render(settings, apply)}
-                    </SettingRow>
-                  ))}
-                </div>
-              ))}
+            {visible.map((s) => (
+              <div key={s.id} data-section={s.id} className="pt-4">
+                <CapsLabel className="p-0 pb-1">{s.title}</CapsLabel>
+                {s.rows.map((r) => (
+                  <SettingRow key={r.id} name={r.name} desc={r.desc}>
+                    {r.render(settings, apply)}
+                  </SettingRow>
+                ))}
+              </div>
+            ))}
             {bindHits.length > 0 && (
               <div data-section="keybinds" className="pt-4">
                 <CapsLabel className="p-0 pb-1">Keybinds</CapsLabel>

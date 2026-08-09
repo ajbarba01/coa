@@ -22,12 +22,12 @@ vi.mock('./rpc.js', () => ({
   rpcRemoveModel: vi.fn(),
   rpcSetModelHidden: vi.fn(),
 }));
-vi.mock('../console.js', () => ({
+vi.mock('../store/notices.js', () => ({
   notifyModelsChanged: vi.fn(),
   onModelsChanged: vi.fn(),
 }));
 
-import { notifyModelsChanged, onModelsChanged } from '../console.js';
+import { notifyModelsChanged, onModelsChanged } from '../store/notices.js';
 import {
   rpcAddCustomModel,
   rpcAddModels,

@@ -1,9 +1,10 @@
 import { TooltipProvider } from '@coa/console-kit';
 import { useEffect, useRef } from 'react';
 import type { DaemonReport } from '../shared/methods.js';
-import { onAuthFailure, startConsole, type ConsoleController } from './console.js';
 import { reportActiveClaudeAuthFailure } from './panels/loginStore.js';
-import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
+import { startConsole, type ConsoleController } from './store/controller.js';
+import { onAuthFailure } from './store/notices.js';
+import { useSessions } from './store/sessions.js';
 import { DaemonGate } from './shell/DaemonGate.js';
 import { EditMenu } from './shell/EditMenu.js';
 import { FailureToast } from './shell/FailureToast.js';
@@ -28,14 +29,14 @@ export function App(): React.JSX.Element {
   );
 
   // The active session always has a tab: seed/append on every genuine change of
-  // the controller's activeSessionId (boot-time open, browser pick, new session).
+  // the session slice's activeSessionId (boot-time open, browser pick, new session).
+  // The shell's tab set is also the materialization trigger — the controller
+  // subscribes to it, so opening the tab keeps the session subscribed + hydrated.
   useEffect(() => {
-    // Seed from whatever is already active (a publish can precede this effect),
-    // then follow genuine changes.
-    let prev = useConsoleState.getState()?.ui.activeSessionId;
+    let prev = useSessions.getState().activeSessionId;
     if (prev !== undefined) useShell.getState().openTab(prev);
-    return useConsoleState.subscribe((s) => {
-      const id = s?.ui.activeSessionId;
+    return useSessions.subscribe((s) => {
+      const id = s.activeSessionId;
       if (id !== undefined && id !== prev) useShell.getState().openTab(id);
       prev = id;
     });
@@ -64,8 +65,8 @@ export function App(): React.JSX.Element {
         controllerRef.current?.clearRunState();
         void controllerRef.current?.refresh();
         // Recover the boot-time reads a cold start may have fired before the daemon
-        // existed (they'd have settled into error Remotes with nothing else to retry
-        // them) — see `ConsoleController.hydrate`'s doc for the restart-safety guard.
+        // existed, and — after a genuine restart — re-attach every open tab (see
+        // `ConsoleController.hydrate`'s doc for the launch-race guard).
         void controllerRef.current?.hydrate();
       }
     };
@@ -83,7 +84,6 @@ export function App(): React.JSX.Element {
       // startConsole), so no auth-shaped error frame can slip past an empty sink.
       onAuthFailure(reportActiveClaudeAuthFailure);
       const controller = await startConsole(window.coa, {
-        publish: publishConsoleState,
         navigate: (s) => useShell.getState().setSurface(s),
       });
       if (disposed) {

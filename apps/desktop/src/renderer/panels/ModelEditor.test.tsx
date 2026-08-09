@@ -15,7 +15,7 @@ vi.mock('./rpc.js', () => ({
   rpcRemoveModel: vi.fn(),
   rpcSetModelHidden: vi.fn(),
 }));
-vi.mock('../console.js', () => ({
+vi.mock('../store/notices.js', () => ({
   notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
   onModelsChanged: vi.fn(),
 }));
