@@ -152,6 +152,13 @@ const DAEMON_DOT: Record<string, string> = {
   error: 'bg-crit',
 };
 
+// One compact size (8px, `DAEMON_DOT_SIZE`) for every inline daemon dot — the foot
+// trigger and its own popover header alike, so the same indicator never quietly changes
+// scale between the button that opens it and the card it opens. DaemonGate's full-screen
+// hero dot is the one deliberate exception: alone and unaccompanied as the whole state,
+// it earns the larger 10px mark that a piece of inline chrome never would.
+const DAEMON_DOT_SIZE = 'h-2 w-2';
+
 /** The daemon itself, as a status dot with an action menu — the console is a
  *  client of the daemon, so this is the one control that outranks everything. */
 function DaemonButton(): React.JSX.Element {
@@ -178,12 +185,13 @@ function DaemonButton(): React.JSX.Element {
             aria-label={`Daemon: ${daemon}`}
             className="slip flex h-8 w-8 cursor-pointer items-center justify-center rounded-r2 hover:bg-s3"
           >
-            <span className={cx('h-2 w-2 rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
+            <span className={cx(DAEMON_DOT_SIZE, 'rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
           </button>
         }
       >
         <div className="flex items-center gap-2 px-3 py-1.5 text-caps tracking-[0.07em] text-s7 uppercase">
-          Daemon <span className={cx('h-1.5 w-1.5 rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
+          Daemon{' '}
+          <span className={cx(DAEMON_DOT_SIZE, 'rounded-full', DAEMON_DOT[daemon] ?? 'bg-s5')} />
           <span className="tracking-normal lowercase">{daemon}</span>
         </div>
         <MenuItem
@@ -230,7 +238,7 @@ function ProjectButton(): React.JSX.Element {
           <span className="slip truncate text-sec font-semibold text-s11 group-hover:text-s12">
             {name}
           </span>
-          <span className="slip text-body text-s7 group-hover:text-s9">⇄</span>
+          <span className="slip font-mono text-icon text-s7 group-hover:text-s9">⇄</span>
         </button>
       </div>
 

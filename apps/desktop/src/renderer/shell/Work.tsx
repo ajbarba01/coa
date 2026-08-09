@@ -47,7 +47,10 @@ export function Work(): React.JSX.Element {
   return (
     <div className="flex flex-none flex-col border-l border-s4 bg-s2" style={{ width: workWidth }}>
       {/* the whole strip drags; interactive children opt out (appRegion policy) */}
-      <div className="flex h-(--titlebar-h) flex-none items-stretch" style={DRAG}>
+      <div
+        className="flex h-(--titlebar-h) flex-none items-stretch border-b border-s4"
+        style={DRAG}
+      >
         <CapsLabel className="self-center px-3.5 pt-0 pb-0">Agents</CapsLabel>
         <div className="flex-1" />
         <AppWindowControls />

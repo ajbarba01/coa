@@ -5,9 +5,9 @@ import { AppWindowControls } from './windowControls.js';
 import { useShell } from './store.js';
 
 const MESSAGE: Record<'starting' | 'stopped' | 'error', string> = {
-  starting: 'starting the coa daemon…',
-  stopped: 'the coa daemon is not running',
-  error: 'the coa daemon hit an error',
+  starting: 'Starting the coa daemon…',
+  stopped: 'The coa daemon is not running.',
+  error: 'The coa daemon hit an error.',
 };
 
 /** While the gate is up and the daemon is down, retry on an interval: `start` probes the
@@ -72,6 +72,8 @@ export function DaemonGate(): React.JSX.Element {
         <AppWindowControls />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
+        {/* Deliberately larger than Nav's compact 8px daemon dot (DAEMON_DOT_SIZE): this
+         *  one is the whole hero state, alone on the screen, not a line of inline chrome. */}
         <span
           className={cx(
             'h-2.5 w-2.5 rounded-full',
