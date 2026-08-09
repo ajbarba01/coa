@@ -1,8 +1,4 @@
-import {
-  modelImageInputSupport,
-  type CapabilitySupport,
-  type ModelMetadata,
-} from '@coa/shared';
+import { modelImageInputSupport, type CapabilitySupport, type ModelMetadata } from '@coa/shared';
 
 /**
  * The pure selectors behind the composer's context ring, its attach control, and

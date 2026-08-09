@@ -13,8 +13,10 @@ import {
   type Checkpoint,
   type FeedView,
   type LoginSnapshot,
+  type Attachment,
   type ModelCatalogView,
   type ModelDescriptor,
+  type ModelMetadataView,
   type ModelSelection,
   type PackageSummary,
   type PermissionMode,
@@ -97,6 +99,9 @@ export interface ConsoleBridge {
     exclude?: string[];
   }): Promise<{ sessionId: string; worktree: string }>;
   listModels(): Promise<ModelDescriptor[]>;
+  /** The per-model info catalog (context window/pricing/modalities/reasoning) —
+   *  the context ring, the model-picker hover card, and attach gating read it. */
+  modelMetadata(): Promise<ModelMetadataView>;
   // The agent-assembly catalogue for the role/package picker.
   listRoles(): Promise<RoleSummary[]>;
   listPackages(): Promise<PackageSummary[]>;
@@ -401,6 +406,12 @@ export async function startConsole(
   async function loadModels(): Promise<void> {
     const models = await settle(() => bridge.listModels());
     state = { ...state, data: { ...state.data, models } };
+    push();
+  }
+
+  async function loadModelMetadata(): Promise<void> {
+    const modelMetadata = await settle(async () => (await bridge.modelMetadata()).entries);
+    state = { ...state, data: { ...state.data, modelMetadata } };
     push();
   }
 
@@ -1099,6 +1110,29 @@ export async function startConsole(
       push();
       return;
     }
+    // The per-turn usage mirror (the adapters' own settlement numbers) — the context
+    // ring reads the LAST settled turn's figures, so each push replaces rather than
+    // accumulates (the settled tokensIn already includes the whole context handed over).
+    if (data.kind === 'usage') {
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          usageBySession: {
+            ...state.ui.usageBySession,
+            [data.sessionId]: {
+              tokensIn: data.tokensIn,
+              tokensOut: data.tokensOut,
+              ...(data.cacheReadTokens !== undefined
+                ? { cacheReadTokens: data.cacheReadTokens }
+                : {}),
+            },
+          },
+        },
+      };
+      push();
+      return;
+    }
     // F2: the mode-reflection push — the daemon is the ONE authority over a session's
     // permission mode; the console only ever mirrors it. `degraded` rides straight
     // through unchanged (the daemon's own honest wording — SC-1).
@@ -1157,7 +1191,7 @@ export async function startConsole(
     }
   });
 
-  const sendMessage = (text: string): void => {
+  const sendMessage = (text: string, attachments?: readonly Attachment[]): void => {
     const body = text.trim();
     const id = state.ui.activeSessionId;
     if (body === '' || id === undefined) return;
@@ -1201,6 +1235,26 @@ export async function startConsole(
         },
       };
     }
+    // Attachments leave a console-local note beside the send (same mechanism as the
+    // "switched model" note): the persisted transcript carries only the text, so
+    // without this the live view would show no trace an attachment ever went along.
+    if (attachments !== undefined && attachments.length > 0) {
+      const names = attachments.map((a) => a.name ?? (a.kind === 'image' ? 'image' : 'text file'));
+      const afterCount = turnsBySession.get(id)?.length ?? 0;
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          notesBySession: {
+            ...state.ui.notesBySession,
+            [id]: [
+              ...(state.ui.notesBySession[id] ?? []),
+              { afterCount, text: `attached ${names.join(', ')}` },
+            ],
+          },
+        },
+      };
+    }
     appendTurns(id, [{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     // The pending pick is being applied now: clear the override and optimistically pin
     // it locally, so the predictive cache banner clears on send (the daemon persists the
@@ -1238,6 +1292,9 @@ export async function startConsole(
           : {}),
         ...(agent?.exclude && agent.exclude.length > 0 ? { exclude: agent.exclude } : {}),
         ...(Object.keys(model).length > 0 ? { model } : {}),
+        ...(attachments !== undefined && attachments.length > 0
+          ? { attachments: [...attachments] }
+          : {}),
       })
       // The first send auto-titles the session server-side; reflect it in the rail.
       .then(() => refreshSessionList())
@@ -1322,6 +1379,7 @@ export async function startConsole(
   const bootLoads = Promise.allSettled([
     loadAccounts(),
     loadModels(),
+    loadModelMetadata(),
     loadCatalogue(),
     initAgents(),
     initSessions(),
@@ -1361,7 +1419,13 @@ export async function startConsole(
 
   async function hydrate(): Promise<void> {
     await bootLoads;
-    await Promise.all([loadAccounts(), loadModels(), loadCatalogue(), initAgents()]);
+    await Promise.all([
+      loadAccounts(),
+      loadModels(),
+      loadModelMetadata(),
+      loadCatalogue(),
+      initAgents(),
+    ]);
     if (state.data.sessions.status !== 'ok' || state.ui.activeSessionId === undefined) {
       await initSessions();
     }

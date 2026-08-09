@@ -3,6 +3,7 @@ import {
   ActiveAccountSchema,
   agentFileSchema,
   approvalDecisionSchema,
+  attachmentSchema,
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
@@ -35,6 +36,9 @@ export const StartSessionParamsSchema = z.object({
   /** Assembly selection: opt-in packages added / default packages excluded (role-gated). */
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
+  /** Attachments on this send's user message (the one shared wire shape). The daemon
+   *  refuses them for a backend whose adapter has no seam — never a silent drop. */
+  attachments: z.array(attachmentSchema).optional(),
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
