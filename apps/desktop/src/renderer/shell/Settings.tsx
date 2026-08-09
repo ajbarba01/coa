@@ -2,6 +2,7 @@ import {
   CapsLabel,
   DialogSearchHead,
   filterKeybinds,
+  Icon,
   Kbd,
   ModalShell,
   SettingRow,
@@ -134,7 +135,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
                 aria-label={`Remove browser profile ${name}`}
                 onClick={() => run([name])}
               >
-                ✕
+                <Icon name="close" />
               </button>
             </span>
           ))}

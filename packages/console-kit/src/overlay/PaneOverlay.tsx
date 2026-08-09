@@ -135,11 +135,11 @@ function PaneOverlayHost({
         aria-label="Dismiss"
         tabIndex={-1}
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-black/50"
+        className="absolute inset-0 cursor-default bg-scrim"
       />
       <div
         ref={panelRef}
-        className="relative m-3 flex max-h-[calc(100%-1.5rem)] w-full flex-col overflow-hidden rounded-r3 border border-s5 bg-s2 shadow-xl"
+        className="relative m-3 flex max-h-[calc(100%-1.5rem)] w-full flex-col overflow-hidden rounded-r3 border border-s5 bg-s2 shadow-modal"
       >
         <div className="flex items-center justify-between border-b border-s4 px-3 py-2">
           <span className="truncate font-mono text-sec text-s11">{title}</span>

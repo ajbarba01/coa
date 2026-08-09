@@ -162,8 +162,9 @@ export function ShowcaseSurface(): React.JSX.Element {
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-10">
       <div className="mx-auto flex max-w-3xl flex-col gap-9">
         <p className="text-sec text-s9">
-          Every kit member, then the conversation renderer chat is built from. Specimens are inert
-          unless the member's whole behaviour is that it appears and leaves on its own.
+          Every kit member, then the families the conversation renderer's chat is built from.
+          Specimens are inert unless the member's whole behaviour is that it appears and leaves on
+          its own.
         </p>
         <Family name="Kit">
           <KitSpecimens />

@@ -24,6 +24,11 @@
      the root (which would silently scale every legacy control). */
   font-size: 16px;
   cursor: default; /* native desktop feel; text/inputs re-enable their own */
+
+  /* The showcase's one label-column width (Specimen's `Row`), named so it reads
+     as a token reference rather than a bare magic number — the same carve-out
+     shape as the kit's `--titlebar-h`. */
+  --specimen-label-w: 8.25rem;
 }
 
 /* The shell fills the window and owns its own scrolling; without an explicit
