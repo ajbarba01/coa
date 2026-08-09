@@ -3,8 +3,23 @@ import { Transcript } from '@coa/console-transcript';
 import { PaneOverlayProvider } from '@coa/console-kit';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
-import type { ModelDescriptor, PermissionMode, TurnFrame } from '@coa/console-viewmodel';
-import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
+import type {
+  Attachment,
+  AttachControlVm,
+  ModelDescriptor,
+  ModelMetadata,
+  PermissionMode,
+  SessionUsage,
+  TurnFrame,
+} from '@coa/console-viewmodel';
+import {
+  attachControlState,
+  effortOptions,
+  findModelMetadata,
+  providerCarriesAttachments,
+  reasoningValue,
+  toReasoning,
+} from '@coa/console-viewmodel';
 import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
 import { reportFailure } from '../shell/failures.js';
 import { matchesFind } from '../shell/keys.js';
@@ -63,6 +78,16 @@ export type ChatVm =
       effortOptions: { value: string; label: string }[];
       effortValue: string;
       onPickEffort: (v: string) => void;
+      /** Per-model catalog rows (context window/pricing/modalities) — the picker's
+       *  hover card resolves any hovered model's row from this. Empty while the
+       *  read is loading/failed (the surfaces degrade to their honest unknowns). */
+      modelMetadata: ModelMetadata[];
+      /** The ACTIVE model's row — the context ring's window; absent ⇒ unknown. */
+      activeModelMetadata?: ModelMetadata | undefined;
+      /** The active session's last settled usage (the daemon's `usage` push). */
+      ringUsage?: SessionUsage | undefined;
+      /** The attach control's capability matrix for the active model/backend. */
+      attach: AttachControlVm;
       onRespond: RespondFn;
       /** F2: the active session's CONFIGURED permission mode (what was picked/the
        *  agent's default) — undefined session ⇒ the system floor `manual`. */
@@ -76,7 +101,8 @@ export type ChatVm =
       /** F2: live-switch the active session's permission mode. No-op with no active
        *  session. */
       onSetMode: (mode: PermissionMode) => void;
-      onSend: (text: string) => void;
+      /** Send, with any staged attachments riding the same governed send. */
+      onSend: (text: string, attachments?: readonly Attachment[]) => void;
       /** The Stop/Esc affordance — cooperatively interrupts the active session's running
        *  turn (a user stop, never a governance block; unpressed, nothing
        *  changes). A no-op with no active session (Composer only surfaces Stop while
@@ -393,6 +419,23 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const currentModelId = override?.model ?? activeSession?.model ?? activeAgent?.model;
   const currentModel = models.find((m) => m.id === currentModelId);
   const effortOpts = effortOptions(currentModel);
+  // The per-model info surfaces: the ACTIVE model's catalog row drives the context
+  // ring's window and the attach gate; the full entry list feeds the picker's hover
+  // card. The provider resolves the same way the send itself does — the descriptor's
+  // own tag first, then the override/pin/agent chain, then the claude default.
+  const metadataEntries =
+    state.data.modelMetadata.status === 'ok' ? state.data.modelMetadata.value : [];
+  const activeProvider =
+    currentModel?.provider ??
+    override?.provider ??
+    activeSession?.provider ??
+    activeAgent?.provider;
+  const activeModelMetadata = findModelMetadata(metadataEntries, activeProvider, currentModelId);
+  const attach = attachControlState(activeModelMetadata, {
+    backendCarriesAttachments: providerCarriesAttachments(activeProvider),
+  });
+  const ringUsage =
+    activeSessionId !== undefined ? state.ui.usageBySession[activeSessionId] : undefined;
   const effortVal = reasoningValue(
     override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning,
   );
@@ -460,6 +503,10 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       if (activeSessionId !== undefined)
         state.actions.setSessionModel(activeSessionId, { reasoning: toReasoning(v) });
     },
+    modelMetadata: metadataEntries,
+    ...(activeModelMetadata !== undefined ? { activeModelMetadata } : {}),
+    ...(ringUsage !== undefined ? { ringUsage } : {}),
+    attach,
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
     onInterrupt: () => {
@@ -854,6 +901,10 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               effortOptions={vm.effortOptions}
               effortValue={vm.effortValue}
               onPickEffort={vm.onPickEffort}
+              modelMetadata={vm.modelMetadata}
+              activeModelMetadata={vm.activeModelMetadata}
+              ringUsage={vm.ringUsage}
+              attach={vm.attach}
               onSend={vm.onSend}
               onQueue={handleQueue}
               onSteer={handleSteer}

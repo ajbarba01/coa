@@ -1,8 +1,18 @@
 import { Button, Icon, StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { estimateTokens } from '@coa/console-transcript';
 import { useEffect, useRef, useState } from 'react';
-import type { ModelDescriptor, PermissionMode } from '@coa/console-viewmodel';
+import type {
+  Attachment,
+  AttachControlVm,
+  ModelDescriptor,
+  ModelMetadata,
+  PermissionMode,
+  SessionUsage,
+} from '@coa/console-viewmodel';
+import { reportFailure } from '../shell/failures.js';
 import { useShell } from '../shell/store.js';
 import type { ChatNotice } from './banners.js';
+import { ContextRing } from './ContextRing.js';
 import { ModelPicker } from './ModelPicker.js';
 import { NoticeLine } from './NoticeLine.js';
 import { PermissionModeChip } from './PermissionModeChip.js';
@@ -11,6 +21,61 @@ import { ReasoningChip } from './ReasoningPicker.js';
 export interface QueuedMessage {
   id: string;
   text: string;
+}
+
+/** A staged attachment: the wire shape plus the local facts the chips row shows. */
+export interface DraftAttachment {
+  id: number;
+  attachment: Attachment;
+  sizeBytes: number;
+}
+
+/** The image types every wired vision backend accepts. */
+const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+/** Extensions read as text when the OS reports no usable MIME type. */
+const TEXT_EXT =
+  /\.(md|txt|json|ts|tsx|js|jsx|py|rs|go|java|c|h|cpp|cs|rb|sh|ps1|yaml|yml|toml|xml|html|css|sql|log|csv)$/i;
+
+/** A hard intake ceiling — providers reject far smaller payloads anyway, and a
+ *  base64 body this size would stall the RPC pipe. */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+function isTextLike(file: File): boolean {
+  return (
+    file.type.startsWith('text/') || file.type === 'application/json' || TEXT_EXT.test(file.name)
+  );
+}
+
+/** Base64 payload only — the wire shape carries no `data:` prefix. */
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('file read failed'));
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve(url.slice(url.indexOf(',') + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** FileReader rather than `file.text()` — same mechanism as the image path, and
+ *  implemented everywhere the app (and its jsdom tests) run. */
+function readText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('file read failed'));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsText(file);
+  });
+}
+
+/** Compact size for the chips row: `812 B`, `24.1 KB`, `3.2 MB`. */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** A pending approval, docked to the composer — the gate visibly blocks the
@@ -55,7 +120,18 @@ export interface ComposerProps {
   effortOptions: { value: string; label: string }[];
   effortValue: string;
   onPickEffort: (v: string) => void;
-  onSend: (text: string) => void;
+  /** Per-model catalog rows, for the picker's hover overview card. */
+  modelMetadata?: ModelMetadata[];
+  /** The ACTIVE model's catalog row — the context ring's window denominator. */
+  activeModelMetadata?: ModelMetadata | undefined;
+  /** The last settled turn's usage (the daemon's `usage` push); absent ⇒ unmeasured. */
+  ringUsage?: SessionUsage | undefined;
+  /** The attach control's capability matrix for the active model/backend. Absent ⇒
+   *  attachments unavailable (the control explains itself, never vanishes). */
+  attach?: AttachControlVm | undefined;
+  /** `attachments` rides only a direct send — a queue/steer/redirect keeps staged
+   *  attachments pinned in the composer rather than silently dropping them. */
+  onSend: (text: string, attachments?: Attachment[]) => void;
   onQueue?: (text: string) => void;
   onSteer?: (text: string) => void;
   onStop?: () => void;
@@ -109,6 +185,10 @@ export function Composer({
   effortOptions,
   effortValue,
   onPickEffort,
+  modelMetadata,
+  activeModelMetadata,
+  ringUsage,
+  attach,
   onSend,
   onQueue,
   onSteer,
@@ -123,6 +203,71 @@ export function Composer({
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
   const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Staged attachments: added by picker/paste/drop, removable, and released ONLY by a
+  // direct send (queue/steer/redirect leave them pinned — visible, never dropped).
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const attachIdRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Drag state for the drop affordance — a quiet border step-up, no overlay.
+  const [dragging, setDragging] = useState(false);
+
+  /** The ONE intake funnel (picker, paste, drop): capability-gate per kind, refuse
+   *  loudly (a toast with the reason), never accept something a send would fail. */
+  const addFile = async (file: File): Promise<void> => {
+    const name = file.name === '' ? 'that file' : file.name;
+    if (attach === undefined) {
+      reportFailure('attach a file', 'Attachments are unavailable here.');
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      reportFailure('attach a file', `${name} is over 10 MB.`);
+      return;
+    }
+    if (IMAGE_MIME.has(file.type)) {
+      if (!attach.image.enabled) {
+        reportFailure('attach that image', `${attach.image.reason ?? 'Images are unavailable'}.`);
+        return;
+      }
+      const data = await readBase64(file);
+      append(
+        {
+          kind: 'image',
+          mimeType: file.type,
+          data,
+          ...(file.name !== '' ? { name: file.name } : {}),
+        },
+        file.size,
+      );
+      return;
+    }
+    if (isTextLike(file)) {
+      if (!attach.text.enabled) {
+        reportFailure(
+          'attach that file',
+          `${attach.text.reason ?? 'Attachments are unavailable'}.`,
+        );
+        return;
+      }
+      const body = await readText(file);
+      append(
+        { kind: 'text', text: body, ...(file.name !== '' ? { name: file.name } : {}) },
+        file.size,
+      );
+      return;
+    }
+    reportFailure('attach a file', `${name} is not an image or a text file.`);
+  };
+
+  const append = (attachment: Attachment, sizeBytes: number): void => {
+    setAttachments((prev) => [...prev, { id: attachIdRef.current++, attachment, sizeBytes }]);
+  };
+
+  const addFiles = (files: Iterable<File>): void => {
+    for (const file of files) {
+      void addFile(file).catch(() => reportFailure('attach a file', 'The file could not be read.'));
+    }
+  };
 
   // Multi-line growth: the field grows with its content to ~6 lines, then
   // scrolls. Measured, not guessed — height follows scrollHeight.
@@ -152,8 +297,20 @@ export function Composer({
   const send = (): void => {
     const t = take();
     if (t === undefined) return;
-    if (approval !== undefined) onRedirect?.(approval.id, t);
-    else onSend(t);
+    // A redirect answers the gate — staged attachments stay pinned for the next send.
+    if (approval !== undefined) {
+      onRedirect?.(approval.id, t);
+      return;
+    }
+    if (attachments.length > 0) {
+      onSend(
+        t,
+        attachments.map((a) => a.attachment),
+      );
+      setAttachments([]);
+    } else {
+      onSend(t);
+    }
   };
   const queueMessage = (): void => {
     const t = take();
@@ -203,21 +360,37 @@ export function Composer({
       {/* no overflow-hidden on the shell — the chip menus must escape its bounds */}
       <div
         data-composer-shell
+        onDragOver={(e) => {
+          if (disabled || !e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          setDragging(false);
+          if (disabled || e.dataTransfer.files.length === 0) return;
+          e.preventDefault();
+          addFiles(e.dataTransfer.files);
+        }}
         className={cx(
           'relative rounded-r4 border bg-s3 shadow-[var(--shadow-composer)]',
           disabled
             ? 'border-s4'
-            : edge === 'running'
-              ? 'border-run/55'
-              : edge === 'needs-you'
-                ? 'border-warn/55'
-                : // A notice tints the edge ONLY while no real session state owns it.
-                  // Session state always wins, and `edge` is untouched either way, so a
-                  // passive notice can never start the shimmer — animating the composer's
-                  // outline for a cold cache would be a straight indicator-law breach.
-                  notices.length > 0
+            : // A file held over the shell steps the border up — the drop affordance,
+              // outranking even session state for the moment the gesture lasts.
+              dragging
+              ? 'border-s7'
+              : edge === 'running'
+                ? 'border-run/55'
+                : edge === 'needs-you'
                   ? 'border-warn/55'
-                  : 'border-s5 focus-within:border-s6',
+                  : // A notice tints the edge ONLY while no real session state owns it.
+                    // Session state always wins, and `edge` is untouched either way, so a
+                    // passive notice can never start the shimmer — animating the composer's
+                    // outline for a cold cache would be a straight indicator-law breach.
+                    notices.length > 0
+                    ? 'border-warn/55'
+                    : 'border-s5 focus-within:border-s6',
         )}
       >
         {edge !== undefined && (
@@ -289,12 +462,56 @@ export function Composer({
             </div>
           </div>
         )}
+        {/* Staged attachments pin INSIDE the shell, above the field they will ride out
+            with — removable chips, an image wearing its own thumbnail. */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-s4 px-2.5 py-1.5">
+            {attachments.map((a) => {
+              const name =
+                a.attachment.name ?? (a.attachment.kind === 'image' ? 'image' : 'text file');
+              return (
+                <span
+                  key={a.id}
+                  className="slip-enter flex items-center gap-1.5 rounded-r2 border border-s4 bg-s2 py-0.5 pr-0.5 pl-1.5"
+                >
+                  {a.attachment.kind === 'image' ? (
+                    <img
+                      src={`data:${a.attachment.mimeType};base64,${a.attachment.data}`}
+                      alt=""
+                      className="h-4 w-4 rounded-r1 object-cover"
+                    />
+                  ) : (
+                    <Icon name="attach" />
+                  )}
+                  <span className="max-w-40 truncate font-mono text-meta text-s10">{name}</span>
+                  <span className="font-mono text-fine text-s6">{formatBytes(a.sizeBytes)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove attachment: ${name}`}
+                    onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                    className="slip slip-press cursor-pointer rounded-r1 p-0.5 text-s7 hover:bg-s4 hover:text-s10 focus-visible:outline-focus active:scale-[0.97]"
+                  >
+                    <Icon name="close" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
         <textarea
           ref={areaRef}
           rows={1}
           value={text}
           disabled={disabled}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files];
+            if (files.length === 0) return;
+            // A pasted screenshot/file goes through the same gated intake as the
+            // picker — including the loud, reasoned refusal when it can't ride.
+            e.preventDefault();
+            addFiles(files);
+          }}
           onKeyDown={(e) => {
             // ⌫ on an empty field denies the merged gate (mirrors its label).
             if (approval !== undefined && e.key === 'Backspace' && text === '') {
@@ -332,7 +549,32 @@ export function Composer({
         />
         {/* the control shelf: same rect, its own hairline */}
         <div className="flex items-center gap-1 border-t border-s4 px-2 py-1.5">
-          <AttachButton disabled={disabled} />
+          <AttachButton
+            state={disabled ? undefined : attach}
+            disabled={disabled}
+            onPick={() => fileInputRef.current?.click()}
+          />
+          {/* The picker's real input — hidden; the button above is its face. `accept`
+              names only what the ACTIVE model can take, but intake re-gates anyway
+              (accept is a hint, not an enforcement). */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            aria-hidden
+            tabIndex={-1}
+            data-attach-input
+            accept={[
+              ...(attach?.image.enabled ? [...IMAGE_MIME] : []),
+              ...(attach?.text.enabled ? ['text/*', 'application/json'] : []),
+            ].join(',')}
+            onChange={(e) => {
+              if (e.target.files !== null) addFiles(e.target.files);
+              // Allow re-picking the same file: a controlled reset, not a browser quirk.
+              e.target.value = '';
+            }}
+          />
           <MicButton disabled={disabled} />
           <div className="flex-1" />
           {/* F2: how autonomous the session runs — leads the cluster, since it governs
@@ -345,6 +587,14 @@ export function Composer({
             onChange={onSetMode}
             disabled={disabled}
           />
+          {/* The context gauge rides beside the model it measures: how full THIS model's
+              window is, exact numbers on hover (an indicator, not a control). */}
+          <ContextRing
+            usage={ringUsage}
+            draftTokens={text.trim() === '' ? 0 : estimateTokens(text)}
+            metadata={activeModelMetadata}
+            disabled={disabled}
+          />
           {/* The two axes of a turn, side by side and each its own control: WHICH model,
               then how hard it thinks. Burying the second inside the first's popup made the
               more frequent of the two the harder to reach. */}
@@ -354,6 +604,7 @@ export function Composer({
             value={currentModelId}
             onChange={onPickModel}
             disabled={disabled}
+            {...(modelMetadata !== undefined ? { metadata: modelMetadata } : {})}
           />
           <ReasoningChip
             options={effortOptions}
@@ -412,20 +663,49 @@ export function Composer({
 /* shelf controls (search-field skin; disabled states included)         */
 /* ------------------------------------------------------------------ */
 
-/** File attachment — a coming-soon affordance: it renders permanently disabled
- *  with no handler, so the shelf's final shape is already in place for whenever
- *  real attachments land. Mirrors the mic (tooltip on a wrapper, see below). */
-function AttachButton({ disabled = false }: { disabled?: boolean }): React.JSX.Element {
+/** The attach control's hover copy: what CAN ride right now, or exactly why
+ *  nothing can — never a silent absence. Exported for direct testing. */
+export function attachTooltip(state: AttachControlVm | undefined): string {
+  if (state === undefined) return 'Attachments are unavailable here';
+  if (state.image.enabled && state.text.enabled) return 'Attach an image or a text file';
+  if (state.text.enabled) {
+    // Text still rides; the image gate's own reason explains the narrowing.
+    return `Attach a text file (${state.image.reason ?? 'images unavailable'})`;
+  }
+  return state.text.reason ?? state.image.reason ?? 'Attachments are unavailable here';
+}
+
+/**
+ * File attachment — capability-gated by the active model/backend (the viewmodel's
+ * `attachControlState` matrix). Enabled when at least one attachment kind can
+ * genuinely ride the next send; otherwise it stays visible, disabled, with the
+ * honest reason on hover (the tooltip rides a wrapper — a disabled control
+ * dispatches no pointer events, so a trigger on it would never open).
+ */
+function AttachButton({
+  state,
+  disabled = false,
+  onPick,
+}: {
+  state: AttachControlVm | undefined;
+  disabled?: boolean;
+  onPick: () => void;
+}): React.JSX.Element {
+  const enabled = !disabled && state !== undefined && (state.image.enabled || state.text.enabled);
   return (
-    <Tooltip label="Attach a file (unavailable)" side="top">
+    <Tooltip label={attachTooltip(disabled ? undefined : state)} side="top">
       <span className="flex">
         <button
           type="button"
           aria-label="Attach a file"
-          disabled
-          aria-disabled="true"
+          disabled={!enabled}
+          aria-disabled={!enabled}
+          onClick={onPick}
           className={cx(
-            'flex h-7 w-7 cursor-default items-center justify-center rounded-r2 border border-s4 bg-s3 text-s6',
+            'flex h-7 w-7 items-center justify-center rounded-r2 border border-s4 bg-s3',
+            enabled
+              ? 'slip slip-press cursor-pointer text-s8 hover:bg-s4 hover:text-s10 focus-visible:outline-focus active:scale-[0.97]'
+              : 'cursor-default text-s6',
             disabled && 'opacity-70',
           )}
         >

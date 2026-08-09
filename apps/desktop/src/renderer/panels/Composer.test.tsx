@@ -2,8 +2,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { ModelDescriptor } from '@coa/console-viewmodel';
-import { Composer, type ComposerProps, type PendingApproval } from './Composer.js';
+import type { AttachControlVm, ModelDescriptor } from '@coa/console-viewmodel';
+import { useNotices } from '../shell/failures.js';
+import { attachTooltip, Composer, type ComposerProps, type PendingApproval } from './Composer.js';
 
 const MODELS: ModelDescriptor[] = [
   { id: 'sonnet', displayName: 'Sonnet', description: 'Sonnet 4.6 · balanced', provider: 'claude' },
@@ -310,5 +311,148 @@ describe('Composer — merged notices', () => {
     render(<Composer {...baseProps({ notices: [DRIFT], onNoticeAction })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
     expect(onNoticeAction).toHaveBeenCalledWith('drift', 'recompile');
+  });
+});
+
+describe('Composer — attachments (capability-gated intake)', () => {
+  const OPEN: AttachControlVm = {
+    image: { enabled: true },
+    text: { enabled: true },
+    imageSupport: 'supported',
+  };
+  const NO_VISION: AttachControlVm = {
+    image: { enabled: false, reason: 'This model does not accept image input' },
+    text: { enabled: true },
+    imageSupport: 'unsupported',
+  };
+  const NO_BACKEND: AttachControlVm = {
+    image: { enabled: false, reason: 'This backend cannot carry attachments yet' },
+    text: { enabled: false, reason: 'This backend cannot carry attachments yet' },
+    imageSupport: 'supported',
+  };
+
+  const PNG = (): File =>
+    new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
+  const MD = (): File => new File(['# notes'], 'notes.md', { type: 'text/markdown' });
+
+  const attachInput = (): HTMLInputElement => {
+    const el = document.querySelector('[data-attach-input]');
+    if (!(el instanceof HTMLInputElement)) throw new Error('attach input missing');
+    return el;
+  };
+
+  it('the attach tooltip states what can ride, or exactly why nothing can', () => {
+    expect(attachTooltip(OPEN)).toBe('Attach an image or a text file');
+    expect(attachTooltip(NO_VISION)).toBe(
+      'Attach a text file (This model does not accept image input)',
+    );
+    expect(attachTooltip(NO_BACKEND)).toBe('This backend cannot carry attachments yet');
+    expect(attachTooltip(undefined)).toBe('Attachments are unavailable here');
+  });
+
+  it('enables the button when something can ride, disables it (still visible) when nothing can', () => {
+    const { rerender } = render(<Composer {...baseProps({ attach: OPEN })} />);
+    expect(screen.getByRole('button', { name: 'Attach a file' })).not.toBeDisabled();
+    rerender(<Composer {...baseProps({ attach: NO_BACKEND })} />);
+    expect(screen.getByRole('button', { name: 'Attach a file' })).toBeDisabled();
+  });
+
+  it('a picked image stages a chip and rides the send as a real image attachment', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ attach: OPEN, onSend })} />);
+    fireEvent.change(attachInput(), { target: { files: [PNG()] } });
+    expect(await screen.findByText('shot.png')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole('textbox'), 'what is this?{Enter}');
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const [text, attachments] = onSend.mock.calls[0] as [string, unknown[]];
+    expect(text).toBe('what is this?');
+    expect(attachments).toEqual([
+      expect.objectContaining({ kind: 'image', mimeType: 'image/png', name: 'shot.png' }),
+    ]);
+    // The wire contract: base64 payload only, no data: prefix.
+    const image = (attachments as { kind: string; data: string }[])[0]!;
+    expect(image.data.length).toBeGreaterThan(0);
+    expect(image.data.startsWith('data:')).toBe(false);
+    // Sent attachments leave the composer — the next send starts clean.
+    expect(screen.queryByText('shot.png')).not.toBeInTheDocument();
+  });
+
+  it('a text file inlines as a text attachment (no capability gate needed)', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ attach: NO_VISION, onSend })} />);
+    fireEvent.change(attachInput(), { target: { files: [MD()] } });
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'summarize{Enter}');
+    expect(onSend).toHaveBeenCalledWith('summarize', [
+      { kind: 'text', name: 'notes.md', text: '# notes' },
+    ]);
+  });
+
+  it('pasting an image stages it through the same gate', async () => {
+    render(<Composer {...baseProps({ attach: OPEN })} />);
+    fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { files: [PNG()] } });
+    expect(await screen.findByText('shot.png')).toBeInTheDocument();
+  });
+
+  it('pasting an image on a non-vision model refuses LOUDLY with the model reason, stages nothing', async () => {
+    useNotices.getState().dismiss();
+    render(<Composer {...baseProps({ attach: NO_VISION })} />);
+    fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { files: [PNG()] } });
+    await vi.waitFor(() => {
+      expect(useNotices.getState().notice?.detail).toBe('This model does not accept image input.');
+    });
+    expect(screen.queryByText('shot.png')).not.toBeInTheDocument();
+  });
+
+  it('dropping a file on the shell stages it', async () => {
+    const { container } = render(<Composer {...baseProps({ attach: OPEN })} />);
+    const shell = container.querySelector('[data-composer-shell]');
+    if (shell === null) throw new Error('shell missing');
+    fireEvent.drop(shell, { dataTransfer: { files: [MD()], types: ['Files'] } });
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+  });
+
+  it('a staged chip is removable before send', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ attach: OPEN, onSend })} />);
+    fireEvent.change(attachInput(), { target: { files: [MD()] } });
+    await screen.findByText('notes.md');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove attachment: notes.md' }));
+    expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'go{Enter}');
+    expect(onSend).toHaveBeenCalledWith('go');
+  });
+
+  it('an unattachable type refuses with an honest reason', async () => {
+    useNotices.getState().dismiss();
+    render(<Composer {...baseProps({ attach: OPEN })} />);
+    const exe = new File([new Uint8Array([1, 2])], 'tool.exe', {
+      type: 'application/octet-stream',
+    });
+    fireEvent.change(attachInput(), { target: { files: [exe] } });
+    await vi.waitFor(() => {
+      expect(useNotices.getState().notice?.detail).toBe('tool.exe is not an image or a text file.');
+    });
+  });
+
+  it('renders the context ring beside the model chip, reading the real window', async () => {
+    render(
+      <Composer
+        {...baseProps({
+          ringUsage: { tokensIn: 40_000, tokensOut: 2_000 },
+          activeModelMetadata: { id: 'sonnet', provider: 'claude', contextWindow: 200_000 },
+        })}
+      />,
+    );
+    expect(screen.getByRole('meter')).toHaveAttribute('aria-valuenow', '21');
+  });
+
+  it('with no window known the ring renders its honest unknown, never a fake fill', () => {
+    render(<Composer {...baseProps()} />);
+    expect(screen.queryByRole('meter')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: /context window unknown for this model/i }),
+    ).toBeInTheDocument();
   });
 });
