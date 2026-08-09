@@ -436,6 +436,64 @@ describe('makeOpenAiCompatComplete — attachments', () => {
     });
   });
 
+  it('degrades a HISTORY image attachment to a text note instead of throwing, and still sends the plain-text live turn', async () => {
+    const captured: Captured = {};
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'deepseek-v4-flash',
+      // visionSupported omitted — defaults to false, same as the model this
+      // conversation just switched to.
+      historyBoundary: 1, // the one history message below is prior-turn replay
+      fetchImpl: fakeFetch(textResponse, captured),
+    });
+    const messages: DriverMessage[] = [
+      {
+        role: 'user',
+        content: 'what is in this image?',
+        attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      },
+      { role: 'user', content: 'now: thanks, and what about the weather today?' },
+    ];
+
+    await drain(complete(messages, []));
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    // The history message degrades to a plain-text note — no image content block, no throw.
+    expect(wireMessages[0]).toEqual({
+      role: 'user',
+      content: 'what is in this image?\n\n[earlier image attachment omitted for this model]',
+    });
+    // The live turn — the user's actual plain-text send this round — goes through untouched.
+    expect(wireMessages[1]).toEqual({
+      role: 'user',
+      content: 'now: thanks, and what about the weather today?',
+    });
+  });
+
+  it('still rejects a genuinely NEW image attachment on the live turn with historyBoundary set', async () => {
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'deepseek-v4-flash',
+      historyBoundary: 1,
+      fetchImpl: fakeFetch(textResponse, {}),
+    });
+    const messages: DriverMessage[] = [
+      { role: 'user', content: 'earlier turn, no attachments' },
+      {
+        role: 'user',
+        content: 'what is in this NEW image?',
+        attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      },
+    ];
+
+    const rejection = drain(complete(messages, []));
+    await expect(rejection).rejects.toBeInstanceOf(AttachmentCapabilityError);
+    await expect(rejection).rejects.toMatchObject({
+      attachmentKind: 'image',
+      modelId: 'deepseek-v4-flash',
+    });
+  });
+
   it('a message with no attachments maps byte-identically to before', async () => {
     const captured: Captured = {};
     const complete = makeOpenAiCompatComplete(deepseekSpec, {

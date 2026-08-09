@@ -153,6 +153,11 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
       ...(this.#init.visionSupported !== undefined
         ? { visionSupported: this.#init.visionSupported }
         : {}),
+      // Everything the driver resends ahead of THIS turn's own live user message — the
+      // compiled system prompt (+1) plus the replayed prior conversation — is history:
+      // an old attachment in that span must degrade, never hard-fail a turn that never
+      // touched it (see complete.ts's `historyBoundary`).
+      historyBoundary: 1 + (this.#init.history?.length ?? 0),
     });
     await runGovernedLoop({
       sessionId: this.#init.sessionId,

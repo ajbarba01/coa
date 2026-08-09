@@ -39,6 +39,20 @@ export interface CompleteConfig {
    * A `text` attachment is unaffected — it always inlines into the message's content.
    */
   visionSupported?: boolean;
+  /**
+   * How many of the LEADING entries in the `messages` array `complete()` is called with
+   * are prior-turn history being replayed for continuity (the compiled system prompt
+   * plus the resent transcript), as opposed to THIS turn's own live send. Only messages
+   * at/after this boundary are hard-gated with {@link AttachmentCapabilityError} when
+   * they carry an image `visionSupported` can't take — a history message's own
+   * unsupported image instead degrades to a neutral text note, since the turn being
+   * sent right now never touched it (mirrors how the Claude cross-provider preamble
+   * already degrades attachments instead of failing the turn — see
+   * `adapter-claude-sdk/src/history-preamble.ts`). Absent ⇒ 0 (every message counts as
+   * live — today's stricter, whole-array-gated behavior; correct for callers with no
+   * history concept of their own, e.g. the web-summarizer's one-off round trip).
+   */
+  historyBoundary?: number;
   /** The config-overridable price table (zero-floor); absent ⇒ everything costs 0. */
   prices?: PriceTable;
   /** Injectable transport (defaults to global `fetch`). */
@@ -56,11 +70,16 @@ export function makeOpenAiCompatComplete(spec: ProviderSpec, config: CompleteCon
   // never persisted; only the settled result is). The
   // driver maps each delta to a delivery-only frame; the settled result is what persists.
   const visionSupported = config.visionSupported ?? false;
+  const historyBoundary = config.historyBoundary ?? 0;
   return async function* (messages, tools, signal) {
     const body = {
       model: config.model,
-      messages: messages.map((message) =>
-        toWireMessage(message, { visionSupported, modelId: config.model }),
+      messages: messages.map((message, index) =>
+        toWireMessage(message, {
+          visionSupported,
+          modelId: config.model,
+          isHistory: index < historyBoundary,
+        }),
       ),
       ...(tools.length > 0 ? { tools: tools.map(toWireTool) } : {}),
       ...spec.reasoningBody(config.reasoning),
@@ -143,25 +162,45 @@ function toImagePart(attachment: Extract<Attachment, { kind: 'image' }>): Record
   };
 }
 
+/** Degrade a HISTORY message's image attachment(s) the current model can't take to a
+ *  neutral text note instead of a hard failure — the turn being sent right now never
+ *  touched this attachment (mirrors how the Claude cross-provider preamble already
+ *  degrades attachments into plain text rather than throwing). */
+function inlineOmittedImageNotice(content: string, count: number): string {
+  const note =
+    count === 1
+      ? '[earlier image attachment omitted for this model]'
+      : `[${count} earlier image attachments omitted for this model]`;
+  return `${content}\n\n${note}`;
+}
+
 /**
  * Map a neutral driver message to the OpenAI-compatible wire message. A message
  * with no attachments maps byte-identically to before. An `image` attachment is
- * mapped onto a real multimodal content block ONLY when `capability.visionSupported`
- * — otherwise this throws {@link AttachmentCapabilityError} (a typed reject, never a
- * silent drop and never a wire-format crash the model would see as malformed input).
+ * mapped onto a real multimodal content block when `capability.visionSupported`.
+ * When it isn't: a message that is NOT history (`capability.isHistory` false — this
+ * turn's own live send) throws {@link AttachmentCapabilityError} (a typed reject,
+ * never a silent drop and never a wire-format crash the model would see as malformed
+ * input); a HISTORY message (prior-turn conversation being replayed) instead degrades
+ * the image to a neutral text note — the live turn never touched it, so failing the
+ * whole send over it would be wrong.
  */
 function toWireMessage(
   message: DriverMessage,
-  capability: { visionSupported: boolean; modelId: string },
+  capability: { visionSupported: boolean; modelId: string; isHistory: boolean },
 ): Record<string, unknown> {
   const attachments = message.attachments ?? [];
   const images = attachments.filter(
     (a): a is Extract<Attachment, { kind: 'image' }> => a.kind === 'image',
   );
-  if (images.length > 0 && !capability.visionSupported) {
+  const honorImages = images.length > 0 && capability.visionSupported;
+  if (images.length > 0 && !capability.visionSupported && !capability.isHistory) {
     throw new AttachmentCapabilityError('image', capability.modelId);
   }
-  const content = inlineTextAttachments(message.content, attachments);
+  let content = inlineTextAttachments(message.content, attachments);
+  if (images.length > 0 && !honorImages) {
+    content = inlineOmittedImageNotice(content, images.length);
+  }
 
   if (message.role === 'tool') {
     return { role: 'tool', tool_call_id: message.toolCallId ?? '', content };
@@ -177,7 +216,7 @@ function toWireMessage(
       })),
     };
   }
-  if (images.length > 0) {
+  if (honorImages) {
     return {
       role: message.role,
       content: [{ type: 'text', text: content }, ...images.map(toImagePart)],

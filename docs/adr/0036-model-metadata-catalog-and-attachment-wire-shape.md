@@ -48,8 +48,11 @@ call off the critical path.
 history replay already does. The vision **capability check lives at the adapter's wire-mapping seam**
 (`adapter-openai-compat`'s `toWireMessage`), gated by a plain `visionSupported: boolean` the caller injects
 (from this catalog's `modelImageInputSupport`) — not a second capability table inside `ProviderSpec`. A
-mismatch throws `AttachmentCapabilityError`, a typed reject the caller surfaces, never a silent drop or a
-malformed request sent to the backend.
+mismatch on the LIVE turn's own attachment throws `AttachmentCapabilityError`, a typed reject the caller
+surfaces, never a silent drop or a malformed request sent to the backend. An unsupported image sitting in
+the RESENT history (from an earlier turn, possibly authored under a different, vision-capable model)
+degrades to a neutral text note instead — `complete()`'s `historyBoundary` marks where the live turn begins,
+so a model switch never breaks every later plain-text turn over an attachment the user isn't even touching.
 
 ## Consequences (good / bad)
 
