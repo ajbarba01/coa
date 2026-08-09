@@ -404,3 +404,20 @@ hard prerequisite. Sequenced early (right after the Q11/Q14 warm-up) since every
 feature now builds against a real multi-project app rather than needing retrofit. Not a question —
 recorded so the "F1-F10" framing elsewhere in this arc's docs is understood as superseded by
 F1-F9 + F11 (F10 remains the cross-cutting instant-nav criterion).
+
+## Q17 — F2's live-smoke "done means" clause is unmeasured (2026-08-09)
+**Context:** F2 (permission modes) shipped with unusually thorough automated verification — a
+3-round adversarial loop caught and fixed three real bugs (a Stop-button gate-lock, a related
+"every interrupt affordance silently disabled during a pending ask" bug, and an architectural
+double-invocation in the Claude SDK adapter that F2 turned from harmless into a real duplicate-
+approval-card bug). None of that required a live LLM backend. The feature's own "done means" also
+calls for a live smoke of all four modes actually enforcing against a real backend, which does —
+real tool calls need to flow through a live model to prove the ask/response round trip blocks for
+real end-to-end, not just at the daemon/unit level (which IS proven).
+**Needed:** a decision on whether to spend live API credits on this smoke, or accept the daemon-
+level proof (extensive, adversarially verified, non-vacuous regression tests) as sufficient for
+now and park the full end-to-end version.
+**Recommendation:** park it, same treatment as Q15 — the gap is narrow (daemon-level enforcement
+is proven; only the "does a real model's tool call actually reach the gate the same way" link is
+unmeasured) and every other Stage 3 feature this session is landing without live-LLM spend either.
+**Done instead:** recorded here with the exact gap so it can be executed without re-deriving it.

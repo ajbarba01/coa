@@ -1818,3 +1818,24 @@ rather than hand-editing a backend integration point blind. Result pending.
 
 F2 is NOT yet merged to `arc/stage3` — waiting on the dual-seam fix to close clean first, per this
 arc's own standard ("wiring exists but untested is NOT a pass").
+
+**Dual-seam fix: closed clean.** `sdkCanUseTool` now unconditionally allow-echoes; `PreToolUse` is
+the sole real decision seam; stale comments (including the live test's own "measured fact" one)
+corrected; a genuinely non-vacuous regression test (verifier proved this by reverting the fix,
+watching the test fail with the exact predicted symptom, restoring it). One process nit found and
+fixed before merge: the fix commit's subject embedded the internal codename "F2" (AGENTS.md
+Constitution forbids codenames in commit subjects) — reworded and force-pushed (safe: solo branch,
+not yet merged anywhere). Merged into `arc/stage3` clean, no conflicts, full gate green (3117
+tests, depcruise 429/1258, docs-check 60). Pushed (7a1e6c3).
+
+**Known, explicit gap, recorded rather than silently passed**: F2's "done means" calls for a live
+smoke of all four modes actually enforcing against a real backend. Unlike F11 (pure Electron/OS
+process behavior, fully live-verifiable with zero LLM spend), a genuine F2 live smoke needs either
+real tool calls flowing through a live LLM backend (spend not authorized for this run) or a
+substantial mock harness to fake it convincingly. Given the unusually thorough automated coverage
+this feature already got (3 real bugs caught across the verify loop, each fixed with a
+non-vacuous regression test, one adversarially proven by reverting-and-re-testing), decided this
+doesn't currently justify live spend — parked as an explicit open item rather than force-tested or
+silently claimed done, same treatment this arc gave Q15/F10's unmeasured clauses.
+
+Next: F3 (per-model info + context health + attachments).
