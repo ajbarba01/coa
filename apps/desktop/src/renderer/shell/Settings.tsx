@@ -118,7 +118,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
     <span className="flex flex-none flex-col items-end gap-1.5">
       <button
         type="button"
-        className="font-mono text-code text-s8 underline-offset-2 hover:underline"
+        className="slip font-mono text-code text-s8 underline-offset-2 hover:underline"
         onClick={() => setOpen((was) => !was)}
       >
         {open ? 'Hide' : `Review ${reclaimable.length}`}
@@ -130,7 +130,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
               <span className="font-mono text-meta text-s7">{name}</span>
               <button
                 type="button"
-                className="font-mono text-meta text-s7 hover:text-s9"
+                className="slip font-mono text-meta text-s7 hover:text-s9"
                 aria-label={`Remove browser profile ${name}`}
                 onClick={() => run([name])}
               >
@@ -140,7 +140,7 @@ export function ReclaimProfilesRow(): React.JSX.Element {
           ))}
           <button
             type="button"
-            className="self-end font-mono text-meta text-s7 underline-offset-2 hover:underline"
+            className="slip self-end font-mono text-meta text-s7 underline-offset-2 hover:underline"
             onClick={() => run([...reclaimable])}
           >
             Remove All
@@ -297,13 +297,13 @@ export function SettingsDialog(): React.JSX.Element {
                   onClick={() => useShell.getState().setShortcutsOpen(true)}
                   className={cx('slip cursor-pointer pt-1 text-meta text-s6 hover:text-s9')}
                 >
-                  rebind them in the shortcuts card (ctrl /)
+                  Rebind them in the shortcuts card (ctrl /)
                 </button>
               </div>
             )}
             {visible.length === 0 && bindHits.length === 0 && (
               <div className="pt-10 text-center text-sec text-s7">
-                no settings match “{q.trim()}”
+                No settings match “{q.trim()}”
               </div>
             )}
           </div>

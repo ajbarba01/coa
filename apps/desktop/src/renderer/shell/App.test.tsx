@@ -54,7 +54,7 @@ describe('App', () => {
   it('yields the whole window to the gate while the daemon is down', async () => {
     stubCoa('stopped');
     render(<App />);
-    expect(await screen.findByText('the coa daemon is not running')).toBeTruthy();
+    expect(await screen.findByText('The coa daemon is not running.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /timeline/i })).toBeNull();
   });
 
@@ -62,6 +62,6 @@ describe('App', () => {
     stubCoa('running');
     render(<App />);
     expect(await screen.findByRole('button', { name: /timeline/i })).toBeTruthy();
-    expect(screen.queryByText('the coa daemon is not running')).toBeNull();
+    expect(screen.queryByText('The coa daemon is not running.')).toBeNull();
   });
 });

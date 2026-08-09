@@ -31,7 +31,7 @@ describe('DaemonGate', () => {
   it('offers Start when the daemon is stopped and routes it to the daemon control', () => {
     useShell.getState().setDaemon('stopped');
     render(<DaemonGate />);
-    expect(screen.getByText('the coa daemon is not running')).toBeTruthy();
+    expect(screen.getByText('The coa daemon is not running.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start daemon' }));
     expect(start).toHaveBeenCalledTimes(1);
   });
@@ -39,14 +39,14 @@ describe('DaemonGate', () => {
   it('shows only the starting message while the daemon comes up', () => {
     useShell.getState().setDaemon('starting');
     render(<DaemonGate />);
-    expect(screen.getByText('starting the coa daemon…')).toBeTruthy();
+    expect(screen.getByText('Starting the coa daemon…')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Start daemon' })).toBeNull();
   });
 
   it('keeps the window chrome usable behind the gate', () => {
     useShell.getState().setDaemon('error');
     render(<DaemonGate />);
-    expect(screen.getByText('the coa daemon hit an error')).toBeTruthy();
+    expect(screen.getByText('The coa daemon hit an error.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^close$/i })).toBeTruthy();
   });
 
@@ -69,7 +69,7 @@ describe('DaemonGate', () => {
   it('says WHY the daemon failed, not just that it did', () => {
     useShell.getState().setDaemon('error', "Error: Cannot find module 'better-sqlite3'");
     render(<DaemonGate />);
-    expect(screen.getByText('the coa daemon hit an error')).toBeTruthy();
+    expect(screen.getByText('The coa daemon hit an error.')).toBeTruthy();
     expect(screen.getByText("Error: Cannot find module 'better-sqlite3'")).toBeTruthy();
   });
 
