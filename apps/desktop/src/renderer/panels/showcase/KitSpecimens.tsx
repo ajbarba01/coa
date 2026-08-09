@@ -43,7 +43,7 @@ import {
 function InlineMessageSpecimen(): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <InlineMessage tone="info">Syncing.</InlineMessage>
+      <InlineMessage tone="info">Syncing</InlineMessage>
       <InlineMessage tone="success">Saved</InlineMessage>
       <InlineMessage tone="warning">Unsaved changes</InlineMessage>
       <InlineMessage tone="danger">Failed to load</InlineMessage>
