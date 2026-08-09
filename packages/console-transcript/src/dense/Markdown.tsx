@@ -68,7 +68,7 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
             return lang !== undefined || text.includes('\n') ? (
               <CodeBlock code={text} language={lang} />
             ) : (
-              <code className="rounded-r1 bg-s3 px-[4px] py-[1px] font-mono text-code text-s11">
+              <code className="rounded-r1 bg-s3 px-1 py-px font-mono text-code text-s11">
                 {text}
               </code>
             );
@@ -126,7 +126,7 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
                 disabled={disabled}
                 readOnly
                 className={cx(
-                  'mr-1.5 inline-block size-3.5 shrink-0 appearance-none rounded-[3px] border align-middle',
+                  'mr-1.5 inline-block size-3.5 shrink-0 appearance-none rounded-r1 border align-middle',
                   checked ? 'border-s8 bg-s8' : 'border-s5',
                 )}
               />
