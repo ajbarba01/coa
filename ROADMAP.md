@@ -258,9 +258,10 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   "Coa-agent hardening" below, not here.)
 - **H. Console mock→live** — Longform + graph (React Flow) views [M] (build them *as workbench
   surfaces* once the rebuild arc's W1 shell lands); console add-account flow [S] (fold into the
-  rebuild's W4 account home); **`apps/cli` has no `build` script** (only `typecheck` — verified in
-  `apps/cli/package.json`) [S], needed so daemon auto-spawn works from a built CLI rather than a
-  dev-mode run.
+  rebuild's W4 account home). ~~`apps/cli` has no `build` script~~ DONE 2026-08-09: `apps/cli`
+  gained a `tsdown.config.ts` + `"build": "tsdown"` script (same pattern every library package
+  already uses), so `pnpm build` now produces `apps/cli/dist/bin.js` and the desktop app's daemon
+  auto-spawn resolves a real binary instead of failing to find one.
 - **I. M8 deferred** — the daemon-singleton `LiveSessionRegistry` (threaded into `apps/cli`'s daemon
   composition, with running-aware idle-timeout eviction, `onClose`-hooked checkpoint/worktree-release, and
   `registry.closeAll()` wired into shutdown) is DONE; interactive multi-turn REPL / streaming-input mode [M];

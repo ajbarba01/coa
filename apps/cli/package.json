@@ -7,6 +7,7 @@
     "coa": "dist/bin.js"
   },
   "scripts": {
+    "build": "tsdown",
     "typecheck": "tsc -b"
   },
   "dependencies": {
