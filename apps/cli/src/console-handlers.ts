@@ -80,6 +80,7 @@ export function buildDaemonConsoleHandlers(
       web: new WebConfigStore(home),
       keys: new KeyStateStore(home),
       console: consoleState,
+      home,
       ...(loginManager !== undefined ? { loginManager } : {}),
       browser,
     }),

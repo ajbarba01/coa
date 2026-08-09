@@ -15,7 +15,11 @@ import { buildFetchSummarizer } from './fetch-summarizer.js';
 export function buildWebTools(
   web: WebConfig,
   recordCost: (usage: RuntimeUsage) => void,
+  home?: string,
 ): WebToolDeps {
   const summarizer = buildFetchSummarizer(web, recordCost);
-  return buildWebToolDeps(web, process.env, { ...(summarizer ? { summarizer } : {}) });
+  return buildWebToolDeps(web, process.env, {
+    ...(summarizer ? { summarizer } : {}),
+    ...(home !== undefined ? { home } : {}),
+  });
 }

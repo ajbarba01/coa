@@ -37,6 +37,10 @@ export interface DaemonSessionOptions {
   walPath: string;
   /** The worktree root for the session; defaults to the process cwd. */
   root?: string;
+  /** The home the user-global `~/.coa` stores (web config, accounts) live under;
+   *  defaults to the real `os.homedir()`. A test seam so a session can be built without
+   *  touching the operator's actual home directory. */
+  home?: string;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
   /** Resolve a session's subagent-dispatch port (parent = sessionId); absent ⇒ spawning
@@ -58,10 +62,11 @@ export interface BuiltSession {
 /** Construct the daemon core and bind it (plus the Claude backend) into session deps. */
 export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   const root = options.root ?? process.cwd();
+  const home = options.home ?? homedir();
   // Load the user-global web-key config (`~/.coa/web.yaml`); offer the web tools only
   // when at least one provider is configured (an unconfigured user gets today's
   // behavior). Credentials resolve at chain assembly from env vars / coa-saved key files.
-  const web = new WebConfigStore(homedir()).read();
+  const web = new WebConfigStore(home).read();
   const hasWeb = (web.search?.providers.length ?? 0) > 0 || (web.fetch?.providers.length ?? 0) > 0;
   const handle = createDaemonCore({
     walPath: options.walPath,
@@ -71,10 +76,10 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     // are composed HERE and injected — the daemon core stays backend-blind and never
     // reads the process environment. With no summarizer the chains still assemble, so
     // WebFetch degrades to raw markdown rather than disappearing.
-    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost) } : {}),
+    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost, home) } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
-  const registry = new AccountsRegistry(homedir());
+  const registry = new AccountsRegistry(home);
   // Session auth: the model names its provider; that provider's active account authenticates.
   const activeAccount = (provider: string): ActiveAccountResolution =>
     resolveActiveAccount(registry, provider);

@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import {
   AMBIENT,
   locatorSchema,
@@ -121,9 +120,9 @@ function splitId(id: string): { providerId: string; label: string } {
  * convenience: a config dir the USER pointed at is their data and is never touched — coa
  * forgets the row and leaves the directory exactly where it found it.
  */
-function removeManagedLogin(locator: Locator): void {
+function removeManagedLogin(home: string, locator: Locator): void {
   if (locator.type !== 'config-dir') return;
-  if (!isManagedLoginDir(homedir(), locator.dir)) return;
+  if (!isManagedLoginDir(home, locator.dir)) return;
   try {
     rmSync(locator.dir, { recursive: true, force: true });
   } catch {
@@ -145,9 +144,14 @@ function safeUnlink(path: string): void {
  * never a secret; `deepseek`/`longcat` are API-key providers — `secret` is written
  * once to a stable 0600 file and never read back.
  */
-function backendLocator(providerId: Provider, label: string, secret: string): Locator {
+function backendLocator(
+  home: string,
+  providerId: Provider,
+  label: string,
+  secret: string,
+): Locator {
   if (providerId === 'claude') return { type: 'config-dir', dir: secret };
-  const path = join(homedir(), '.coa', 'keys', `${providerId}-${label}`);
+  const path = join(home, '.coa', 'keys', `${providerId}-${label}`);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, secret, { mode: 0o600 });
   return { type: 'key-file', path };
@@ -207,8 +211,8 @@ function renameServiceCredential(
   oldLabel: string,
   newLabel: string,
 ): void {
-  const oldPath = webKeyFilePath(homedir(), oldLabel);
-  const newPath = webKeyFilePath(homedir(), newLabel);
+  const oldPath = webKeyFilePath(deps.home, oldLabel);
+  const newPath = webKeyFilePath(deps.home, newLabel);
   const chains = chainOf(providerId);
 
   const web = deps.web.read();
@@ -245,7 +249,7 @@ function removeServiceProviderCredentials(deps: AuthHandlerDeps, providerId: str
     const labels = (entry?.credentials ?? []).map((c) => labelOf(c.locator));
     for (const label of labels) {
       for (const path of deps.web.removeCredential(chain, label)) safeUnlink(path);
-      deps.keys.clear(`${providerId}:${webKeyFilePath(homedir(), label)}`);
+      deps.keys.clear(`${providerId}:${webKeyFilePath(deps.home, label)}`);
     }
   }
 }
@@ -276,6 +280,10 @@ function accountsView(registry: AccountsRegistry): {
 export type AuthHandlerDeps = AuthViewDeps & {
   loginManager?: LoginManager;
   browser?: BrowserSessionView;
+  /** The home every secret key-file / managed-login path (web keys, backend key-files,
+   *  `~/.coa/logins`) resolves under — injected so the daemon composition controls it
+   *  rather than each call site reaching for the ambient `homedir()`. */
+  home: string;
 };
 
 export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
@@ -346,7 +354,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       if (group === 'backend') {
         for (const account of deps.accounts.listByProvider(p.providerId as Provider)) {
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
-          removeManagedLogin(account.locator);
+          removeManagedLogin(deps.home, account.locator);
           deps.accounts.remove(account.label);
           // Read AFTER the removal, so the row going away is not counted as sharing its own
           // jar — but an account under a DIFFERENT provider signing in as the same identity
@@ -372,10 +380,10 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
     addCredential: rpcMethod(addCredParams, (p) => {
       const group = providerGroup(p.providerId);
       if (group === 'backend') {
-        const locator = backendLocator(p.providerId as Provider, p.label, p.secret);
+        const locator = backendLocator(deps.home, p.providerId as Provider, p.label, p.secret);
         deps.accounts.add(p.label, locator, p.providerId as Provider);
       } else if (group === 'service') {
-        const path = webKeyFilePath(homedir(), p.label);
+        const path = webKeyFilePath(deps.home, p.label);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, p.secret, { mode: 0o600 });
         for (const chain of chainOf(p.providerId)) {
@@ -400,7 +408,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         }
         // a pointer credential (config-dir) has no secret to replace — no-op
       } else if (group === 'service') {
-        const path = webKeyFilePath(homedir(), label);
+        const path = webKeyFilePath(deps.home, label);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, p.secret, { mode: 0o600 });
         deps.keys.clear(`${providerId}:${path}`);
@@ -429,7 +437,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           const activeBefore = deps.accounts.getActive(provider);
           const wasActive = activeBefore.kind === 'account' && activeBefore.account.label === label;
           if (account.locator.type === 'key-file') safeUnlink(account.locator.path);
-          removeManagedLogin(account.locator);
+          removeManagedLogin(deps.home, account.locator);
           deps.accounts.remove(label);
           // The email has to be read BEFORE the removal — afterwards there is no row to ask.
           // The jar is only this row's to delete if no surviving account shares the identity
@@ -452,7 +460,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         }
         // the key-file path is deterministic from the label — clear its cooldown so a
         // future same-label key never inherits a stale breaker cooling state
-        deps.keys.clear(`${providerId}:${webKeyFilePath(homedir(), label)}`);
+        deps.keys.clear(`${providerId}:${webKeyFilePath(deps.home, label)}`);
       }
       return assembleAuthView(viewDeps);
     }),
@@ -502,7 +510,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
     clearCooldown: rpcMethod(idParams, (p) => {
       const { providerId, label } = splitId(p.id);
       if (providerGroup(providerId) === 'service') {
-        const path = webKeyFilePath(homedir(), label);
+        const path = webKeyFilePath(deps.home, label);
         deps.keys.clear(`${providerId}:${path}`);
       }
       return assembleAuthView(viewDeps);
