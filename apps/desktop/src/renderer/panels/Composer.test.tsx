@@ -455,4 +455,75 @@ describe('Composer — attachments (capability-gated intake)', () => {
       screen.getByRole('img', { name: /context window unknown for this model/i }),
     ).toBeInTheDocument();
   });
+
+  /**
+   * Regression: staged attachments/draft text are local, unscoped React state — with
+   * no session-switch reset, they survive a `rerender` carrying a DIFFERENT session's
+   * props (a new `activeSessionId`, a new `onSend`) and ride out under the WRONG
+   * session, or worse, get carried into a session whose backend cannot attach at all.
+   */
+  describe('session scoping', () => {
+    it('drops a staged attachment and drafted text on a session switch, never carrying it into the new session', async () => {
+      const onSendA = vi.fn();
+      const onSendB = vi.fn();
+      const { rerender } = render(
+        <Composer
+          {...baseProps({ activeSessionId: 'session-a', attach: OPEN, onSend: onSendA })}
+        />,
+      );
+      fireEvent.change(attachInput(), { target: { files: [MD()] } });
+      await screen.findByText('notes.md');
+      await userEvent.type(screen.getByRole('textbox'), 'about session A');
+      expect(screen.getByRole('textbox')).toHaveValue('about session A');
+
+      // Switch to a different session — a new id, a new onSend, the same capabilities.
+      rerender(
+        <Composer
+          {...baseProps({ activeSessionId: 'session-b', attach: OPEN, onSend: onSendB })}
+        />,
+      );
+
+      // The stale draft/chip must not survive the switch.
+      expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+      expect(screen.getByRole('textbox')).toHaveValue('');
+
+      // A plain-text send under session B must reach session B's onSend, carrying
+      // nothing session A staged.
+      await userEvent.type(screen.getByRole('textbox'), 'about session B{Enter}');
+      expect(onSendB).toHaveBeenCalledWith('about session B');
+      expect(onSendA).not.toHaveBeenCalled();
+    });
+
+    it('drops a staged attachment when switching to a session whose backend cannot carry one', async () => {
+      const onSend = vi.fn();
+      const { rerender } = render(
+        <Composer {...baseProps({ activeSessionId: 'session-a', attach: OPEN, onSend })} />,
+      );
+      fireEvent.change(attachInput(), { target: { files: [MD()] } });
+      await screen.findByText('notes.md');
+
+      // Switch to a session on a backend that cannot carry attachments at all.
+      rerender(
+        <Composer {...baseProps({ activeSessionId: 'session-b', attach: NO_BACKEND, onSend })} />,
+      );
+      expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+
+      // A plain-text send under the new session carries no leftover attachment.
+      await userEvent.type(screen.getByRole('textbox'), 'go{Enter}');
+      expect(onSend).toHaveBeenCalledWith('go');
+    });
+
+    it('keeps the draft when re-rendering with the SAME session (not every prop change resets it)', async () => {
+      const { rerender } = render(
+        <Composer {...baseProps({ activeSessionId: 'session-a', attach: OPEN })} />,
+      );
+      await userEvent.type(screen.getByRole('textbox'), 'still typing');
+
+      // Same session, unrelated prop changes (e.g. a running-state flip).
+      rerender(
+        <Composer {...baseProps({ activeSessionId: 'session-a', attach: OPEN, running: true })} />,
+      );
+      expect(screen.getByRole('textbox')).toHaveValue('still typing');
+    });
+  });
 });

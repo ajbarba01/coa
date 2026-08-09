@@ -889,6 +889,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               onNoticeAction={vm.onBannerAction}
               running={vm.sessionStatus === 'running'}
               disabled={vm.activeSessionId === undefined}
+              activeSessionId={vm.activeSessionId}
               queued={queuedMessages}
               approval={vm.approval}
               mode={vm.mode}

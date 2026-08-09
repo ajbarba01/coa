@@ -93,6 +93,12 @@ export interface ComposerProps {
   running: boolean;
   /** No session at all — the whole composer rests disabled. */
   disabled?: boolean;
+  /** The active session's id, undefined with no session. Used ONLY to detect a
+   *  session switch: the drafted text and staged attachments below are local,
+   *  unscoped React state, so without this they'd otherwise survive a switch and
+   *  ride out under the WRONG session's `onSend` — see the reset-during-render
+   *  check beside `text`/`attachments`. Not read for anything else. */
+  activeSessionId?: string | undefined;
   queued?: QueuedMessage[];
   /** The gate waiting on you. While set, the composer wears the amber shimmer,
    *  ⏎ on an empty field approves, and typing redirects instead. */
@@ -173,6 +179,7 @@ export interface ComposerProps {
 export function Composer({
   running,
   disabled = false,
+  activeSessionId,
   queued = [],
   approval,
   mode,
@@ -207,6 +214,22 @@ export function Composer({
   // Staged attachments: added by picker/paste/drop, removable, and released ONLY by a
   // direct send (queue/steer/redirect leave them pinned — visible, never dropped).
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+
+  // A session switch must drop any staged-but-unsent draft rather than let it ride
+  // out under the newly active session's `onSend` (or, worse, survive into a
+  // session whose backend can't carry attachments at all). This is React's
+  // "adjust state during render" pattern rather than a `key`-remount: remounting
+  // the whole composer would also tear down/recreate its DOM node, which reruns
+  // the focus-on-ask effect below against whatever `composerFocus` nonce the app
+  // has already reached — stealing focus on a plain tab switch, not just a
+  // deliberate ask. Comparing during render instead clears the draft before it
+  // ever paints, with no such side effect.
+  const [renderedSessionId, setRenderedSessionId] = useState(activeSessionId);
+  if (activeSessionId !== renderedSessionId) {
+    setRenderedSessionId(activeSessionId);
+    setText('');
+    setAttachments([]);
+  }
   const attachIdRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Drag state for the drop affordance — a quiet border step-up, no overlay.
