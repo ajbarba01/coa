@@ -76,7 +76,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     // are composed HERE and injected — the daemon core stays backend-blind and never
     // reads the process environment. With no summarizer the chains still assemble, so
     // WebFetch degrades to raw markdown rather than disappearing.
-    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost) } : {}),
+    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost, home) } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
   const registry = new AccountsRegistry(home);
