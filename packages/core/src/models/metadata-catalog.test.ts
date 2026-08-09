@@ -140,4 +140,42 @@ describe('ModelMetadataCatalog — disk cache', () => {
     const catalog = new ModelMetadataCatalog({ home });
     expect(catalog.get('claude', 'claude-sonnet-5')).toBeDefined();
   });
+
+  it('a 200-but-malformed refresh never wipes a previously-good cached row — on disk or in memory', async () => {
+    function urlFetch(responses: Record<string, unknown>): typeof fetch {
+      return (async (url: string) => {
+        for (const [match, body] of Object.entries(responses)) {
+          if (url.includes(match))
+            return { ok: true, json: async () => body } as unknown as Response;
+        }
+        return { ok: false, status: 404 } as unknown as Response;
+      }) as unknown as typeof fetch;
+    }
+
+    // One good, successful refresh — a real row persists to `get()` and to disk.
+    const goodFetch = urlFetch({
+      'openrouter.ai': { data: [{ id: 'openai/gpt-5', context_length: 400_000 }] },
+    });
+    const first = new ModelMetadataCatalog({ home, fetchImpl: goodFetch });
+    await first.refresh({ modelsDev: false });
+    expect(first.get('openrouter', 'openai/gpt-5')?.contextWindow).toBe(400_000);
+    expect(readFileSync(modelMetadataCachePath(home), 'utf8')).toContain('openai/gpt-5');
+
+    // A fresh catalog loads that good cache from disk, then its own refresh() hits
+    // 200-OK responses whose bodies are error/notice payloads that parse to zero rows
+    // — never a genuine "the catalog is empty" result — for BOTH tiers.
+    const malformedFetch = urlFetch({
+      'models.dev': { error: 'rate limited' },
+      'openrouter.ai': { data: [] },
+    });
+    const second = new ModelMetadataCatalog({ home, fetchImpl: malformedFetch });
+    expect(second.get('openrouter', 'openai/gpt-5')?.contextWindow).toBe(400_000); // warm from disk
+    await second.refresh();
+    expect(second.get('openrouter', 'openai/gpt-5')?.contextWindow).toBe(400_000);
+
+    // And the disk cache itself was never overwritten with the empty result.
+    const third = new ModelMetadataCatalog({ home });
+    expect(third.get('openrouter', 'openai/gpt-5')?.contextWindow).toBe(400_000);
+    expect(readFileSync(modelMetadataCachePath(home), 'utf8')).toContain('openai/gpt-5');
+  });
 });

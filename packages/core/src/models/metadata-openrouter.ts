@@ -108,11 +108,14 @@ export interface FetchOpenRouterConfig {
 }
 
 /**
- * Fetch + parse OpenRouter's live model list. Never throws — a network failure or a
- * non-OK response resolves to `undefined` (distinct from a genuinely-empty parse,
- * `[]`), so a caching caller can tell "this attempt failed, keep what you had" from
- * "this attempt succeeded and found nothing" and never lets a transient failure wipe
- * a good cache.
+ * Fetch + parse OpenRouter's live model list. Never throws — a network failure, a
+ * non-OK response, OR a 200 response that parses to zero rows all resolve to
+ * `undefined`, never `[]`: OpenRouter's `/models` catalog is never genuinely empty in
+ * practice, so a zero-row parse despite a 200 is always a shape mismatch, an
+ * error/notice body, or an outage dressed as 200 — treated as a failed attempt, the
+ * same as a non-OK response or a thrown fetch. This lets a caching caller tell "this
+ * attempt failed, keep what you had" from "this attempt succeeded and found real
+ * rows", so a malformed-but-200 response can never wipe a good cache.
  */
 export async function fetchOpenRouterCatalog(
   config: FetchOpenRouterConfig = {},
@@ -122,7 +125,8 @@ export async function fetchOpenRouterCatalog(
     const res = await doFetch(config.url ?? OPENROUTER_MODELS_URL);
     if (!res.ok) return undefined;
     const body: unknown = await res.json();
-    return parseOpenRouterCatalog(body);
+    const rows = parseOpenRouterCatalog(body);
+    return rows.length > 0 ? rows : undefined;
   } catch {
     return undefined;
   }
