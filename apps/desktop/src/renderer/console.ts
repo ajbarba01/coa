@@ -646,7 +646,7 @@ export async function startConsole(
       });
 
     const loaded = await settle(() => bridge.reloadConversation({ id }));
-    if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
+    if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value, id));
     if (state.ui.activeSessionId !== id) return;
     // On a failed refresh a warm cache keeps showing (best-effort reconcile);
     // only a cold open surfaces the error.

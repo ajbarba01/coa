@@ -38,16 +38,23 @@ export type ReloadedConversationWire = z.infer<typeof reloadedObjectSchema>;
 /**
  * Map a reloaded conversation (persisted wire frames from the turn store) to the view `TurnFrame`s the
  * transcript renders — the durable analog of {@link pushToViewFrames}. Reuses the same
- * per-frame translation, so a reopened session reads identically to the live stream.
+ * per-frame translation AND the same id scheme: the daemon pushes and persists a frame
+ * under one shared seq (the pushed and stored orders are identical by construction), so a
+ * reloaded frame carries the exact id its live push carried. That shared identity is what
+ * lets a rehydration merge dedupe live-vs-reloaded frames by id, and keeps a React row
+ * mounted across a resubscribe instead of remounting the whole transcript.
  *
  * When the store could not read part of the log, the transcript ends with a system
  * notice saying so. Rendering the readable remainder on its own would present a
  * fragment as the complete record — the reader has no other way to tell the difference,
  * since missing turns leave no gap to see.
  */
-export function reloadToViewFrames(reloaded: ReloadedConversationWire): TurnFrame[] {
+export function reloadToViewFrames(
+  reloaded: ReloadedConversationWire,
+  sessionId: string,
+): TurnFrame[] {
   const frames = reloaded.turns.flatMap((t) => {
-    const frame = mapFrame(t.frame, `t${t.seq}`);
+    const frame = mapFrame(t.frame, `${sessionId}:${t.seq}`);
     return frame === undefined ? [] : [frame];
   });
   if (reloaded.skipped > 0) frames.push(skippedNotice(reloaded.skipped));

@@ -235,8 +235,8 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().data.turns).toEqual({
       status: 'ok',
       value: [
-        { id: 't0', role: 'you', kind: 'text', text: 'Refactor the auth module' },
-        { id: 't1', role: 'agent', kind: 'text', text: 'on it' },
+        { id: 'c1:0', role: 'you', kind: 'text', text: 'Refactor the auth module' },
+        { id: 'c1:1', role: 'agent', kind: 'text', text: 'on it' },
       ],
     });
   });
