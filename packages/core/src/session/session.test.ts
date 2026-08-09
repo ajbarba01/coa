@@ -142,6 +142,37 @@ describe('createSession', () => {
     ]);
   });
 
+  it('threads attachments + the resolved vision fact into the adapter init', async () => {
+    const h = harness();
+    const attachments = [{ kind: 'image' as const, mimeType: 'image/png', data: 'aWJt' }];
+    await createSession(
+      { role: 'dev', scope: 'src', input: 'go', attachments, visionSupported: true },
+      h.deps,
+    );
+    expect(h.adapter()?.init.attachments).toEqual(attachments);
+    expect(h.adapter()?.init.visionSupported).toBe(true);
+  });
+
+  it('omits attachments/visionSupported from the init when the request carries none', async () => {
+    const h = harness();
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect('attachments' in (h.adapter()?.init ?? {})).toBe(false);
+    expect('visionSupported' in (h.adapter()?.init ?? {})).toBe(false);
+  });
+
+  it('mirrors each settlement to onUsage alongside the charge (the context ring feed)', async () => {
+    const h = harness();
+    const seen: RuntimeUsage[] = [];
+    await createSession(
+      { role: 'dev', scope: 'src', input: 'go', onUsage: (usage) => seen.push(usage) },
+      h.deps,
+    );
+    // The SAME usage the charge saw — one settlement channel, mirrored, never a
+    // second tracking mechanism.
+    expect(seen).toEqual([{ tokensIn: 1, tokensOut: 2, costUsd: 0.5 }]);
+    expect(h.stats.charged).toHaveLength(1);
+  });
+
   it('wires the per-tool deny rules into the canUseTool predicate on the tool hook', async () => {
     const h = harness({ perToolDeny: () => ({ behavior: 'deny', message: 'no secrets' }) });
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);

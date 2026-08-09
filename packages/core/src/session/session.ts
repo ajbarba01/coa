@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   BackendMessage,
   CapabilityFrame,
   CapabilitySet,
@@ -37,6 +38,13 @@ export interface SessionAdapterInit {
   sandbox: CapabilitySet;
   /** The session's prompt input — a one-shot string or a stream of user-turn strings (neutral, no backend type). */
   input: string | AsyncIterable<string>;
+  /** Attachments on this run's user message (the one shared wire shape). The adapter
+   *  maps each onto its backend's own encoding, or rejects with a typed
+   *  `AttachmentCapabilityError` when it can't honor one — never a silent drop. */
+  attachments?: readonly Attachment[];
+  /** Whether the chosen model reports image-input support (daemon-resolved from the
+   *  model-metadata catalog) — the adapter's image gate. Absent ⇒ unverified/no. */
+  visionSupported?: boolean;
   /** The agent's model selection; `model`/`reasoning` are the backend's (provider drives adapter routing upstream). */
   model?: ModelSelection;
   /** The backend's settlement step → the cost charge step, called once per settled result. */
@@ -235,6 +243,10 @@ export async function createSession(
      *  just an account's. */
     root?: string;
     input: string | AsyncIterable<string>;
+    /** Attachments on this run's user message (see {@link SessionAdapterInit.attachments}). */
+    attachments?: readonly Attachment[];
+    /** Daemon-resolved image-input capability (see {@link SessionAdapterInit.visionSupported}). */
+    visionSupported?: boolean;
     model?: ModelSelection;
     /** Opt-in packages the user added beyond the role's (assembly selection). */
     packageIds?: string[];
@@ -259,6 +271,11 @@ export async function createSession(
     drainDeliveries?: DrainDeliveries;
     /** The session layer's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
     onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
+    /** Mirror of each settlement's usage, fired alongside the charge — the drivers
+     *  push it to subscribers so the console's context ring rides the SAME per-turn
+     *  usage the adapters already report (never a second tracking mechanism).
+     *  Absent ⇒ byte-identical to before this hook existed. */
+    onUsage?: (usage: RuntimeUsage) => void;
     /** The session's frozen compilation (neutral config + frame). When present the
      *  prompt is NOT recompiled — the byte-stable frozen prompt is reused (cache
      *  warmth + "static unless raised"); absent ⇒ compile fresh (the first turn). */
@@ -303,6 +320,7 @@ export async function createSession(
   // spend to the audit ledger (when wired). The backend adapter calls this exactly once per result.
   const onSettle = (sid: string, usage: RuntimeUsage): void => {
     deps.charge(sid, usage);
+    req.onUsage?.(usage);
     deps.recordSpend?.({
       costUsd: usage.costUsd,
       tokensIn: usage.tokensIn,
@@ -317,6 +335,8 @@ export async function createSession(
     sandbox,
     input: req.input,
     onSettle,
+    ...(req.attachments !== undefined ? { attachments: req.attachments } : {}),
+    ...(req.visionSupported !== undefined ? { visionSupported: req.visionSupported } : {}),
     ...(req.model ? { model: req.model } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     observeChanges: deps.observeChanges,

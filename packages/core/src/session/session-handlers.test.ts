@@ -301,6 +301,9 @@ describe('buildSessionHandlers — createSession over RPC', () => {
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'running' },
       { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 0, frame: frames[0] },
       { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 1, frame: frames[1] },
+      // The settlement's usage mirror (the context ring feed) lands before the
+      // terminal status — the adapter settles as its loop ends.
+      { kind: 'usage', sessionId: 'sess-1', tokensIn: 1, tokensOut: 2 },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'done' },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
@@ -1163,6 +1166,9 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
         seq: 0,
         frame: { t: 'interrupted' },
       },
+      // An aborted turn still settles what it consumed — the usage mirror fires on
+      // EVERY loop exit (a partial turn is still charged), so the ring stays honest.
+      { kind: 'usage', sessionId: 'sess-1', tokensIn: 1, tokensOut: 1 },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'interrupted' },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
@@ -3599,6 +3605,106 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
       buildSessionHandlers(service, conn),
     );
     expect(response).toMatchObject({ result: { sessionId: 'sess-1', worktree: '/wt/sess-1' } });
+    await conn.settled;
+  });
+});
+
+describe('buildSessionHandlers — attachments (capability-gated at the RPC edge)', () => {
+  const IMAGE = { kind: 'image' as const, mimeType: 'image/png', data: 'aWJt', name: 'shot.png' };
+
+  it('threads attachments + the daemon-resolved vision fact to the adapter for a capable provider', async () => {
+    const conn = connection();
+    let seen: SessionAdapterInit | undefined;
+    const d: SessionDeps = {
+      ...deps([]),
+      createAdapter: (init) => {
+        seen = init;
+        return new FrameAdapter(init, []);
+      },
+    };
+    const handlers = buildSessionHandlers(
+      sessionService(d, undefined, new LiveSessionRegistry()),
+      conn,
+      {
+        attachmentsSupported: (provider) => provider === 'deepseek',
+        // The vision fact is resolved HERE, daemon-side — the client never claims it.
+        visionSupported: (provider, modelId) => provider === 'deepseek' && modelId === 'v4',
+      },
+    );
+    await handlers['createSession']!.handle({
+      input: 'what is in this screenshot?',
+      model: { provider: 'deepseek', model: 'v4' },
+      attachments: [IMAGE],
+    });
+    await conn.settled;
+    expect(seen?.attachments).toEqual([IMAGE]);
+    expect(seen?.visionSupported).toBe(true);
+  });
+
+  it('resolves visionSupported false for a model the catalog cannot verify', async () => {
+    const conn = connection();
+    let seen: SessionAdapterInit | undefined;
+    const d: SessionDeps = {
+      ...deps([]),
+      createAdapter: (init) => {
+        seen = init;
+        return new FrameAdapter(init, []);
+      },
+    };
+    const handlers = buildSessionHandlers(
+      sessionService(d, undefined, new LiveSessionRegistry()),
+      conn,
+      { attachmentsSupported: () => true, visionSupported: () => false },
+    );
+    await handlers['createSession']!.handle({
+      input: 'look',
+      model: { provider: 'deepseek', model: 'unknown-model' },
+      attachments: [IMAGE],
+    });
+    await conn.settled;
+    // Threaded as an explicit false — the adapter's image gate then rejects with the
+    // typed capability error rather than silently sending an unverifiable block.
+    expect(seen?.visionSupported).toBe(false);
+  });
+
+  it('refuses an attachment-carrying send for a provider whose adapter has no seam (never a silent drop)', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      sessionService(deps([]), undefined, new LiveSessionRegistry()),
+      conn,
+      { attachmentsSupported: (provider) => provider !== 'claude' },
+    );
+    // No model ⇒ the claude default — exactly the backend with no attachment seam.
+    await expect(
+      handlers['createSession']!.handle({ input: 'look', attachments: [IMAGE] }),
+    ).rejects.toThrow(/cannot carry attachments/);
+  });
+
+  it('defaults to refusing attachments when no capability facts are injected (the conservative floor)', async () => {
+    const conn = connection();
+    const handlers = handlersFor(deps([]), conn, undefined, new LiveSessionRegistry());
+    await expect(
+      handlers['createSession']!.handle({
+        input: 'look',
+        model: { provider: 'deepseek', model: 'v4' },
+        attachments: [IMAGE],
+      }),
+    ).rejects.toThrow(/cannot carry attachments/);
+  });
+
+  it('an attachment-free send never consults the capability seam and runs unchanged', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      sessionService(deps([{ t: 'text', text: 'hi' }]), undefined, new LiveSessionRegistry()),
+      conn,
+      {
+        attachmentsSupported: () => {
+          throw new Error('must not be consulted');
+        },
+      },
+    );
+    const result = await handlers['createSession']!.handle({ input: 'go' });
+    expect(result).toMatchObject({ sessionId: 'sess-1' });
     await conn.settled;
   });
 });

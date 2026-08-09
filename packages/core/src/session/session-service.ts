@@ -1,4 +1,10 @@
-import type { AgentSummary, ApprovalDecision, ModelSelection, PermissionMode } from '@coa/shared';
+import type {
+  AgentSummary,
+  ApprovalDecision,
+  Attachment,
+  ModelSelection,
+  PermissionMode,
+} from '@coa/shared';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { ConversationStore } from './conversation-store.js';
 import { createHeldOpenDriver } from './held-open-driver.js';
@@ -70,6 +76,10 @@ export interface SendRequest {
   model?: ModelSelection;
   packageIds?: string[];
   exclude?: string[];
+  /** Attachments on this send's user message; ride the queued turn to the adapter. */
+  attachments?: readonly Attachment[];
+  /** Daemon-resolved image-input capability for this send's model (see `TurnRequest`). */
+  visionSupported?: boolean;
   /** Join this session's fan-out at the turn's true first status; absent ⇒ the caller is
    *  already attached (or wants nothing pushed to it). */
   subscribe?: TurnSubscription;
@@ -129,6 +139,8 @@ export class SessionService {
       ...(req.roles !== undefined ? { roles: req.roles } : {}),
       ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
       ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
+      ...(req.attachments !== undefined ? { attachments: req.attachments } : {}),
+      ...(req.visionSupported !== undefined ? { visionSupported: req.visionSupported } : {}),
       ...(req.subscribe !== undefined ? { subscribe: req.subscribe } : {}),
     };
 

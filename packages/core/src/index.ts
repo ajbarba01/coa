@@ -40,7 +40,10 @@ export {
 } from './session/agent-registry.js';
 export { AgentRegistry } from './session/agent-defs.js';
 export { composeSessionDeps, type SessionWiring } from './session/composition.js';
-export { buildSessionHandlers } from './session/session-handlers.js';
+export {
+  buildSessionHandlers,
+  type SessionCapabilities,
+} from './session/session-handlers.js';
 export {
   SessionService,
   type SendRequest,

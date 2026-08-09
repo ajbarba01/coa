@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ModelDescriptor, PermissionMode, RpcParams, ToolCall, ToolClass } from '@coa/shared';
-import { pushSchema } from '@coa/shared';
+import { modelImageInputSupport, pushSchema } from '@coa/shared';
 import {
   AgentRegistry,
   bindDaemon,
@@ -31,7 +31,7 @@ import {
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
-import { supportsApproval } from './adapter-factory.js';
+import { supportsApproval, supportsAttachments } from './adapter-factory.js';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
@@ -395,7 +395,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...agentHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
-    ...buildSessionHandlers(sessions, connection),
+    ...buildSessionHandlers(sessions, connection, {
+      // The provider→backend capability facts live beside the adapter factory (one
+      // source of truth); the vision fact is the metadata catalog's tri-state
+      // collapsed honestly — only a verified 'supported' opens the image gate.
+      attachmentsSupported: supportsAttachments,
+      visionSupported: (provider, modelId) =>
+        modelId !== undefined &&
+        modelImageInputSupport(modelMetadata.get(provider, modelId)) === 'supported',
+    }),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
     ...buildModelMetadataHandlers(modelMetadata),
     // The SOT projection: the user's editable list, enriched (never defined) by
