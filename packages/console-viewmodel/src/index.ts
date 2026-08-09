@@ -29,3 +29,15 @@ export {
   type ClaudeEffort,
   type ModelDescriptor,
 } from '@coa/shared';
+// F2: the permission-mode wire vocabulary — re-exported so the console edge (the
+// composer chip, the ask/response round trip) validates the real shared wire shape
+// without every consumer taking a direct @coa/shared dependency.
+export {
+  PERMISSION_MODES,
+  permissionModeSchema,
+  toolClassSchema,
+  approvalDecisionSchema,
+  type PermissionMode,
+  type ToolClass,
+  type ApprovalDecision,
+} from '@coa/shared';

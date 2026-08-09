@@ -7,8 +7,10 @@ import type {
   ModelDescriptor,
   ModelSelection,
   PackageSummary,
+  PermissionMode,
   RoleSummary,
   SessionSummary,
+  ToolClass,
   TurnFrame,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
@@ -52,13 +54,38 @@ export interface ConsoleData {
   packages: Remote<PackageSummary[]>;
 }
 
+/** F2 — a still-pending approval request, as the live `approval` push (or the
+ *  `sessionMode` reattach read) carries it. `toolClass` rides only the push (the
+ *  reattach snapshot doesn't carry it — see the daemon's `PendingApprovalSnapshot`). */
+export interface PendingApprovalItem {
+  requestId: string;
+  tool: string;
+  summary: string;
+  input?: Record<string, unknown>;
+  toolClass?: ToolClass;
+}
+
+/** F2 — a session's live permission-mode reflection: the CONFIGURED `mode`, the
+ *  `effectiveMode` actually enforced right now, and `degraded` (present only when
+ *  they differ — SC-1 honesty: the backend has no approval seam, so enforcement
+ *  fell back to bypass). Never decided by the console — always the daemon's `mode`
+ *  push, or the `sessionMode` reattach read. */
+export interface SessionModeState {
+  mode: PermissionMode;
+  effectiveMode: PermissionMode;
+  degraded?: string;
+}
+
 /** Local view state (not daemon data). */
 export interface ConsoleUi {
   settings: ConsoleSettings;
   /** When true the conversation renders the unfiltered loop (raw is always available). */
   rawMode: boolean;
-  /** Inert local record of mock approvals the operator resolved (advisory: surfacing
-   *  only — the daemon owns the real decision). */
+  /** A local record of resolved approvals, keyed by requestId — overlays a `resolved`
+   *  receipt onto a transcript-derived approval frame once answered (advisory: surfacing
+   *  only, never the decision itself). Distinct from {@link pendingApprovalsBySession}:
+   *  a LIVE F2 ask is never a transcript frame, so it never reads this map — it clears by
+   *  being removed from the pending queue instead. */
   resolvedApprovals: Record<string, 'approved' | 'denied'>;
   /** The agent open in the Agents editor (not the chat's — that follows the session). */
   selectedAgentRef?: string;
@@ -93,6 +120,15 @@ export interface ConsoleUi {
    *  describes. Never sent to the agent; a `ChatVm`/`interleaveNotes` concern, not the wire
    *  `TurnFrame` buffer. */
   notesBySession: Record<string, { afterCount: number; text: string }[]>;
+  /** F2: this session's live permission-mode reflection, keyed by sessionId — the
+   *  daemon's own `mode` push / `sessionMode` hydration read. Absent ⇒ not yet
+   *  hydrated (the vm falls back to the active agent's configured default). */
+  modeBySession: Record<string, SessionModeState>;
+  /** F2: every approval request still awaiting a reply, per session, oldest first
+   *  (FIFO — the longest-waiting ask is what's blocking the session). The
+   *  daemon's own live `approval` push queue / `sessionMode` hydration read;
+   *  never invented locally. */
+  pendingApprovalsBySession: Record<string, PendingApprovalItem[]>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -103,7 +139,15 @@ export interface ConsoleActions {
   switchAccount: (label: string, provider?: string) => void;
   setSettings: (patch: Partial<ConsoleSettings>) => void;
   toggleRaw: () => void;
+  /** F2: answer a pending ask docked to the composer for the active session — the
+   *  real ask/response round trip (proxies the daemon `respondApproval`), never a
+   *  local-only decision. */
   respondApproval: (requestId: string, decision: 'approve' | 'deny') => void;
+  /** F2: live-switch a session's permission mode (proxies the daemon `setMode`).
+   *  Visibility IS the guardrail — no confirmation gate on switching to a riskier
+   *  mode. Fire-and-forget; the chip's own reflection updates from the daemon's
+   *  `mode` push, not optimistically here. */
+  setPermissionMode: (sessionId: string, mode: PermissionMode) => void;
   /** Agents-surface editor selection + mock-inert writes (future writeRole funnel). */
   selectAgent: (ref: string) => void;
   createAgent: (scope: 'project' | 'personal') => void;
@@ -177,6 +221,8 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       runStatus: {},
       sendNonce: {},
       notesBySession: {},
+      modeBySession: {},
+      pendingApprovalsBySession: {},
     },
     actions,
   };

@@ -2,6 +2,7 @@ import {
   AccountsSchema,
   ActiveAccountSchema,
   agentFileSchema,
+  approvalDecisionSchema,
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
@@ -9,6 +10,7 @@ import {
   LoginSnapshotSchema,
   ModelCatalogViewSchema,
   PackageSummaryListSchema,
+  permissionModeSchema,
   ReasoningProfileSchema,
   RoleSummaryListSchema,
   SessionListSchema,
@@ -130,6 +132,46 @@ export const OpenProjectResultSchema = z.object({
 export const RecentProjectViewSchema = RecentProjectSchema.extend({ open: z.boolean() });
 export const ListRecentProjectsResultSchema = z.array(RecentProjectViewSchema);
 
+/** F2 — a pending approval request as replayed by `sessionMode`'s snapshot read
+ *  (the live `approval` push's own fields minus `sessionId`/`toolClass`, which the
+ *  snapshot read does not carry — see the daemon's `PendingApprovalSnapshot`). */
+const PendingApprovalSnapshotSchema = z.object({
+  requestId: z.string(),
+  tool: z.string(),
+  summary: z.string(),
+  input: z.record(z.string(), z.unknown()),
+});
+
+/** F2 — live-switch a session's permission mode, proxies the daemon `setMode`.
+ *  `set: false` ⇒ unknown session id, nothing changed. */
+export const SetModeParamsSchema = z.object({ id: z.string(), mode: permissionModeSchema });
+export const SetModeResultSchema = z.object({ set: z.boolean() });
+
+/** F2 — answer a pending ask, proxies the daemon `respondApproval`. `resolved: false`
+ *  ⇒ unknown session id, or no pending request with that id (a harmless no-op, not
+ *  an error — answering an already-answered/stale id twice never fails). */
+export const RespondApprovalParamsSchema = z.object({
+  id: z.string(),
+  requestId: z.string(),
+  decision: approvalDecisionSchema,
+});
+export const RespondApprovalResultSchema = z.object({ resolved: z.boolean() });
+
+/** F2 — a plain synchronous read of a session's current permission-mode state
+ *  (mode, the mode actually enforced, and every ask still awaiting a reply),
+ *  proxies the daemon `sessionMode`. Used to hydrate a reattach (e.g. a console
+ *  reload while a manual-mode ask is still blocking the session) without waiting
+ *  on the next live push. `found: false` ⇒ unknown session id. */
+export const SessionModeResultSchema = z.union([
+  z.object({ found: z.literal(false) }),
+  z.object({
+    found: z.literal(true),
+    mode: permissionModeSchema,
+    effectiveMode: permissionModeSchema,
+    pending: z.array(PendingApprovalSnapshotSchema),
+  }),
+]);
+
 /** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
 export const PUSH_CHANNEL = 'coa:push';
 
@@ -227,6 +269,9 @@ export type MethodName =
   | 'interruptSession'
   | 'steerSession'
   | 'subscribeSession'
+  | 'setMode'
+  | 'respondApproval'
+  | 'sessionMode'
   | 'listModels'
   | 'modelCatalog'
   | 'addModels'
@@ -337,6 +382,16 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     params: z.object({ id: z.string() }),
     result: z.object({ subscribed: z.boolean() }),
   },
+  /** F2 — live-switch a session's permission mode. Proxies the daemon `setMode`;
+   *  the chip's own reflection updates from the resulting `mode` push, not this
+   *  response (see {@link SetModeResultSchema}). */
+  setMode: { params: SetModeParamsSchema, result: SetModeResultSchema },
+  /** F2 — answer a pending ask (the composer's docked approve/deny gate). Proxies
+   *  the daemon `respondApproval`. */
+  respondApproval: { params: RespondApprovalParamsSchema, result: RespondApprovalResultSchema },
+  /** F2 — a session's current permission-mode snapshot (mode/effectiveMode/every
+   *  pending ask), for reattach hydration. Proxies the daemon `sessionMode`. */
+  sessionMode: { params: z.object({ id: z.string() }), result: SessionModeResultSchema },
   listModels: { result: z.array(modelDescriptorSchema) },
   modelCatalog: { result: ModelCatalogViewSchema },
   addModels: {

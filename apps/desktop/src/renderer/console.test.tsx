@@ -52,6 +52,9 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
     steerSession: vi.fn().mockResolvedValue({ steered: true }),
     subscribeSession: vi.fn().mockResolvedValue({ subscribed: true }),
+    setMode: vi.fn().mockResolvedValue({ set: true }),
+    respondApproval: vi.fn().mockResolvedValue({ resolved: true }),
+    sessionMode: vi.fn().mockResolvedValue({ found: false }),
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
@@ -1447,5 +1450,147 @@ describe('a write the daemon answered but did not carry out is said out loud', (
     await new Promise((r) => setTimeout(r, 0));
 
     expect(useNotices.getState().notice).toBeUndefined();
+  });
+});
+
+describe('F2 — permission modes', () => {
+  it('setPermissionMode proxies the switch to the bridge for the given session', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.setPermissionMode('c1', 'plan');
+    expect(bridge.setMode).toHaveBeenCalledExactlyOnceWith({ id: 'c1', mode: 'plan' });
+  });
+
+  it("a mode push reflects the session's live permission-mode state", async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'mode', sessionId: 'c1', mode: 'edits', effectiveMode: 'edits' });
+    expect(last().ui.modeBySession['c1']).toEqual({ mode: 'edits', effectiveMode: 'edits' });
+  });
+
+  it('a degraded mode push carries its honest reason through untouched', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'mode',
+      sessionId: 'c1',
+      mode: 'plan',
+      effectiveMode: 'bypass',
+      degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+    });
+    expect(last().ui.modeBySession['c1']).toEqual({
+      mode: 'plan',
+      effectiveMode: 'bypass',
+      degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+    });
+  });
+
+  it('an approval push queues a live pending ask for its session', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'write auth.ts',
+      tool: 'write_file',
+      toolClass: 'write',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([
+      { requestId: 'r1', tool: 'write_file', summary: 'write auth.ts', toolClass: 'write' },
+    ]);
+  });
+
+  it('respondApproval answers a live pending ask over the real RPC and clears it optimistically', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'write auth.ts',
+      tool: 'write_file',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+
+    last().actions.respondApproval('r1', 'approve');
+    expect(bridge.respondApproval).toHaveBeenCalledExactlyOnceWith({
+      id: 'c1',
+      requestId: 'r1',
+      decision: 'approve',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([]);
+  });
+
+  it('leaves the live pending queue untouched, and never calls the RPC, for an id that is not a genuinely live request', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.respondApproval('frame-only-id', 'deny');
+    expect(bridge.respondApproval).not.toHaveBeenCalled();
+    // The pre-existing local overlay (transcript-frame-derived approvals — dev/test data
+    // only) still resolves it, unaffected.
+    expect(last().ui.resolvedApprovals['frame-only-id']).toBe('denied');
+  });
+
+  it("hydrates a session's permission-mode state on open/reattach from sessionMode", async () => {
+    const bridge = fakeBridge({
+      sessionMode: vi.fn().mockResolvedValue({
+        found: true,
+        mode: 'edits',
+        effectiveMode: 'edits',
+        pending: [{ requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} }],
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    expect(bridge.sessionMode).toHaveBeenCalledWith({ id: 'c1' });
+    expect(last().ui.modeBySession['c1']).toEqual({ mode: 'edits', effectiveMode: 'edits' });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([
+      { requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} },
+    ]);
+  });
+
+  it('hydration synthesizes the honest degraded reason when the snapshot itself is already degraded', async () => {
+    const bridge = fakeBridge({
+      sessionMode: vi.fn().mockResolvedValue({
+        found: true,
+        mode: 'plan',
+        effectiveMode: 'bypass',
+        pending: [],
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    expect(last().ui.modeBySession['c1']).toMatchObject({ mode: 'plan', effectiveMode: 'bypass' });
+    expect(last().ui.modeBySession['c1']?.degraded).toBeDefined();
   });
 });

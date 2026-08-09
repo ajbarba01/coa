@@ -670,6 +670,12 @@ async function runMethod(
       return proxyDaemon(event, 'steerSession', params);
     case 'subscribeSession':
       return proxyDaemon(event, 'subscribeSession', params);
+    case 'setMode':
+      return proxyDaemon(event, 'setMode', params);
+    case 'respondApproval':
+      return proxyDaemon(event, 'respondApproval', params);
+    case 'sessionMode':
+      return proxyDaemon(event, 'sessionMode', params);
     case 'listModels':
       return proxyDaemon(event, 'listModels');
     case 'modelCatalog':

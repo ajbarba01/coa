@@ -10,6 +10,7 @@ export const NOOP_ACTIONS: ConsoleActions = {
   setSettings: () => {},
   toggleRaw: () => {},
   respondApproval: () => {},
+  setPermissionMode: () => {},
   selectAgent: () => {},
   createAgent: () => {},
   updateAgent: () => {},

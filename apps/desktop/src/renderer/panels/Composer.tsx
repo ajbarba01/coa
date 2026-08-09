@@ -1,10 +1,11 @@
 import { Button, Icon, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
-import type { ModelDescriptor } from '@coa/console-viewmodel';
+import type { ModelDescriptor, PermissionMode } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
 import type { ChatNotice } from './banners.js';
 import { ModelPicker } from './ModelPicker.js';
 import { NoticeLine } from './NoticeLine.js';
+import { PermissionModeChip } from './PermissionModeChip.js';
 import { ReasoningChip } from './ReasoningPicker.js';
 
 export interface QueuedMessage {
@@ -31,6 +32,17 @@ export interface ComposerProps {
   /** The gate waiting on you. While set, the composer wears the amber shimmer,
    *  ⏎ on an empty field approves, and typing redirects instead. */
   approval?: PendingApproval | undefined;
+  /** F2 — the active session's CONFIGURED permission mode (what was picked/the
+   *  agent's default). */
+  mode: PermissionMode;
+  /** F2 — the mode actually enforced right now; the chip renders off THIS, never
+   *  `mode` (SC-1: never claim an enforcement the backend can't deliver). */
+  effectiveMode: PermissionMode;
+  /** F2 — present only when `effectiveMode !== mode` — the honest reason why. */
+  modeDegraded?: string | undefined;
+  /** F2 — live-switch the active session's permission mode. No confirmation gate:
+   *  visibility IS the guardrail. */
+  onSetMode: (mode: PermissionMode) => void;
   /** The real model seam (from the ChatVm), passed WHOLE. Flattening it to id+label here
    *  dropped each model's `provider`, which is what the picker groups and marks by — so
    *  every backend resolved to the Claude default and the shelf's list said so. */
@@ -87,6 +99,10 @@ export function Composer({
   disabled = false,
   queued = [],
   approval,
+  mode,
+  effectiveMode,
+  modeDegraded,
+  onSetMode,
   models,
   currentModelId,
   onPickModel,
@@ -319,6 +335,16 @@ export function Composer({
           <AttachButton disabled={disabled} />
           <MicButton disabled={disabled} />
           <div className="flex-1" />
+          {/* F2: how autonomous the session runs — leads the cluster, since it governs
+              every other control here (a plan-mode session's model/effort picks still
+              can't reach a write). */}
+          <PermissionModeChip
+            mode={mode}
+            effectiveMode={effectiveMode}
+            degraded={modeDegraded}
+            onChange={onSetMode}
+            disabled={disabled}
+          />
           {/* The two axes of a turn, side by side and each its own control: WHICH model,
               then how hard it thinks. Burying the second inside the first's popup made the
               more frequent of the two the harder to reach. */}
