@@ -189,6 +189,49 @@ describe('OpenAiCompatAdapter', () => {
     await expect(adapter.runLoop(SESSION)).rejects.toThrow('renderNative');
   });
 
+  it('threads a live-turn attachment through to the wire when visionSupported is set', async () => {
+    const captured: Captured = {};
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'what is this?',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch(captured),
+      attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      visionSupported: true,
+    });
+    wire(adapter);
+
+    await adapter.runLoop(SESSION);
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    expect(wireMessages[1]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what is this?' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      ],
+    });
+  });
+
+  it('rejects a live-turn image attachment end-to-end when visionSupported is not set, without ever sending the request', async () => {
+    let fetchCalled = false;
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'what is this?',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: async (url, init) => {
+        fetchCalled = true;
+        return textFetch({})(url, init);
+      },
+      attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      // visionSupported omitted
+    });
+    wire(adapter);
+
+    await expect(adapter.runLoop(SESSION)).rejects.toThrow(/does not support image attachments/);
+    expect(fetchCalled).toBe(false);
+  });
+
   it('forwards a registered base tool (e.g. Read) onto the wire tools list', async () => {
     const captured: Captured = {};
     const readTool: RegisteredTool = {

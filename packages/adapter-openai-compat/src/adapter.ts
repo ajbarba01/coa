@@ -1,4 +1,5 @@
 import type {
+  Attachment,
   BackendMessage,
   Locator,
   ModelSelection,
@@ -47,6 +48,14 @@ export interface OpenAiCompatAdapterInit {
   onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The prior conversation transcript (system omitted), resent verbatim for cross-turn memory — a pure chat API has no server-side session to `resume`. */
   history?: readonly BackendMessage[];
+  /** Attachments on THIS turn's live user message (images/text files). */
+  attachments?: readonly Attachment[];
+  /**
+   * Whether the active model reports vision support (from the model-metadata
+   * catalog) — gates whether an `image` attachment reaches the wire or is rejected
+   * with a typed `AttachmentCapabilityError`. Absent ⇒ `false`.
+   */
+  visionSupported?: boolean;
   /** The account's login pointer (an env-var/key-file pointer); absent ⇒ the spec's default key var. */
   locator?: Locator;
   /**
@@ -141,6 +150,9 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
       ...(reasoning !== undefined ? { reasoning } : {}),
       ...(this.#init.baseUrl !== undefined ? { baseUrl: this.#init.baseUrl } : {}),
       ...(this.#init.fetchImpl !== undefined ? { fetchImpl: this.#init.fetchImpl } : {}),
+      ...(this.#init.visionSupported !== undefined
+        ? { visionSupported: this.#init.visionSupported }
+        : {}),
     });
     await runGovernedLoop({
       sessionId: this.#init.sessionId,
@@ -149,6 +161,7 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
       systemPrompt: backend.systemPrompt,
       input: await firstPrompt(this.#init.input),
       ...(this.#init.history !== undefined ? { history: this.#init.history } : {}),
+      ...(this.#init.attachments !== undefined ? { attachments: this.#init.attachments } : {}),
       canUseTool: this.#canUseTool,
       gate: this.#stopPredicate,
       ...(this.#init.onTurn !== undefined ? { onTurn: this.#init.onTurn } : {}),

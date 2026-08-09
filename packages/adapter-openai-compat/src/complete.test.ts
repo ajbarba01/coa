@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { AttachmentCapabilityError } from '@coa/shared';
 import type { CompletionDelta, CompletionResult, DriverMessage, ToolDef } from '@coa/loop-driver';
 import { makeOpenAiCompatComplete, type FetchLike } from './complete.js';
 import { deepseekSpec } from './deepseek.js';
@@ -327,6 +328,126 @@ describe('makeOpenAiCompatComplete (shared loop)', () => {
     expect(step.value.toolCalls).toEqual([
       { id: 'call_1', name: 'Bash', arguments: { command: 'ls -la' } },
     ]);
+  });
+});
+
+describe('makeOpenAiCompatComplete — attachments', () => {
+  it('maps an image attachment onto a real multimodal content block when the model reports vision support', async () => {
+    const captured: Captured = {};
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'vision-model',
+      visionSupported: true,
+      fetchImpl: fakeFetch(textResponse, captured),
+    });
+    const messages: DriverMessage[] = [
+      {
+        role: 'user',
+        content: 'what is in this image?',
+        attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      },
+    ];
+
+    await drain(complete(messages, []));
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    expect(wireMessages[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what is in this image?' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      ],
+    });
+  });
+
+  it('rejects an image attachment with a typed capability error when the model has no vision support', async () => {
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'deepseek-v4-flash',
+      // visionSupported omitted — defaults to false
+      fetchImpl: fakeFetch(textResponse, {}),
+    });
+    const messages: DriverMessage[] = [
+      {
+        role: 'user',
+        content: 'what is in this image?',
+        attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      },
+    ];
+
+    const rejection = drain(complete(messages, []));
+    await expect(rejection).rejects.toBeInstanceOf(AttachmentCapabilityError);
+    await expect(rejection).rejects.toMatchObject({
+      attachmentKind: 'image',
+      modelId: 'deepseek-v4-flash',
+    });
+  });
+
+  it('never silently drops the attachment or sends a malformed request on rejection — no fetch is made', async () => {
+    let fetchCalled = false;
+    const fetchImpl: FetchLike = async () => {
+      fetchCalled = true;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => textResponse,
+        body: toSseBody(textResponse),
+      };
+    };
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'm',
+      fetchImpl,
+    });
+    const messages: DriverMessage[] = [
+      {
+        role: 'user',
+        content: 'go',
+        attachments: [{ kind: 'image', mimeType: 'image/png', data: 'x' }],
+      },
+    ];
+
+    await expect(drain(complete(messages, []))).rejects.toThrow();
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('inlines a text attachment into the message content unconditionally (no capability gate)', async () => {
+    const captured: Captured = {};
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'm',
+      fetchImpl: fakeFetch(textResponse, captured),
+    });
+    const messages: DriverMessage[] = [
+      {
+        role: 'user',
+        content: 'summarize this file',
+        attachments: [{ kind: 'text', name: 'notes.txt', text: 'line one\nline two' }],
+      },
+    ];
+
+    await drain(complete(messages, []));
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    expect(wireMessages[0]).toEqual({
+      role: 'user',
+      content: 'summarize this file\n\n[attached file: notes.txt]\nline one\nline two',
+    });
+  });
+
+  it('a message with no attachments maps byte-identically to before', async () => {
+    const captured: Captured = {};
+    const complete = makeOpenAiCompatComplete(deepseekSpec, {
+      apiKey: 'sk-1',
+      model: 'm',
+      fetchImpl: fakeFetch(textResponse, captured),
+    });
+
+    await drain(complete([{ role: 'user', content: 'go' }], []));
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    expect(wireMessages[0]).toEqual({ role: 'user', content: 'go' });
   });
 });
 

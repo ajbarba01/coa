@@ -1,5 +1,5 @@
 import { z, type ZodRawShape } from 'zod';
-import type { ClaudeReasoning } from '@coa/shared';
+import { AttachmentCapabilityError, type Attachment, type ClaudeReasoning } from '@coa/shared';
 import type { CompleteFn, DriverMessage, ToolDef } from '@coa/loop-driver';
 import { streamChunkSchema, type WireUsage } from './wire.js';
 import { parseSseChunks } from './sse.js';
@@ -31,6 +31,14 @@ export interface CompleteConfig {
   baseUrl?: string;
   /** coa's faithful reasoning selection; the spec maps it to the provider's request fields. */
   reasoning?: ClaudeReasoning;
+  /**
+   * Whether `model` reports vision support (from the model-metadata catalog) — gates
+   * whether an `image` attachment on a message is mapped onto the wire as a real
+   * multimodal content block or rejected with a typed {@link AttachmentCapabilityError}.
+   * Absent ⇒ `false` (never silently send an image to a model that can't take it).
+   * A `text` attachment is unaffected — it always inlines into the message's content.
+   */
+  visionSupported?: boolean;
   /** The config-overridable price table (zero-floor); absent ⇒ everything costs 0. */
   prices?: PriceTable;
   /** Injectable transport (defaults to global `fetch`). */
@@ -47,10 +55,13 @@ export function makeOpenAiCompatComplete(spec: ProviderSpec, config: CompleteCon
   // arrives, and RETURN the assembled settled result (deltas are delivery-only and are
   // never persisted; only the settled result is). The
   // driver maps each delta to a delivery-only frame; the settled result is what persists.
+  const visionSupported = config.visionSupported ?? false;
   return async function* (messages, tools, signal) {
     const body = {
       model: config.model,
-      messages: messages.map(toWireMessage),
+      messages: messages.map((message) =>
+        toWireMessage(message, { visionSupported, modelId: config.model }),
+      ),
       ...(tools.length > 0 ? { tools: tools.map(toWireTool) } : {}),
       ...spec.reasoningBody(config.reasoning),
       stream: true,
@@ -113,15 +124,52 @@ export function makeOpenAiCompatComplete(spec: ProviderSpec, config: CompleteCon
   };
 }
 
-/** Map a neutral driver message to the OpenAI-compatible wire message. */
-function toWireMessage(message: DriverMessage): Record<string, unknown> {
+/** Fold every `text`-kind attachment into the plain-text content — always safe, no
+ *  capability gate (requirement: a text file inlines unconditionally). */
+function inlineTextAttachments(content: string, attachments: readonly Attachment[]): string {
+  const blocks = attachments
+    .filter((a): a is Extract<Attachment, { kind: 'text' }> => a.kind === 'text')
+    .map((a) => `\n\n[attached file${a.name !== undefined ? `: ${a.name}` : ''}]\n${a.text}`);
+  return blocks.length === 0 ? content : content + blocks.join('');
+}
+
+/** The OpenAI-compatible multimodal content-part shape for an `image` attachment
+ *  (`content` becomes an array of parts instead of a plain string) — the real wire
+ *  format every OpenAI-compatible vision-capable model accepts. */
+function toImagePart(attachment: Extract<Attachment, { kind: 'image' }>): Record<string, unknown> {
+  return {
+    type: 'image_url',
+    image_url: { url: `data:${attachment.mimeType};base64,${attachment.data}` },
+  };
+}
+
+/**
+ * Map a neutral driver message to the OpenAI-compatible wire message. A message
+ * with no attachments maps byte-identically to before. An `image` attachment is
+ * mapped onto a real multimodal content block ONLY when `capability.visionSupported`
+ * — otherwise this throws {@link AttachmentCapabilityError} (a typed reject, never a
+ * silent drop and never a wire-format crash the model would see as malformed input).
+ */
+function toWireMessage(
+  message: DriverMessage,
+  capability: { visionSupported: boolean; modelId: string },
+): Record<string, unknown> {
+  const attachments = message.attachments ?? [];
+  const images = attachments.filter(
+    (a): a is Extract<Attachment, { kind: 'image' }> => a.kind === 'image',
+  );
+  if (images.length > 0 && !capability.visionSupported) {
+    throw new AttachmentCapabilityError('image', capability.modelId);
+  }
+  const content = inlineTextAttachments(message.content, attachments);
+
   if (message.role === 'tool') {
-    return { role: 'tool', tool_call_id: message.toolCallId ?? '', content: message.content };
+    return { role: 'tool', tool_call_id: message.toolCallId ?? '', content };
   }
   if (message.role === 'assistant' && message.toolCalls !== undefined) {
     return {
       role: 'assistant',
-      content: message.content,
+      content,
       tool_calls: message.toolCalls.map((call) => ({
         id: call.id,
         type: 'function',
@@ -129,7 +177,13 @@ function toWireMessage(message: DriverMessage): Record<string, unknown> {
       })),
     };
   }
-  return { role: message.role, content: message.content };
+  if (images.length > 0) {
+    return {
+      role: message.role,
+      content: [{ type: 'text', text: content }, ...images.map(toImagePart)],
+    };
+  }
+  return { role: message.role, content };
 }
 
 /** Map a governed tool to the OpenAI-compatible function tool (Zod raw shape → JSON schema). */
