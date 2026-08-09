@@ -105,9 +105,15 @@ function createProjectWindow(root: string): BrowserWindow {
   daemonRegistry.acquire(root);
 
   win.on('closed', () => {
+    // Look up the CURRENT root, not the `root` this closure was created with — `win`
+    // may have been rebound to a different project since creation (`rebindWindow`,
+    // the swap-in-current-window path), and closing must release whatever project
+    // this window is bound to NOW, or the swapped-to project's daemon reference is
+    // never released and its process is orphaned with zero windows watching it.
+    const currentRoot = windowRegistry.rootOf(win.id) ?? root;
     windowRegistry.unbind(win.id);
     // Fire-and-forget: closing must not block on the daemon's graceful teardown.
-    void daemonRegistry.release(root);
+    void daemonRegistry.release(currentRoot);
   });
 
   // Ctrl+/- window zoom (VSCode-style): intercept the accelerator keys before they
