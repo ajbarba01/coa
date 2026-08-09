@@ -429,6 +429,63 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
+  it('keeps the run-status pill set across a blocked-approval push — a pending ask is still a live, in-flight turn, and Stop/Esc/Interrupt must stay reachable', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    // LiveSession.state never leaves 'running' for the duration of an ask (see
+    // requestApproval); this push is a live annotation on top, not a "turn ended" signal.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-approval' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    // The daemon resolving the ask and reflecting back to running must not reset the pill's clock.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'done' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('keeps the run-status pill set across a blocked-tool push', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-tool' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('a blocked-approval push arriving with no prior running push still marks the turn in flight (defensive — reattach hydration always starts from running/idle, but the pill derivation must not depend on that ordering)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-approval' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
   it('hydrates the run-status pill from the daemon on connect (reattach — the session exists independent of any viewer), not from local send-tracking', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({

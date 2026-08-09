@@ -1057,8 +1057,25 @@ export async function startConsole(
       // is present when the pill clears), and guarantee the flush even if rAF is throttled.
       flushTurns();
       const runStatus = { ...state.ui.runStatus };
-      if (data.state === 'running') runStatus[data.sessionId] ??= { since: Date.now() };
-      else delete runStatus[data.sessionId];
+      if (
+        data.state === 'running' ||
+        data.state === 'blocked-approval' ||
+        data.state === 'blocked-tool'
+      ) {
+        // F2: `blocked-approval`/`blocked-tool` are a live annotation on top of a
+        // turn that is still genuinely in flight underneath (LiveSession.state
+        // itself never leaves 'running' for the duration of an ask — see
+        // requestApproval/resolveApproval) — NOT a "not running" signal. Every
+        // Stop/interrupt affordance (Composer's Stop button, the global Esc
+        // handler, the palette's "Interrupt Running Turn") hangs off this same
+        // map, so treating a pending ask as idle silently strands the user with
+        // only approve/deny/redirect and no way to abort the turn outright.
+        // `??=` preserves an already-recorded `since` rather than resetting the
+        // elapsed-time pill's clock when the ask lands mid-turn.
+        runStatus[data.sessionId] ??= { since: Date.now() };
+      } else {
+        delete runStatus[data.sessionId];
+      }
       // A terminal status carries NO transcript content: the daemon settles the in-flight turn's
       // partial blocks and records the `interrupted` marker as real, persisted frames, which
       // arrive on this same push stream. Closing blocks or synthesizing a marker here would
