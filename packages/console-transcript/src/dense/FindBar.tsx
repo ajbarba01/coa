@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { cx } from '@coa/console-kit';
+import { Button, cx } from '@coa/console-kit';
 
 export interface FindBarProps {
   query: string;
@@ -65,42 +65,21 @@ export function FindBar({
       >
         {query === '' ? '' : `${current}/${total}`}
       </span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        icon
         aria-label="Previous match"
         onClick={onPrev}
         disabled={total === 0}
-        className={cx(
-          'flex h-5 w-5 items-center justify-center rounded-r1 text-[13px]',
-          total === 0
-            ? 'cursor-default text-s5'
-            : 'slip cursor-pointer text-s8 hover:bg-s4 hover:text-s11',
-        )}
       >
         ‹
-      </button>
-      <button
-        type="button"
-        aria-label="Next match"
-        onClick={onNext}
-        disabled={total === 0}
-        className={cx(
-          'flex h-5 w-5 items-center justify-center rounded-r1 text-[13px]',
-          total === 0
-            ? 'cursor-default text-s5'
-            : 'slip cursor-pointer text-s8 hover:bg-s4 hover:text-s11',
-        )}
-      >
+      </Button>
+      <Button variant="ghost" icon aria-label="Next match" onClick={onNext} disabled={total === 0}>
         ›
-      </button>
-      <button
-        type="button"
-        aria-label="Close Find"
-        onClick={onClose}
-        className="slip flex h-5 w-5 cursor-pointer items-center justify-center rounded-r1 text-[11px] text-s7 hover:bg-s4 hover:text-s10"
-      >
+      </Button>
+      <Button variant="ghost" icon aria-label="Close Find" onClick={onClose}>
         ✕
-      </button>
+      </Button>
     </div>
   );
 }

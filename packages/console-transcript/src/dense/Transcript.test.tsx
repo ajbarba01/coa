@@ -650,7 +650,7 @@ describe('TranscriptRow', () => {
     const block = screen.getByText('hello').closest('[data-role="you"]');
     expect(block?.className).toContain('bg-s3');
     expect(block?.className).toContain('ml-auto');
-    expect(block?.className).toContain('rounded-[6px_6px_2px_6px]');
+    expect(block?.className).toContain('rounded-[var(--radius-bubble)]');
     expect(block?.className).not.toMatch(/bg-raised|border-hairline|rounded-surface/);
   });
 

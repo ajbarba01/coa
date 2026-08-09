@@ -1,4 +1,4 @@
-import { Tooltip } from '@coa/console-kit';
+import { Button, Tooltip } from '@coa/console-kit';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DenyNotice } from '../DenyNotice.js';
 import { findTermMatches } from './find.js';
@@ -531,7 +531,7 @@ export function TranscriptRow({
         className={cx(
           'min-w-0',
           isUser &&
-            'ml-auto w-fit max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
+            'ml-auto w-fit max-w-[70%] self-end rounded-[var(--radius-bubble)] bg-s3 px-3 py-2 text-s11',
           // Not yet in the record (a steer is recorded only when the model receives it) —
           // reads as provisional, not as history,
           // the same way a streaming block never wears the settled row's full weight.
@@ -1098,14 +1098,15 @@ export function Transcript({
       {/* Width toggle: the composer's reading measure ⇄ the whole panel (design reference's
           corner control). Sits at the top-right; find, when open, tucks to its left. */}
       <Tooltip label={wide ? 'Narrow to Reading Measure' : 'Use the Whole Panel'}>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          icon
           onClick={() => setWide((w) => !w)}
           aria-label={wide ? 'Narrow Transcript' : 'Widen Transcript'}
-          className="slip absolute right-3.5 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-r1 font-mono text-[12px] text-s6 hover:bg-s3 hover:text-s9"
+          className="absolute right-3.5 top-2 z-10 font-mono"
         >
           {wide ? '⇥⇤' : '⇤⇥'}
-        </button>
+        </Button>
       </Tooltip>
       {showJump && (
         <div
