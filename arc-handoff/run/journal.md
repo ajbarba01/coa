@@ -1395,3 +1395,75 @@ Stage 0, Stage 1, and Stage 2 (except C4) are complete and verified. Stage 4 is 
 verified. Stage 5 closeout is now complete — this entry is its final report. Stage 3 (features) is
 entirely unstarted. C4 is the one remaining architecture item. Every parked item has a numbered
 question with a recommendation attached; nothing is unaccounted for.
+
+---
+
+# C4 partial + the model-allocation change — 2026-08-08, late evening
+
+A Fable session picked up the C4 charter (the console store rewrite) off `arc/c4-console`. It ran
+out of budget roughly two-thirds through, and the maintainer then ruled that **all remaining Fable
+credit is gone and everything — UX included — runs on Opus from here.** The two-track handoff split
+(an Opus brief for backend work, a Fable brief for C4/Stage 3) retired with that ruling:
+`OPUS-CONTINUATION-HANDOFF.md` became `CONTINUATION-HANDOFF.md`, the single continuation brief, and
+`C4-STAGE3-HANDOFF.md` was deleted after its still-live content was folded in.
+
+## What C4 actually got
+
+Three commits on `arc/c4-console`, **local only, never pushed**, in a session-scoped scratch
+worktree:
+
+- `878528f` — reloaded frames now carry the same ids their live pushes carried (`sessionId:seq` on
+  both sides). The daemon already pushes and persists a frame under one shared seq, so this makes a
+  reload-merge dedupe by identity rather than guessing by content.
+- `20e4f2b` — the store: `apps/desktop/src/renderer/store/`, four zustand slices (per-session
+  transcript map, session list/run-status, slow daemon reads, local UI state), a controller owning
+  push routing / rAF batching / boot+hydrate sequencing, a stable module-level action surface, and
+  the injected `ConsoleBridge` seam kept intact. **83 contract tests pass.** Every invariant named
+  in the audit's fix sketch was ported out of the old 1020-line `console.test.tsx` BEFORE the
+  closure was deleted — per-session push routing, the stale-reload guard, live==reload after an
+  interrupt, cache-first open, the reattach `subscribed:false` authority, hydrate's launch-race
+  dedupe — which is the one instruction that charter insisted on, and it held.
+- `00717d5` — preload RPC wrappers moved out of the controller into `panels/rpc.ts`.
+
+Uncommitted: the component swap onto the slices (ChatPanel with a memoized per-tab transcript host,
+Center, Nav, Work, Browser, Palette, NewSession, Settings, Workbench, keys, App), with the old
+`console.ts`, `console.test.tsx`, `consoleStore.ts` and `Freeze` deleted. Production typecheck is
+green; 8 desktop test files fail — six only because they still import the deleted `consoleStore.js`
+(mechanical), two (`ChatPanel`, `Browser`) with real assertion failures.
+
+**F10 was never verified.** The app was never launched. The instant-navigation claim — the whole
+point of the charter — is unproven.
+
+## The honest read on the allocation
+
+Reviewed at the maintainer's prompt: **zero UX work was done.** The uncommitted diff carries six
+`className` touches, all of them the same classes relocating with an extracted component, and no
+token, layout, copy, or motion changes at all. What Fable produced was state architecture that
+happens to live under `renderer/` — slice boundaries, a reload-merge algorithm, eviction policy,
+subscription seams. The judgment calls that came up were all architectural. The reserved credit went
+to scaffolding and ran out at the doorstep of the one genuinely UX-shaped task in the charter (F10's
+felt-quality verification), which is a fair criticism of how the charter was scoped, not of the
+work itself — the charter itself said C4 "has no visual mockup."
+
+## New operational facts (cost real time)
+
+Working a scratch worktree with `node_modules` junctioned from the main repo:
+
+- **pnpm 11's `verify-deps-before-run` will try to purge and reinstall the MAIN repo's dependency
+  tree** — it reads the foreign workspace path out of the shared `.modules.yaml` and decides the
+  install is stale. Every `pnpm <script>` died on `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`
+  until a worktree-local `.npmrc` set `verify-deps-before-run=false`. The env-var form does not
+  work; `pnpm --config.verify-deps-before-run=false <script>` does.
+- **Link `apps/desktop/node_modules/@coa/*` to the worktree's OWN packages**, not the main repo's.
+  A blanket junction of the whole `node_modules` directory made `tsc -b` typecheck the main repo's
+  sources while vitest (which aliases `@coa/*` to local `src/`) checked the worktree's — so a real
+  type error hid behind a green test run.
+- **Remove such a worktree with `git worktree remove`, never a recursive delete** — the junctions
+  point at the real dependency tree, and a naive `rm -rf` follows them.
+
+## Where this leaves the arc
+
+Rescuing C4's unpushed work is the immediate next action: finish the six mechanical test
+migrations, diagnose the two real failures, gate, commit, push, open the draft PR. Then F10's
+verification — now Opus work like everything else — then Stage 3's features. Q10, Q11 and Q14
+remain open and unblocking.

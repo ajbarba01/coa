@@ -36,7 +36,7 @@
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
 | `arc/architecture` | 5c232df | **Stage 2 COMPLETE except C4 — C3 is now fully closed and independently verified.** C1, de-slop, C2, the cost-cap archive (R1), the Q7 cleanups, C3 built+verified (the turn-lifecycle state machine, fa437a1..77e6dd4, **plus its last item at 5c232df — passed=true on independent re-verification**), Q9 archival, C5 complete+verified. The 5c232df fix turned out to be a real, provable bug, not the hygiene nit its own prior description undersold it as (see journal: a straggler frame could land below the `interrupted` marker via the everyday Stop button, no exotic backend needed). `packages/core/src/session` isolated: 354/354 green, confirmed independently by two separate agents. C4 unbuilt, unblocked, parked on Fable/UX allocation |
 | `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
-| `arc/c4-console` | 5c232df (forked, no commits yet) | **C4's own branch, pushed and waiting for a Fable session.** See `C4-STAGE3-HANDOFF.md` — a full, self-contained charter briefing. Not started as of this writing |
+| `arc/c4-console` | 00717d5 **local only, NOT pushed** | **C4 PARTIALLY BUILT.** The push-fed slice store (`apps/desktop/src/renderer/store/`) is committed with 83 passing contract tests carrying every invariant ported out of the old `console.test.tsx`; the component swap onto it is written but UNCOMMITTED, with 8 desktop test files still failing (6 mechanical, 2 real) and F10 never verified. The commits and the working tree live in a session-scoped scratch worktree — **preserving them is the next session's first job.** See `CONTINUATION-HANDOFF.md` |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
@@ -57,10 +57,10 @@ on the old machine.
   unification gated and landed), C3 (session service extraction, including its turn-lifecycle
   state machine — see journal for the real bug its last item turned out to be), C5 (composition
   root + error honesty) are all DONE and independently verified. **C4 (console store rewrite) is
-  the only item left, deliberately unstarted — it needs the maintainer's Fable/UX allocation, not
-  sequence; C3 was its prerequisite and is done, so it is unblocked.**
+  the only item left and is now PARTIALLY BUILT — the store landed with its ported invariant
+  tests; the component swap and F10 verification remain (see the branch table).**
 - **Stage 3 (features)** — NOT STARTED except F6, which rode C2 and shipped. F1–F5, F7–F10
-  untouched, same as Stage 2's UX allocation.
+  untouched.
 - **Stage 4 (docs)** — COMPLETE AND VERIFIED. Landed on `arc/docs`, both adversarial lenses ran
   and their one real finding (ADR 0015's rationale) is fixed. See branch table above.
 - **Stage 5 (closeout)** — COMPLETE. See the "STAGE 5 CLOSEOUT" journal entry for the full
@@ -127,10 +127,12 @@ on the old machine.
 
 ## The arc, right now
 
-Nothing is queued. Stage 0/1 complete, Stage 2 complete except C4, Stage 4 complete and verified,
-Stage 5 complete. C4 and Stage 3 wait on the maintainer's Fable/UX allocation — not sequence, not a
-technical blocker. The next session starting fresh should read the journal's closeout entry first;
-everything after this point in the file is prior-session detail, kept for the record.
+Stage 0/1 complete, Stage 4 complete and verified, Stage 5 complete. **C4 is mid-flight with
+unpushed commits and an uncommitted working set in a scratch worktree — rescuing and finishing it
+is the immediate next action**, after which F10's verification and then Stage 3's features are
+the remaining work. Everything runs on Opus now; no model allocation is outstanding. A fresh
+session should read `CONTINUATION-HANDOFF.md` first, then the journal's last entries; everything
+after this point in the file is prior-session detail, kept for the record.
 
 ## Standing operational facts (do not rediscover)
 
@@ -169,14 +171,20 @@ everything after this point in the file is prior-session detail, kept for the re
   as Q10 — recorded there as a new data point, not treated as a regression (the only diff in the
   tree at the time was a markdown-only edit, which cannot affect JS/TS test timing).
 
-## Model allocation (maintainer decision, 2026-08-07 afternoon)
+## Model allocation — SUPERSEDED 2026-08-08 (maintainer decision)
 
-The first Fable account's promo credit is EXHAUSTED (hit its monthly limit mid-part-3;
-the maintainer re-logged into the second account). Decision: the session runs on
-**Opus** for all remaining backend/mechanical work (Q7 cleanups, C3, C5, Stage 4
-docs, closeout); the second account's remaining Fable credit is **reserved for the
-UX stages** — Stage 3's mockup-driven features, C4's console rewrite, and the
-mockup-conformance gates — per the plan's Fable-on-UX hard rule.
+**All Fable credit is now exhausted. Everything remaining — UX included — runs on Opus.**
+The plan's Fable-on-UX hard rule no longer applies, and nothing is parked waiting on model
+allocation. The two-track handoff split retired with it: `CONTINUATION-HANDOFF.md` is the one
+continuation brief.
+
+_Prior history, for the record:_ the first Fable account's promo credit was exhausted 2026-08-07
+(hit its monthly limit mid-part-3; the maintainer re-logged into the second account), and the
+decision then was Opus for backend/mechanical work with the second account's Fable credit
+reserved for the UX stages — Stage 3's mockup-driven features, C4's console rewrite, and the
+mockup-conformance gates. That reserve is now spent: it went to C4's store layer, which turned
+out to be state architecture rather than design work, and ran out before F10's verification —
+the one genuinely UX-shaped part of that charter.
 
 ## Spend / cost discipline (READ THIS — the run died here)
 
