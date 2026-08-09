@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { cx } from '../cx.js';
+import { menuSurface } from '../overlay/MenuCard.js';
 import { PopoverCard } from '../overlay/PopoverCard.js';
 import { Tooltip, type TooltipSpec } from '../overlay/Tooltip.js';
 
@@ -76,6 +77,14 @@ export interface ComboboxProps {
    *  inside a panel should span it, the way any other field would. Off by default: a
    *  trigger sitting in a control row hugs. */
   fullWidth?: boolean;
+  /**
+   * An overview card for the option the cursor rests on (mouse hover or arrow
+   * keys), rendered on its own floating surface BESIDE the popup — detail is
+   * proximity, and the rows stay clean of inline badges. Return `null` for an
+   * option with nothing to show (no card renders). Display-only: the card takes
+   * no focus and no clicks.
+   */
+  detail?: (option: ComboboxOption) => React.ReactNode;
 }
 
 /** Pure: the options a query names. Matches the label OR the group, case-insensitively,
@@ -108,6 +117,7 @@ export function Combobox({
   triggerLabel,
   variant = 'bordered',
   fullWidth = false,
+  detail,
   ...aria
 }: ComboboxProps): React.JSX.Element {
   const ariaLabel = aria['aria-label'];
@@ -119,6 +129,27 @@ export function Combobox({
 
   const current = options.find((o) => o.value === value)?.label ?? value;
   const filtered = useMemo(() => filterOptions(options, query), [options, query]);
+
+  // The overview card follows the CURSOR row (mouse hover and arrow keys are one
+  // vocabulary here), so keyboard users get the same detail hovering gives.
+  const cursorOption = open ? filtered[cursor] : undefined;
+  const detailNode =
+    detail !== undefined && cursorOption !== undefined ? detail(cursorOption) : undefined;
+  const beside =
+    detailNode === undefined || detailNode === null ? undefined : (
+      <div
+        data-combobox-detail
+        // A sibling layer beside the popup (the popup's own surface clips), on the
+        // side away from the anchored edge — that is where the free space is.
+        className={cx(
+          'slip-enter absolute top-0 w-64',
+          menuSurface,
+          align === 'end' ? 'right-full mr-1.5' : 'left-full ml-1.5',
+        )}
+      >
+        {detailNode}
+      </div>
+    );
 
   // The cursor tracks the filtered list, not the raw options — retyping always
   // re-lands on the first hit rather than an index into a list that shrank.
@@ -168,6 +199,7 @@ export function Combobox({
       className={cx('p-0', rail === undefined ? 'w-64' : 'w-[19rem]')}
       flush={rail !== undefined}
       initialFocus={inputRef}
+      {...(beside !== undefined ? { beside } : {})}
       {...(tooltip !== undefined ? { tooltip } : {})}
       trigger={
         <button

@@ -8,6 +8,7 @@ export {
 export { WindowControls, type WindowControlsProps } from './chrome/WindowControls.js';
 export { cx } from './cx.js';
 export { Meter, meterTone, type MeterProps, type MeterTone } from './data/Meter.js';
+export { RingMeter, type RingMeterProps } from './data/RingMeter.js';
 export { Icon, type IconName, type IconProps } from './data/Icon.js';
 export { InlineMessage, type InlineMessageProps, type Status } from './feedback/InlineMessage.js';
 export { Toast, type ToastProps } from './feedback/Toast.js';
