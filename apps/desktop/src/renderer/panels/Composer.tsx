@@ -234,21 +234,26 @@ export function Composer({
                 type="button"
                 aria-label={`Deny: ${approval.tool} ${approval.summary}`}
                 onClick={() => onDeny?.(approval.id)}
-                className="group/deny slip flex cursor-pointer items-end justify-start bg-crit/6 p-2 hover:bg-crit/12"
+                className="slip flex cursor-pointer items-end justify-start bg-crit/6 p-2 hover:bg-crit/12"
               >
-                <span className="slip font-mono text-[9.5px] text-crit/60 group-hover/deny:text-crit">
-                  ⌫ Deny
-                </span>
+                {/* Solid at rest, not washed: the 60%-alpha label on this fill computed to
+                    ~2.1:1, well under WCAG AA's 4.5:1 floor, on the composer's one
+                    safety-critical control. Full-strength crit/ok is the ceiling this fill
+                    can offer by alpha alone — DEVIATION from the ~4.5:1 target: crit's hue
+                    tops out near ~3.7:1 here even at 100%, so real 4.5:1 would need a
+                    dedicated brighter text tint (a token-level change, out of scope for a
+                    polish pass) — but this is the largest legibility gain available without
+                    one, and hover keeps its distinction through the bg wash (bg-crit/6 ->
+                    /12) alone, so the label itself no longer needs a step. */}
+                <span className="font-mono text-[9.5px] text-crit">⌫ Deny</span>
               </button>
               <button
                 type="button"
                 aria-label={`approve: ${approval.tool} ${approval.summary}`}
                 onClick={() => onApprove?.(approval.id)}
-                className="group/appr slip flex cursor-pointer items-end justify-end border-l border-s4/60 bg-ok/6 p-2 hover:bg-ok/12"
+                className="slip flex cursor-pointer items-end justify-end border-l border-s4 bg-ok/6 p-2 hover:bg-ok/12"
               >
-                <span className="slip font-mono text-[9.5px] text-ok/60 group-hover/appr:text-ok">
-                  Approve ⏎
-                </span>
+                <span className="font-mono text-[9.5px] text-ok">Approve ⏎</span>
               </button>
             </div>
             <div className="pointer-events-none relative px-3 pt-2.5 pb-7">
