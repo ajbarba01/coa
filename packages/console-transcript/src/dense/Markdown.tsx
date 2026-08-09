@@ -74,10 +74,10 @@ export function Markdown({ source, className, muted }: MarkdownProps): React.JSX
             );
           },
           h1: ({ children }) => (
-            <h1 className="pt-2.5 text-[15px] leading-snug font-semibold text-s12">{children}</h1>
+            <h1 className="pt-2.5 text-h1 leading-snug font-semibold text-s12">{children}</h1>
           ),
           h2: ({ children }) => (
-            <h2 className="pt-2 text-[14px] leading-snug font-semibold text-s12">{children}</h2>
+            <h2 className="pt-2 text-h2 leading-snug font-semibold text-s12">{children}</h2>
           ),
           h3: ({ children }) => (
             <h3 className="pt-1.5 text-body leading-snug font-semibold text-s12">{children}</h3>

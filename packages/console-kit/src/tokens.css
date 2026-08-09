@@ -29,7 +29,12 @@
   --ease-slip: cubic-bezier(0.19, 1, 0.22, 1);
 
   /* The type scale (the showcase "type scale" section is the spec). Sizes only —
-   * weight/color are per-role, not per-size. */
+   * weight/color are per-role, not per-size. --text-h1/--text-h2 fill the step the
+   * scale was missing between body and icon — prose headings (Markdown.tsx) were
+   * reaching past it for raw text-[15px]/text-[14px] literals; the values here match
+   * what was already rendered, just named. */
+  --text-h1: 15px;
+  --text-h2: 14px;
   --text-body: 13px;
   --text-sec: 12.5px;
   --text-code: 11.5px;
