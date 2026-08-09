@@ -1740,3 +1740,33 @@ confirm re-opening an already-open project focuses rather than duplicates, and c
 spawned process before finishing (a stray Electron process from an earlier session in this arc
 left zombies running for a full day — not repeating that). Result pending; recorded here as a
 named gap rather than silently claimed closed by the unit-test gate alone.
+
+### F11 live GUI verification — RESULT: genuinely works, every clause confirmed
+
+Driven with real synthetic input, not inferred from reading code: CDP `Input.dispatchMouseEvent`
+for in-app clicks, Win32 UI Automation + `SendMessage(BM_CLICK)` for the native OS folder-picker
+dialog (CDP cannot reach a native `dialog.showOpenDialog` HWND — it's outside the Chromium render
+tree; an initial blind-`SendKeys` attempt partially mistyped into the wrong field before switching
+to click-to-focus + UI Automation verification, worth remembering for whenever this app gets a
+proper `run` skill — none exists yet). Confirmed live: the picker replaced the dead modal for
+real; "Open Folder…" rebinds the current window in place (title-bar label, tab strip, daemon
+status all updated); "Open in New Window…" produced two genuinely separate CDP page targets; two
+independent `node .../bin.js serve` daemon processes existed simultaneously, each with its own
+project's `.coa/` state directory on disk; re-opening an already-open project focused the existing
+window rather than creating a third (confirmed via `GetForegroundWindow` + rect comparison, since
+`document.hasFocus()` reported `true` on both windows simultaneously over CDP — an unreliable
+signal for this app's multi-window case, noted for future scripted checks); closing one window's
+project left the other fully functional; closing the last window quit the whole app cleanly with
+no force-kill needed. Zero new bugs found. Cleanup confirmed: no leftover `electron.exe`/`node.exe`
+processes, port 9222 closed, temp test project folders removed, repo left on `arc/stage3` with
+only the pre-existing untracked `.coa/` — no tracked file touched.
+
+**Incidental find, worth its own line**: before starting, the agent discovered and killed an
+UNRELATED zombie process tree — a `pnpm --filter @coa/desktop dev` left running since 11:52 PM the
+previous night (electron-vite dev → electron.exe + children → a daemon `node bin.js serve`). This
+is exactly the shape of leftover-process risk this arc's Q10 (suite reliability under load) and
+the earlier documented worktree-cleanup incident both warn about. Cleaned up as a matter of course;
+not chased further since it predates and is unrelated to this session's own work.
+
+F11 is DONE — implemented, adversarially verified with a real bug caught and fixed, merged, and
+now live-verified end to end. Next: F2 (permission modes).
