@@ -1658,3 +1658,39 @@ files) instead of relying on worktree isolation to make concurrent mutation safe
 wall-clock parallelism but nothing else — the two affected runs recovered cleanly (Q11/Q14's
 actual fixes had already landed real commits before verify failed; the UX audit's 37 findings were
 fully intact) and a sequential recovery run replaced the broken parallel stages with no work lost.
+
+## [warm-up + UX polish landed] — 2026-08-09
+
+The sequential recovery run finished: Q14 verified clean on the first pass (rigorous — the
+verifier proved the regression tests were real by swapping in the pre-fix file and watching them
+fail with the exact predicted symptom, then confirmed the fix passes all 14). **Q11's verifier
+found something real, exactly per this arc's standing pattern of a verifier finding a genuine
+issue every single time**: `apps/cli/src/web-tools.ts`'s `buildWebTools()` never forwarded `home`
+into `buildWebToolDeps()`, so the web-search/fetch provider cooldown store (`KeyStateStore`, via
+`~/.coa/web-keys.json`) still resolved against the real ambient `os.homedir()` — a daemon started
+with an injected home that also has a search/fetch provider configured would leak a cooldown write
+into the operator's actual home the moment that provider got rate-limited. Proven concretely with
+a throwaway test before any fix existed. Fixed directly (not re-delegated, given how precisely the
+gap was already diagnosed): threaded `home` through `buildWebTools`'s signature into
+`buildWebToolDeps`'s opts, with a new regression test (seeds a cooldown via `KeyStateStore` at an
+injected temp home, confirms `buildWebTools`'s resulting search chain sees it and never attempts a
+real network call) — proving the fix the same way the verifier proved the bug. Full gate green
+(2948 tests, 0 failures). Committed to `arc/q11-root-home-seam` (4454e6c) and pushed.
+
+All 4 UX-polish clusters gated green with substantive, well-judged work — real deviations noted
+inline where a finding's fixSketch didn't quite fit the real code (e.g. the approval-gate Deny/
+Approve labels reaching only ~3.6-4.1:1 contrast at fully-solid opacity rather than the predicted
+4.5:1, documented rather than silently accepted or forced further), and real skips where a finding
+named code already deleted upstream (the attach-remove button, PermissionChip) rather than
+inventing something to fix.
+
+**Merged all six branches into `arc/stage3`** (Q11, Q14, ux-polish-shell, ux-polish-composer-chat,
+ux-polish-docks, ux-polish-settings-misc). Two merge conflicts, both the expected shape (two
+clusters' fix agents independently touching the same file — `Work.tsx`'s title-bar header div and
+`Settings.tsx`'s per-profile remove button — since cluster boundaries were drawn by surface
+grouping, not by file, and a few files span two groups); both resolved by hand, keeping the union
+of both fixes rather than picking one side. Full gate green post-merge (2951 tests, depcruise 419
+modules/1217 deps clean, docs-check 60 docs). Pushed to `origin/arc/stage3` (c921f28).
+
+Next: F11 (project selection + window management) build, on the now-updated `arc/stage3`, still
+sequential-only per the isolation-worktree workaround above.
