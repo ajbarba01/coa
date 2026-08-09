@@ -31,19 +31,27 @@ beforeEach(() => {
 
 describe('shouldConfirmSwap', () => {
   it('never asks when nothing is running', () => {
-    expect(shouldConfirmSwap(0, 'C:/other', 'C:/here')).toBe(false);
+    expect(shouldConfirmSwap(0, 'C:/other', 'C:/here', 'win32')).toBe(false);
   });
 
   it('asks when a turn is running and the target is a different project', () => {
-    expect(shouldConfirmSwap(1, 'C:/other', 'C:/here')).toBe(true);
+    expect(shouldConfirmSwap(1, 'C:/other', 'C:/here', 'win32')).toBe(true);
   });
 
   it('never asks for the window re-picking its own already-open project, running or not', () => {
-    expect(shouldConfirmSwap(3, 'C:/here', 'C:/here')).toBe(false);
+    expect(shouldConfirmSwap(3, 'C:/here', 'C:/here', 'win32')).toBe(false);
   });
 
   it('never asks when the current root is unknown yet (nothing to swap away from)', () => {
-    expect(shouldConfirmSwap(2, 'C:/other', undefined)).toBe(true);
+    expect(shouldConfirmSwap(2, 'C:/other', undefined, 'win32')).toBe(true);
+  });
+
+  it('never asks for a re-pick that only differs by drive-letter case on win32 (same project)', () => {
+    expect(shouldConfirmSwap(1, 'C:/here', 'c:/HERE', 'win32')).toBe(false);
+  });
+
+  it('a case difference on a case-SENSITIVE platform is a real different project', () => {
+    expect(shouldConfirmSwap(1, 'C:/here', 'c:/HERE', 'linux')).toBe(true);
   });
 });
 

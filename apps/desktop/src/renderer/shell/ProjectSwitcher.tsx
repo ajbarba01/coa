@@ -9,6 +9,21 @@ import { useShell } from './store.js';
 type RecentProjectView = RecentProject & { open: boolean };
 
 /**
+ * Case-fold on Windows (whose filesystem is case-insensitive) for root IDENTITY
+ * comparisons — the renderer-side echo of `canonicalProjectRoot`'s rule. Main
+ * can't be reached synchronously from here, and `node:path` is unavailable in the
+ * sandboxed renderer, so this can't literally share that function; `platform` is
+ * injected (`window.coa.platform` at the real call site) so it stays pure and
+ * testable, matching every OTHER injected-canonicalize seam in this codebase
+ * (`window-registry.ts`, `recent-projects.ts`). Without this, a picker dialog
+ * handing back a different drive-letter case than the window's stored root reads
+ * as a DIFFERENT project even though it's the same one.
+ */
+function sameRoot(a: string, b: string, platform: string): boolean {
+  return platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/**
  * Pure: whether swapping THIS window to `targetRoot` needs a confirm first (F11 rule #3
  * — silent if idle, confirm if a turn is running). Re-picking the window's OWN current
  * project is never a swap at all — main's contract treats a matching root as a plain
@@ -18,8 +33,10 @@ export function shouldConfirmSwap(
   runningCount: number,
   targetRoot: string,
   currentRoot: string | undefined,
+  platform: string,
 ): boolean {
-  return runningCount > 0 && targetRoot !== currentRoot;
+  const same = currentRoot !== undefined && sameRoot(targetRoot, currentRoot, platform);
+  return runningCount > 0 && !same;
 }
 
 /** The directory's display name — the last non-empty path segment, either separator. */
@@ -39,7 +56,9 @@ async function performOpenProject(root: string, target: 'current' | 'new'): Prom
   const priorRoot = useShell.getState().workspace?.root;
   const res = await surfaceWrite('open that project', window.coa.openProject({ root, target }));
   if (res === undefined) return;
-  if (res.opened === 'current' && res.workspace.root !== priorRoot) {
+  const changed =
+    priorRoot === undefined || !sameRoot(res.workspace.root, priorRoot, window.coa.platform);
+  if (res.opened === 'current' && changed) {
     useShell.getState().applyProjectSwitch(res.workspace);
   } else {
     useShell.getState().setProjectOpen(false);
@@ -52,7 +71,7 @@ function requestOpen(root: string, target: 'current' | 'new'): void {
   if (target === 'current') {
     const running = Object.keys(useConsoleState.getState()?.ui.runStatus ?? {}).length;
     const currentRoot = useShell.getState().workspace?.root;
-    if (shouldConfirmSwap(running, root, currentRoot)) {
+    if (shouldConfirmSwap(running, root, currentRoot, window.coa.platform)) {
       useShell.getState().setConfirmSwapProject({ root, name: baseName(root) });
       return;
     }
