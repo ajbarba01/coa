@@ -6,12 +6,19 @@ import {
   connectClient,
   createDaemonCore,
   listen,
+  LiveSessionRegistry,
   ModelCache,
   ModelCatalogStore,
   type RpcServer,
 } from '@coa/core';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
-import { runCli, startDaemon, listMergedModels, listEffectiveModels } from './cli.js';
+import {
+  runCli,
+  startDaemon,
+  listMergedModels,
+  listEffectiveModels,
+  buildModeDeps,
+} from './cli.js';
 
 let n = 0;
 function testPath(): string {
@@ -153,6 +160,61 @@ describe('startDaemon — the serve path', () => {
       rmSync(homeDir, { recursive: true, force: true });
       rmSync(decoyHome, { recursive: true, force: true });
     }
+  });
+});
+
+// F2: `startDaemon`'s `resolveMode` closure hands `buildCanUseTool` the daemon's
+// ONE composition of a session's mode-aware permission deps — `session.ts`'s own
+// tests only ever exercise that consumption against a FAKE `resolveMode`, so the
+// actual construction (this file's `buildModeDeps`) had no coverage of its own.
+// These drive it against a REAL `LiveSessionRegistry`-issued session (the exact
+// class `startDaemon` wires), never a stub — the same object identity a live
+// tool call's `registry.get(sessionId)` would resolve.
+describe('buildModeDeps — the real resolveMode composition startDaemon wires', () => {
+  it('flips the session approval seam on and binds a live getMode/hasApprovalSeam to it', () => {
+    const registry = new LiveSessionRegistry();
+    const { session } = registry.getOrCreate('s1', undefined, 'plan');
+    // A fresh LiveSession already defaults approvalSeam to true; force it false first
+    // so the assertion below can only pass if buildModeDeps genuinely set it, not
+    // because it started out true.
+    session.setApprovalSeam(false);
+
+    const deps = buildModeDeps(session, 'claude');
+
+    expect(session.approvalSeam).toBe(true);
+    expect(deps.hasApprovalSeam()).toBe(true);
+    expect(deps.getMode()).toBe('plan');
+
+    // A live mid-session mode switch is reflected on the very next read — the
+    // same live binding `permission.ts`'s `decideMode` relies on reading fresh.
+    session.setMode('bypass');
+    expect(deps.getMode()).toBe('bypass');
+  });
+
+  it('classifies with the real tool-class taxonomy, not a stub', () => {
+    const registry = new LiveSessionRegistry();
+    const { session } = registry.getOrCreate('s2');
+    const deps = buildModeDeps(session, 'claude');
+
+    expect(deps.classify('Read')).toBe('read');
+    expect(deps.classify('Write')).toBe('write');
+    expect(deps.classify('Bash')).toBe('exec');
+  });
+
+  it('requestApproval round-trips through the real LiveSession ask/answer flow', async () => {
+    const registry = new LiveSessionRegistry();
+    const { session } = registry.getOrCreate('s3', undefined, 'manual');
+    const deps = buildModeDeps(session, 'claude');
+
+    const pending = deps.requestApproval(
+      { tool: 'Write', args: { path: 'a.txt' }, sessionId: 's3' },
+      'write',
+    );
+    const [request] = session.pendingApprovals();
+    expect(request?.tool).toBe('Write');
+
+    session.resolveApproval(request!.requestId, 'allow');
+    await expect(pending).resolves.toBe('allow');
   });
 });
 
