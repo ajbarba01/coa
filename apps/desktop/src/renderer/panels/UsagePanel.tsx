@@ -449,7 +449,7 @@ function ScopeTiles({
               // The retired filter row's chip vocabulary (border + press), so the tile
               // reads as the toggle it is, not as a decorated logo.
               className={cx(
-                'slip slip-press flex cursor-pointer flex-col items-center gap-1 rounded-r2 border px-2.5 py-2 active:scale-[0.97]',
+                'slip slip-press flex cursor-pointer flex-col items-center gap-1 rounded-r3 border px-2.5 py-2 active:scale-[0.97]',
                 on ? 'border-s7 bg-s4' : 'border-s4 bg-s2 hover:border-s6',
               )}
             >
