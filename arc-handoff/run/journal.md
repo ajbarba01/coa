@@ -1694,3 +1694,49 @@ modules/1217 deps clean, docs-check 60 docs). Pushed to `origin/arc/stage3` (c92
 
 Next: F11 (project selection + window management) build, on the now-updated `arc/stage3`, still
 sequential-only per the isolation-worktree workaround above.
+
+## [F11 landed] — 2026-08-09
+
+Core (main-process) then UI (Fable) sequential build, then adversarial verify. **Verify round 1
+found a real, high-severity bug — the arc's standing pattern held again**: `createProjectWindow`'s
+`closed` handler in `apps/desktop/src/main/index.ts` closed over the function's `root` PARAMETER
+(the project a window was originally created for) instead of looking up the window's CURRENT
+project at close time. After a swap via the picker's default "Open Folder…" (target:'current')
+path, closing the window released the stale original root as a no-op while the actually-current
+project's daemon reference was never released — an orphaned process with zero windows watching it,
+a direct violation of F11's own core invariant ("no headless daemons, ever"). Fixed round 2: read
+`windowRegistry.rootOf(win.id)` inside the handler instead of closing over the parameter; added
+`apps/desktop/src/main/index.test.ts` (a real regression suite mocking only `electron` +
+`daemon-manager`, exercising the actual composition root) — proved it was a genuine regression
+guard, not a tautology, by reverting the fix via `git stash` (allowed this run despite the
+standing "usually denied" note), watching the test fail with the exact predicted symptom, then
+restoring the fix and confirming green. Writing that test also surfaced a second, unrelated,
+dormant bug: `vitest.config.ts`'s workspace-package aliases used plain string keys, which Vite
+treats as a PREFIX match, so `@coa/core/rpc` (a subpath import, needed for the first time by this
+diff) silently resolved onto the root barrel instead of failing correctly — fixed by anchoring
+each alias to an exact match. Two Minor findings also handled: a case-sensitivity bug in the
+renderer's swap-confirm/root-comparison logic (fixed, with a `sameRoot()` helper since
+`canonicalProjectRoot` isn't reachable from the sandboxed renderer), and a defensible-as-is
+finding about `rootsToRestore()`'s fallback behavior (reviewed, evidence recorded for why the
+"fix" would be a worse regression, left alone per the task's own allowance to explain rather than
+force an unnecessary change). Verify round 2 passed clean, including five independent throwaway
+adversarial vitest probes (mocking only electron + DaemonManager, deleted after, working tree
+confirmed byte-identical to origin) pressure-testing each of F11's six ruled requirements
+directly rather than trusting the implementers' own tests.
+
+Merged into `arc/stage3` clean (no conflicts — F11 touched an almost entirely disjoint file set
+from the UX-polish clusters). Full gate green (3015 tests, depcruise 426/1238, docs-check 60).
+Pushed (47931ac).
+
+**One honest gap both implementing agents flagged themselves, unprompted**: neither ran a real
+Electron GUI click-through — this environment is non-interactive and both explicitly declined to
+pop a live window as a side effect without it being asked for. Dispatched a dedicated agent to
+close that gap using this exact machine's own previously-documented CDP-driving recipe (used
+successfully for F10's verification earlier in this arc): build the real app, launch with the
+three documented flags/fixes, drive the actual UI via CDP `Input.dispatchMouseEvent` (not
+synthetic clicks, which don't work on this app's custom chrome), open a folder outside the
+checkout as a project, open a second project in a new window, confirm two independent daemons,
+confirm re-opening an already-open project focuses rather than duplicates, and clean up every
+spawned process before finishing (a stray Electron process from an earlier session in this arc
+left zombies running for a full day — not repeating that). Result pending; recorded here as a
+named gap rather than silently claimed closed by the unit-test gate alone.
