@@ -1770,3 +1770,51 @@ not chased further since it predates and is unrelated to this session's own work
 
 F11 is DONE — implemented, adversarially verified with a real bug caught and fixed, merged, and
 now live-verified end to end. Next: F2 (permission modes).
+
+## [F2 built] — 2026-08-09, three real bugs caught across a 3-round bounded verify loop
+
+Core (daemon-side mode-aware `canUseTool` composition, ask/response wire contract, RPC verbs,
+registry default-mode inheritance) then UI (Fable — the composer chip, live approval-gate wiring),
+same pattern as F11. Corrected a stale memory along the way: the 2026-08-03 finding that "the
+`claude_code` preset suppresses `canUseTool`, governance never runs on the Claude path" is now
+FALSE — `governed-gate.live.test.ts`'s own comment records both `PreToolUse` and native
+`canUseTool` firing live for one call (see `[[sdk-control-ledger]]` memory, corrected).
+
+**Verify round 1 had a tooling hiccup, not a real finding**: the verifier returned literal
+placeholder JSON (`"test finding one"`, `"test summary"`) despite genuinely working for ~15 minutes
+first (92 tool calls) — some kind of confusion at the final structured-output step, cause not
+chased. The next round handled it gracefully: recognized the findings as meaningless and ran its
+own independent adversarial review instead of guessing, which is exactly what caught the first REAL
+bug anyway.
+
+**Three real, distinct bugs found across the loop, all fixed, all with new regression tests:**
+1. (found doing its own review after round 1's placeholder output) Hitting Stop while a permission
+   ask was pending never cleared it — `LiveSession.close()` had a fail-safe deny-all-pending path,
+   but a mid-turn `interrupt()` never touched it, permanently gate-locking the composer on an
+   unanswerable request. Fixed: `abandonPendingApprovals()`, wired into `interrupt()` + a
+   terminal-status console clear.
+2. (verify round 2) The fix for #1 revealed a second, related bug: the `blocked-approval` status
+   push was treated as "not running" by the console, clearing `runStatus` — which silently disabled
+   EVERY Stop/interrupt affordance (button, Esc, Palette) for the entire duration of any pending
+   ask. Fixed: only genuinely terminal statuses clear `runStatus` now.
+3. (verify round 3, the loop's final attempt) An architectural one, outside F2's own branch diff:
+   `packages/adapter-claude-sdk/src/session-options.ts` wires the injected `canUseTool` predicate
+   onto BOTH the native SDK callback and the `PreToolUse` hook — harmless before F2 (stateless
+   decision computed twice), but F2 made the predicate stateful (a pending ask mints a live request
+   id + UI card), so one tool call under manual/edits-exec mode could produce two uncorrelated
+   approval cards. Well-evidenced (ADR-0029 + the live test's own "measured fact" comment) but not
+   personally live-verified by the verifier (would need live API spend). The bounded 3-attempt loop
+   (matching this arc's standing stop-loss convention) hit its cap here rather than looping forever
+   — correctly, this needed a human-reviewed judgment call, not another blind round.
+
+**Reviewed the dual-seam finding myself** (read session-options.ts + sdk-options.ts directly)
+before deciding how to handle it: confirmed the mechanism is real and the fix is safe and cheap —
+`toSdkPermission({behavior:'allow'}, input)` is trivially constructible without calling the real
+predicate, and the file's OWN pre-existing comment already documented PreToolUse as the intended
+sole seam ("the earlier two-seam split is superseded") — so neutering the native seam to an
+unconditional allow-echo completes an already-stated design intent rather than making a new
+architectural call. Dispatched a focused fix+verify pair (not a full re-run of the whole F2 loop)
+rather than hand-editing a backend integration point blind. Result pending.
+
+F2 is NOT yet merged to `arc/stage3` — waiting on the dual-seam fix to close clean first, per this
+arc's own standard ("wiring exists but untested is NOT a pass").
