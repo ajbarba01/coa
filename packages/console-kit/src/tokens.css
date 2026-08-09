@@ -20,6 +20,11 @@
   --radius-r3: 5px;
   --radius-r4: 8px;
 
+  /* The user chat-bubble's asymmetric tail (deliberate — a chat-direction cue, not a
+   * step on the r1-r4 scale). Named so the compound value lives in one place instead
+   * of as a raw arbitrary literal at the call site. */
+  --radius-bubble: 6px 6px 2px 6px;
+
   /* Slipstream curve. */
   --ease-slip: cubic-bezier(0.19, 1, 0.22, 1);
 

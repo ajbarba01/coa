@@ -531,7 +531,7 @@ export function TranscriptRow({
         className={cx(
           'min-w-0',
           isUser &&
-            'ml-auto w-fit max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
+            'ml-auto w-fit max-w-[70%] self-end rounded-[var(--radius-bubble)] bg-s3 px-3 py-2 text-s11',
           // Not yet in the record (a steer is recorded only when the model receives it) —
           // reads as provisional, not as history,
           // the same way a streaming block never wears the settled row's full weight.
