@@ -151,6 +151,50 @@ describe('createSession', () => {
     expect(decision?.behavior).toBe('deny');
   });
 
+  it('resolveMode is absent by default — mode enforcement off, byte-identical to before F2', async () => {
+    const h = harness();
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    const decision = await h
+      .adapter()
+      ?.canUseTool?.({ tool: 'Bash', args: {}, sessionId: 'sess-1' });
+    expect(decision).toEqual({ behavior: 'allow' });
+  });
+
+  it('wires resolveMode into the canUseTool predicate, resolved with the sessionId and provider', async () => {
+    const seen: { sessionId: string; provider: string }[] = [];
+    const h = harness({
+      resolveMode: (sessionId, provider) => {
+        seen.push({ sessionId, provider });
+        return {
+          getMode: () => 'plan',
+          hasApprovalSeam: () => true,
+          classify: () => 'write',
+          requestApproval: () => Promise.resolve('allow'),
+        };
+      },
+    });
+    await createSession(
+      { role: 'dev', scope: 'src', input: 'go', model: { provider: 'deepseek' } },
+      h.deps,
+    );
+    expect(seen).toEqual([{ sessionId: 'sess-1', provider: 'deepseek' }]);
+    const decision = await h
+      .adapter()
+      ?.canUseTool?.({ tool: 'Write', args: { path: 'a.ts' }, sessionId: 'sess-1' });
+    // plan mode blocks a write outright — proves the resolved ModeDeps actually
+    // reached the composed predicate, not just that resolveMode was called.
+    expect(decision?.behavior).toBe('deny');
+  });
+
+  it('resolveMode returning undefined (unknown session id) leaves mode enforcement off', async () => {
+    const h = harness({ resolveMode: () => undefined });
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    const decision = await h
+      .adapter()
+      ?.canUseTool?.({ tool: 'Bash', args: {}, sessionId: 'sess-1' });
+    expect(decision).toEqual({ behavior: 'allow' });
+  });
+
   it('threads the active account locator into the adapter init and stamps the session label', async () => {
     const h = harness({
       activeAccount: () => ({ label: 'work', locator: { type: 'config-dir', dir: '/d' } }),

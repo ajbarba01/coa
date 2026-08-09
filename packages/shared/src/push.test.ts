@@ -67,6 +67,45 @@ describe('pushSchema', () => {
     };
     expect(pushSchema.parse(push)).toMatchObject({ kind: 'status', state: 'interrupted' });
   });
+
+  it('accepts an approval request carrying a tool class', () => {
+    const push = {
+      kind: 'approval' as const,
+      requestId: 'r1',
+      sessionId: 's1',
+      summary: 'Write src/a.ts',
+      tool: 'Write',
+      input: { path: 'src/a.ts' },
+      toolClass: 'write' as const,
+    };
+    expect(pushSchema.parse(push)).toMatchObject({ kind: 'approval', toolClass: 'write' });
+  });
+
+  it('accepts a mode reflection with no degrade note', () => {
+    const push = {
+      kind: 'mode' as const,
+      sessionId: 's1',
+      mode: 'manual' as const,
+      effectiveMode: 'manual' as const,
+    };
+    expect(pushSchema.parse(push)).toEqual(push);
+  });
+
+  it('accepts a mode reflection degraded to bypass with its reason', () => {
+    const push = {
+      kind: 'mode' as const,
+      sessionId: 's1',
+      mode: 'manual' as const,
+      effectiveMode: 'bypass' as const,
+      degraded: 'the active backend has no approval seam',
+    };
+    expect(pushSchema.parse(push)).toEqual(push);
+  });
+
+  it('rejects a mode reflection with an unknown mode', () => {
+    const push = { kind: 'mode', sessionId: 's1', mode: 'auto', effectiveMode: 'bypass' };
+    expect(pushSchema.safeParse(push).success).toBe(false);
+  });
 });
 
 describe('turnFrameSchema', () => {

@@ -48,6 +48,11 @@ export interface DaemonSessionOptions {
    *  registry exist, which is after this function returns (see `cli.ts`'s late-bound
    *  holder). */
   resolveSpawn?: SessionWiring['resolveSpawn'];
+  /** F2: resolve a session's mode-aware permission layer; absent ⇒ mode
+   *  enforcement unavailable — the daemon host wires this once `registry` exists,
+   *  the same forward-reference-safe-closure trick `resolveSpawn` uses (see
+   *  `cli.ts`). */
+  resolveMode?: SessionWiring['resolveMode'];
 }
 
 export interface BuiltSession {
@@ -97,6 +102,7 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     }),
     activeAccount,
     ...(options.resolveSpawn !== undefined ? { resolveSpawn: options.resolveSpawn } : {}),
+    ...(options.resolveMode !== undefined ? { resolveMode: options.resolveMode } : {}),
   });
   const models = new ModelCache({ fetch: fetchModels });
   const modelAccounts = (): ModelCacheAccount[] => activeModelAccounts(registry);

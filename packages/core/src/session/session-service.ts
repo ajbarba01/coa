@@ -1,9 +1,16 @@
-import type { AgentSummary, ModelSelection } from '@coa/shared';
+import type { AgentSummary, ApprovalDecision, ModelSelection, PermissionMode } from '@coa/shared';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { ConversationStore } from './conversation-store.js';
 import { createHeldOpenDriver } from './held-open-driver.js';
 import type { LiveSessionRegistry } from './live-registry.js';
-import type { LiveSession, QueuedTurn, Sink, TurnSubscription } from './live-session.js';
+import {
+  DEFAULT_PERMISSION_MODE,
+  type LiveSession,
+  type PendingApprovalSnapshot,
+  type QueuedTurn,
+  type Sink,
+  type TurnSubscription,
+} from './live-session.js';
 import { renderChildEnded, type SessionEndReason } from './notify.js';
 import { runPerTurn } from './per-turn-driver.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
@@ -105,7 +112,14 @@ export class SessionService {
    */
   async send(req: SendRequest): Promise<{ sessionId: string; worktree: string }> {
     const id = req.conversationId ?? this.#deps.newSessionId();
-    const { session, created } = this.#registry.getOrCreate(id);
+    // F2: a new session inherits its agent's configured default mode. The
+    // conversation's `agentRef` — when one was pre-created via the `newSession`
+    // record (the console's normal top-level flow, before this first send) —
+    // resolves through the SAME live agent list a spawn uses; an ephemeral send
+    // with no store, or a conversation record with no agentRef, falls back to the
+    // system floor. Ignored by `getOrCreate` when the session already exists.
+    const defaultMode = this.#resolveDefaultMode(this.#store?.getMeta(id)?.agentRef);
+    const { session, created } = this.#registry.getOrCreate(id, undefined, defaultMode);
 
     const turn: QueuedTurn = {
       input: req.input,
@@ -198,6 +212,70 @@ export class SessionService {
   }
 
   /**
+   * F2 — RPC verb `setMode`. Live-switch a session's permission mode; takes
+   * effect starting with the NEXT tool call (the mode-aware predicate reads it
+   * fresh every call — see `permission.ts`), never retroactively on one already
+   * in flight. `false` ⇒ unknown session id, nothing changed.
+   */
+  setMode(id: string, mode: PermissionMode): boolean {
+    const session = this.#registry.get(id);
+    if (session === undefined) return false;
+    session.setMode(mode);
+    return true;
+  }
+
+  /**
+   * F2 — RPC verb `respondApproval`. Answer a pending ask raised by the
+   * mode-aware predicate, unblocking the `canUseTool` call it is holding open.
+   * `decision` is the WIRE vocabulary (`'approve'|'deny'`, matching the
+   * console's existing approve/deny controls); mapped here onto the internal
+   * `'allow'|'deny'` `LiveSession.resolveApproval` vocabulary. `false` ⇒ unknown
+   * session id, or no pending request with that id (already answered, or stale)
+   * — a second answer to the same id is a harmless no-op, not an error.
+   */
+  respondApproval(id: string, requestId: string, decision: ApprovalDecision): boolean {
+    const session = this.#registry.get(id);
+    if (session === undefined) return false;
+    return session.resolveApproval(requestId, decision === 'approve' ? 'allow' : 'deny');
+  }
+
+  /**
+   * F2 — RPC verb `sessionMode`. A plain synchronous snapshot of a session's
+   * permission-mode state: the configured `mode`, the `effectiveMode` actually
+   * enforced right now (differs from `mode` only when the active backend has no
+   * approval seam — SC-1 honesty), and every approval request still awaiting a
+   * reply. For a console that wants "what mode is this session in / is
+   * something pending" without waiting on the next live push (e.g. a reattach).
+   * `undefined` ⇒ unknown session id.
+   */
+  modeSnapshot(
+    id: string,
+  ):
+    | { mode: PermissionMode; effectiveMode: PermissionMode; pending: PendingApprovalSnapshot[] }
+    | undefined {
+    const session = this.#registry.get(id);
+    if (session === undefined) return undefined;
+    return {
+      mode: session.mode,
+      effectiveMode: session.effectiveMode(),
+      pending: session.pendingApprovals(),
+    };
+  }
+
+  /**
+   * F2: resolve the mode a NEW session should start in — its agent's configured
+   * `defaultMode` when `agentRef` resolves through the live agent list, else the
+   * system floor. Used by both `send` (a top-level session, via the
+   * conversation record's `agentRef`) and `#startChild` (a spawn, via its own
+   * `agentRef` directly) so registry default flows identically either way.
+   */
+  #resolveDefaultMode(agentRef: string | undefined): PermissionMode {
+    const agent =
+      agentRef !== undefined ? this.#listAgents?.().find((a) => a.ref === agentRef) : undefined;
+    return agent?.defaultMode ?? DEFAULT_PERMISSION_MODE;
+  }
+
+  /**
    * Delegates entirely to `registry.close` — the SINGLE teardown path: checkpoint +
    * worktree-release happen exactly once, via the registry's `onClose` hook (wired at
    * daemon composition), so this never calls `deps.checkpoint`/`deps.releaseWorktree`
@@ -270,7 +348,14 @@ export class SessionService {
     // model asked for would silently never happen). The result is a deliberate orphan: no
     // live ancestor is left to ever cascade a stop through it, but it still runs its one
     // assigned turn to completion and self-cleans via the ordinary idle-eviction timer.
-    const { session } = this.#registry.getOrCreate(id, { parent: parentId, root });
+    // F2: the spawned child inherits ITS agent's configured default mode (not the
+    // parent's live/current mode — a subagent's caution level is a property of
+    // what it IS, not of whatever the parent happened to be set to).
+    const { session } = this.#registry.getOrCreate(
+      id,
+      { parent: parentId, root },
+      this.#resolveDefaultMode(agent?.ref),
+    );
     store.create({
       id,
       agentRef: req.agentRef,

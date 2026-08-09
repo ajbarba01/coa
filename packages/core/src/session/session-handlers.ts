@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { modelSelectionSchema, type RpcNotification } from '@coa/shared';
+import {
+  approvalDecisionSchema,
+  modelSelectionSchema,
+  permissionModeSchema,
+  type RpcNotification,
+} from '@coa/shared';
 import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import type { Sink } from './live-session.js';
@@ -39,6 +44,14 @@ const interruptParams = z.object({ id: z.string() });
 // to an ordinary steer, not break — Zod strips the unknown key rather than erroring on it.
 const steerParams = z.object({ id: z.string(), text: z.string() });
 const subscribeParams = z.object({ id: z.string() });
+// F2
+const setModeParams = z.object({ id: z.string(), mode: permissionModeSchema });
+const respondApprovalParams = z.object({
+  id: z.string(),
+  requestId: z.string(),
+  decision: approvalDecisionSchema,
+});
+const sessionModeParams = z.object({ id: z.string() });
 
 export function buildSessionHandlers(
   service: SessionService,
@@ -118,5 +131,52 @@ export function buildSessionHandlers(
     recompilePrompt: rpcMethod(z.object({ sessionId: z.string() }), (params) => ({
       recompiled: service.recompilePrompt(params.sessionId),
     })),
+
+    // ---- F2 permission modes ----
+    //
+    // `setMode` — request: `{ id: string, mode: 'plan'|'manual'|'edits'|'bypass' }`.
+    // Live-switches session `id`'s configured permission mode. Response:
+    // `{ set: boolean }` — `false` ⇒ unknown session id, nothing changed. Takes
+    // effect starting with the session's NEXT tool call (never retroactively on
+    // one already in flight — the mode-aware `canUseTool` predicate reads the
+    // live session's mode fresh on every call). The daemon also fans out a
+    // `push` notification with `params.kind === 'mode'` (`{ sessionId, mode,
+    // effectiveMode, degraded? }`) to every subscriber of `id`, including this
+    // caller — the RPC response and the push both land, so don't double-apply.
+    setMode: rpcMethod(setModeParams, (params) => ({
+      set: service.setMode(params.id, params.mode),
+    })),
+
+    // `respondApproval` — request: `{ id: string, requestId: string, decision:
+    // 'approve'|'deny' }`. Answers a pending ask the mode-aware predicate raised
+    // for session `id` (its `requestId` arrived earlier on a `push` notification
+    // with `params.kind === 'approval'`: `{ requestId, sessionId, summary, tool?,
+    // input?, toolClass? }`). Response: `{ resolved: boolean }` — `false` ⇒
+    // unknown session id, OR no pending request with that `requestId` (already
+    // answered, or stale — answering the same id twice is a harmless no-op, not
+    // an error, so a duplicate/racing click never needs special-casing). A
+    // resolved ask un-blocks the `canUseTool` call it was holding open and — once
+    // every pending ask on the session has cleared — the daemon pushes a
+    // `status` notification back to `running` (mirroring the `blocked-approval`
+    // status pushed when the ask was first raised).
+    respondApproval: rpcMethod(respondApprovalParams, (params) => ({
+      resolved: service.respondApproval(params.id, params.requestId, params.decision),
+    })),
+
+    // `sessionMode` — request: `{ id: string }`. A plain synchronous read of
+    // session `id`'s CURRENT permission-mode state, for a console that wants it
+    // without waiting on the next live `mode`/`approval` push (e.g. right after a
+    // reattach). Response, session known: `{ found: true, mode:
+    // PermissionMode, effectiveMode: PermissionMode, pending: Array<{
+    // requestId, tool, summary, input }> }` — `effectiveMode` differs from
+    // `mode` only when the active backend has no approval seam (SC-1: the chip
+    // must say so honestly rather than claim an enforcement that isn't real);
+    // `pending` is every approval request still awaiting a reply (usually 0 or
+    // 1, but never assumed — concurrent tool calls can each raise their own).
+    // Response, unknown session id: `{ found: false }`.
+    sessionMode: rpcMethod(sessionModeParams, (params) => {
+      const snapshot = service.modeSnapshot(params.id);
+      return snapshot === undefined ? { found: false } : { found: true, ...snapshot };
+    }),
   };
 }

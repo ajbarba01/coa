@@ -11,6 +11,7 @@ import {
   buildModelHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
+  classifyTool,
   connectClient,
   createConversationStore,
   defaultDaemonPath,
@@ -27,6 +28,7 @@ import {
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
+import { supportsApproval } from './adapter-factory.js';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
@@ -257,6 +259,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     root,
     home,
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
+    // F2: same forward-reference-safe-closure trick as `resolveSpawn` above —
+    // `registry` is declared further down this same scope, but this closure only
+    // ever fires once a real tool call needs a permission decision, long after
+    // `registry` has initialized. `hasApprovalSeam`/`classify`/`requestApproval`
+    // all read the LIVE `LiveSession` `registry.get(sessionId)` resolves, so a
+    // mid-session `setMode`/`setApprovalSeam` is reflected on the very next call.
+    resolveMode: (sessionId, provider) => {
+      const session = registry.get(sessionId);
+      if (session === undefined) return undefined;
+      session.setApprovalSeam(supportsApproval(provider));
+      return {
+        getMode: () => session.mode,
+        hasApprovalSeam: () => session.approvalSeam,
+        classify: classifyTool,
+        requestApproval: (call, toolClass) => session.requestApproval(call, toolClass),
+      };
+    },
   });
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected into the login manager the handler map constructs.

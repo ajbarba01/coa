@@ -18,7 +18,7 @@ import type {
   TurnInterrupt,
 } from '@coa/spi';
 import type { SpawnDeps } from '../workbench/spawn.js';
-import { buildCanUseTool, buildStopGate } from './permission.js';
+import { buildCanUseTool, buildStopGate, type ModeDeps } from './permission.js';
 
 /**
  * The per-session lifecycle: create → attach-worktree → compile →
@@ -166,6 +166,15 @@ export interface SessionDeps {
   }) => void;
   /** The per-tool deny-rule check. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
+  /**
+   * F2: resolve THIS session's mode-aware layer, bound to its live-session
+   * mode/approval-seam state and given the session's resolved `provider` (a
+   * static per-backend fact, known here before the adapter is even
+   * constructed). Absent, or returning `undefined` (an unknown session id —
+   * should not happen in practice), ⇒ mode enforcement is off for this session,
+   * byte-identical to before F2 existed (the strict-superset floor).
+   */
+  resolveMode?: (sessionId: string, provider: string) => ModeDeps | undefined;
   /** The close-gate verdict. */
   gate: () => StopDecision;
   /** The governed tool catalogue (names; the rich surface is registered by the backend port). */
@@ -341,7 +350,15 @@ export async function createSession(
         ? deps.catalogue
         : deps.baseCatalogue;
   adapter.registerTools(catalogue);
-  adapter.interceptTool(buildCanUseTool({ perToolDeny: deps.perToolDeny }));
+  // F2: resolved AFTER `provider` is known (above) so a per-provider approval-seam
+  // fact is never stale; `resolveMode` itself binds to the live session by
+  // `sessionId`, so the predicate's `getMode`/`hasApprovalSeam` stay live reads
+  // even though this composition runs once (per turn, or once for a whole
+  // held-open query — see permission.ts's `ModeDeps` doc).
+  const modeDeps = deps.resolveMode?.(sessionId, provider);
+  adapter.interceptTool(
+    buildCanUseTool({ perToolDeny: deps.perToolDeny, ...(modeDeps ? { mode: modeDeps } : {}) }),
+  );
   adapter.interceptStop(buildStopGate({ gate: deps.gate }));
 
   const config = { role: req.role, scope: req.scope, worktree, capabilityFrame: frame };

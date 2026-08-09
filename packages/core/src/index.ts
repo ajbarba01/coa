@@ -69,3 +69,6 @@ export {
 export { buildWebToolDeps, webConfigSchema, type WebConfig } from './workbench/web/web-config.js';
 export { makeSummarizer } from './workbench/web/summarizer.js';
 export { type Summarizer, type WebToolDeps } from './workbench/web-tools.js';
+export { classifyTool } from './workbench/tool-class.js';
+export { type ModeDeps } from './session/permission.js';
+export { DEFAULT_PERMISSION_MODE } from './session/live-session.js';

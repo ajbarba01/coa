@@ -57,6 +57,23 @@ export function sessionStrategy(provider: string): SessionStrategy {
 }
 
 /**
+ * F2 strict-superset degrade: whether `provider`'s backend genuinely honors an
+ * async `canUseTool` ask (a real approval seam) — co-located with
+ * {@link createAdapter}/{@link sessionStrategy} for the same reason they are: the
+ * provider→backend map is a single source of truth here, not duplicated in
+ * `core`. Both wired backends today genuinely await `canUseTool` before letting
+ * a call through (`@coa/loop-driver`'s driver for every OpenAI-compatible
+ * provider; the Claude Agent SDK's own hook, live-verified in
+ * `governed-gate.live.test.ts`), so this returns `true` for every provider this
+ * factory knows. Exists as a real, pluggable seam for a FUTURE backend with no
+ * such seam to declare honestly — `core`'s mode-aware predicate degrades to
+ * bypass whenever this reports `false` (see `permission.ts`'s `ModeDeps`).
+ */
+export function supportsApproval(_provider: string): boolean {
+  return true;
+}
+
+/**
  * Fetch a provider's available models (+ per-model reasoning capabilities), routed
  * by the account's `provider`, and TAG each with that provider so the console can
  * merge every backend into one list and route a session to the model's backend. A

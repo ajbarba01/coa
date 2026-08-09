@@ -969,6 +969,113 @@ class PartialStreamAdapter extends FrameAdapter {
   }
 }
 
+describe('buildSessionHandlers — F2 permission-mode verbs', () => {
+  function build(): { handlers: RpcHandlers; registry: LiveSessionRegistry } {
+    const registry = new LiveSessionRegistry();
+    const service = sessionService(deps([]), undefined, registry);
+    return { handlers: buildSessionHandlers(service, connection()), registry };
+  }
+
+  it('setMode switches a live session’s mode; sessionMode reads it back', async () => {
+    const { handlers, registry } = build();
+    registry.getOrCreate('c1');
+    expect(await handlers['setMode']!.handle({ id: 'c1', mode: 'plan' })).toEqual({ set: true });
+    expect(registry.get('c1')?.mode).toBe('plan');
+    expect(await handlers['sessionMode']!.handle({ id: 'c1' })).toEqual({
+      found: true,
+      mode: 'plan',
+      effectiveMode: 'plan',
+      pending: [],
+    });
+  });
+
+  it('setMode on an unknown session id returns set:false', async () => {
+    const { handlers } = build();
+    expect(await handlers['setMode']!.handle({ id: 'nope', mode: 'bypass' })).toEqual({
+      set: false,
+    });
+  });
+
+  it('sessionMode on an unknown session id returns found:false', async () => {
+    const { handlers } = build();
+    expect(await handlers['sessionMode']!.handle({ id: 'nope' })).toEqual({ found: false });
+  });
+
+  it('sessionMode surfaces a degraded effectiveMode honestly (SC-1 — never claim an enforcement the backend cannot deliver)', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1', undefined, 'manual');
+    session.setApprovalSeam(false);
+    expect(await handlers['sessionMode']!.handle({ id: 'c1' })).toEqual({
+      found: true,
+      mode: 'manual',
+      effectiveMode: 'bypass',
+      pending: [],
+    });
+  });
+
+  it('the respondApproval round trip: a pending request really blocks the tool call until answered, and approve resolves allow', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1');
+    let settled: 'allow' | 'deny' | undefined;
+    const pending = session
+      .requestApproval({ tool: 'Write', args: { path: 'a.ts' }, sessionId: 'c1' }, 'write')
+      .then((d) => {
+        settled = d;
+        return d;
+      });
+    await Promise.resolve();
+    expect(settled).toBeUndefined(); // genuinely still blocking, not a same-tick resolve
+
+    const [request] = session.pendingApprovals();
+    expect(request?.tool).toBe('Write');
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'c1',
+        requestId: request!.requestId,
+        decision: 'approve',
+      }),
+    ).toEqual({ resolved: true });
+    await expect(pending).resolves.toBe('allow');
+  });
+
+  it('a deny decision resolves deny', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1');
+    const pending = session.requestApproval(
+      { tool: 'Bash', args: { command: 'rm -rf /' }, sessionId: 'c1' },
+      'exec',
+    );
+    const [request] = session.pendingApprovals();
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'c1',
+        requestId: request!.requestId,
+        decision: 'deny',
+      }),
+    ).toEqual({ resolved: true });
+    await expect(pending).resolves.toBe('deny');
+  });
+
+  it('respondApproval on an unknown session id, or a stale requestId, returns resolved:false (a harmless no-op, not an error)', async () => {
+    const { handlers, registry } = build();
+    registry.getOrCreate('c1');
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'nope',
+        requestId: 'r1',
+        decision: 'approve',
+      }),
+    ).toEqual({ resolved: false });
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'c1',
+        requestId: 'stale',
+        decision: 'approve',
+      }),
+    ).toEqual({ resolved: false });
+  });
+});
+
 describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', () => {
   it("settles an interrupted turn's streamed partial into the log exactly once, and tells the model", async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-int-'));
@@ -3157,6 +3264,40 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.origin).toBe('system');
     expect(pending[0]?.text).toContain(child.sessionId);
+  });
+
+  it('F2: a spawned child inherits ITS agent’s configured default mode, not the parent’s live mode', async () => {
+    const agentsWithModes: AgentSummary[] = [
+      { ...AGENTS[0]!, defaultMode: 'plan' }, // explorer
+      { ...AGENTS[1]!, defaultMode: 'edits' }, // general-purpose
+    ];
+    const {
+      dispatch: send,
+      registry,
+      startChildForTest,
+    } = buildTestServer({
+      agents: agentsWithModes,
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    // The parent's own mode switched live to something neither child's default matches —
+    // proves inheritance reads the CHILD's agent, never the parent's current mode.
+    registry.get('root-1')?.setMode('bypass');
+
+    const explorerChild = startChildForTest('root-1', 'explorer');
+    const generalChild = startChildForTest('root-1', 'general-purpose');
+    expect(registry.get(explorerChild.sessionId)?.mode).toBe('plan');
+    expect(registry.get(generalChild.sessionId)?.mode).toBe('edits');
+  });
+
+  it('F2: a spawned child whose agent declares no default mode falls back to the system floor', async () => {
+    const { startChildForTest, registry } = buildTestServer(); // AGENTS has no defaultMode set
+    const child = startChildForTest('root-1', 'explorer');
+    expect(registry.get(child.sessionId)?.mode).toBe('manual');
   });
 
   it('drops the notice when the parent was already stopped', async () => {

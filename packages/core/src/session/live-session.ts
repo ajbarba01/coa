@@ -1,6 +1,39 @@
-import type { ModelSelection, Push } from '@coa/shared';
+import { randomUUID } from 'node:crypto';
+import type { ModelSelection, PermissionMode, Push, ToolCall, ToolClass } from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
 import type { TurnLifecycle } from './turn-lifecycle.js';
+
+/** The system-wide mode floor a session with no agent-resolved default falls back
+ *  to — `manual` (ask before writes/commands), the same balanced default Claude
+ *  Code's own `default` mode uses. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'manual';
+
+/** A still-pending approval request, as replayed to a caller reading the current
+ *  snapshot (e.g. a console reattach) — the push payload minus its resolver. */
+export interface PendingApprovalSnapshot {
+  requestId: string;
+  tool: string;
+  summary: string;
+  input: Record<string, unknown>;
+}
+
+/** Best-effort one-line summary of a proposed tool call, for the approval card.
+ *  Prefers a symbol ref's name/path (edit_symbol) over a plain arg (Write/Edit's
+ *  `path`, apply_patch's `target`, Bash's `command`); falls back to the bare
+ *  tool name when neither is present. Pure and total — never throws. */
+function summarizeToolCall(call: ToolCall): string {
+  const ref = call.ref;
+  if (ref !== undefined) {
+    const label =
+      'name' in ref ? ref.name : ref.symbol !== undefined ? `${ref.path}#${ref.symbol}` : ref.path;
+    return `${call.tool} ${label}`;
+  }
+  for (const key of ['path', 'target', 'command']) {
+    const value = call.args[key];
+    if (typeof value === 'string') return `${call.tool} ${value}`;
+  }
+  return call.tool;
+}
 
 /**
  * A `LiveSession`'s run state — whether the backend loop is actively driving a
@@ -110,6 +143,18 @@ export class LiveSession {
    */
   readonly deliveries = new DeliveryQueue();
 
+  /** F2: this session's CONFIGURED permission mode — settable live via {@link setMode};
+   *  a mode-aware `canUseTool` predicate reads it fresh on every call (see
+   *  `permission.ts`'s `ModeDeps.getMode`), so a switch takes effect starting with
+   *  the NEXT tool call, never retroactively on one already in flight. */
+  mode: PermissionMode;
+  /** F2: whether the CURRENTLY active backend adapter can actually honor an ask (a
+   *  real approval seam) — set once per turn-drive, when the provider is known
+   *  (see the daemon's `resolveMode` wiring). Defaults `true`: every backend wired
+   *  today genuinely awaits `canUseTool`, so a session read before its first turn
+   *  reports the honest floor rather than a premature degrade. */
+  approvalSeam = true;
+
   #sinks = new Set<Sink>();
   #queue: QueuedTurn[] = [];
   #waiter: ((turn: QueuedTurn | undefined) => void) | undefined;
@@ -117,11 +162,20 @@ export class LiveSession {
   #steerSink: ((text: string) => void) | undefined = undefined;
   #interruptClosure: (() => boolean) | undefined = undefined;
   #onClose: Array<() => void> = [];
+  #pendingApprovals = new Map<
+    string,
+    { resolve: (decision: 'allow' | 'deny') => void; snapshot: PendingApprovalSnapshot }
+  >();
 
-  constructor(id: string, lineage?: { parent?: string; root?: string }) {
+  constructor(
+    id: string,
+    lineage?: { parent?: string; root?: string },
+    defaultMode: PermissionMode = DEFAULT_PERMISSION_MODE,
+  ) {
     this.id = id;
     this.parent = lineage?.parent;
     this.root = lineage?.root ?? id;
+    this.mode = defaultMode;
   }
 
   /**
@@ -165,6 +219,113 @@ export class LiveSession {
    *  the last turn's result. */
   onClose(fn: () => void): void {
     this.#onClose.push(fn);
+  }
+
+  /** F2: live-switch this session's permission mode and reflect the change to
+   *  every subscriber (the `mode` push). Taking effect starting with the NEXT
+   *  tool call is a property of HOW the predicate reads `mode` (fresh, every
+   *  call — see `permission.ts`), not of this method. */
+  setMode(mode: PermissionMode): void {
+    this.mode = mode;
+    this.emit(this.#modePush());
+  }
+
+  /** F2: record whether the active backend adapter can currently honor an ask (a
+   *  per-turn-drive fact, since it can only be known once the provider is
+   *  resolved). Re-emits the reflection only when the EFFECTIVE mode actually
+   *  changes as a result, so an unchanged provider across turns never spams a
+   *  push nothing downstream needs to react to. */
+  setApprovalSeam(seam: boolean): void {
+    if (seam === this.approvalSeam) return;
+    const before = this.effectiveMode();
+    this.approvalSeam = seam;
+    if (this.effectiveMode() !== before) this.emit(this.#modePush());
+  }
+
+  /** F2: the mode the `canUseTool` predicate actually enforces right now —
+   *  `bypass` whenever {@link approvalSeam} is false, regardless of the
+   *  configured {@link mode} (SC-1 honesty: never claim an enforcement the
+   *  backend cannot deliver). */
+  effectiveMode(): PermissionMode {
+    return this.approvalSeam ? this.mode : 'bypass';
+  }
+
+  #modePush(): Push {
+    const effectiveMode = this.effectiveMode();
+    return {
+      kind: 'mode',
+      sessionId: this.id,
+      mode: this.mode,
+      effectiveMode,
+      ...(effectiveMode !== this.mode
+        ? { degraded: 'the active backend has no approval seam — enforcement degrades to bypass' }
+        : {}),
+    };
+  }
+
+  /**
+   * F2: ask the user, blocking until they answer ({@link resolveApproval}) or
+   * the session closes (resolves `'deny'` — fail-safe, so a torn-down session
+   * never leaves the awaiting `canUseTool` call hanging on a promise nothing
+   * will ever settle). Pushes the pending request live (the `approval` push)
+   * and reflects `blocked-approval` on the status channel WITHOUT touching
+   * `state` itself (mirrors the ad hoc terminal-status pushes
+   * `session-service.ts` emits for `done`/`error`/`interrupted`) — the turn is
+   * still `running` underneath; the running status resumes once answered.
+   */
+  requestApproval(call: ToolCall, toolClass: ToolClass): Promise<'allow' | 'deny'> {
+    const requestId = randomUUID();
+    const snapshot: PendingApprovalSnapshot = {
+      requestId,
+      tool: call.tool,
+      summary: summarizeToolCall(call),
+      input: call.args,
+    };
+    this.emit({
+      kind: 'approval',
+      requestId,
+      sessionId: this.id,
+      summary: snapshot.summary,
+      tool: call.tool,
+      input: call.args,
+      toolClass,
+    });
+    this.emit({
+      kind: 'status',
+      sessionId: this.id,
+      worktree: this.worktree ?? '',
+      state: 'blocked-approval',
+    });
+    return new Promise<'allow' | 'deny'>((resolve) => {
+      this.#pendingApprovals.set(requestId, { resolve, snapshot });
+    });
+  }
+
+  /** F2: resolve a pending approval request. `false` ⇒ no such pending request
+   *  (already answered, the session was already torn down, or the id is stale/
+   *  unknown) — a second answer to the same id is a harmless no-op, not an error. */
+  resolveApproval(requestId: string, decision: 'allow' | 'deny'): boolean {
+    const pending = this.#pendingApprovals.get(requestId);
+    if (pending === undefined) return false;
+    this.#pendingApprovals.delete(requestId);
+    pending.resolve(decision);
+    // Only reflect back to `running` once EVERY pending ask has cleared — another
+    // one still open means the turn is still blocked on it.
+    if (this.#pendingApprovals.size === 0) {
+      this.emit({
+        kind: 'status',
+        sessionId: this.id,
+        worktree: this.worktree ?? '',
+        state: this.state === 'running' ? 'running' : 'idle',
+      });
+    }
+    return true;
+  }
+
+  /** F2: every approval request still awaiting a reply, as a plain read (e.g. for
+   *  a console reattach to learn what's pending without waiting on a push). */
+  pendingApprovals(): PendingApprovalSnapshot[] {
+    return [...this.#pendingApprovals.values()].map((p) => p.snapshot);
   }
 
   /** Add `sink` to the fan-out set, hydrate it with the current status push,
@@ -233,6 +394,11 @@ export class LiveSession {
     // session's entry by the time close() runs — has no record of. Drop it
     // explicitly instead of letting `nextTurn()` silently drain it later.
     this.#queue = [];
+    // F2 fail-safe: a still-pending ask must not hang forever once the session is
+    // torn down — resolve every one as denied so its awaiting `canUseTool` call
+    // unblocks instead of leaking a promise nothing will ever settle.
+    for (const pending of this.#pendingApprovals.values()) pending.resolve('deny');
+    this.#pendingApprovals.clear();
     // Finalizers first (and once): ending the held-open input feed lets the backend
     // query drain its last result before the parked loop wakes and exits.
     const finalizers = this.#onClose;
