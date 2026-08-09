@@ -26,7 +26,7 @@ redirect) was removed** — `steerSession` no longer carries a `mode`; `control.
 Core is the single writer of a delivery's log line (one rule, every backend): the line is written
 when drained, unless a `tool_use` is open, in which case it is held and written the instant the
 last one closes — so the transcript can no longer record a steer inside a `tool_use`/`tool_result`
-pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree-per-writer (a child shares its root's tree today — `docs/adr/0034`); the cost roll-up's RPC producer (see item M below); discovery (`find_agent`, item M); role/capability enforcement (deferred — see "Someday / ideas"). Subagent fan-out itself now ships — see the Subagent orchestration workstream. |
+pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. **Worktree-per-writer now ships, scoped** (a child shares its root's tree by default, `docs/adr/0034`; opt-in isolation via a real `git worktree add`, see the subagent section above) — the `begin_fork`/`exit_fork` tool verbs are the remaining gap (item E). | Live deny/R-12 push bridge; the cost roll-up's RPC producer (see item M below); discovery (`find_agent`, item M); role/capability enforcement (deferred — see "Someday / ideas"). Subagent fan-out itself now ships — see the Subagent orchestration workstream. |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. The Claude session now advertises a bounded eight-tool built-in floor and registers three hook events (`Stop` + `PreToolUse` gate + `PostToolUse` producer trigger); see item L. The runtime-adapter interface carries only the six methods the session host actually drives — the never-wired enhancement ports (reminder/context/cache delivery, usage telemetry, capability profile, refs, eval) were deleted; settled usage flows through the `onSettle` callback. | Golden-corpus eval/Tier-B path, `registerMcp` resolver — each reintroduces its port with the feature. |
 | M10 Console | Partial / rich | Electron shell on `@coa/console-kit` (+ `@coa/console-transcript` for the conversation), live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue (⏎)/Steer (⌥⏎) buttons, wired to `steerSession`; Barge In is gone — `docs/adr/0031`). | The **workbench rebuild** (see "In flight" — the 2026-07 UX overhaul's new design system at `docs/adr/0014`; W0–W5 have landed); live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
 
@@ -200,9 +200,16 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   sessions. The console (`Browser.tsx`/
   `session-tree.ts`) groups by the same lineage, badges a session Root vs. Subagent, and pulls a
   matched search hit's ancestors back into view via a `.root` fallback, hardened against a broken
-  `.parent` chain. A child shares its root's worktree (no worktree manager exists to give it its
-  own) — accepted, since v1 is attended and every write from either agent still passes
-  `PreToolUse`. **The tree cost roll-up is implemented and unit-tested but has no producer**:
+  `.parent` chain. **A worktree manager now exists** (`packages/core/src/session/worktree-manager.ts`):
+  a child shares its root's worktree by default (unchanged — every write from either agent still
+  passes `PreToolUse`), but `spawn_agent`'s `isolate` flag gives a child a real, separate
+  `git worktree add` checkout under the gitignored `.coa/worktrees/<sessionId>/`, confined at the
+  Retrieve/Mutate/base-tool seam too (`catalogueFor`/`baseCatalogueFor` now take the session's own
+  bound worktree, not just the daemon's static root). An isolated worktree survives its session
+  ending (results may need review); cleanup is an explicit `reap()` call (the callable seam a
+  future RPC verb uses — no such verb yet) or the daemon-start `sweepStale()` idle sweep. The
+  `begin_fork`/`exit_fork` tool verbs that would expose this to a model are still unbuilt (item E).
+  **The tree cost roll-up is implemented and unit-tested but has no producer**:
   `listSessions` maps the conversation store straight through with no `costUsd`, and the ledger's
   `root` key (`docs/adr/0032`) is in-process only — shipped deliberately deferred rather than half
   a feature; the console's session-cost UI honestly reads "Not tracked yet". **A live run against a
@@ -248,8 +255,8 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   reminder/context/cache delivery [M]. The runtime-adapter interface was shrunk to its six
   driven methods, so each of these items reintroduces its port together with the feature.
 - **E. M6 remainder** — AST-ops rename/rewrite + diff engine [L]; the `begin_fork`/`exit_fork` tool
-  verbs (depend on M8's worktree manager, item I) [L]; `find_tools`/`load_tool` proxy [M]; POSIX-only
-  confine + graph reads [S–M].
+  verbs (item I's worktree manager they'd depend on now ships) [L]; `find_tools`/`load_tool` proxy
+  [M]; POSIX-only confine + graph reads [S–M].
 - **F. Adapters polish** — real DeepSeek prices (currently config-driven zero-floor placeholders)
   [S]; a provider-discriminated reasoning union (today's reasoning surfacing is per-provider, not
   unified) [M]; verify LongCat model IDs/effort levels against the live API [S].
@@ -264,8 +271,10 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
 - **I. M8 deferred** — the daemon-singleton `LiveSessionRegistry` (threaded into `apps/cli`'s daemon
   composition, with running-aware idle-timeout eviction, `onClose`-hooked checkpoint/worktree-release, and
   `registry.closeAll()` wired into shutdown) is DONE; interactive multi-turn REPL / streaming-input mode [M];
-  worktree manager [L]; subagents (D122 depth-1 fan-out) [L]; DACL/peer-cred hardening on the
-  named-pipe transport [M].
+  the worktree manager is DONE (real `git worktree add`/`remove` under `.coa/worktrees/`, opt-in
+  isolation, idle-sweep on daemon start — a reap RPC verb for the Worktree dock's floor action is
+  the remaining gap, tracked with the dock itself under "Someday / ideas"); subagents (D122 depth-1
+  fan-out) [L]; DACL/peer-cred hardening on the named-pipe transport [M].
 - **J. M1 graph hardening (GRF-*)** — calls/inherits/weight edges, an SCC model, temporal
   projection [L]; underpins M3 staleness and M4 health scoring.
 - **K. The preset-vs-`canUseTool` spike [S–M, live spend].** The named live gap P1a leaves behind
@@ -534,6 +543,11 @@ Captured from prior scratch notes; none of these are planned or sized yet:
   beyond the current structural (M1/M2) graph.
 - **Prompt-engineering surface** — a dedicated surface for iterating on and testing prompts/roles.
 - **Agent tools** — summarization and judgement-filtering tools for agents to call mid-session.
+- **Worktree dock** — the console surface for `WorktreeManager` (`packages/core/src/session/worktree-manager.ts`):
+  which sessions have their own isolated worktree, its path, and a dirty/changed-file indicator
+  (`WorktreeManager.status`), plus a floor action wired to a new `reap` RPC verb calling
+  `WorktreeManager.reap` (the manager's read/reap surface already exists; only the RPC verb + the
+  dock UI itself are unbuilt).
 - **Open design sub-questions** (surfaced during graduation; unsettled, each sits within an accepted ADR):
   where the baseline Piece set physically lives — a built-in package vs. a seeded `.coa/` bundle (the
   general built-in∪user merge mechanism is settled in `docs/adr/0003`; only this placement call is open);

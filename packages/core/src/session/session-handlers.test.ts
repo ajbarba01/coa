@@ -3186,11 +3186,15 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
   function spawnableDeps(
     behaviors: Map<string, 'fail' | 'stop'> = new Map(),
     recordSpend?: SessionDeps['recordSpend'],
+    recordBind?: (sessionId: string, opts: { isolate?: boolean } | undefined) => void,
   ): SessionDeps {
     let n = 0;
     return {
       newSessionId: () => `child-${++n}`,
-      bindWorktree: (id) => `/wt/${id}`,
+      bindWorktree: (id, _scope, opts) => {
+        recordBind?.(id, opts);
+        return `/wt/${id}`;
+      },
       releaseWorktree: () => {},
       assemblePieces: () => ({ pieces: [], frame: { allow: [], deny: [] } }),
       compile: () => NEUTRAL,
@@ -3222,6 +3226,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     behaviors?: Map<string, 'fail' | 'stop'>;
     agents?: AgentSummary[];
     recordSpend?: SessionDeps['recordSpend'];
+    recordBind?: (sessionId: string, opts: { isolate?: boolean } | undefined) => void;
   }): {
     dispatch: (msg: unknown) => ReturnType<typeof dispatch>;
     registry: LiveSessionRegistry;
@@ -3229,7 +3234,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     startChildForTest: (
       parentId: string,
       agentRef: string,
-      overrides?: { description?: string; prompt?: string },
+      overrides?: { description?: string; prompt?: string; isolate?: boolean },
     ) => { sessionId: string };
   } {
     const dir = mkdtempSync(join(tmpdir(), 'coa-spawn-'));
@@ -3238,7 +3243,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     const registry = new LiveSessionRegistry();
     const conn = connection();
     const service = sessionService(
-      spawnableDeps(opts?.behaviors, opts?.recordSpend),
+      spawnableDeps(opts?.behaviors, opts?.recordSpend, opts?.recordBind),
       store,
       registry,
       () => opts?.agents ?? AGENTS,
@@ -3257,6 +3262,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
           agentRef,
           description: overrides?.description ?? 'investigate the thing',
           prompt: overrides?.prompt ?? 'go look',
+          ...(overrides?.isolate !== undefined ? { isolate: overrides.isolate } : {}),
         });
       },
     };
@@ -3291,6 +3297,44 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.origin).toBe('system');
     expect(pending[0]?.text).toContain(child.sessionId);
+  });
+
+  it('threads an explicit isolate:true spawn request through to bindWorktree', async () => {
+    const binds: Array<{ sessionId: string; isolate: boolean | undefined }> = [];
+    const { dispatch: send, startChildForTest } = buildTestServer({
+      recordBind: (sessionId, opts) => binds.push({ sessionId, isolate: opts?.isolate }),
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    binds.length = 0; // only the child's own bind is under test below
+
+    const child = startChildForTest('root-1', 'explorer', { isolate: true });
+    await settleChild();
+
+    expect(binds).toEqual([{ sessionId: child.sessionId, isolate: true }]);
+  });
+
+  it('leaves isolate unset on bindWorktree when the spawn never asked for it', async () => {
+    const binds: Array<{ sessionId: string; isolate: boolean | undefined }> = [];
+    const { dispatch: send, startChildForTest } = buildTestServer({
+      recordBind: (sessionId, opts) => binds.push({ sessionId, isolate: opts?.isolate }),
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    binds.length = 0;
+
+    const child = startChildForTest('root-1', 'explorer');
+    await settleChild();
+
+    expect(binds).toEqual([{ sessionId: child.sessionId, isolate: undefined }]);
   });
 
   it('F2: a spawned child inherits ITS agent’s configured default mode, not the parent’s live mode', async () => {

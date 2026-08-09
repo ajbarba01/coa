@@ -11,7 +11,14 @@ export interface SpawnDeps {
   /** The LIVE effective agent set. Called per dispatch — never a list cached at session start. */
   listAgents: () => readonly AgentSummary[];
   /** Start the child and return once it has STARTED, never once it has finished. */
-  startChild: (req: { agentRef: string; description: string; prompt: string }) => {
+  startChild: (req: {
+    agentRef: string;
+    description: string;
+    prompt: string;
+    /** Give the child its own git worktree instead of sharing the parent's;
+     *  absent/`false` ⇒ today's shared-root behavior, byte-identical. */
+    isolate?: boolean | undefined;
+  }) => {
     sessionId: string;
   };
 }
@@ -92,7 +99,7 @@ export function sanitizeEchoedText(raw: string, maxLength: number = MAX_ECHOED_L
  * carry no injection surface of their own within this module.
  */
 export function spawnAgent(
-  args: { agent: string; description: string; prompt: string },
+  args: { agent: string; description: string; prompt: string; isolate?: boolean | undefined },
   deps: SpawnDeps,
 ): ToolResponse<SpawnResult> {
   const agents = deps.listAgents();
@@ -137,6 +144,7 @@ export function spawnAgent(
     agentRef: match.ref,
     description: args.description,
     prompt: args.prompt,
+    ...(args.isolate !== undefined ? { isolate: args.isolate } : {}),
   });
   return {
     result: { applied: true, agentRef: match.ref, sessionId },

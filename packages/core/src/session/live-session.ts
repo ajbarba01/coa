@@ -108,6 +108,14 @@ export interface QueuedTurn extends TurnRequest {
   /** Set only for the FOUNDING turn (a brand-new session) — resolves the caller's
    *  pending answer with the worktree as soon as the turn starts. */
   onReady?: (started: StartedHandle) => void;
+  /**
+   * Set only on a spawned child's FOUNDING turn (`SessionService#startChild`, from
+   * `StartChildRequest.isolate`) — an ordinary `send()` never sets this, so a
+   * top-level session is never isolated. `bindWorktree` is idempotent per session
+   * (see `WorktreeManager`), so a later turn on the same child omitting this is
+   * fine: the session's isolation decision was already made on its first turn.
+   */
+  isolate?: boolean;
 }
 
 /**

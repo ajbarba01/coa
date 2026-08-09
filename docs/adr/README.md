@@ -62,6 +62,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0034](0034-a-subagent-is-a-session-with-a-parent-link.md) — A subagent is a session with a parent link
 - [0035](0035-the-close-gate-is-the-only-block.md) — The close gate is the only block; the cost ceiling is archived
 - [0036](0036-model-metadata-catalog-and-attachment-wire-shape.md) — A merged model-metadata catalog, and attachments ride the existing message shape
+- [0037](0037-worktree-isolation-is-opt-in-bound-once-reaped-explicitly.md) — Worktree isolation is opt-in, bound once, and reaped explicitly
 
 ---
 

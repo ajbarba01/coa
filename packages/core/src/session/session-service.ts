@@ -91,6 +91,9 @@ export interface StartChildRequest {
   agentRef: string;
   description: string;
   prompt: string;
+  /** Give the child its own git worktree instead of sharing the parent's; absent/`false`
+   *  ⇒ today's shared-root behavior, byte-identical. */
+  isolate?: boolean | undefined;
 }
 
 export class SessionService {
@@ -404,6 +407,7 @@ export class SessionService {
       ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
       ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
       ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      ...(req.isolate !== undefined ? { isolate: req.isolate } : {}),
     };
 
     // Non-blocking (the design's re-entrancy retirement): start the loop and return

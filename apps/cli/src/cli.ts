@@ -285,7 +285,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // once a session is actually running a turn, long after every `const` below has
   // initialized, since no session can exist before `bindDaemon` at the end of this
   // function even accepts a connection.
-  const { deps, handle, models, modelAccounts } = buildSessionDeps({
+  const { deps, handle, models, modelAccounts, worktrees } = buildSessionDeps({
     walPath,
     root,
     home,
@@ -301,6 +301,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       return session === undefined ? undefined : buildModeDeps(session, provider);
     },
   });
+  // Idle-cleanup: reap whatever isolated worktree this fresh process has no record
+  // of yet (by construction, everything a prior run — crashed, or just not cleanly
+  // shut down — left behind) and is past its idle window. Run once, here, before
+  // any session gets the chance to bind a worktree of its own.
+  worktrees.sweepStale();
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected into the login manager the handler map constructs.
   const consoleHandlers = buildDaemonConsoleHandlers(handle, {

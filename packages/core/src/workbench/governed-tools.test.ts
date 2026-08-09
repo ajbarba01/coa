@@ -151,6 +151,40 @@ describe('buildGovernedTools — spawn_agent', () => {
     expect(started).toEqual([{ agentRef: 'explorer', description: 'd', prompt: 'p' }]);
     expect(res.result).toMatchObject({ applied: true, sessionId: 'kid-1' });
   });
+
+  it('accepts and forwards an isolate:true argument', async () => {
+    const started: unknown[] = [];
+    const tools = buildGovernedTools({
+      ...makeDeps(),
+      spawn: {
+        listAgents: () => [
+          {
+            ref: 'explorer',
+            scope: 'builtin',
+            name: 'Explorer',
+            description: 'read-only search',
+            icon: 'bot',
+            color: 'slate',
+          },
+        ],
+        startChild: (req) => {
+          started.push(req);
+          return { sessionId: 'kid-1' };
+        },
+      },
+    });
+    const tool = tools.find((t) => t.name === 'spawn_agent');
+    const res = await tool!.invoke({
+      agent: 'explorer',
+      description: 'd',
+      prompt: 'p',
+      isolate: true,
+    });
+    expect(started).toEqual([
+      { agentRef: 'explorer', description: 'd', prompt: 'p', isolate: true },
+    ]);
+    expect(res.result).toMatchObject({ applied: true, sessionId: 'kid-1' });
+  });
 });
 
 const BASE_NAMES = ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'];

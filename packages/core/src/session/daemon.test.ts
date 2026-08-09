@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
@@ -280,6 +280,48 @@ describe('createDaemonCore', () => {
     const baseResult = await baseTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
     expect(JSON.stringify(claudeResult)).toContain('unavailable');
     expect(JSON.stringify(baseResult)).toContain('unavailable');
+  });
+
+  it('catalogueFor/baseCatalogueFor confine an isolated session to ITS OWN worktree root', async () => {
+    // The gap this closes: `governedToolDeps`/`baseToolDeps` used to always confine
+    // to the daemon's static `root`, so a session bound to a real, separate git
+    // worktree would still have its `apply_patch`/base `Write` land in the SHARED
+    // root — silently defeating isolation for the workbench's own tool surface
+    // (Claude's native tools already honor the per-session `cwd`; this is the
+    // OTHER surface, the in-process coa/base tools).
+    const isolated = mkdtempSync(join(tmpdir(), 'coa-daemon-isolated-'));
+    writeFileSync(join(isolated, 'app.ts'), 'export const isolated = true;\n');
+    try {
+      handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
+
+      const claudeCatalogue = handle.core.catalogueFor!('sess-a', undefined, isolated);
+      const applyPatch = claudeCatalogue.find((t) => t.name === 'apply_patch');
+      const claudeResult = await applyPatch!.invoke({
+        target: 'app.ts',
+        diff: {
+          form: 'search-replace',
+          hunks: [{ find: 'isolated = true', replace: 'isolated = false' }],
+        },
+      });
+      expect(claudeResult.result).toMatchObject({ applied: true });
+      expect(readFileSync(join(isolated, 'app.ts'), 'utf8')).toContain('isolated = false');
+
+      const baseCatalogue = handle.core.baseCatalogueFor!('sess-a', undefined, isolated);
+      const write = baseCatalogue.find((t) => t.name === 'Write');
+      await write!.invoke({ path: 'base-tool.ts', content: 'export const x = 1;\n' });
+      expect(existsSync(join(isolated, 'base-tool.ts'))).toBe(true);
+      expect(existsSync(join(dir, 'base-tool.ts'))).toBe(false);
+    } finally {
+      rmSync(isolated, { recursive: true, force: true });
+    }
+  });
+
+  it('catalogueFor/baseCatalogueFor fall back to the daemon root with no worktreeRoot override', () => {
+    handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
+    const sessionScoped = handle.core.catalogueFor!('sess-a', undefined);
+    expect(sessionScoped.map((t) => t.name).sort()).toEqual(
+      handle.core.catalogue.map((t) => t.name).sort(),
+    );
   });
 
   it('the shared catalogue/baseCatalogue are unaffected — same tool count, same names', () => {

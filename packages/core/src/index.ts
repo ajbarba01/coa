@@ -48,6 +48,11 @@ export {
   type StartChildRequest,
 } from './session/session-service.js';
 export { LiveSessionRegistry } from './session/live-registry.js';
+export {
+  WorktreeManager,
+  type WorktreeRecord,
+  type WorktreeStatus,
+} from './session/worktree-manager.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
 export { createConversationStore } from './session/conversation-store.js';

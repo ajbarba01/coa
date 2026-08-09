@@ -11,6 +11,10 @@ build/
 .coa/local/
 .coa/wal/
 
+# isolated subagent git worktrees (WorktreeManager) — real, separate checkouts,
+# never part of the tracked tree
+.coa/worktrees/
+
 # logs / os
 *.log
 .DS_Store

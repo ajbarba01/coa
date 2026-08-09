@@ -48,6 +48,48 @@ describe('spawnAgent', () => {
     expect(JSON.stringify(res.result)).toContain('kid-7');
   });
 
+  it('forwards an explicit isolate:true request to startChild', () => {
+    const started: unknown[] = [];
+    spawnAgent(
+      { agent: 'reviewer', description: 'review it', prompt: 'look at the diff', isolate: true },
+      {
+        listAgents: () => AGENTS,
+        startChild: (req) => {
+          started.push(req);
+          return { sessionId: 'kid-7' };
+        },
+      },
+    );
+    expect(started).toEqual([
+      {
+        agentRef: 'reviewer',
+        description: 'review it',
+        prompt: 'look at the diff',
+        isolate: true,
+      },
+    ]);
+  });
+
+  it('omits isolate from the startChild request when the caller never asked for it', () => {
+    // The default stays shared-root: an absent flag must not become a stray
+    // `isolate: undefined` on the wire (this repo runs `exactOptionalPropertyTypes`).
+    const started: unknown[] = [];
+    spawnAgent(
+      { agent: 'reviewer', description: 'review it', prompt: 'look at the diff' },
+      {
+        listAgents: () => AGENTS,
+        startChild: (req) => {
+          started.push(req);
+          return { sessionId: 'kid-7' };
+        },
+      },
+    );
+    expect(started).toEqual([
+      { agentRef: 'reviewer', description: 'review it', prompt: 'look at the diff' },
+    ]);
+    expect(Object.keys(started[0] as object)).not.toContain('isolate');
+  });
+
   it('returns an unapplied result naming what exists for an unknown ref', () => {
     let calls = 0;
     const res = spawnAgent(

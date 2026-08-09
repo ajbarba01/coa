@@ -144,12 +144,19 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
     baseCatalogue: buildBaseCatalogue(kernel, governance, flags, options),
-    catalogueFor: (sessionId, spawn) =>
+    catalogueFor: (sessionId, spawn, worktreeRoot) =>
       buildGovernedTools(
-        governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),
+        governedToolDeps(
+          kernel,
+          governance,
+          flags,
+          worktreeRoot ?? options.root ?? '.',
+          sessionId,
+          spawn,
+        ),
       ),
-    baseCatalogueFor: (sessionId, spawn) =>
-      buildBaseCatalogue(kernel, governance, flags, options, sessionId, spawn),
+    baseCatalogueFor: (sessionId, spawn, worktreeRoot) =>
+      buildBaseCatalogue(kernel, governance, flags, options, sessionId, spawn, worktreeRoot),
   };
 
   return { core, kernel, flags, governance };
@@ -250,9 +257,15 @@ function resolvePieceSafely(kernel: ChangeKernel, ref: PieceRef) {
  * (producer ①) and the worktree's disk, and Inspect reads the cost governor's cap and the flag pipeline's
  * flag pipeline. The not-yet-built halves degrade to a floor:
  * the graph outline/dependents reads, the assembled-context/spec store, and
- * the reconciler's precise-write expectation. The worktree is the configured root
- * (the per-session worktree manager is later); confinement runs in POSIX path
- * space, so the root is normalized to forward slashes.
+ * the reconciler's precise-write expectation. `root` defaults to the daemon's
+ * configured project root, but a caller passing its own (`catalogueFor`/
+ * `baseCatalogueFor`, from a session's bound worktree) confines to that instead —
+ * what lets an isolated session's Retrieve/Mutate/base tools genuinely operate
+ * against its own git worktree; confinement runs in POSIX path space, so `root`
+ * is normalized to forward slashes either way. The kernel's own symbol/graph
+ * index stays project-wide regardless (reads may drift once an isolated
+ * worktree's edits diverge from the shared tree — an accepted floor, not solved
+ * here).
  *
  * `sessionId`/`spawn` default to the pre-existing daemon-wide floor (a constant
  * `'daemon'` stamp, no spawn port) so the ONE shared catalogue built at daemon
@@ -313,14 +326,16 @@ function buildBaseCatalogue(
   options: DaemonCoreOptions,
   sessionId = 'daemon',
   spawn?: SpawnDeps,
+  worktreeRoot?: string,
 ) {
   const web = options.webTools?.({
     recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
   });
+  const root = worktreeRoot ?? options.root ?? '.';
   return buildGovernedTools(
     {
-      ...governedToolDeps(kernel, governance, flags, options.root ?? '.', sessionId, spawn),
-      base: baseToolDeps(kernel, options.root ?? '.'),
+      ...governedToolDeps(kernel, governance, flags, root, sessionId, spawn),
+      base: baseToolDeps(kernel, root),
       ...(web ? { web } : {}),
     },
     { includeBaseTools: true, ...(web ? { includeWebTools: true } : {}) },

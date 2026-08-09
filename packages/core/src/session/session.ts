@@ -145,9 +145,15 @@ export interface AssemblePiecesContext {
 /** The live core references the session layer holds and wires per session (all injected; the session layer sorts last). */
 export interface SessionDeps {
   newSessionId: () => string;
-  /** Bind a git worktree for the session; returns its path. */
-  bindWorktree: (sessionId: string, scope: string) => string;
-  /** Release the session's worktree at close. */
+  /** Bind a git worktree for the session; returns its path. `opts.isolate` requests
+   *  a REAL, separate git worktree rather than the shared repo root — set only on a
+   *  spawned child's founding turn (see {@link StartChildRequest} in
+   *  `session-service.ts`); absent ⇒ today's shared-root behavior. */
+  bindWorktree: (sessionId: string, scope: string, opts?: { isolate?: boolean }) => string;
+  /** Release the session's worktree at close. An isolated worktree is NOT removed
+   *  here — its results may still need review, so cleanup is the explicit reap
+   *  action (`WorktreeManager.reap`) or the daemon-start staleness sweep, never a
+   *  session ending. */
   releaseWorktree: (worktree: string) => void;
   /** Gather the session's pieces + capability frame (baseline scaffold + assembled context → compiler input). */
   assemblePieces: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
@@ -192,12 +198,23 @@ export interface SessionDeps {
   /**
    * Build THIS session's own copy of `catalogue`, with `spawn_agent` bound to the given
    * session id as parent. Preferred over the shared `catalogue` when present (`createSession`
-   * calls it with `resolveSpawn`'s result); absent ⇒ falls back to `catalogue` unchanged —
-   * a session that never spawns behaves byte-identically to before this seam existed.
+   * calls it with `resolveSpawn`'s result and the session's own bound worktree); absent
+   * ⇒ falls back to `catalogue` unchanged — a session that never spawns behaves
+   * byte-identically to before this seam existed. `worktreeRoot`, when given, confines
+   * this session's Retrieve/Mutate handlers to it instead of the daemon's static root
+   * (an isolated session's real worktree); absent ⇒ the daemon's static root.
    */
-  catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  catalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    worktreeRoot?: string,
+  ) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers). */
-  baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  baseCatalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    worktreeRoot?: string,
+  ) => ToolCatalogue;
   /** change-event-spine checkpoint at the session boundary. */
   checkpoint: () => void;
   /**
@@ -242,6 +259,9 @@ export async function createSession(
      *  ledger record alongside `account` so a whole spawned run's cost is answerable, not
      *  just an account's. */
     root?: string;
+    /** Give this session its own git worktree instead of the shared root — set only
+     *  on a spawned child's founding turn (see {@link SessionDeps.bindWorktree}). */
+    isolate?: boolean;
     input: string | AsyncIterable<string>;
     /** Attachments on this run's user message (see {@link SessionAdapterInit.attachments}). */
     attachments?: readonly Attachment[];
@@ -286,7 +306,11 @@ export async function createSession(
   deps: SessionDeps,
 ): Promise<Session> {
   const sessionId = req.sessionId ?? deps.newSessionId();
-  const worktree = deps.bindWorktree(sessionId, req.scope);
+  const worktree = deps.bindWorktree(
+    sessionId,
+    req.scope,
+    req.isolate !== undefined ? { isolate: req.isolate } : undefined,
+  );
   req.onStart?.({ id: sessionId, worktree });
   // Reuse the frozen compilation when the session already has one; otherwise compile
   // once and report it up so it can be frozen for every later turn.
@@ -365,7 +389,7 @@ export async function createSession(
   const catalogueFor = provider === 'claude' ? deps.catalogueFor : deps.baseCatalogueFor;
   const catalogue =
     catalogueFor !== undefined
-      ? catalogueFor(sessionId, spawn)
+      ? catalogueFor(sessionId, spawn, worktree)
       : provider === 'claude'
         ? deps.catalogue
         : deps.baseCatalogue;

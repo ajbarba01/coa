@@ -44,7 +44,11 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
     group: 'exec',
     description:
       'start a subagent by name; returns its id immediately — the subagent runs in the ' +
-      'background and its result arrives separately, so do not wait for a report here',
+      'background and its result arrives separately, so do not wait for a report here. ' +
+      'pass isolate:true to give it its own git worktree (a real, separate checkout) ' +
+      'instead of sharing this one — use it for a subagent that will WRITE and whose ' +
+      'changes should not collide with concurrent work; leave it off (default) for a ' +
+      'read-only subagent or one whose edits this session wants to see land directly',
   },
   // On-demand — pulled in via find_tools/load_tool when needed.
   {
