@@ -200,8 +200,11 @@ describe.skipIf(!live)('the governed gate, live', () => {
  * CLI binary does, so types cannot settle whether a type-valid deny is honoured.
  *
  * Both probes assert the EFFECT, not that a predicate fired. coa's predicate is consulted
- * from both seams, so "the callback ran" proves nothing about whether the CLI obeyed it —
- * only "the work did not happen" does.
+ * from `PreToolUse` only — the native SDK `canUseTool` callback unconditionally allows
+ * every call now (a same-commit fix: it used to also call the predicate, which was
+ * harmless before F2 but became a double-fire of F2's stateful approval side effect for
+ * one logical call) — so "the callback ran" still proves nothing about whether the CLI
+ * obeyed the `PreToolUse` deny; only "the work did not happen" does.
  *
  * If either fails, the one-seam governance design loses its governance leg and coa-owned tool implementations
  * win by default. Neither is expensive: one capped turn each.

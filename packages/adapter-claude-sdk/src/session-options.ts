@@ -43,11 +43,18 @@ export function buildHooks(args: {
 }): NonNullable<Options['hooks']> {
   const { stopPredicate, canUseTool, sessionId, observeChanges, drainDeliveries } = args;
 
-  // `PreToolUse` is the per-tool gate for the WHOLE session, not just delegation.
-  // `canUseTool` is never consulted for a native spawn, and the 2026-08-03 gate run
-  // measured it not firing for an ordinary in-cwd read either; this seam sees both.
-  // The tool surface is bounded and governed at this one seam (the earlier two-seam
-  // split is superseded).
+  // `PreToolUse` is the per-tool gate for the WHOLE session, not just delegation, and it
+  // is the ONLY seam that ever calls the injected `canUseTool` predicate — the native SDK
+  // `canUseTool` callback (`sdkCanUseTool`, below) deliberately does not, on top of the
+  // native callback never being consulted for a native spawn, and the 2026-08-03 gate run
+  // measuring it not firing for an ordinary in-cwd read either. This seam sees every call
+  // regardless. Routing the predicate through one seam only is not just measurement-driven
+  // any more: F2 gave the predicate a stateful, user-visible side effect for a call that
+  // needs asking (minting a fresh approval request id and pushing a live card to the
+  // console), so calling it a second time for the same logical call — harmless when the
+  // decision was a stateless deny-rules lookup — would mint a second id and push a second,
+  // uncorrelated card for what the user perceives as one action. The tool surface is
+  // bounded and governed at this one seam (the earlier two-seam split is superseded).
   //
   // It DENIES or ABSTAINS and never asserts `allow`: coa blocks deliberately and
   // grants nothing, and an explicit allow here is an auto-approve that would suppress a prompt
@@ -123,10 +130,14 @@ export function buildHooks(args: {
 /**
  * Assemble one session's `query()` options from the rendered config, the governance
  * sandbox set, and the injected predicates the daemon hands the adapter at session
- * construction. This is where the governed predicates are wired onto the two
- * SDK hooks: the per-tool deny onto `canUseTool`, the close-gate (the system's
- * one deliberate block) onto the `Stop` hook. The wiring is pure and testable;
- * only the `query()` call itself (in the adapter) touches the live backend.
+ * construction. This is where the governed predicates are wired on: the per-tool deny
+ * rides `PreToolUse` (`gateToolCall`, the one seam that ever calls the injected
+ * `canUseTool` predicate — see its comment in {@link buildHooks}), the close-gate
+ * (the system's one deliberate block) rides the `Stop` hook. The native SDK
+ * `canUseTool` callback is still wired (`sdkCanUseTool`, below) because the SDK needs
+ * one to exist, but it never calls the injected predicate itself. The wiring is pure
+ * and testable; only the `query()` call itself (in the adapter) touches the live
+ * backend.
  */
 export function assembleSessionOptions(args: {
   sessionId: string;
@@ -183,10 +194,16 @@ export function assembleSessionOptions(args: {
     abortController,
   } = args;
 
-  const sdkCanUseTool: SdkCanUseTool = async (toolName, input) => {
-    const call: ToolCall = { tool: toolName, args: input, sessionId };
-    return toSdkPermission(await canUseTool(call), input);
-  };
+  // Deliberately does NOT call the injected `canUseTool` predicate — `gateToolCall`
+  // above (wired onto `PreToolUse`) is the one seam that ever does, per ADR-0029 and the
+  // comment above it. This callback exists only because the SDK needs SOME
+  // `canUseTool` to be present (otherwise a `default`-mode session can stall waiting on
+  // a terminal prompt nothing here would ever answer), so it unconditionally allows and
+  // echoes the input back as `updatedInput` — the shape the real CLI requires on every
+  // allow, per {@link toSdkPermission}'s doc comment — and lets `PreToolUse` make the
+  // actual deny/ask decision downstream.
+  const sdkCanUseTool: SdkCanUseTool = async (_toolName, input) =>
+    toSdkPermission({ behavior: 'allow' }, input);
 
   return {
     ...buildBaseOptions({
