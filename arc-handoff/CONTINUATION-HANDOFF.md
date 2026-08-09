@@ -1,25 +1,24 @@
-# Arc continuation handoff — one track, all Opus
+# Arc continuation handoff — Stage 3 orchestrator session, Fable-primary
 
-Last rewritten 2026-08-08 (overnight, after C4 landed). **This is the arc's single continuation
-handoff.** It replaces the two-track split that existed earlier the same day (an Opus brief for
-backend work, a separate Fable brief for C4 and the Stage 3 UX features) — that split is retired,
-and `C4-STAGE3-HANDOFF.md` is deleted, its still-live content folded in below.
+Last rewritten 2026-08-09 (mid-overnight, handing off from a Sonnet-orchestrated session to a
+fresh Fable-orchestrated one — the maintainer's own call, since the remaining Stage 3 features are
+heavily UX-weighted). **This is the arc's single continuation handoff**; `run/journal.md` and
+`run/state.md` carry the detailed record, this file is the orientation layer on top.
 
-**Where the arc stands: every architecture charter is done.** C4 was the last one; it is finished,
-pushed, measured, and open as draft PR #4. **Stage 3's features are the only substantial work
-left**, alongside four open questions (Q10, Q11, Q14, Q15).
+**Where the arc stands: Stage 3 is well underway, not "just started."** Q11, Q14, F11, and F2 are
+all DONE (built, adversarially verified, merged into `arc/stage3`, gate green, pushed). F3 is
+core+UI complete and gate-green but its verify step died on a transient network error mid-session
+— NOT a real finding, just needs a clean retry. F1+F7, F4, F8, F9, F5 have not been started. Q15
+(F10's unmeasured "done means" clauses) is still open, sized to run once F1/F7/F8 add more
+materialized-tab surface.
 
-## What changed, and why there is only one track now
+## Model allocation — Fable is primary for this continuation
 
-**The Fable credit is exhausted.** The arc's standing rule — Fable reserved for UX-sensitive work
-(Stage 3's mockup-driven features, C4's console rewrite, the mockup-conformance gates), cheaper
-tiers for everything else — is **superseded by maintainer decision: all remaining work, UX
-included, runs on Opus.** Where `coa-arc-plan.md` or `run/state.md` still describe a Fable-on-UX
-hard rule, this file wins. Nothing is parked "waiting on model allocation" anymore; there is no
-allocation left to wait for.
-
-That also means the per-track handoff briefs have no reason to exist. One continuation handoff
-(this file) plus `run/journal.md` and `run/state.md` is the whole bookkeeping surface from here.
+The maintainer is on the Max plan; Fable is available and is now the ask for the ORCHESTRATOR
+itself (not just UX-sensitive subagents, which is how the prior session used it). The remaining
+Stage 3 features (F4 library manager, F8 viewer, F9 naming, F5 light theme) skew UX-heavy, which is
+the given reason for this handoff. Keep using `model: 'fable'` for UI-half subagents within each
+feature's build (see the pattern below) regardless of which model is orchestrating.
 
 ## Restore context first
 
@@ -28,28 +27,32 @@ git -C "C:\Users\Zander\Documents\Side Projects\coa" fetch origin arc/handoff
 git -C "C:\Users\Zander\Documents\Side Projects\coa" worktree add <your-scratchpad>\handoff-wt arc/handoff
 ```
 
+(If a worktree at that path already exists from a prior session and its directory is gone, `git
+worktree prune` first, or just pick a fresh path.)
+
 Then read, in order:
 
-1. `arc-handoff/run/state.md` — branches, tips, stage status. **Stages 0/1/2/4/5 are COMPLETE and
-   independently verified. Stage 3 is untouched and is all that remains.**
-2. `arc-handoff/run/journal.md` — the last few entries, ending with the C4 completion entry
-   (which also carries the desktop-app launch recipe and the depcruise-in-a-worktree tripwire).
-3. `arc-handoff/run/questions.md` — the queue and every ruling. **Q10, Q11, Q14, Q15 are open.**
-4. `SESSION-HANDOFF.md` (same folder) — longer-running operational memory: Windows gotchas, the
-   `git stash` denial, workflow/main-tree collision hazards, gate commands. Still worth one skim.
+1. `arc-handoff/run/state.md` — branches, tips, stage status. **This is the most current
+   file; trust it over this handoff on any numeric/tip conflict.**
+2. `arc-handoff/run/journal.md` — read from the "**Stage 3 orchestrator session opens**" entry
+   (2026-08-09) onward — that's tonight's entire session, in order: the four questions' rulings,
+   F11's grilling and build, the `isolation:'worktree'` bug discovery and workaround, F2's build
+   and its three caught bugs, F3's build. Everything before that entry is prior-session history,
+   already fully captured in `state.md`'s summary form.
+3. `arc-handoff/run/questions.md` — **Q10 ruled (operational discipline, not a charter), Q11 done,
+   Q14 done, Q15 open (size after F1/F7/F8), Q16 is F11's addition (built), Q17 is F2's parked
+   live-smoke gap.**
+4. `feature-plans.md` (this folder) — F1–F9 + **F11** (a maintainer-added feature this session,
+   NOT F10 — F10 is the cross-cutting instant-navigation criterion from the architecture stage,
+   already done). F11's full spec/ruling is a new section near the end of this file.
 
-For the UX work that now also lives on this track, add:
+For the UX work (most of what's left):
 
-5. `docs/UI.md` **in the repo** — the design system: tokens, the quiet register, the authoring
-   laws (no raw values, every state ships, build from the kit). Standing authority for anything
-   visual.
-6. `mockups/arc-ui-contract.html` (this folder) — read the bottom section, "APPROVED 2026-08-07 —
-   as guidance, not contract." It is the binding ruling: **maximum design freedom over placement,
-   layout and craft; only the listed functionality is binding.** S1–S7 are suggested defaults for
-   the Stage 3 features, not a contract to match pixel-for-pixel.
-7. `feature-plans.md` (this folder) — F1–F10, each with requirements/tests/"done means".
-8. `architecture-audit.md` (this folder) — the "Console state" findings and their verbatim
-   scope corrections, if you touch the console store further.
+5. `docs/UI.md` **in the repo** — tokens, the quiet register, the authoring laws (no raw values,
+   every state ships, build from the kit). Standing authority for anything visual.
+6. `mockups/arc-ui-contract.html` (this folder) — bottom section: mockups are **guidance, not
+   contract** — maximum design freedom over placement/layout/craft, only the listed functionality
+   is binding.
 
 ## Current state, concretely
 
@@ -57,76 +60,149 @@ For the UX work that now also lives on this track, add:
 |---|---|---|
 | `main` | `d97c118` | untouched |
 | `arc/reset-knife` | `cc78b9f` | done, draft PR #1 |
-| `arc/architecture` | `5c232df` | Stage 2 done except C4, draft PR #2 |
+| `arc/architecture` | `5c232df` | Stage 2 done, draft PR #2 |
 | `arc/docs` | `14b55ac` | Stage 4 done + verified, draft PR #3 |
-| `arc/c4-console` | `48e863f` **pushed, draft PR #4** | **C4 COMPLETE.** See below |
-| `backup/c4-swap-wip` | (snapshot) | the rescued uncommitted swap, pushed before any edits |
-| `arc/handoff` | — | this transport branch |
+| `arc/c4-console` | `48e863f` | C4 done, draft PR #4 |
+| `arc/stage3` | `7a1e6c3` | **Stage 3's rolling integration branch, off `arc/architecture`.** Q11, Q14, the 4 UX-polish clusters, F11, and F2 all merged and gate-green (3117 tests, depcruise 429/1258, docs-check 60 as of this tip). **F3 is NOT yet merged** — see below. |
+| `arc/f3-model-info-attachments` | pushed, not yet merged | Core (model-metadata catalog + attachment wire format) and UI (context ring, capability-gated attach, model-picker hover card) both done and gate-green. Verify died on `ENOTFOUND` (transient network, not a real finding) before completing even one real pass — **retry this first.** |
+| `arc/handoff` | — | this transport branch, never merged |
 
-PRs #1–#4 are draft, current, and stacked. Verify none of this has drifted before trusting it.
-
-### C4 is done — Stage 2 is closed
-
-Rescued and finished 2026-08-08 overnight. The scratch worktree had survived; its three commits
-and the whole uncommitted swap were pushed before anything was edited (`arc/c4-console` plus a
-`backup/c4-swap-wip` snapshot). Note for the record: **`origin/arc/c4-console` already existed,
-pointing at the base commit `5c232df`** — the branch looked present while none of the work was on
-it.
-
-`48e863f` landed the component swap and fixed all eight failing test files. **The handoff's
-"six mechanical, two real" split was wrong — all eight had one cause:** `Browser` and `ChatPanel`
-never imported `consoleStore` at all; their render helpers still passed the `state` prop the swap
-had removed, so they rendered from unseeded slices. Full detail, including the three behaviors
-deliberately dropped rather than ported, is in the journal.
-
-Gate green in a real tree: **2959 tests · depcruise 428 modules · docs-check 60 docs.**
-
-**F10 was measured, not inferred** — the app was built, launched with CDP attached, and driven
-with real input events. 15 real tab switches: click→DOM median 5.9 ms (max 30.5 ms), **0 of 15
-crossed an animation-frame boundary**, and **zero preload-bridge calls on any switch**. Two of
-F10's four "done means" clauses — 20+ tab memory, and scroll-without-loading — were never
-exercised, and no materialized-host cap policy was settled. That is **Q15**, recorded rather than
-papered over.
+`arc/stage3` is NOT yet a draft PR against `arc/architecture` — open one once the stage is
+substantially further along, matching PR #1–#4's stacked shape.
 
 ## What to actually do, in order
 
-1. **Stage 3's features** (`feature-plans.md`) — now the only substantial work left.
-   Sequencing from that file: R12b → F3 attachments · R12c → F2 · R12d → F9 · R12e → F5; F6 early
-   (F3 depends on it); F7 with F1; F4 before F8. F2 (permission modes) is the natural first pick
-   and was already flagged as C4's follow-on.
-2. **Q15 — F10's two unmeasured clauses.** 20+ open-tab memory and scroll-without-loading were
-   never exercised, and nothing bounds materialized-host growth (a transcript is evicted only when
-   its session is deleted). Small charter: open 20+ tabs, measure the heap curve, settle a cap
-   policy — or rule the current keep-alive adequate and record that as the answer.
-3. **Q10 — desktop/console-kit suite reliability.** Full-suite runs have thrown 37–50 failures
-   concentrated in `apps/desktop/renderer`, `console-kit`, `console-transcript`, while
-   package-isolated reruns are 100% green. Two candidate causes are recorded in Q10's escalation
-   (file-handle exhaustion from many sequential vitest spawns; memory pressure from repeated large
-   workflow runs) — rule those out cheaply before sizing a deterministic-waits pass.
-4. **Q11 — the daemon's root/home path seam** is honored in one place and bypassed in ~6 others.
-   `packages/core/src/rpc/auth-handlers.ts` computes secret key-file paths from `homedir()` at 9
-   call sites, bypassing its own injected `AuthHandlerDeps`. Full file:line inventory in Q11.
-   Small, mechanical, well-scoped.
-5. **Q14 — a closed session's leftover queued turn is invisible to the registry.**
-   `LiveSession.close()`/`nextTurn()` (`live-session.ts:212-236`) never clears `#queue`, so a turn
-   queued when a session closes still dispatches afterward through a backend query the registry
-   has no record of. Reasoned about, never observed. Cheap fix; good warm-up.
+1. **Retry F3's verify.** The branch `arc/f3-model-info-attachments` has real, complete,
+   gate-green work on it (core: model-metadata catalog with static/models.dev/OpenRouter fallback
+   chain + attachment wire format + typed capability rejection; UI: context ring, capability-gated
+   attach control, model-picker hover card — read the journal's F3 entry for the exact data
+   shapes/RPC verbs built). The verify agent's own API call failed with `ENOTFOUND` — this is
+   infrastructure, not a code problem. Re-run one verify pass (same adversarial brief the journal
+   records) before trusting it; if it finds something real, this arc's pattern is a bounded fix
+   round (cap at ~3 attempts total) then re-verify, same as F11 and F2 both needed.
+   **Known gaps the core agent already flagged, not hidden**: `adapter-claude-sdk` (the Claude
+   backend) was never wired to carry an attachment — only `adapter-openai-compat` was. The live
+   single-turn send path (Composer → RPC → session composition) doesn't yet thread an
+   attachment/vision-capability through either — only the adapter/loop-driver seam and
+   history-replay do. Decide whether closing those is in scope for F3's own verify pass or a
+   separate follow-up; ADR 0036 records both gaps for the record either way.
+2. **Merge F3 into `arc/stage3`, gate-check, push** (same pattern every prior feature used — see
+   below).
+3. **F1 + F7** (spawn-with-isolation option; F7's worktree manager). Sequenced together per the
+   plan (F7 rides F1's spawn option).
+4. **F4** (Library: skills + MCP manager) — before F8, since F8's viewer needs to show injected
+   skills.
+5. **F8** (Viewer surface).
+6. **F9** (Conversation naming + rename).
+7. **F5** (Light theme) — deliberately last, since it needs the final surface set from everything
+   above.
+8. **Q15** — size once F1/F7/F8 have landed more materialized-tab surface: open 20+ tabs, measure
+   the heap curve, settle an eviction/cap policy for materialized transcript hosts.
 
-Every charter in this arc has closed with an executor-then-adversarial-verifier pass, and that
-pass has found something real **every single time**, including when the executor was confident.
-Don't skip it.
+## The build pattern that has worked all night — reuse it
 
-## Standing facts that still apply
+Every feature this session used the same shape, as a `Workflow` script (see the tool's own
+documentation for `agent()`/`phase()`/`log()` — no special coa-specific API):
 
-- **Gate:** `pnpm typecheck && pnpm lint && pnpm format --check && pnpm test && pnpm depcruise &&
-  node scripts/docs-check.mjs`, bash sandbox disabled (sandboxed shells falsely time out the
-  claude-sdk control probes). A failing test is real — except the Q10-shaped desktop/console-kit
-  noise under heavy load, which is known and tracked, as long as the package you touched is clean
-  in isolation.
+```
+phase('Core')   → one agent (default model) builds the daemon/core half, documents the wire
+                  contract precisely (the next agent reads code, not a spec), commits + pushes
+                  to a fresh branch off origin/arc/stage3, runs the full gate, reports.
+phase('UI')     → one agent, model: 'fable', builds the renderer half against the core agent's
+                  ACTUAL committed contract (verify it, don't trust the report blindly), same
+                  gate-and-report discipline.
+phase('Verify') → one agent adversarially re-verifies BOTH halves against the real diff, re-runs
+                  the gate itself, tries to break every ruled requirement with a concrete
+                  scenario. If it fails, one fix-round agent (same branch) addresses the real
+                  findings, then verify runs again — capped at ~3 total attempts (this arc's
+                  standing stop-loss), not looped forever.
+```
+
+Every single feature built this way surfaced at least one real bug the implementers' own tests
+missed — this is not optional ceremony, it is the thing that has been finding real defects all
+night (F11: a daemon-leak-on-swap bug; F2: two related Stop/interrupt bugs plus an architectural
+dual-seam double-invocation). **Do not skip the verify phase or shrink the fix-round budget to
+save time.**
+
+Write each feature's own `F<N>_SPEC` block into the script the way the journal's entries describe
+(condensed from `feature-plans.md`, plus current-tree grounding you gather yourself — the plan
+docs describe intent, not always exact file:line, since the tree moves under you all night).
+
+## Standing facts that still apply (all confirmed fresh tonight)
+
+- **`Workflow`'s `isolation: 'worktree'` option is BROKEN on this machine — do not use it,
+  confirmed by a dedicated diagnostic subagent.** 6/6 mutating agents failed an identical
+  pre-flight check across two early runs, despite the worktrees' own git plumbing being
+  structurally correct on manual inspection. Root cause is almost certainly the harness's own
+  pre-flight check comparing a forward-slash `git rev-parse` path against a backslash
+  `path.join`-derived path without normalizing separators (a real precedent for this bug class:
+  [terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976)) — not a repo problem,
+  not fixable here. **Workaround, used successfully all night: every mutating workflow stage runs
+  strictly sequentially** (plain `for`/`await` over `agent()` calls, never `pipeline`/`parallel`
+  for anything that checks out a branch or writes files) instead of relying on worktree isolation
+  for concurrent-agent safety. This costs wall-clock parallelism, nothing else. Full diagnosis in
+  the journal's "isolation: 'worktree' is broken" entry.
+- **Merging a feature branch into `arc/stage3` is done BY THE ORCHESTRATOR directly** (not
+  delegated to an agent), in the main working tree, sequentially — never while a Workflow is also
+  mutating that same tree. Pattern used all night: `git checkout arc/stage3 && git pull && git
+  merge --no-ff origin/arc/<branch> -m "merge: ..." `, resolve any conflict by hand (two came up
+  tonight, both the expected shape — two feature branches' UI agents independently touching the
+  same shared file — resolved by keeping the union of both changes), run the FULL gate
+  (`pnpm check && pnpm docs:check`) fresh post-merge before pushing. Never trust a pre-merge gate
+  result as proof of a post-merge state.
+- **No project-internal codenames (F2, F11, Q17, etc.) in a commit subject that will reach `main`**
+  — AGENTS.md's Constitution forbids this. Caught once tonight (a subagent's fix commit said "the
+  F2 predicate" in its subject; reworded + force-pushed since it was a solo, unmerged branch). This
+  rule does NOT block using those codenames in `arc/handoff` bookkeeping commits (that branch never
+  merges anywhere, and the codenames are self-defined by `feature-plans.md`/`questions.md` living
+  right there) — only code-repo commits that could reach `main`.
+- **The `sdk-control-ledger` memory's headline claim is stale/superseded** (corrected 2026-08-09,
+  see the memory file's own top note): `canUseTool` IS consulted live on the Claude SDK path via
+  `PreToolUse` — the old "governance never runs on the Claude path" finding no longer holds.
+- **An OS-level watchdog is running independently of any session** — Windows Scheduled Task
+  `coa-stage3-watchdog`, checks every 20 min whether `C:\Users\Zander\.claude\
+  coa-stage3-heartbeat.marker` has gone stale (>90 min unwritten); if so, it runs `claude -r
+  <session-id> -p "<recovery prompt>"` as a harness-independent fallback resume.
+  **IMPORTANT: `C:\Users\Zander\.claude\coa-stage3-watchdog.ps1`'s `$sessionId` variable currently
+  points at the PRIOR (Sonnet) session's ID, which is ending with this handoff.** Update that
+  variable to the new session's own ID early on (find it the same way it's always found — session-
+  scoped scratchpad/transcript paths embed it), and keep touching the marker file (`(Get-Item
+  ...).LastWriteTime = Get-Date`, or recreate it) roughly every 50 min or whenever real progress
+  lands, the way the prior session did — otherwise this safety net is aimed at a dead session.
+- **Run the test suite UNSANDBOXED** — sandboxed shells falsely time out the claude-sdk control
+  probes.
+- **`git stash` is DENIED in this harness** — a denied call means adapt (copy files aside), not
+  halt.
+- **Never push `main`.** Arc branches (including `arc/stage3` and every feature branch) push
+  freely.
+- **Commit as you go**, subject-only Conventional Commits, no body/trailers/codenames-that-reach-
+  main, staged by name. Grep diffs for employer/organization references before every commit —
+  personal project, propagates into every subagent prompt.
+- **Working in a scratch worktree with junctioned `node_modules`**, running the desktop app, and
+  `depcruise`-inside-a-worktree all have the same non-obvious fixes documented in the prior
+  session's notes below this line — unchanged, still accurate, worth one read if you touch any of
+  those.
+
+## Bookkeeping cadence
+
+Update `run/journal.md` (what happened, verbatim gate results, what's still open), `run/state.md`'s
+branch table and stage lines, and `run/questions.md` for anything needing a maintainer ruling.
+Update **this file** when the picture changes materially (a feature lands, a new operational fact
+is learned). Commit+push `arc/handoff` after each meaningful chunk of progress — it has been the
+single most useful artifact for exactly this kind of mid-arc handoff.
+
+---
+
+_Everything below this line is preserved from the prior (2026-08-08) handoff for the still-valid
+mechanical detail — desktop app launch fixes, worktree/node_modules junction gotchas, depcruise
+quirks. Superseded content above this line (model allocation, current branch table, next actions)
+has been removed rather than left to contradict; if something below conflicts with above, above
+wins._
+
 - **Working in a scratch worktree with junctioned `node_modules`:** link the main repo's
   `node_modules` per package rather than running `pnpm install` (the repo sets
   `allowBuilds: electron: false`, so a fresh install yields no working Electron binary anyway).
-  Two things the C4 session learned the hard way: (a) pnpm 11's `verify-deps-before-run` sees the
+  Two things a prior session learned the hard way: (a) pnpm 11's `verify-deps-before-run` sees the
   foreign workspace path in the shared `.modules.yaml` and tries to **purge and reinstall the main
   repo's tree** — put `verify-deps-before-run=false` in a worktree-local `.npmrc`, or pass
   `pnpm --config.verify-deps-before-run=false <script>`; (b) link `apps/desktop/node_modules/@coa/*`
@@ -134,12 +210,13 @@ Don't skip it.
   sources. Remove such a worktree with `git worktree remove`, never a recursive delete — the
   junctions point at the real dependency tree.
 - **depcruise is meaningless inside a junctioned worktree.** Resolution escapes the worktree, so it
-  cruises ~672 modules instead of 428 and reports false `backend-isolation` violations in packages
-  you never touched. Run it where the install is real (the main repo, detached at your commit) —
+  cruises far more modules than real and reports false `backend-isolation` violations in packages
+  never touched. Run it where the install is real (the main repo, detached at your commit) —
   `git checkout --detach <sha>` works even while another worktree holds that branch.
 - **Running the desktop app here needs three fixes, none of them obvious.** (a) `electron` is linked
   only into `apps/desktop/node_modules`, so `electron-vite` cannot resolve it — add a root junction
-  (`mklink /J node_modules\electron node_modules\.pnpm\electron@34.5.8\node_modules\electron`);
+  (`mklink /J node_modules\electron node_modules\.pnpm\electron@34.5.8\node_modules\electron`,
+  adjusting the exact pinned version if it differs);
   (b) this shell sets `ELECTRON_RUN_AS_NODE`, so launch under `env -u ELECTRON_RUN_AS_NODE` (the
   tell: `electron.exe --version` prints a Node version); (c) an occluded window stalls
   `requestAnimationFrame` completely, silently invalidating any timing measurement — launch with
@@ -147,26 +224,7 @@ Don't skip it.
   --disable-backgrounding-occluded-windows` and assert a live rAF count before believing a number.
   Driving: CDP `Input.dispatchMouseEvent` (synthetic `.click()` does not drive the tab strip), and
   recompute element rects before every click — selection scrolls the strip, and the title bar's
-  `-webkit-app-region: drag` swallows events over anything under it.
-- **`git stash` is DENIED** in this harness; a denied call means adapt (copy files aside), not
-  halt. It has stranded finished work before — check `git stash list` before concluding a dead
-  agent produced nothing.
-- **A `Workflow` call's agents check out branches in the shared main working directory with no
-  isolation by default.** If you run a workflow while also doing manual work in the main tree,
-  sequence them or give each its own worktree. This has bitten a session before.
-- **Commit as you go** — this arc has lost real work to session limits killing agents that
-  batched everything to the end. Subject-only Conventional Commits, no body, no trailers, no
-  project-internal codenames in the subject, staged by name. Grep staged diffs for secret shapes
-  and employer references before committing (personal project; that directive propagates into
-  every subagent prompt).
-- **Never push `main`.** Arc branches push freely.
-- Keep spend honest: set a hard token budget on any workflow, prefer fewer agents per phase, and
-  check actual account spend between stages. The original run died by hitting a spend limit
-  mid-workflow rather than winding down as planned.
-
-## Bookkeeping, now that there is one track
-
-Update `run/journal.md` (what happened, verbatim gate results, what's still open),
-`run/state.md`'s branch table and stage lines, and `run/questions.md` for anything the maintainer
-must rule on. Update **this file** when the picture changes materially. That is the whole
-cadence — no per-track briefs, no separate charter documents.
+  `-webkit-app-region: drag` swallows events over anything under it. A NATIVE OS dialog (e.g.
+  `dialog.showOpenDialog`) is a separate HWND outside the Chromium render tree — CDP cannot drive
+  it; use Win32 UI Automation + `SendMessage(BM_CLICK)` instead (confirmed working, this session,
+  for F11's live verification).
