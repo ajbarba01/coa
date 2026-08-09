@@ -36,6 +36,7 @@
 | `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
 | `arc/architecture` | 5c232df | **Stage 2 COMPLETE except C4 — C3 is now fully closed and independently verified.** C1, de-slop, C2, the cost-cap archive (R1), the Q7 cleanups, C3 built+verified (the turn-lifecycle state machine, fa437a1..77e6dd4, **plus its last item at 5c232df — passed=true on independent re-verification**), Q9 archival, C5 complete+verified. The 5c232df fix turned out to be a real, provable bug, not the hygiene nit its own prior description undersold it as (see journal: a straggler frame could land below the `interrupted` marker via the everyday Stop button, no exotic backend needed). `packages/core/src/session` isolated: 354/354 green, confirmed independently by two separate agents. C4 unbuilt, unblocked, parked on Fable/UX allocation |
 | `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
+| `arc/c4-console` | 5c232df (forked, no commits yet) | **C4's own branch, pushed and waiting for a Fable session.** See `C4-STAGE3-HANDOFF.md` — a full, self-contained charter briefing. Not started as of this writing |
 | `arc/handoff` | — | this arc folder (transport only, never merge) |
 | tag `pre-reset` | 3536c28 | the pre-knife baseline |
 
