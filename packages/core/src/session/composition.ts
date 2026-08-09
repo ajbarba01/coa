@@ -2,6 +2,7 @@ import { ulid } from 'ulid';
 import type { CapabilityFrame, CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type { RuntimeAdapter, StopDecision, ToolCatalogue } from '@coa/spi';
 import type { SpawnDeps } from '../workbench/spawn.js';
+import type { ModeDeps } from './permission.js';
 import type {
   ActiveAccountResolution,
   AssemblePiecesContext,
@@ -96,6 +97,13 @@ export interface SessionWiring {
    * session (byte-identical to before this seam existed).
    */
   resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
+  /**
+   * F2: resolve THIS session's mode-aware permission layer, bound to `sessionId`'s
+   * live mode/approval-seam state (the daemon's `LiveSession`) and given the
+   * resolved `provider`. Absent ⇒ mode enforcement unavailable for every session
+   * (byte-identical to before F2 existed — the strict-superset floor).
+   */
+  resolveMode?: (sessionId: string, provider: string) => ModeDeps | undefined;
 }
 
 const EMPTY_FRAME: CapabilityFrame = { allow: [], deny: [] };
@@ -124,5 +132,6 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     ...(core.catalogueFor ? { catalogueFor: core.catalogueFor } : {}),
     ...(core.baseCatalogueFor ? { baseCatalogueFor: core.baseCatalogueFor } : {}),
     ...(wiring.resolveSpawn ? { resolveSpawn: wiring.resolveSpawn } : {}),
+    ...(wiring.resolveMode ? { resolveMode: wiring.resolveMode } : {}),
   };
 }

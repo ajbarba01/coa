@@ -3,7 +3,7 @@ import { Transcript } from '@coa/console-transcript';
 import { PaneOverlayProvider } from '@coa/console-kit';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
-import type { ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
+import type { ModelDescriptor, PermissionMode, TurnFrame } from '@coa/console-viewmodel';
 import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
 import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
 import { reportFailure } from '../shell/failures.js';
@@ -64,6 +64,18 @@ export type ChatVm =
       effortValue: string;
       onPickEffort: (v: string) => void;
       onRespond: RespondFn;
+      /** F2: the active session's CONFIGURED permission mode (what was picked/the
+       *  agent's default) — undefined session ⇒ the system floor `manual`. */
+      mode: PermissionMode;
+      /** F2: the mode actually enforced right now — differs from `mode` only when
+       *  the active backend has no approval seam (SC-1: never claim an enforcement
+       *  the backend can't deliver). The chip renders off THIS, not `mode`. */
+      effectiveMode: PermissionMode;
+      /** F2: present only when `effectiveMode !== mode` — the honest reason why. */
+      modeDegraded?: string | undefined;
+      /** F2: live-switch the active session's permission mode. No-op with no active
+       *  session. */
+      onSetMode: (mode: PermissionMode) => void;
       onSend: (text: string) => void;
       /** The Stop/Esc affordance — cooperatively interrupts the active session's running
        *  turn (a user stop, never a governance block; unpressed, nothing
@@ -287,7 +299,17 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   if (r.status !== 'ok') return r;
   const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
   const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const { rawMode, resolvedApprovals, activeSessionId } = state.ui;
+  const { rawMode, resolvedApprovals, activeSessionId, modeBySession, pendingApprovalsBySession } =
+    state.ui;
+  // F2: the LIVE ask queue (real daemon `approval` pushes / the `sessionMode` reattach
+  // read) — the actual F2 ask/response round trip, oldest-first (FIFO: the
+  // longest-waiting request is what's blocking the session). Distinct from, and takes
+  // priority over, the transcript-frame-derived `pendingApproval` below (dev/test data
+  // only — the wire never emits an `approval`-kind turn frame in production).
+  const liveApproval =
+    rawMode || activeSessionId === undefined
+      ? undefined
+      : (pendingApprovalsBySession[activeSessionId] ?? [])[0];
   const governedFrames = r.value.map((f) => {
     let base = governedFrameCache.get(f);
     if (base === undefined) {
@@ -375,22 +397,47 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning,
   );
   const active = activeSessionId ? state.ui.runStatus[activeSessionId] : undefined;
+  // F2: the active session's permission-mode reflection. Undefined ⇒ not yet
+  // hydrated (a fresh mount before its `sessionMode` read/first `mode` push lands)
+  // — falls back to the active agent's configured default (the system floor,
+  // `manual`, when the agent has none), mirroring the daemon's own resolution so
+  // the chip never shows a value it will immediately have to correct itself.
+  const modeState = activeSessionId !== undefined ? modeBySession[activeSessionId] : undefined;
+  const fallbackMode: PermissionMode = activeAgent?.defaultMode ?? 'manual';
+  const mode = modeState?.mode ?? fallbackMode;
+  const effectiveMode = modeState?.effectiveMode ?? fallbackMode;
   return {
     status: 'ready',
     rawMode,
     frames,
-    ...(pendingApproval !== undefined
+    // The LIVE ask (a real daemon push) always wins over the transcript-frame-derived
+    // one — the latter is dev/test data only (see `liveApproval`'s own note above).
+    ...(liveApproval !== undefined
       ? {
           approval: {
-            id: pendingApproval.requestId,
-            tool: pendingApproval.tool,
-            summary: pendingApproval.summary,
-            ...(pendingApproval.diffStat !== undefined
-              ? { diffStat: pendingApproval.diffStat }
-              : {}),
+            id: liveApproval.requestId,
+            tool: liveApproval.tool,
+            summary: liveApproval.summary,
           },
         }
-      : {}),
+      : pendingApproval !== undefined
+        ? {
+            approval: {
+              id: pendingApproval.requestId,
+              tool: pendingApproval.tool,
+              summary: pendingApproval.summary,
+              ...(pendingApproval.diffStat !== undefined
+                ? { diffStat: pendingApproval.diffStat }
+                : {}),
+            },
+          }
+        : {}),
+    mode,
+    effectiveMode,
+    ...(modeState?.degraded !== undefined ? { modeDegraded: modeState.degraded } : {}),
+    onSetMode: (next) => {
+      if (activeSessionId !== undefined) state.actions.setPermissionMode(activeSessionId, next);
+    },
     banners,
     onBannerAction: (bannerId, actionId) => {
       if (activeSessionId !== undefined)
@@ -797,6 +844,10 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               disabled={vm.activeSessionId === undefined}
               queued={queuedMessages}
               approval={vm.approval}
+              mode={vm.mode}
+              effectiveMode={vm.effectiveMode}
+              modeDegraded={vm.modeDegraded}
+              onSetMode={vm.onSetMode}
               models={vm.models}
               currentModelId={vm.currentModelId}
               onPickModel={vm.onPickModel}

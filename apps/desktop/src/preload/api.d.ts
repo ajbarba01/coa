@@ -2,6 +2,7 @@ import type {
   Accounts,
   ActiveAccount,
   AgentFile,
+  ApprovalDecision,
   AuthView,
   CapState,
   Checkpoint,
@@ -11,6 +12,7 @@ import type {
   ModelDescriptor,
   ModelSelection,
   PackageSummary,
+  PermissionMode,
   ReloadedConversationWire,
   ReasoningProfile,
   RoleSummary,
@@ -86,6 +88,35 @@ declare global {
       /** Console reattach — proxies the daemon's `subscribeSession`, which
        *  immediately hydrates this connection with the session's CURRENT run-status. */
       subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
+      /** F2 — live-switch a session's permission mode; proxies the daemon `setMode`.
+       *  Takes effect starting with the NEXT tool call. The chip's own reflection
+       *  updates from the resulting `mode` push, not this response. */
+      setMode(params: { id: string; mode: PermissionMode }): Promise<{ set: boolean }>;
+      /** F2 — answer a pending ask (the composer's docked approve/deny gate);
+       *  proxies the daemon `respondApproval`. `resolved: false` ⇒ unknown session
+       *  id, or no pending request with that id (a harmless no-op, not an error). */
+      respondApproval(params: {
+        id: string;
+        requestId: string;
+        decision: ApprovalDecision;
+      }): Promise<{ resolved: boolean }>;
+      /** F2 — a session's current permission-mode snapshot (mode/effectiveMode/every
+       *  ask still awaiting a reply); proxies the daemon `sessionMode`. For reattach
+       *  hydration, without waiting on the next live push. */
+      sessionMode(params: { id: string }): Promise<
+        | { found: false }
+        | {
+            found: true;
+            mode: PermissionMode;
+            effectiveMode: PermissionMode;
+            pending: Array<{
+              requestId: string;
+              tool: string;
+              summary: string;
+              input: Record<string, unknown>;
+            }>;
+          }
+      >;
       listModels(): Promise<ModelDescriptor[]>;
       modelCatalog(): Promise<ModelCatalogView>;
       addModels(params: { providerId: string; ids: string[] }): Promise<ModelCatalogView>;

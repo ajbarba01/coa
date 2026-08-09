@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { ModelDescriptor, RpcParams } from '@coa/shared';
+import type { ModelDescriptor, PermissionMode, RpcParams, ToolCall, ToolClass } from '@coa/shared';
 import { pushSchema } from '@coa/shared';
 import {
   AgentRegistry,
@@ -11,6 +11,7 @@ import {
   buildModelHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
+  classifyTool,
   connectClient,
   createConversationStore,
   defaultDaemonPath,
@@ -21,12 +22,14 @@ import {
   packageSummaries,
   roleSummaries,
   SessionService,
+  type ModeDeps,
   type ModelCache,
   type ModelCacheAccount,
   type RpcServer,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
+import { supportsApproval } from './adapter-factory.js';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
@@ -229,6 +232,34 @@ export async function listEffectiveModels(
   return lists.flat();
 }
 
+/**
+ * F2: assemble a session's mode-aware permission deps (`permission.ts`'s
+ * `ModeDeps`) from its live session — the exact glue `startDaemon`'s
+ * `resolveMode` closure hands `buildCanUseTool`. Pulled out as its own
+ * exported function so this composition point has a test binding it to a
+ * REAL session (a `LiveSessionRegistry`-issued one) and the REAL
+ * `supportsApproval`/`classifyTool`, not the fake `resolveMode` `session.ts`'s
+ * own unit tests use — those cover `session.ts`'s *consumption* of
+ * `resolveMode`, not this, its actual construction.
+ */
+export function buildModeDeps(
+  session: {
+    mode: PermissionMode;
+    approvalSeam: boolean;
+    setApprovalSeam: (seam: boolean) => void;
+    requestApproval: (call: ToolCall, toolClass: ToolClass) => Promise<'allow' | 'deny'>;
+  },
+  provider: string,
+): ModeDeps {
+  session.setApprovalSeam(supportsApproval(provider));
+  return {
+    getMode: () => session.mode,
+    hasApprovalSeam: () => session.approvalSeam,
+    classify: classifyTool,
+    requestApproval: (call, toolClass) => session.requestApproval(call, toolClass),
+  };
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // The one root/home resolution for this daemon instance — every store built below
   // (the path included) reuses these two `const`s rather than reaching for
@@ -257,6 +288,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     root,
     home,
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
+    // F2: same forward-reference-safe-closure trick as `resolveSpawn` above —
+    // `registry` is declared further down this same scope, but this closure only
+    // ever fires once a real tool call needs a permission decision, long after
+    // `registry` has initialized. `buildModeDeps` reads the LIVE `LiveSession`
+    // `registry.get(sessionId)` resolves, so a mid-session `setMode`/
+    // `setApprovalSeam` is reflected on the very next call.
+    resolveMode: (sessionId, provider) => {
+      const session = registry.get(sessionId);
+      return session === undefined ? undefined : buildModeDeps(session, provider);
+    },
   });
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected into the login manager the handler map constructs.

@@ -52,6 +52,9 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
     steerSession: vi.fn().mockResolvedValue({ steered: true }),
     subscribeSession: vi.fn().mockResolvedValue({ subscribed: true }),
+    setMode: vi.fn().mockResolvedValue({ set: true }),
+    respondApproval: vi.fn().mockResolvedValue({ resolved: true }),
+    sessionMode: vi.fn().mockResolvedValue({ found: false }),
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
@@ -424,6 +427,63 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
 
     emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'error' });
     expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('keeps the run-status pill set across a blocked-approval push — a pending ask is still a live, in-flight turn, and Stop/Esc/Interrupt must stay reachable', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    // LiveSession.state never leaves 'running' for the duration of an ask (see
+    // requestApproval); this push is a live annotation on top, not a "turn ended" signal.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-approval' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    // The daemon resolving the ask and reflecting back to running must not reset the pill's clock.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'done' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('keeps the run-status pill set across a blocked-tool push', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-tool' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('a blocked-approval push arriving with no prior running push still marks the turn in flight (defensive — reattach hydration always starts from running/idle, but the pill derivation must not depend on that ordering)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-approval' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
   });
 
   it('hydrates the run-status pill from the daemon on connect (reattach — the session exists independent of any viewer), not from local send-tracking', async () => {
@@ -1447,5 +1507,197 @@ describe('a write the daemon answered but did not carry out is said out loud', (
     await new Promise((r) => setTimeout(r, 0));
 
     expect(useNotices.getState().notice).toBeUndefined();
+  });
+});
+
+describe('F2 — permission modes', () => {
+  it('setPermissionMode proxies the switch to the bridge for the given session', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.setPermissionMode('c1', 'plan');
+    expect(bridge.setMode).toHaveBeenCalledExactlyOnceWith({ id: 'c1', mode: 'plan' });
+  });
+
+  it("a mode push reflects the session's live permission-mode state", async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'mode', sessionId: 'c1', mode: 'edits', effectiveMode: 'edits' });
+    expect(last().ui.modeBySession['c1']).toEqual({ mode: 'edits', effectiveMode: 'edits' });
+  });
+
+  it('a degraded mode push carries its honest reason through untouched', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'mode',
+      sessionId: 'c1',
+      mode: 'plan',
+      effectiveMode: 'bypass',
+      degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+    });
+    expect(last().ui.modeBySession['c1']).toEqual({
+      mode: 'plan',
+      effectiveMode: 'bypass',
+      degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+    });
+  });
+
+  it('an approval push queues a live pending ask for its session', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'write auth.ts',
+      tool: 'write_file',
+      toolClass: 'write',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([
+      { requestId: 'r1', tool: 'write_file', summary: 'write auth.ts', toolClass: 'write' },
+    ]);
+  });
+
+  it('respondApproval answers a live pending ask over the real RPC and clears it optimistically', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'write auth.ts',
+      tool: 'write_file',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+
+    last().actions.respondApproval('r1', 'approve');
+    expect(bridge.respondApproval).toHaveBeenCalledExactlyOnceWith({
+      id: 'c1',
+      requestId: 'r1',
+      decision: 'approve',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([]);
+  });
+
+  it('a terminal status push (interrupted/done/error) drops any pending ask still queued for that session — Stop mid-ask must never gate-lock the composer forever', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'run tests',
+      tool: 'Bash',
+      toolClass: 'exec',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+
+    // The turn that raised the ask just stopped — the daemon fail-safe-denies its own
+    // copy on this exact transition, but only THIS console-side clear stops the composer
+    // from staying gate-locked on a request nothing could ever answer.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'interrupted' });
+
+    expect(last().ui.pendingApprovalsBySession['c1']).toBeUndefined();
+  });
+
+  it('a running status push leaves a live pending ask alone', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'run tests',
+      tool: 'Bash',
+    });
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+  });
+
+  it('leaves the live pending queue untouched, and never calls the RPC, for an id that is not a genuinely live request', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.respondApproval('frame-only-id', 'deny');
+    expect(bridge.respondApproval).not.toHaveBeenCalled();
+    // The pre-existing local overlay (transcript-frame-derived approvals — dev/test data
+    // only) still resolves it, unaffected.
+    expect(last().ui.resolvedApprovals['frame-only-id']).toBe('denied');
+  });
+
+  it("hydrates a session's permission-mode state on open/reattach from sessionMode", async () => {
+    const bridge = fakeBridge({
+      sessionMode: vi.fn().mockResolvedValue({
+        found: true,
+        mode: 'edits',
+        effectiveMode: 'edits',
+        pending: [{ requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} }],
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    expect(bridge.sessionMode).toHaveBeenCalledWith({ id: 'c1' });
+    expect(last().ui.modeBySession['c1']).toEqual({ mode: 'edits', effectiveMode: 'edits' });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([
+      { requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} },
+    ]);
+  });
+
+  it('hydration synthesizes the honest degraded reason when the snapshot itself is already degraded', async () => {
+    const bridge = fakeBridge({
+      sessionMode: vi.fn().mockResolvedValue({
+        found: true,
+        mode: 'plan',
+        effectiveMode: 'bypass',
+        pending: [],
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    expect(last().ui.modeBySession['c1']).toMatchObject({ mode: 'plan', effectiveMode: 'bypass' });
+    expect(last().ui.modeBySession['c1']?.degraded).toBeDefined();
   });
 });

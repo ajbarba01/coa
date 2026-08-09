@@ -504,6 +504,217 @@ describe('raw + approval projection', () => {
   });
 });
 
+describe('F2 — live permission mode + pending approval', () => {
+  it('surfaces a LIVE pending approval (a real daemon push) as vm.approval', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' }],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toEqual({ id: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' });
+    }
+  });
+
+  it('the live source wins over any transcript-frame-derived approval', () => {
+    const frameStream: TurnFrame[] = [
+      {
+        id: '1',
+        kind: 'approval',
+        requestId: 'frame-1',
+        tool: 'write_file',
+        summary: 'from a frame',
+      },
+    ];
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: frameStream },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'bash', summary: 'a live ask' }],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toMatchObject({ id: 'live-1' });
+    }
+  });
+
+  it('docks the OLDEST pending live approval (FIFO — the longest-waiting ask is what blocks the session)', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [
+              { requestId: 'first', tool: 'write_file', summary: 'a' },
+              { requestId: 'second', tool: 'bash', summary: 'b' },
+            ],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toMatchObject({ id: 'first' });
+    }
+  });
+
+  it('never surfaces a live pending approval in raw mode (raw stays untouched)', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          rawMode: true,
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'bash', summary: 's' }],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') expect(vm.approval).toBeUndefined();
+  });
+
+  it("falls back to the active agent's configured default mode before the daemon hydrates", () => {
+    // roles/reviewer (s-audit-auth's agent) sets no defaultMode — the system floor, manual.
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
+    if (vm.status === 'ready') {
+      expect(vm.mode).toBe('manual');
+      expect(vm.effectiveMode).toBe('manual');
+      expect(vm.modeDegraded).toBeUndefined();
+    }
+  });
+
+  it('reflects the daemon-pushed/hydrated permission mode once known', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        { modeBySession: { 's-audit-auth': { mode: 'edits', effectiveMode: 'edits' } } },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.mode).toBe('edits');
+      expect(vm.effectiveMode).toBe('edits');
+    }
+  });
+
+  it('honestly reflects a degraded mode: effectiveMode (not the merely-configured mode) is what the vm carries, with the reason', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          modeBySession: {
+            's-audit-auth': {
+              mode: 'plan',
+              effectiveMode: 'bypass',
+              degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+            },
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.mode).toBe('plan');
+      expect(vm.effectiveMode).toBe('bypass');
+      expect(vm.modeDegraded).toBe(
+        'the active backend has no approval seam — enforcement degrades to bypass',
+      );
+    }
+  });
+
+  it('onSetMode proxies setPermissionMode for the active session', () => {
+    const setPermissionMode = vi.fn();
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, {}, { setPermissionMode }));
+    if (vm.status === 'ready') {
+      vm.onSetMode('bypass');
+      expect(setPermissionMode).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'bypass');
+    }
+  });
+
+  describe('the docked pending approval — a LIVE daemon push (the real F2 round trip)', () => {
+    it('renders the composer gate from a live pending approval', () => {
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' }],
+          },
+        },
+      );
+      render(<ChatSurface state={state} />);
+      expect(screen.getByRole('button', { name: /^approve:/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^deny:/i })).toBeTruthy();
+    });
+
+    it('approving calls respondApproval(requestId, "approve")', async () => {
+      const respondApproval = vi.fn();
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' }],
+          },
+        },
+        { respondApproval },
+      );
+      render(<ChatSurface state={state} />);
+      await userEvent.click(screen.getByRole('button', { name: /^approve:/i }));
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('live-1', 'approve');
+    });
+
+    it('denying calls respondApproval(requestId, "deny")', async () => {
+      const respondApproval = vi.fn();
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'bash', summary: 'rm the temp dir' }],
+          },
+        },
+        { respondApproval },
+      );
+      render(<ChatSurface state={state} />);
+      await userEvent.click(screen.getByRole('button', { name: /^deny:/i }));
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('live-1', 'deny');
+    });
+  });
+
+  describe('the composer permission-mode chip', () => {
+    it("renders the session's effective mode, honestly, even when degraded", () => {
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          modeBySession: {
+            's-audit-auth': {
+              mode: 'plan',
+              effectiveMode: 'bypass',
+              degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+            },
+          },
+        },
+      );
+      render(<ChatSurface state={state} />);
+      expect(screen.getByRole('button', { name: 'Bypass' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull();
+    });
+
+    it('switching mode via the chip calls setPermissionMode for the active session', async () => {
+      const setPermissionMode = vi.fn();
+      const state = stateWith({ status: 'ok', value: [] }, {}, { setPermissionMode });
+      render(<ChatSurface state={state} />);
+      // s-audit-auth's agent (roles/reviewer) sets no default — the trigger starts on manual.
+      await userEvent.click(screen.getByRole('button', { name: 'Manual' }));
+      await userEvent.click(screen.getByText('Plan'));
+      expect(setPermissionMode).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'plan');
+    });
+  });
+});
+
 describe('composerMeasure', () => {
   it('keeps the last real measure through a hidden (zero-height) pass', () => {
     // display:none passes report 0 — accepting them collapses the transcript's

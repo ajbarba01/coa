@@ -18,6 +18,9 @@ const EFFORTS = [
 function baseProps(overrides: Partial<ComposerProps> = {}): ComposerProps {
   return {
     running: false,
+    mode: 'manual',
+    effectiveMode: 'manual',
+    onSetMode: vi.fn(),
     models: MODELS,
     currentModelId: 'sonnet',
     onPickModel: vi.fn(),

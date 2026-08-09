@@ -26,25 +26,51 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
   {
     name: 'edit_symbol',
     partition: 'kernel',
+    group: 'write',
     description: 'lenient localized diff edit (primary)',
   },
-  { name: 'apply_patch', partition: 'kernel', description: 'whole-file / multi-hunk patch escape' },
+  {
+    name: 'apply_patch',
+    partition: 'kernel',
+    group: 'write',
+    description: 'whole-file / multi-hunk patch escape',
+  },
   {
     name: 'spawn_agent',
     partition: 'kernel',
+    // Not a file edit, but starting a subagent kicks off autonomous work coa cannot
+    // preview the effects of — the same risk class as a shell command for F2's
+    // permission-mode purposes.
+    group: 'exec',
     description:
       'start a subagent by name; returns its id immediately — the subagent runs in the ' +
       'background and its result arrives separately, so do not wait for a report here',
   },
   // On-demand — pulled in via find_tools/load_tool when needed.
-  { name: 'get_piece', partition: 'on-demand', description: 'resolve a reference Knowledge Piece' },
-  { name: 'run_checks', partition: 'on-demand', description: 'run the flag pipeline on demand' },
+  {
+    name: 'get_piece',
+    partition: 'on-demand',
+    group: 'read',
+    description: 'resolve a reference Knowledge Piece',
+  },
+  {
+    name: 'run_checks',
+    partition: 'on-demand',
+    group: 'read',
+    description: 'run the flag pipeline on demand',
+  },
   {
     name: 'context_status',
     partition: 'on-demand',
+    group: 'read',
     description: 'assembled-context and cap state',
   },
-  { name: 'get_spec', partition: 'on-demand', description: 'governing spec for a symbol or scope' },
+  {
+    name: 'get_spec',
+    partition: 'on-demand',
+    group: 'read',
+    description: 'governing spec for a symbol or scope',
+  },
 ];
 
 /** The always-loaded kernel set — the only schemas that cost standing context. */

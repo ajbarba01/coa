@@ -1,3 +1,4 @@
+import type { PermissionMode } from '@coa/shared';
 import { LiveSession } from './live-session.js';
 import { descendantsOf } from './lineage.js';
 
@@ -56,14 +57,18 @@ export class LiveSessionRegistry {
 
   /** Look up an existing session, or create and register a new one. `lineage`
    *  is forwarded to the {@link LiveSession} constructor unchanged; a session
-   *  created with no lineage is a root, matching prior behavior exactly. */
+   *  created with no lineage is a root, matching prior behavior exactly.
+   *  `defaultMode` (F2) seeds the new session's permission mode — the agent
+   *  registry's configured default, resolved by the caller (`SessionService`);
+   *  ignored when the session already existed (a reattach never resets mode). */
   getOrCreate(
     id: string,
     lineage?: { parent?: string; root?: string },
+    defaultMode?: PermissionMode,
   ): { session: LiveSession; created: boolean } {
     const existing = this.#entries.get(id);
     if (existing) return { session: existing.session, created: false };
-    const session = new LiveSession(id, lineage);
+    const session = new LiveSession(id, lineage, defaultMode);
     this.#entries.set(id, { session, timer: undefined });
     this.#arm(id);
     return { session, created: true };

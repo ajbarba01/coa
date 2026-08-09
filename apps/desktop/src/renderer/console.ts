@@ -7,6 +7,7 @@ import {
   reloadToViewFrames,
   type AgentFile,
   type AgentSummary,
+  type ApprovalDecision,
   type AuthView,
   type CapState,
   type Checkpoint,
@@ -16,6 +17,7 @@ import {
   type ModelDescriptor,
   type ModelSelection,
   type PackageSummary,
+  type PermissionMode,
   type ReloadedConversationWire,
   type ReasoningProfile,
   type RoleSummary,
@@ -27,9 +29,36 @@ import { modelLabel } from './panels/AgentsPanel.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { cacheKey, configKey } from './panels/banners.js';
-import { initialState, type ConsoleState, type Remote } from './panels/state.js';
+import {
+  initialState,
+  type ConsoleState,
+  type PendingApprovalItem,
+  type Remote,
+} from './panels/state.js';
 import { reportFailure, reportNotice, surfaceWrite } from './shell/failures.js';
 import { applySettings } from './theme.js';
+
+/** F2 — the daemon's answer to the `sessionMode` reattach read: a session's current
+ *  permission-mode state, or `{found:false}` for an unknown id. */
+export type SessionModeSnapshot =
+  | { found: false }
+  | {
+      found: true;
+      mode: PermissionMode;
+      effectiveMode: PermissionMode;
+      pending: Array<{
+        requestId: string;
+        tool: string;
+        summary: string;
+        input: Record<string, unknown>;
+      }>;
+    };
+
+/** F2 — the honest reason surfaced when a session's enforcement degrades to bypass
+ *  (mirrors the daemon's own `LiveSession#modePush` wording, so the reattach-hydrated
+ *  read and the live push read as one honest voice, never two). */
+const NO_APPROVAL_SEAM_REASON =
+  'the active backend has no approval seam — enforcement degrades to bypass';
 
 /** Builds the "switched model" note text from an applied override, e.g.
  *  `switched to Opus 4.8 · high`. `models` resolves the friendly label when the
@@ -102,6 +131,22 @@ export interface ConsoleBridge {
    *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
    *  daemon snapshot rather than from this renderer's own send-tracking (the daemon, not the renderer, owns the live session). */
   subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
+  /** F2 — live-switch a session's permission mode; proxies the daemon `setMode`. Takes
+   *  effect starting with the NEXT tool call. The chip's own reflection updates from the
+   *  resulting `mode` push, not this response (`set` is only whether the id was known). */
+  setMode(params: { id: string; mode: PermissionMode }): Promise<{ set: boolean }>;
+  /** F2 — answer a pending ask (the composer's docked approve/deny gate); proxies the
+   *  daemon `respondApproval`. `resolved: false` ⇒ unknown session id, or no pending
+   *  request with that id (a harmless no-op, not an error). */
+  respondApproval(params: {
+    id: string;
+    requestId: string;
+    decision: ApprovalDecision;
+  }): Promise<{ resolved: boolean }>;
+  /** F2 — a session's current permission-mode snapshot; proxies the daemon `sessionMode`.
+   *  Used to hydrate a reattach (e.g. a reload while a manual-mode ask still blocks the
+   *  session) without waiting on the next live push. */
+  sessionMode(params: { id: string }): Promise<SessionModeSnapshot>;
   /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
    *  worktree by main). Advisory — resolves a result; never blocks. */
   openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
@@ -296,6 +341,7 @@ export async function startConsole(
     setSettings: () => {},
     toggleRaw: () => {},
     respondApproval: () => {},
+    setPermissionMode: () => {},
     selectAgent: () => {},
     createAgent: () => {},
     updateAgent: () => {},
@@ -400,7 +446,16 @@ export async function startConsole(
     push();
   };
 
-  const respondApproval = (requestId: string, decision: 'approve' | 'deny'): void => {
+  /** F2: answer a pending ask. `requestId` may name either kind of approval the
+   *  composer can dock: a transcript-derived one (dev/test data only — the wire
+   *  never emits this in production) resolves purely locally via the
+   *  `resolvedApprovals` overlay, exactly as before; a genuinely LIVE one (present
+   *  in the active session's `pendingApprovalsBySession`) is removed from the
+   *  pending queue optimistically and answered for real over `respondApproval` —
+   *  the actual F2 ask/response round trip. Both branches can fire for the same
+   *  call without conflict: a live requestId is a daemon-minted UUID, so it can
+   *  never collide with a hand-authored mock/test id. */
+  const respondApproval = (requestId: string, decision: ApprovalDecision): void => {
     const resolved = decision === 'approve' ? 'approved' : 'denied';
     state = {
       ...state,
@@ -410,7 +465,67 @@ export async function startConsole(
       },
     };
     push();
+
+    const id = state.ui.activeSessionId;
+    if (id === undefined) return;
+    const pending = state.ui.pendingApprovalsBySession[id] ?? [];
+    if (!pending.some((p) => p.requestId === requestId)) return;
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        pendingApprovalsBySession: {
+          ...state.ui.pendingApprovalsBySession,
+          [id]: pending.filter((p) => p.requestId !== requestId),
+        },
+      },
+    };
+    push();
+    void surfaceWrite(
+      'respond to that request',
+      bridge.respondApproval({ id, requestId, decision }),
+    );
   };
+
+  /** F2: live-switch the given session's permission mode (visibility IS the
+   *  guardrail — no confirmation gate on switching to a riskier mode). Fire-and-
+   *  forget: the chip's own reflection updates from the daemon's `mode` push,
+   *  which always follows a successful switch (including back to this caller),
+   *  not from an optimistic local write here. */
+  const setPermissionMode = (sessionId: string, mode: PermissionMode): void => {
+    void surfaceWrite('change the permission mode', bridge.setMode({ id: sessionId, mode }));
+  };
+
+  /** F2: hydrate a session's permission-mode state from the daemon's own snapshot
+   *  (mode/effectiveMode/every still-pending ask) — called on open/reattach so a
+   *  fresh mount (e.g. a reload mid-manual-ask) shows the true current state
+   *  instead of the client-side floor. REPLACES rather than merges: the snapshot
+   *  is authoritative, so a request resolved while this console was disconnected
+   *  must not linger. Ignored if the user has already moved to a different
+   *  session by the time it resolves (a stale response). */
+  async function hydrateMode(id: string): Promise<void> {
+    const snap = await bridge.sessionMode({ id }).catch(() => ({ found: false as const }));
+    if (!snap.found || state.ui.activeSessionId !== id) return;
+    const degraded = snap.mode !== snap.effectiveMode ? { degraded: NO_APPROVAL_SEAM_REASON } : {};
+    const pendingItems: PendingApprovalItem[] = snap.pending.map((p) => ({
+      requestId: p.requestId,
+      tool: p.tool,
+      summary: p.summary,
+      input: p.input,
+    }));
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        modeBySession: {
+          ...state.ui.modeBySession,
+          [id]: { mode: snap.mode, effectiveMode: snap.effectiveMode, ...degraded },
+        },
+        pendingApprovalsBySession: { ...state.ui.pendingApprovalsBySession, [id]: pendingItems },
+      },
+    };
+    push();
+  }
 
   // ---- Agents — the daemon-owned registry (built-in ∪ personal ∪ project, project
   // winning). Hydrated from `listAgents` on startup; every edit writes THROUGH to
@@ -644,6 +759,10 @@ export async function startConsole(
         // A failed reattach says nothing about liveness — the daemon being unreachable is
         // already the gate's story, and guessing here would be the same lie inverted.
       });
+    // F2: hydrate this session's permission-mode state (mode/effectiveMode/every
+    // pending ask) the same way the run-status pill hydrates above — a fresh mount
+    // must show the daemon's own current state, never a client-side guess.
+    void hydrateMode(id);
 
     const loaded = await settle(() => bridge.reloadConversation({ id }));
     if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
@@ -938,14 +1057,91 @@ export async function startConsole(
       // is present when the pill clears), and guarantee the flush even if rAF is throttled.
       flushTurns();
       const runStatus = { ...state.ui.runStatus };
-      if (data.state === 'running') runStatus[data.sessionId] ??= { since: Date.now() };
-      else delete runStatus[data.sessionId];
+      if (
+        data.state === 'running' ||
+        data.state === 'blocked-approval' ||
+        data.state === 'blocked-tool'
+      ) {
+        // F2: `blocked-approval`/`blocked-tool` are a live annotation on top of a
+        // turn that is still genuinely in flight underneath (LiveSession.state
+        // itself never leaves 'running' for the duration of an ask — see
+        // requestApproval/resolveApproval) — NOT a "not running" signal. Every
+        // Stop/interrupt affordance (Composer's Stop button, the global Esc
+        // handler, the palette's "Interrupt Running Turn") hangs off this same
+        // map, so treating a pending ask as idle silently strands the user with
+        // only approve/deny/redirect and no way to abort the turn outright.
+        // `??=` preserves an already-recorded `since` rather than resetting the
+        // elapsed-time pill's clock when the ask lands mid-turn.
+        runStatus[data.sessionId] ??= { since: Date.now() };
+      } else {
+        delete runStatus[data.sessionId];
+      }
       // A terminal status carries NO transcript content: the daemon settles the in-flight turn's
       // partial blocks and records the `interrupted` marker as real, persisted frames, which
       // arrive on this same push stream. Closing blocks or synthesizing a marker here would
       // diverge from what a reload folds out of the log — the live-vs-reload mismatch.
       state = { ...state, ui: { ...state.ui, runStatus } };
+      // F2: a turn that just ended — however it ended — leaves no in-flight tool call
+      // still waiting on an answer; a pending ask belongs to the turn that raised it,
+      // and that turn is now over. The daemon fail-safe-denies its own copy on exactly
+      // this transition (`SessionService.interrupt`/`LiveSession.close`), but that alone
+      // never tells THIS console to drop the card it's still showing — without this, Stop
+      // mid-ask left the composer gate-locked on a request nothing could ever answer.
+      if (
+        (data.state === 'done' || data.state === 'error' || data.state === 'interrupted') &&
+        (state.ui.pendingApprovalsBySession[data.sessionId]?.length ?? 0) > 0
+      ) {
+        const pendingApprovalsBySession = { ...state.ui.pendingApprovalsBySession };
+        delete pendingApprovalsBySession[data.sessionId];
+        state = { ...state, ui: { ...state.ui, pendingApprovalsBySession } };
+      }
       if (data.state === 'done') void refreshSessionList();
+      push();
+      return;
+    }
+    // F2: the mode-reflection push — the daemon is the ONE authority over a session's
+    // permission mode; the console only ever mirrors it. `degraded` rides straight
+    // through unchanged (the daemon's own honest wording — SC-1).
+    if (data.kind === 'mode') {
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          modeBySession: {
+            ...state.ui.modeBySession,
+            [data.sessionId]: {
+              mode: data.mode,
+              effectiveMode: data.effectiveMode,
+              ...(data.degraded !== undefined ? { degraded: data.degraded } : {}),
+            },
+          },
+        },
+      };
+      push();
+      return;
+    }
+    // F2: a live ask — queued FIFO (oldest first: the longest-waiting request is what's
+    // actually blocking the session), so a rare concurrent-call case never loses one to
+    // the other overwriting it.
+    if (data.kind === 'approval') {
+      const prior = state.ui.pendingApprovalsBySession[data.sessionId] ?? [];
+      const item: PendingApprovalItem = {
+        requestId: data.requestId,
+        tool: data.tool ?? '',
+        summary: data.summary,
+        ...(data.input !== undefined ? { input: data.input } : {}),
+        ...(data.toolClass !== undefined ? { toolClass: data.toolClass } : {}),
+      };
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          pendingApprovalsBySession: {
+            ...state.ui.pendingApprovalsBySession,
+            [data.sessionId]: [...prior, item],
+          },
+        },
+      };
       push();
       return;
     }
@@ -1093,6 +1289,7 @@ export async function startConsole(
       setSettings,
       toggleRaw,
       respondApproval,
+      setPermissionMode,
       selectAgent,
       createAgent,
       updateAgent,

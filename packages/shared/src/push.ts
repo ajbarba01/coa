@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { flagRecordSchema } from './flag.js';
+import { permissionModeSchema, toolClassSchema } from './permission.js';
 
 /**
  * The server-to-client push wire records (the CHAT and CON families). `tokens` is the
@@ -126,6 +127,23 @@ export const pushSchema = z.discriminatedUnion('kind', [
     tool: z.string().optional(),
     input: z.record(z.string(), z.unknown()).optional(),
     diffHandle: z.string().optional(),
+    /** F2: the tool's risk class (never `read` — a read-class call is never
+     *  asked about), for the chip/card's icon and copy. */
+    toolClass: toolClassSchema.optional(),
+  }),
+  // F2: the mode-reflection push — sent whenever a session's permission mode (or
+  // the honesty of its enforcement) changes, so every subscribed console stays in
+  // sync with the daemon's own authority over it (mode is NEVER decided by the
+  // console). `effectiveMode` is what the predicate actually enforces right now;
+  // it differs from `mode` only when `degraded` is set (SC-1 — the active
+  // backend has no real approval seam, so enforcement honestly falls back to
+  // `bypass` rather than claiming a mode it cannot deliver).
+  z.object({
+    kind: z.literal('mode'),
+    sessionId: z.string(),
+    mode: permissionModeSchema,
+    effectiveMode: permissionModeSchema,
+    degraded: z.string().optional(),
   }),
   z.object({ kind: z.literal('tokens'), sessionId: z.string(), delta: z.string() }),
   z.object({ kind: z.literal('banner'), sessionId: z.string(), banner: bannerSchema }),

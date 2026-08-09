@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import type { Push } from '@coa/shared';
-import { LiveSession } from './live-session.js';
+import type { Push, ToolCall } from '@coa/shared';
+import { DEFAULT_PERMISSION_MODE, LiveSession } from './live-session.js';
+
+const call: ToolCall = { tool: 'apply_patch', args: { target: 'src/a.ts' }, sessionId: 'c1' };
 
 describe('LiveSession', () => {
   it('fans out an emitted push to every subscriber', () => {
@@ -144,4 +146,176 @@ it('seals the delivery queue before running finalizers, so a finalizer-enqueued 
   expect(sealedWhenFinalizerRan).toBe(true);
   expect(session.deliveries.isSealed()).toBe(true);
   expect(session.deliveries.drain()).toEqual([]);
+});
+
+describe('LiveSession — F2 permission mode', () => {
+  it('defaults to the system floor mode when the constructor is given none', () => {
+    const s = new LiveSession('c1');
+    expect(s.mode).toBe(DEFAULT_PERMISSION_MODE);
+    expect(s.effectiveMode()).toBe(DEFAULT_PERMISSION_MODE);
+  });
+
+  it('accepts an explicit default mode (the agent-registry default a new session inherits)', () => {
+    const s = new LiveSession('c1', undefined, 'plan');
+    expect(s.mode).toBe('plan');
+  });
+
+  it('setMode switches the live mode and emits a reflection push', () => {
+    const s = new LiveSession('c1');
+    const got: Push[] = [];
+    s.subscribe((p) => got.push(p));
+    s.setMode('bypass');
+    expect(got).toContainEqual({
+      kind: 'mode',
+      sessionId: 'c1',
+      mode: 'bypass',
+      effectiveMode: 'bypass',
+    });
+  });
+
+  it('effectiveMode degrades to bypass when the backend has no approval seam, without touching the configured mode', () => {
+    const s = new LiveSession('c1', undefined, 'manual');
+    s.setApprovalSeam(false);
+    expect(s.mode).toBe('manual');
+    expect(s.effectiveMode()).toBe('bypass');
+  });
+
+  it('setApprovalSeam(false) emits a degraded mode reflection naming the honest effective mode', () => {
+    const s = new LiveSession('c1', undefined, 'manual');
+    const got: Push[] = [];
+    s.subscribe((p) => got.push(p));
+    s.setApprovalSeam(false);
+    expect(got).toContainEqual({
+      kind: 'mode',
+      sessionId: 'c1',
+      mode: 'manual',
+      effectiveMode: 'bypass',
+      degraded: expect.stringContaining('approval seam'),
+    });
+  });
+
+  it('setApprovalSeam is a no-op push-wise when the effective mode does not change', () => {
+    const s = new LiveSession('c1', undefined, 'bypass'); // already bypass either way
+    const got: Push[] = [];
+    s.subscribe((p) => got.push(p));
+    s.setApprovalSeam(false);
+    expect(got.filter((p) => p.kind === 'mode')).toHaveLength(0);
+  });
+
+  it('setApprovalSeam(true) after a degrade restores the configured mode as effective', () => {
+    const s = new LiveSession('c1', undefined, 'edits');
+    s.setApprovalSeam(false);
+    expect(s.effectiveMode()).toBe('bypass');
+    s.setApprovalSeam(true);
+    expect(s.effectiveMode()).toBe('edits');
+  });
+});
+
+describe('LiveSession — F2 ask/response round trip', () => {
+  it('requestApproval blocks until resolveApproval answers, and an approve resolves allow', async () => {
+    const s = new LiveSession('c1');
+    let settled: 'allow' | 'deny' | undefined;
+    const pending = s.requestApproval(call, 'write').then((d) => {
+      settled = d;
+      return d;
+    });
+    // Not settled yet — genuinely blocking, not a same-tick resolve.
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+
+    const [request] = s.pendingApprovals();
+    expect(request?.tool).toBe('apply_patch');
+    const resolved = s.resolveApproval(request!.requestId, 'allow');
+    expect(resolved).toBe(true);
+    await expect(pending).resolves.toBe('allow');
+  });
+
+  it('a deny answer resolves deny', async () => {
+    const s = new LiveSession('c1');
+    const pending = s.requestApproval(call, 'exec');
+    const [request] = s.pendingApprovals();
+    s.resolveApproval(request!.requestId, 'deny');
+    await expect(pending).resolves.toBe('deny');
+  });
+
+  it('resolving an unknown or already-answered request id is a harmless no-op', async () => {
+    const s = new LiveSession('c1');
+    expect(s.resolveApproval('nonexistent', 'allow')).toBe(false);
+
+    const pending = s.requestApproval(call, 'write');
+    const [request] = s.pendingApprovals();
+    expect(s.resolveApproval(request!.requestId, 'allow')).toBe(true);
+    // Answering the SAME id again is a no-op, not a second resolve.
+    expect(s.resolveApproval(request!.requestId, 'deny')).toBe(false);
+    await expect(pending).resolves.toBe('allow');
+  });
+
+  it('pushes an approval request live and a blocked-approval status, clearing back to running once answered', () => {
+    const s = new LiveSession('c1');
+    s.setState('running', '/wt');
+    const got: Push[] = [];
+    s.subscribe((p) => got.push(p));
+    void s.requestApproval(call, 'write');
+
+    expect(got).toContainEqual(
+      expect.objectContaining({ kind: 'approval', tool: 'apply_patch', toolClass: 'write' }),
+    );
+    expect(got).toContainEqual({
+      kind: 'status',
+      sessionId: 'c1',
+      worktree: '/wt',
+      state: 'blocked-approval',
+    });
+
+    const [request] = s.pendingApprovals();
+    s.resolveApproval(request!.requestId, 'allow');
+    expect(got.at(-1)).toEqual({
+      kind: 'status',
+      sessionId: 'c1',
+      worktree: '/wt',
+      state: 'running',
+    });
+  });
+
+  it('close() fail-safe-resolves every still-pending approval as deny rather than hanging forever', async () => {
+    const s = new LiveSession('c1');
+    const pending = s.requestApproval(call, 'write');
+    s.close();
+    await expect(pending).resolves.toBe('deny');
+    expect(s.pendingApprovals()).toEqual([]);
+  });
+
+  it('abandonPendingApprovals fail-safe-denies every still-pending ask (a stopped turn will never make the call it was blocking)', async () => {
+    const s = new LiveSession('c1');
+    const first = s.requestApproval(call, 'write');
+    const second = s.requestApproval({ ...call, tool: 'Bash' }, 'exec');
+    expect(s.pendingApprovals()).toHaveLength(2);
+
+    s.abandonPendingApprovals();
+
+    await expect(first).resolves.toBe('deny');
+    await expect(second).resolves.toBe('deny');
+    expect(s.pendingApprovals()).toEqual([]);
+  });
+
+  it('abandonPendingApprovals emits no running/idle reflection of its own — unlike resolveApproval, it leaves the caller free to emit its own terminal status right after', () => {
+    const s = new LiveSession('c1');
+    s.setState('running', '/wt');
+    const got: Push[] = [];
+    // Subscribe first so its hydration push lands before the ask, then clear it — the
+    // point under test is what `abandonPendingApprovals` ITSELF emits, not subscribe's.
+    s.subscribe((p) => got.push(p));
+    void s.requestApproval(call, 'write');
+    got.length = 0;
+
+    s.abandonPendingApprovals();
+
+    expect(got).toEqual([]);
+  });
+
+  it('abandonPendingApprovals on a session with nothing pending is a harmless no-op', () => {
+    const s = new LiveSession('c1');
+    expect(() => s.abandonPendingApprovals()).not.toThrow();
+    expect(s.pendingApprovals()).toEqual([]);
+  });
 });
