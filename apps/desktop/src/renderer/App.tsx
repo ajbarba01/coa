@@ -18,6 +18,12 @@ const POLL_MS = 2000;
  *  the gate while the daemon is down. */
 export function App(): React.JSX.Element {
   const daemon = useShell((s) => s.daemon);
+  // F11: bumped by `applyProjectSwitch` on a project swap in THIS window — the dependency
+  // that keys the controller-boot effect below, so a swap tears the console controller
+  // down and reboots it fresh (the exact same sequence a brand new window runs) instead of
+  // trying to patch project-scoped state (sessions, active conversation, run status) in
+  // place. Never bumped by the initial boot-time `setWorkspace` read.
+  const projectEpoch = useShell((s) => s.projectEpoch);
   const controllerRef = useRef<ConsoleController | undefined>(undefined);
 
   // Track the window's maximized state so the restore glyph matches the real
@@ -108,7 +114,7 @@ export function App(): React.JSX.Element {
       controllerRef.current?.dispose();
       controllerRef.current = undefined;
     };
-  }, []);
+  }, [projectEpoch]);
 
   // One tooltip provider for the whole frame: shared open delay + the warm
   // window that lets adjacent icon buttons show their tips instantly. The edit menu is

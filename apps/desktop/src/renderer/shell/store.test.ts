@@ -114,6 +114,42 @@ describe('useShell', () => {
     expect(s.workWidth).toBe(300);
     expect(s.daemon).toBe('running');
   });
+
+  it('setWorkspace (the boot-time read) never bumps projectEpoch', () => {
+    const before = useShell.getState().projectEpoch;
+    useShell.getState().setWorkspace({ name: 'coa', root: 'C:/dev/coa' });
+    expect(useShell.getState().projectEpoch).toBe(before);
+    expect(useShell.getState().workspace).toEqual({ name: 'coa', root: 'C:/dev/coa' });
+  });
+
+  it('applyProjectSwitch adopts the new workspace, bumps projectEpoch, and drops project-scoped tabs', () => {
+    useShell.getState().openTab('old-session');
+    useShell.getState().closeTab('old-session');
+    useShell.getState().setPreview('old-session');
+    useShell.getState().setProjectOpen(true);
+    const before = useShell.getState().projectEpoch;
+
+    useShell.getState().applyProjectSwitch({ name: 'other', root: 'C:/dev/other' });
+
+    const s = useShell.getState();
+    expect(s.workspace).toEqual({ name: 'other', root: 'C:/dev/other' });
+    expect(s.projectEpoch).toBe(before + 1);
+    expect(s.tabs).toEqual([]);
+    expect(s.closedTabs).toEqual([]);
+    expect(s.previewId).toBeUndefined();
+    expect(s.projectOpen).toBe(false);
+  });
+
+  it('setConfirmSwapProject joins the exclusive dialog set like the other confirms', () => {
+    useShell.getState().setSettingsOpen(true);
+    useShell.getState().setConfirmSwapProject({ root: 'C:/dev/other', name: 'other' });
+    let s = useShell.getState();
+    expect(s.confirmSwapProject).toEqual({ root: 'C:/dev/other', name: 'other' });
+    expect(s.settingsOpen).toBe(false);
+    useShell.getState().setConfirmSwapProject(undefined);
+    s = useShell.getState();
+    expect(s.confirmSwapProject).toBeUndefined();
+  });
 });
 
 describe('useConsoleState', () => {

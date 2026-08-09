@@ -126,13 +126,23 @@ describe('Nav', () => {
     expect(btn.className).not.toContain('w-full');
   });
 
-  it('states that switching is not available rather than offering a dead control', async () => {
+  it('opens a real project picker rather than a dead "not available" control', async () => {
     const user = userEvent.setup();
     useShell.setState({ projectOpen: false, workspace: { name: 'coa', root: 'C:/repo/coa' } });
+    (window as unknown as { coa: unknown }).coa = {
+      platform: 'win32',
+      listRecentProjects: () => Promise.resolve([]),
+      pickDirectory: () => Promise.resolve({}),
+      openProject: () =>
+        Promise.resolve({ opened: 'current', workspace: { name: 'coa', root: 'C:/repo/coa' } }),
+    };
     render(<Nav />);
     await user.click(screen.getByRole('button', { name: /coa/ }));
-    expect(screen.getByText('Opening another project is not available yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Open Project…' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Opening another project is not available yet.'),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Open Folder…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open in New Window…' })).toBeInTheDocument();
   });
 
   it('wears the amber attention count on auth when a login needs re-login — zero renders nothing', () => {

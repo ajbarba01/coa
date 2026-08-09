@@ -74,7 +74,10 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   }
 
   const { method, params } = build(args);
-  const client = await connectClient(io.path ?? defaultDaemonPath());
+  // No explicit endpoint: resolve the SAME project-keyed pipe/socket a `coa serve`
+  // launched from this same cwd would bind (see `defaultDaemonPath`) — a terminal
+  // `cd`'d into a project reaches that project's daemon with no extra config.
+  const client = await connectClient(io.path ?? defaultDaemonPath(process.cwd()));
   try {
     const response = await client.request(method, params);
     if ('error' in response) {
@@ -106,7 +109,7 @@ export async function runSession(args: string[], io: CliIo): Promise<number> {
   let settle!: (failed: boolean) => void;
   const finished = new Promise<boolean>((resolve) => (settle = resolve));
 
-  const client = await connectClient(io.path ?? defaultDaemonPath(), (note) => {
+  const client = await connectClient(io.path ?? defaultDaemonPath(process.cwd()), (note) => {
     if (note.method !== 'push') return;
     const push = pushSchema.safeParse(note.params);
     if (!push.success) return;
@@ -227,16 +230,19 @@ export async function listEffectiveModels(
 }
 
 export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
-  const path = options.path ?? defaultDaemonPath();
+  // The one root/home resolution for this daemon instance — every store built below
+  // (the path included) reuses these two `const`s rather than reaching for
+  // `process.cwd()`/`homedir()` ambiently, so a caller that overrides either gets a
+  // daemon fully scoped to it.
+  const root = options.root ?? process.cwd();
+  const home = options.home ?? homedir();
+  // F11: the endpoint is keyed by PROJECT (a hash of `root`), not one fixed app-wide
+  // name — a daemon spawned for project X and a client resolving X's endpoint later
+  // (a desktop window, a CLI `cd`'d into X) always agree on where to find it.
+  const path = options.path ?? defaultDaemonPath(root);
   const walPath = options.walPath ?? join('.coa', 'wal', 'log.ndjson');
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
-
-  // The one root/home resolution for this daemon instance — every store built below
-  // reuses these two `const`s rather than reaching for `process.cwd()`/`homedir()`
-  // ambiently, so a caller that overrides either gets a daemon fully scoped to it.
-  const root = options.root ?? process.cwd();
-  const home = options.home ?? homedir();
 
   // The session service resolves a session's spawn port, but it can't exist until
   // AFTER `buildSessionDeps` returns — and `buildSessionDeps` wants `resolveSpawn`

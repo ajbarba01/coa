@@ -97,4 +97,26 @@ describe('IPC method registry', () => {
     expect(METHODS.setBrowserPath.params?.parse({ path: 'C:\\chrome.exe' })).toBeTruthy();
     expect(METHODS.removeCredential.params?.parse({ id: 'x', removeProfile: true })).toBeTruthy();
   });
+
+  it('validates openProject params/result (F11)', () => {
+    expect(
+      METHODS.openProject.params?.parse({ root: 'C:\\repos\\alpha', target: 'new' }),
+    ).toBeTruthy();
+    expect(() => METHODS.openProject.params?.parse({ root: 'C:\\repos\\alpha' })).toThrow();
+    expect(() =>
+      METHODS.openProject.params?.parse({ root: 'C:\\repos\\alpha', target: 'sideways' }),
+    ).toThrow();
+    expect(
+      METHODS.openProject.result.parse({
+        opened: 'focused-existing',
+        workspace: { name: 'alpha', root: 'C:\\repos\\alpha' },
+      }),
+    ).toBeTruthy();
+  });
+
+  it('validates listRecentProjects result (F11)', () => {
+    const list = [{ root: 'C:\\repos\\alpha', name: 'alpha', lastOpenedAt: 1, open: true }];
+    expect(METHODS.listRecentProjects.result.parse(list)).toEqual(list);
+    expect(() => METHODS.listRecentProjects.result.parse([{ root: 'C:\\repos\\alpha' }])).toThrow();
+  });
 });
