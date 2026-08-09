@@ -8,7 +8,7 @@ import { TextInput } from './fields.js';
 import { useLogin } from './loginStore.js';
 import { useAuthStore, type Credential } from './authStore.js';
 import { RISE, SLIP_SWIFT } from './motion.js';
-import type { ProviderDescriptor } from './providers.js';
+import { providerById, type ProviderDescriptor } from './providers.js';
 
 /**
  * The in-app Claude LOGIN / RELOGIN flow — coa drives `claude auth login --claudeai
@@ -131,6 +131,7 @@ function EmailStep({
   const isolated = useAuthStore((s) => s.browserSession.enabled && s.browserSession.available);
   const [email, setEmail] = useState('');
   const valid = looksLikeEmail(email);
+  const provider = providerById(providerId);
 
   const commit = (): void => {
     if (!valid) return;
@@ -150,7 +151,9 @@ function EmailStep({
     <>
       <header className="flex items-center gap-2.5 border-b border-s3 px-4 py-3">
         <StatusDot status="needs-you" />
-        <span className="text-sec font-semibold text-s11">Sign in with {providerId}</span>
+        <span className="text-sec font-semibold text-s11">
+          Sign in with {provider?.label ?? providerId}
+        </span>
       </header>
       <div className="flex flex-col gap-3 px-4 py-4">
         <label className="flex flex-col gap-1.5 text-code text-s9">
