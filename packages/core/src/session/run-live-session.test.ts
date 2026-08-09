@@ -19,6 +19,43 @@ describe('runLiveSession', () => {
     await done;
   });
 
+  it('does not dispatch a turn that was already queued behind an in-flight turn when the session closes mid-turn (Q14)', async () => {
+    const s = new LiveSession('c1');
+    const seen: string[] = [];
+    let releaseFirst: () => void = () => {};
+    const runTurn = vi.fn(async (t: { input: string }) => {
+      seen.push(t.input);
+      if (t.input === 'first') {
+        // Block here to simulate a turn still genuinely in flight against the
+        // backend (e.g. establishHeldQuery awaiting its boundary) — the exact
+        // window in which a registry-driven close (an explicit closeSession,
+        // or a cascade from a parent) can race a second, already-queued turn.
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+    });
+    s.enqueue({ input: 'first' });
+    const done = runLiveSession(s, runTurn);
+    await vi.waitFor(() => expect(runTurn).toHaveBeenCalledTimes(1));
+
+    // The loop is busy inside runTurn('first') and has not called nextTurn()
+    // again yet, so this lands in the session's internal queue rather than
+    // being handed off directly.
+    s.enqueue({ input: 'second' });
+
+    // Close the session the way the registry's single teardown path does —
+    // while a turn is still running and another sits queued behind it.
+    s.close();
+    releaseFirst();
+    await done;
+
+    // The queued turn must never reach runTurn (i.e. never dispatch a new
+    // backend query) once the session has closed.
+    expect(seen).toEqual(['first']);
+    expect(runTurn).toHaveBeenCalledTimes(1);
+  });
+
   it('a throwing turn is surfaced as an error frame and the loop continues', async () => {
     const s = new LiveSession('c1');
     const pushes: unknown[] = [];

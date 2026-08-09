@@ -196,8 +196,11 @@ export class LiveSession {
   }
 
   /** Queue `turn` for the loop to drain, resolving a pending `nextTurn()` waiter
-   *  immediately if one is parked. */
+   *  immediately if one is parked. A no-op once `close()` has run — the queue
+   *  must not outlive the session, so nothing enqueued after teardown is ever
+   *  kept around to be drained later (mirrors `deliveries`' sealed-push guard). */
   enqueue(turn: QueuedTurn): void {
+    if (this.#closed) return;
     if (this.#waiter) {
       const waiter = this.#waiter;
       this.#waiter = undefined;
@@ -218,11 +221,18 @@ export class LiveSession {
   }
 
   /** Mark the channel closed; run the registered finalizers (e.g. ending a
-   *  held-open query's input feed), and resolve any parked `nextTurn()` waiter with
-   *  `undefined`. */
+   *  held-open query's input feed), drop any turn still sitting in the queue,
+   *  and resolve any parked `nextTurn()` waiter with `undefined`. */
   close(): void {
     this.#closed = true;
     this.deliveries.seal();
+    // A turn already queued but not yet drained must not outlive the session:
+    // left in place, the NEXT `nextTurn()` call (once the loop's current turn
+    // finishes) would still find it and hand it to `runTurn`, dispatching a
+    // brand-new backend query the registry — which has already deleted this
+    // session's entry by the time close() runs — has no record of. Drop it
+    // explicitly instead of letting `nextTurn()` silently drain it later.
+    this.#queue = [];
     // Finalizers first (and once): ending the held-open input feed lets the backend
     // query drain its last result before the parked loop wakes and exits.
     const finalizers = this.#onClose;

@@ -43,6 +43,29 @@ describe('LiveSession', () => {
     await expect(pending).resolves.toBeUndefined();
   });
 
+  it('a turn still sitting in the queue at close time is dropped, not handed to a later nextTurn (Q14)', async () => {
+    const s = new LiveSession('c1');
+    // No `nextTurn()` has been called yet, so there is no parked waiter —
+    // this lands in the internal queue rather than being resolved directly,
+    // exactly like a turn sent while the driving loop is still busy with an
+    // earlier one.
+    s.enqueue({ input: 'queued-at-close' });
+    s.close();
+    // The queue must not outlive the session: a turn queued before close()
+    // must never be drained afterward.
+    await expect(s.nextTurn()).resolves.toBeUndefined();
+  });
+
+  it('enqueue after close is a no-op — the queue never accepts new work post-close (Q14)', () => {
+    const s = new LiveSession('c1');
+    s.close();
+    s.enqueue({ input: 'too-late' });
+    // Nothing should ever resolve from this: confirmed via a second call
+    // racing a timeout would be flaky, so instead we assert the queue stayed
+    // empty by immediately awaiting nextTurn and expecting undefined.
+    return expect(s.nextTurn()).resolves.toBeUndefined();
+  });
+
   it('unsubscribe stops delivery', () => {
     const s = new LiveSession('c1');
     const got: Push[] = [];
