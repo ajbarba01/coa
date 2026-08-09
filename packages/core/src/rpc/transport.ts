@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { serveOverStream, type DuplexLike, type StreamHandlers } from './stream.js';
 
 /**
@@ -28,16 +29,59 @@ export interface RpcServer {
 }
 
 /**
- * The default daemon endpoint. Windows → a named pipe; Unix →
- * `$XDG_RUNTIME_DIR/coa/coa.sock` when set, else `~/.coa/run/coa.sock`. The Unix
- * parent dir must be created `0700` before binding (the daemon host does this).
+ * Canonical form of a project root for IDENTITY comparisons — the resolved
+ * absolute path, case-folded on Windows (whose filesystem is case-insensitive) so
+ * the SAME project compares equal regardless of trailing slash, `/` vs `\`, or the
+ * drive-letter case a picker dialog / CLI argv / second-instance launch happens to
+ * hand back. Exported so every consumer that needs "is this the same project"
+ * (a desktop window registry, a recent-projects list) shares this ONE definition —
+ * it is also exactly what {@link defaultDaemonPath} hashes, so two processes
+ * agreeing on a project's identity always agree on its endpoint too. `platform` is
+ * injected (defaults to the real one) so the rule is testable on every host OS.
  */
-export function defaultDaemonPath(): string {
-  if (process.platform === 'win32') return '\\\\.\\pipe\\coa';
+export function canonicalProjectRoot(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const resolved = resolve(root);
+  return platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * A short, endpoint-name-safe deterministic id for a project root: the same root
+ * (however it's spelled) always yields the same id, and different roots yield
+ * different ids (a truncated SHA-256 — collision risk is negligible at
+ * single-machine desktop-app scale). This is what lets a daemon endpoint be keyed
+ * by PROJECT rather than shared app-wide.
+ */
+export function projectEndpointId(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return createHash('sha256').update(canonicalProjectRoot(root, platform)).digest('hex').slice(0, 16);
+}
+
+/**
+ * The daemon endpoint for `root`'s project — a DETERMINISTIC function of the
+ * (normalized) project root, not one fixed app-wide name. This is what lets (a) a
+ * CLI invocation `cd`'d into a project resolve the SAME pipe/socket a daemon
+ * already serving that project is bound to, and (b) "is this project already
+ * open" be answered by probing the one endpoint its root hashes to, with no
+ * second discovery mechanism. Windows → a named pipe; Unix →
+ * `$XDG_RUNTIME_DIR/coa/coa-<id>.sock` when set, else `~/.coa/run/coa-<id>.sock`.
+ * The Unix parent dir must be created `0700` before binding (the daemon host does
+ * this). `platform` is injected (defaults to the real one) for testability.
+ */
+export function defaultDaemonPath(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const id = projectEndpointId(root, platform);
+  if (platform === 'win32') return `\\\\.\\pipe\\coa-${id}`;
   const runtime = process.env['XDG_RUNTIME_DIR'];
-  return runtime !== undefined && runtime !== ''
-    ? join(runtime, 'coa', 'coa.sock')
-    : join(homedir(), '.coa', 'run', 'coa.sock');
+  const base =
+    runtime !== undefined && runtime !== '' ? join(runtime, 'coa') : join(homedir(), '.coa', 'run');
+  return join(base, `coa-${id}.sock`);
 }
 
 /**
