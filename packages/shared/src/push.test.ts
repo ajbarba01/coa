@@ -106,6 +106,20 @@ describe('pushSchema', () => {
     const push = { kind: 'mode', sessionId: 's1', mode: 'auto', effectiveMode: 'bypass' };
     expect(pushSchema.safeParse(push).success).toBe(false);
   });
+
+  it('accepts a per-turn usage report with and without cache reads', () => {
+    const full = {
+      kind: 'usage' as const,
+      sessionId: 's1',
+      tokensIn: 38_120,
+      tokensOut: 2_400,
+      cacheReadTokens: 700,
+    };
+    expect(pushSchema.parse(full)).toEqual(full);
+    // Cache reads are optional — a backend that never reports them still parses.
+    const bare = { kind: 'usage' as const, sessionId: 's1', tokensIn: 10, tokensOut: 2 };
+    expect(pushSchema.parse(bare)).toEqual(bare);
+  });
 });
 
 describe('turnFrameSchema', () => {

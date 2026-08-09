@@ -2,13 +2,14 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ModelDescriptor, PermissionMode, RpcParams, ToolCall, ToolClass } from '@coa/shared';
-import { pushSchema } from '@coa/shared';
+import { modelImageInputSupport, pushSchema } from '@coa/shared';
 import {
   AgentRegistry,
   bindDaemon,
   buildAgentRegistryHandlers,
   buildConversationHandlers,
   buildModelHandlers,
+  buildModelMetadataHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
   classifyTool,
@@ -19,6 +20,7 @@ import {
   LiveSessionRegistry,
   MODEL_PROVIDERS,
   ModelCatalogStore,
+  ModelMetadataCatalog,
   packageSummaries,
   roleSummaries,
   SessionService,
@@ -29,7 +31,7 @@ import {
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
-import { supportsApproval } from './adapter-factory.js';
+import { supportsApproval, supportsAttachments } from './adapter-factory.js';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
@@ -307,6 +309,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   });
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
   const modelCatalog = new ModelCatalogStore(home);
+  // The per-model info catalog (context window/pricing/modalities/reasoning) the
+  // console's context ring, model-picker hover card, and attach-control gating read.
+  // Construction is synchronous and network-free (static floor + last-good disk
+  // cache); `refresh()` runs off the critical path — daemon startup never waits on
+  // models.dev/OpenRouter, and a failed refresh just keeps today's data.
+  const modelMetadata = new ModelMetadataCatalog({ home });
+  void modelMetadata.refresh().catch(() => {
+    // refresh() itself never rejects (each fetch tier is independently fault-tolerant) —
+    // this catch is belt-and-suspenders against a future regression breaking that contract.
+  });
   // The agent-assembly catalogue the console picker reads (starter registry today).
   const registryHandlers = buildRegistryHandlers({
     listRoles: () => roleSummaries(),
@@ -383,8 +395,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...agentHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
-    ...buildSessionHandlers(sessions, connection),
+    ...buildSessionHandlers(sessions, connection, {
+      // The provider→backend capability facts live beside the adapter factory (one
+      // source of truth); the vision fact is the metadata catalog's tri-state
+      // collapsed honestly — only a verified 'supported' opens the image gate.
+      attachmentsSupported: supportsAttachments,
+      visionSupported: (provider, modelId) =>
+        modelId !== undefined &&
+        modelImageInputSupport(modelMetadata.get(provider, modelId)) === 'supported',
+    }),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
+    ...buildModelMetadataHandlers(modelMetadata),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.
     listModels: {

@@ -1,3 +1,4 @@
+import type { RuntimeUsage } from '@coa/spi';
 import type { LiveSession, QueuedTurn } from './live-session.js';
 import type { LiveSessionRegistry } from './live-registry.js';
 import type { SessionDeps } from './session.js';
@@ -40,4 +41,19 @@ export function attachSubscriber(session: LiveSession, turn: QueuedTurn): void {
   const subscription = turn.subscribe;
   if (subscription === undefined) return;
   subscription.onAttached(session.subscribe(subscription.sink));
+}
+
+/**
+ * Fan a settlement's usage out as the `usage` push — the console's context ring
+ * reads it. One helper, both drive strategies: the settlement callback fires inside
+ * the session layer, but only a driver holds the {@link LiveSession} to emit through.
+ */
+export function emitUsage(session: LiveSession, usage: RuntimeUsage): void {
+  session.emit({
+    kind: 'usage',
+    sessionId: session.id,
+    tokensIn: usage.tokensIn,
+    tokensOut: usage.tokensOut,
+    ...(usage.cacheReadTokens !== undefined ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+  });
 }

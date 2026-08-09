@@ -29,6 +29,14 @@ export interface PopoverCardProps {
   /** Hover/focus detail on the trigger (icon-only chips) — the tooltip closes
    *  itself when the popover opens (Base UI's trigger-press reason). */
   tooltip?: TooltipSpec;
+  /**
+   * A companion layer rendered BESIDE the popup (a sibling inside the positioner,
+   * absolutely positioned by its own classes) — for detail that must escape the
+   * popup's clipped bounds (`menuSurface` is overflow-hidden so full-bleed regions
+   * reach its rounded ends). It travels, portals, and dismisses with the popup.
+   * Display-only by contract: no focusables (the popup owns focus).
+   */
+  beside?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -47,6 +55,7 @@ export function PopoverCard({
   flush = false,
   initialFocus,
   tooltip,
+  beside,
   children,
 }: PopoverCardProps): React.JSX.Element {
   const popupRef = useRef<HTMLDivElement>(null);
@@ -96,6 +105,7 @@ export function PopoverCard({
           >
             {children}
           </Popover.Popup>
+          {beside}
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>

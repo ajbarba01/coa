@@ -3,6 +3,7 @@ import type {
   ActiveAccount,
   AgentFile,
   ApprovalDecision,
+  Attachment,
   AuthView,
   CapState,
   Checkpoint,
@@ -10,6 +11,7 @@ import type {
   LoginSnapshot,
   ModelCatalogView,
   ModelDescriptor,
+  ModelMetadataView,
   ModelSelection,
   PackageSummary,
   PermissionMode,
@@ -73,6 +75,9 @@ declare global {
         model?: ModelSelection;
         packageIds?: string[];
         exclude?: string[];
+        /** Attachments on this send's user message; the daemon refuses them for a
+         *  backend with no attachment seam (never a silent drop). */
+        attachments?: Attachment[];
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
@@ -119,6 +124,9 @@ declare global {
       >;
       listModels(): Promise<ModelDescriptor[]>;
       modelCatalog(): Promise<ModelCatalogView>;
+      /** Per-model info (context window/pricing/modalities/reasoning) — the context
+       *  ring, the model-picker hover card, and attach gating all read this. */
+      modelMetadata(params?: { provider?: string }): Promise<ModelMetadataView>;
       addModels(params: { providerId: string; ids: string[] }): Promise<ModelCatalogView>;
       addCustomModel(params: {
         providerId: string;

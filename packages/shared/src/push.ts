@@ -145,6 +145,21 @@ export const pushSchema = z.discriminatedUnion('kind', [
     effectiveMode: permissionModeSchema,
     degraded: z.string().optional(),
   }),
+  // Per-turn settled token usage — the same numbers the backend adapter reports
+  // through its settlement callback (the one usage channel into the cost meter),
+  // mirrored to subscribers so the console's context ring reads REAL counts rather
+  // than inventing a second usage-tracking mechanism. `tokensIn` is what the
+  // adapter settled for the turn (the Claude backend reports the final request's
+  // input tokens; the pure-API loop sums its round trips), `cacheReadTokens` the
+  // prompt-cache reads that didn't bill as fresh input. Emitted once per settled
+  // result, alongside the charge.
+  z.object({
+    kind: z.literal('usage'),
+    sessionId: z.string(),
+    tokensIn: z.number(),
+    tokensOut: z.number(),
+    cacheReadTokens: z.number().optional(),
+  }),
   z.object({ kind: z.literal('tokens'), sessionId: z.string(), delta: z.string() }),
   z.object({ kind: z.literal('banner'), sessionId: z.string(), banner: bannerSchema }),
   z.object({

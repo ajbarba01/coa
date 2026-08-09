@@ -39,6 +39,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     useAccount: vi.fn().mockResolvedValue({ active: {} }),
     startSession: vi.fn().mockResolvedValue({ sessionId: 'c1', worktree: '/wt' }),
     listModels: vi.fn().mockResolvedValue([]),
+    modelMetadata: vi.fn().mockResolvedValue({ entries: [] }),
     listRoles: vi.fn().mockResolvedValue([]),
     listPackages: vi.fn().mockResolvedValue([]),
     listAgents: vi.fn().mockResolvedValue({ agents: MOCK_AGENTS, diagnostics: [] }),
@@ -761,6 +762,78 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ input: 'add tests', conversationId: 'c1' }),
     );
+  });
+
+  it('a send with staged attachments carries them on the startSession params and notes them locally', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    const attachments = [
+      { kind: 'image' as const, mimeType: 'image/png', data: 'aWJt', name: 'shot.png' },
+      { kind: 'text' as const, name: 'notes.md', text: '# notes' },
+    ];
+
+    last().actions.sendMessage('what is in this?', attachments);
+
+    expect(bridge.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ input: 'what is in this?', attachments }),
+    );
+    // The persisted transcript carries only text, so a console-local note records
+    // that the attachments went along (same mechanism as the model-switch note).
+    // It publishes with the coalesced turn flush, one frame later.
+    await flushRaf();
+    expect(last().ui.notesBySession['c1']).toEqual([
+      expect.objectContaining({ text: 'attached shot.png, notes.md' }),
+    ]);
+  });
+
+  it('a plain send carries NO attachments field — byte-identical to before', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.sendMessage('just text');
+    const params = vi.mocked(bridge.startSession).mock.calls.at(-1)?.[0];
+    expect(params !== undefined && 'attachments' in params).toBe(false);
+  });
+
+  it('a usage push lands on its session for the context ring (last settle wins)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'usage', sessionId: 'c1', tokensIn: 30_000, tokensOut: 1_200 });
+    expect(last().ui.usageBySession['c1']).toEqual({ tokensIn: 30_000, tokensOut: 1_200 });
+
+    // A later settle REPLACES (its tokensIn already includes the whole context).
+    emit?.({
+      kind: 'usage',
+      sessionId: 'c1',
+      tokensIn: 42_000,
+      tokensOut: 900,
+      cacheReadTokens: 8_000,
+    });
+    expect(last().ui.usageBySession['c1']).toEqual({
+      tokensIn: 42_000,
+      tokensOut: 900,
+      cacheReadTokens: 8_000,
+    });
+  });
+
+  it('routes a usage push by sessionId — a background settle never leaks onto the active ring', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    emit?.({ kind: 'usage', sessionId: 'c-other', tokensIn: 5, tokensOut: 5 });
+    expect(last().ui.usageBySession['c1']).toBeUndefined();
+    expect(last().ui.usageBySession['c-other']).toEqual({ tokensIn: 5, tokensOut: 5 });
   });
 
   it('settles an interrupted reasoning block and appends the interrupt marker from the daemon frames (live == reload)', async () => {

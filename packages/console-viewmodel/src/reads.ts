@@ -1,4 +1,4 @@
-import { feedViewSchema, type FeedView } from '@coa/shared';
+import { feedViewSchema, modelMetadataSchema, type FeedView } from '@coa/shared';
 import { z } from 'zod';
 
 /** The honest user feed — re-exported from the shared wire type so the console
@@ -256,3 +256,8 @@ export const ModelCatalogViewSchema = z
   })
   .strip();
 export type ModelCatalogView = z.infer<typeof ModelCatalogViewSchema>;
+
+/** The `modelMetadata` verb's reply — every known row (optionally provider-filtered
+ *  server-side by the request params). */
+export const ModelMetadataViewSchema = z.object({ entries: z.array(modelMetadataSchema) }).strip();
+export type ModelMetadataView = z.infer<typeof ModelMetadataViewSchema>;

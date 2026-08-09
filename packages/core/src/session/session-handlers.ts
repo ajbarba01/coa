@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   approvalDecisionSchema,
+  attachmentSchema,
   modelSelectionSchema,
   permissionModeSchema,
   type RpcNotification,
@@ -33,6 +34,8 @@ const createParams = z.object({
   /** Assembly selection: opt-in packages added / default packages excluded (both role-gated). */
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
+  /** Attachments on this send's user message (the one shared wire shape). */
+  attachments: z.array(attachmentSchema).optional(),
   /** The persistent conversation to run within; absent ⇒ an ephemeral one-shot. */
   conversationId: z.string().optional(),
 });
@@ -53,9 +56,25 @@ const respondApprovalParams = z.object({
 });
 const sessionModeParams = z.object({ id: z.string() });
 
+/**
+ * The daemon host's per-backend capability facts, injected (the provider→backend map
+ * lives in the app's adapter factory, and the model-metadata catalog beside it —
+ * `core` owns neither). Absent entirely, or a missing member ⇒ the conservative
+ * floor: attachments are refused for every provider (better an honest refusal at
+ * the RPC edge than a turn that silently drops them).
+ */
+export interface SessionCapabilities {
+  /** Whether `provider`'s adapter can carry attachments at all. */
+  attachmentsSupported?: (provider: string) => boolean;
+  /** Whether `modelId` on `provider` reports image-input support (the metadata
+   *  catalog's tri-state collapsed honestly: only a verified 'supported' is true). */
+  visionSupported?: (provider: string, modelId: string | undefined) => boolean;
+}
+
 export function buildSessionHandlers(
   service: SessionService,
   connection: RpcConnection,
+  capabilities: SessionCapabilities = {},
 ): RpcHandlers {
   const emit: Sink = (push) => {
     connection.push({ jsonrpc: '2.0', method: 'push', params: push } satisfies RpcNotification);
@@ -78,6 +97,20 @@ export function buildSessionHandlers(
   return {
     createSession: rpcMethod(createParams, async (params) => {
       const conversationId = params.conversationId;
+      // Attachments are honored only where the resolved provider's adapter can carry
+      // them — refused HERE, as a typed RPC error the sender surfaces, never silently
+      // dropped on the way to a backend with no seam for them (the Claude SDK path
+      // today). The vision fact is resolved daemon-side from the metadata catalog,
+      // never trusted from the client: only a verified 'supported' opens the image gate.
+      const attachments = params.attachments;
+      const provider = params.model?.provider ?? 'claude';
+      let visionSupported: boolean | undefined;
+      if (attachments !== undefined && attachments.length > 0) {
+        if (capabilities.attachmentsSupported?.(provider) !== true) {
+          throw new Error(`the ${provider} backend cannot carry attachments yet`);
+        }
+        visionSupported = capabilities.visionSupported?.(provider, params.model?.model) === true;
+      }
       // Subscribe THIS connection once per conversation — deferred to the turn's own
       // start, so hydration lands on its true first status instead of firing here, ahead
       // of it, as a spurious leading `idle`. An ephemeral send has no id until the
@@ -92,6 +125,8 @@ export function buildSessionHandlers(
         ...(params.roles !== undefined ? { roles: params.roles } : {}),
         ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
         ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
+        ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+        ...(visionSupported !== undefined ? { visionSupported } : {}),
         ...(attaching
           ? { subscribe: { sink: emit, onAttached: (off: () => void) => unsubscribers.push(off) } }
           : {}),

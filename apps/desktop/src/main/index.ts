@@ -680,6 +680,8 @@ async function runMethod(
       return proxyDaemon(event, 'listModels');
     case 'modelCatalog':
       return proxyDaemon(event, 'modelCatalog');
+    case 'modelMetadata':
+      return proxyDaemon(event, 'modelMetadata', params);
     case 'addModels':
       return proxyDaemon(event, 'addModels', params);
     case 'addCustomModel':

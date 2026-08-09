@@ -1,15 +1,18 @@
 import type {
   AgentDiagnostic,
   AgentSummary,
+  Attachment,
   CapState,
   Checkpoint,
   FeedView,
   ModelDescriptor,
+  ModelMetadata,
   ModelSelection,
   PackageSummary,
   PermissionMode,
   RoleSummary,
   SessionSummary,
+  SessionUsage,
   ToolClass,
   TurnFrame,
 } from '@coa/console-viewmodel';
@@ -49,6 +52,10 @@ export interface ConsoleData {
   sessions: Remote<SessionSummary[]>;
   /** The active account's available models + per-model reasoning capabilities (live, cached). */
   models: Remote<ModelDescriptor[]>;
+  /** The per-model info catalog (context window/pricing/modalities/reasoning) — the
+   *  context ring, the model-picker hover card, and attach gating all read this.
+   *  Absent fields on a row are genuine unknowns, never fabricated. */
+  modelMetadata: Remote<ModelMetadata[]>;
   /** The agent-assembly catalogue the picker draws from (live: `listRoles`/`listPackages`). */
   roles: Remote<RoleSummary[]>;
   packages: Remote<PackageSummary[]>;
@@ -129,6 +136,10 @@ export interface ConsoleUi {
    *  daemon's own live `approval` push queue / `sessionMode` hydration read;
    *  never invented locally. */
   pendingApprovalsBySession: Record<string, PendingApprovalItem[]>;
+  /** The last settled turn's usage per session — the daemon's `usage` push (the
+   *  adapters' own settlement numbers; never invented locally). The context ring
+   *  reads it against the active model's window. */
+  usageBySession: Record<string, SessionUsage>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -158,8 +169,10 @@ export interface ConsoleActions {
   selectSession: (id: string) => void;
   newSession: (agentRef: string) => void;
   deleteSession: (id: string) => void;
-  /** Send a prompt to the active session's agent (starts a governed daemon session). */
-  sendMessage: (text: string) => void;
+  /** Send a prompt to the active session's agent (starts a governed daemon session).
+   *  `attachments` ride the same send (images/text files, the shared wire shape);
+   *  omitted/empty ⇒ byte-identical to a plain text send. */
+  sendMessage: (text: string, attachments?: readonly Attachment[]) => void;
   /** Resolve a system banner action (e.g. the drift banner's `recompile`/`keep`).
    *  Always dismisses the banner; `recompile` also refreshes the running prompt. */
   onBannerAction: (sessionId: string, bannerId: string, actionId: string) => void;
@@ -208,6 +221,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       agentDiagnostics: [],
       sessions: { status: 'loading' },
       models: { status: 'loading' },
+      modelMetadata: { status: 'loading' },
       roles: { status: 'loading' },
       packages: { status: 'loading' },
     },
@@ -223,6 +237,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       notesBySession: {},
       modeBySession: {},
       pendingApprovalsBySession: {},
+      usageBySession: {},
     },
     actions,
   };

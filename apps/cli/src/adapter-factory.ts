@@ -11,7 +11,7 @@ import {
   type ProviderSpec,
 } from '@coa/adapter-openai-compat';
 import type { ModelCacheAccount, SessionAdapterInit, SessionStrategy } from '@coa/core';
-import type { ModelDescriptor } from '@coa/shared';
+import { AttachmentCapabilityError, type ModelDescriptor } from '@coa/shared';
 import type { RuntimeAdapter } from '@coa/spi';
 
 /**
@@ -74,6 +74,19 @@ export function supportsApproval(_provider: string): boolean {
 }
 
 /**
+ * Whether `provider`'s backend adapter can carry message attachments — co-located
+ * with {@link createAdapter}/{@link sessionStrategy}/{@link supportsApproval} for the
+ * same single-source-of-truth reason. Every OpenAI-compatible provider maps an
+ * attachment onto the wire (`@coa/loop-driver` → `complete.ts`); the Claude SDK
+ * adapter has no attachment seam yet — its live-turn prompt is a plain string
+ * (docs/adr/0036) — so `claude` honestly reports `false` and the RPC edge refuses
+ * an attachment-carrying send instead of silently dropping it.
+ */
+export function supportsAttachments(provider: string): boolean {
+  return OPENAI_COMPAT_SPECS[provider] !== undefined;
+}
+
+/**
  * Fetch a provider's available models (+ per-model reasoning capabilities), routed
  * by the account's `provider`, and TAG each with that provider so the console can
  * merge every backend into one list and route a session to the model's backend. A
@@ -114,6 +127,8 @@ export function createOpenAiCompatAdapter(
     ...(init.onTurn !== undefined ? { onTurn: init.onTurn } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
+    ...(init.attachments !== undefined ? { attachments: init.attachments } : {}),
+    ...(init.visionSupported !== undefined ? { visionSupported: init.visionSupported } : {}),
     ...(init.signal !== undefined ? { signal: init.signal } : {}),
     ...(init.drainDeliveries !== undefined ? { drainDeliveries: init.drainDeliveries } : {}),
   });
@@ -121,6 +136,14 @@ export function createOpenAiCompatAdapter(
 
 /** Construct the Claude Agent SDK backend, mapping the session core's neutral init onto the SDK adapter's init. */
 export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
+  // Defense-in-depth behind the RPC edge's own refusal ({@link supportsAttachments}):
+  // this adapter's live-turn prompt is a plain string with no seam for an attachment
+  // to ride, so constructing it with one would silently drop it — the one outcome
+  // the wire shape forbids. A typed reject surfaces as an advisory error frame.
+  const first = init.attachments?.[0];
+  if (first !== undefined) {
+    throw new AttachmentCapabilityError(first.kind, init.model?.model ?? 'claude-default');
+  }
   return new ClaudeSdkAdapter({
     sessionId: init.sessionId,
     sandbox: init.sandbox,

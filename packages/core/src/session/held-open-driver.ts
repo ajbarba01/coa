@@ -11,7 +11,7 @@ import { InputChannel } from './input-channel.js';
 import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
-import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
+import { attachSubscriber, emitUsage, type TurnDriverDeps } from './turn-driver.js';
 import { TurnLifecycle } from './turn-lifecycle.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
@@ -307,6 +307,9 @@ async function establishHeldQuery(
       ...buildPersistenceHooks(prep),
       signal: controller.signal,
       drainDeliveries: recorder.takeDeliveries,
+      // One query spans many turns, but settlement fires once per result — so the
+      // usage push still lands per turn, same as the per-turn strategy's.
+      onUsage: (usage) => emitUsage(session, usage),
       onTurnInterrupt: (fn) => {
         query.turnInterrupt = fn;
       },

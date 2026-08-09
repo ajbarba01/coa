@@ -2,7 +2,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { ModelDescriptor } from '@coa/console-viewmodel';
+import type { ModelDescriptor, ModelMetadata } from '@coa/console-viewmodel';
 import { ModelPicker, modelLabel, type ModelPickerProps } from './ModelPicker.js';
 
 const MODELS: ModelDescriptor[] = [
@@ -284,5 +284,81 @@ describe('ModelPicker — field geometry', () => {
       'high',
       'max',
     ]);
+  });
+});
+
+describe('ModelPicker — hover overview card (real metadata, no inline badges)', () => {
+  const METADATA: ModelMetadata[] = [
+    {
+      id: 'sonnet',
+      provider: 'claude',
+      contextWindow: 200_000,
+      maxOutputTokens: 64_000,
+      modalities: { input: ['text', 'image'], output: ['text'] },
+      pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3 },
+      reasoning: true,
+      knowledgeCutoff: '2025-03',
+      source: 'models-dev',
+    },
+  ];
+
+  const card = (): HTMLElement => {
+    const el = document.querySelector('[data-model-overview]');
+    if (!(el instanceof HTMLElement)) throw new Error('overview card missing');
+    return el;
+  };
+
+  it('hovering a row shows that model’s REAL metadata on the card', async () => {
+    const user = userEvent.setup();
+    setup({ metadata: METADATA });
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    await user.hover(screen.getByRole('option', { name: /Sonnet 4.6/ }));
+    const overview = card();
+    expect(overview).toHaveTextContent('200k tokens');
+    expect(overview).toHaveTextContent('64k tokens');
+    expect(overview).toHaveTextContent('text, image → text');
+    expect(overview).toHaveTextContent('$3 in · $15 out /M tokens');
+    expect(overview).toHaveTextContent('$0.3 /M tokens');
+    expect(overview).toHaveTextContent('Yes');
+    expect(overview).toHaveTextContent('2025-03');
+    // The merge tier's provenance, quietly.
+    expect(overview).toHaveTextContent('via models.dev');
+  });
+
+  it('a hovered model the catalog knows nothing about degrades to one honest line', async () => {
+    const user = userEvent.setup();
+    setup({ metadata: METADATA });
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    await user.hover(screen.getByRole('option', { name: /Opus 4.8/ }));
+    expect(card()).toHaveTextContent('No metadata for this model.');
+    expect(card()).not.toHaveTextContent('200k');
+  });
+
+  it('rows stay clean — the card is the ONE place metadata lives', async () => {
+    const user = userEvent.setup();
+    setup({ metadata: METADATA });
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    const row = screen.getByRole('option', { name: /Sonnet 4.6/ });
+    expect(within(row).queryByText(/200k/)).toBeNull();
+    expect(within(row).queryByText(/\$/)).toBeNull();
+  });
+
+  it('arrow keys move the card with the cursor — keyboard gets the same detail as hover', async () => {
+    const user = userEvent.setup();
+    setup({ metadata: METADATA });
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    // Cursor opens on the first row (Sonnet, the known one)…
+    expect(card()).toHaveTextContent('200k tokens');
+    await user.keyboard('{ArrowDown}');
+    // …and follows to the unknown one.
+    expect(card()).toHaveTextContent('No metadata for this model.');
+  });
+
+  it('without a metadata feed there is no card at all (the agent editor’s field today)', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByRole('combobox', { name: 'Model' }));
+    await user.hover(screen.getByRole('option', { name: /Sonnet 4.6/ }));
+    expect(document.querySelector('[data-model-overview]')).toBeNull();
   });
 });

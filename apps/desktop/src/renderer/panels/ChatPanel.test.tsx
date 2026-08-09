@@ -1269,3 +1269,70 @@ describe('toGovernedFrame streaming', () => {
     expect((toGovernedFrame(f) as { streaming?: boolean }).streaming).toBeUndefined();
   });
 });
+
+describe('selectChatVm — per-model info (the ring, the attach gate, the hover-card feed)', () => {
+  const V4_META = {
+    id: 'v4',
+    provider: 'deepseek',
+    contextWindow: 128_000,
+    modalities: { input: ['text', 'image'], output: ['text'] },
+  };
+
+  /** The active session pinned to a vision-capable DeepSeek model, catalog loaded. */
+  const infoState = (ui: Partial<ConsoleState['ui']> = {}): ConsoleState =>
+    makeState({
+      data: {
+        turns: { status: 'ok', value: [] },
+        agents: { status: 'ok', value: MOCK_AGENTS },
+        sessions: {
+          status: 'ok',
+          value: [
+            { ...MOCK_SESSIONS[1]!, model: 'v4', provider: 'deepseek' },
+            ...MOCK_SESSIONS.filter((s) => s.id !== 's-audit-auth'),
+          ],
+        },
+        models: { status: 'ok', value: [{ id: 'v4', provider: 'deepseek' }] },
+        modelMetadata: { status: 'ok', value: [V4_META] },
+      },
+      ui: { activeSessionId: 's-audit-auth', ...ui },
+    });
+
+  it('resolves the ACTIVE model row, a verified-vision attach gate, and the session usage', () => {
+    const vm = selectChatVm(
+      infoState({ usageBySession: { 's-audit-auth': { tokensIn: 10_000, tokensOut: 500 } } }),
+    );
+    if (vm.status !== 'ready') throw new Error('vm not ready');
+    expect(vm.activeModelMetadata).toEqual(V4_META);
+    expect(vm.attach.image).toEqual({ enabled: true });
+    expect(vm.attach.text).toEqual({ enabled: true });
+    expect(vm.ringUsage).toEqual({ tokensIn: 10_000, tokensOut: 500 });
+    // The whole entry list rides too — the picker's hover card resolves ANY row from it.
+    expect(vm.modelMetadata).toEqual([V4_META]);
+  });
+
+  it('a claude-default session disables attachments with the backend reason (no seam yet)', () => {
+    // The plain mock session carries no provider — the claude default, whose
+    // adapter has no attachment seam (docs/adr/0036).
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
+    if (vm.status !== 'ready') throw new Error('vm not ready');
+    expect(vm.attach.image.enabled).toBe(false);
+    expect(vm.attach.text.enabled).toBe(false);
+    expect(vm.attach.image.reason).toBe('This backend cannot carry attachments yet');
+  });
+
+  it('a metadata read still loading degrades to honest unknowns, never a fabricated row', () => {
+    const state = infoState();
+    const vm = selectChatVm({
+      ...state,
+      data: { ...state.data, modelMetadata: { status: 'loading' } },
+    });
+    if (vm.status !== 'ready') throw new Error('vm not ready');
+    expect(vm.activeModelMetadata).toBeUndefined();
+    expect(vm.modelMetadata).toEqual([]);
+    // Backend carries attachments (deepseek), but vision is UNVERIFIED — the image
+    // gate stays closed with the distinct unverified reason.
+    expect(vm.attach.image.enabled).toBe(false);
+    expect(vm.attach.image.reason).toBe('Image support is unverified for this model');
+    expect(vm.attach.text.enabled).toBe(true);
+  });
+});

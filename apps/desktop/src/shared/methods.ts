@@ -3,12 +3,14 @@ import {
   ActiveAccountSchema,
   agentFileSchema,
   approvalDecisionSchema,
+  attachmentSchema,
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
   ListAgentsResultSchema,
   LoginSnapshotSchema,
   ModelCatalogViewSchema,
+  ModelMetadataViewSchema,
   PackageSummaryListSchema,
   permissionModeSchema,
   ReasoningProfileSchema,
@@ -34,6 +36,9 @@ export const StartSessionParamsSchema = z.object({
   /** Assembly selection: opt-in packages added / default packages excluded (role-gated). */
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
+  /** Attachments on this send's user message (the one shared wire shape). The daemon
+   *  refuses them for a backend whose adapter has no seam — never a silent drop. */
+  attachments: z.array(attachmentSchema).optional(),
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
@@ -274,6 +279,7 @@ export type MethodName =
   | 'sessionMode'
   | 'listModels'
   | 'modelCatalog'
+  | 'modelMetadata'
   | 'addModels'
   | 'addCustomModel'
   | 'editModel'
@@ -394,6 +400,13 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   sessionMode: { params: z.object({ id: z.string() }), result: SessionModeResultSchema },
   listModels: { result: z.array(modelDescriptorSchema) },
   modelCatalog: { result: ModelCatalogViewSchema },
+  /** Per-model info (context window/pricing/modalities/reasoning) — the context
+   *  ring, the model-picker hover card, and attach-control capability gating all
+   *  read this. Proxies the daemon `modelMetadata`. */
+  modelMetadata: {
+    params: z.object({ provider: z.string().optional() }).optional(),
+    result: ModelMetadataViewSchema,
+  },
   addModels: {
     params: z.object({ providerId: z.string(), ids: z.array(z.string()) }),
     result: ModelCatalogViewSchema,

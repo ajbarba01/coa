@@ -61,7 +61,8 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0033](0033-a-notice-is-not-a-message.md) — A notice is not a message
 - [0034](0034-a-subagent-is-a-session-with-a-parent-link.md) — A subagent is a session with a parent link
 - [0035](0035-the-close-gate-is-the-only-block.md) — The close gate is the only block; the cost ceiling is archived
+- [0036](0036-model-metadata-catalog-and-attachment-wire-shape.md) — A merged model-metadata catalog, and attachments ride the existing message shape
 
 ---
 
-_Last reviewed: 2026-08-07_
+_Last reviewed: 2026-08-09_

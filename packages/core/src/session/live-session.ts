@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { ModelSelection, PermissionMode, Push, ToolCall, ToolClass } from '@coa/shared';
+import type {
+  Attachment,
+  ModelSelection,
+  PermissionMode,
+  Push,
+  ToolCall,
+  ToolClass,
+} from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
 import type { TurnLifecycle } from './turn-lifecycle.js';
 
@@ -58,6 +65,13 @@ export interface TurnRequest {
   scope?: string;
   packageIds?: string[];
   exclude?: string[];
+  /** Attachments on THIS turn's user message (the one shared wire shape). Rides the
+   *  turn to the backend adapter; absent/empty ⇒ byte-identical to before. */
+  attachments?: readonly Attachment[];
+  /** Whether the turn's model reports image-input support — resolved DAEMON-side
+   *  from the model-metadata catalog at the RPC edge (never client-claimed), and
+   *  consumed by the adapter's image gate. Absent ⇒ unverified, treated as no. */
+  visionSupported?: boolean;
 }
 
 /** A subscriber callback that receives every push fanned out by a session. */

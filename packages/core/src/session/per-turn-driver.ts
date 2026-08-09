@@ -3,7 +3,7 @@ import { createFrameRecorder, type SeqBox, type StartedRef } from './frame-recor
 import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
-import { attachSubscriber, type TurnDriverDeps } from './turn-driver.js';
+import { attachSubscriber, emitUsage, type TurnDriverDeps } from './turn-driver.js';
 import { TurnLifecycle } from './turn-lifecycle.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
 
@@ -46,6 +46,8 @@ export async function runPerTurn(
         ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
         scope: turn.scope ?? '',
         input: turn.input,
+        ...(turn.attachments !== undefined ? { attachments: turn.attachments } : {}),
+        ...(turn.visionSupported !== undefined ? { visionSupported: turn.visionSupported } : {}),
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
         ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
@@ -58,6 +60,7 @@ export async function runPerTurn(
         ...buildPersistenceHooks(prep),
         signal: controller.signal,
         drainDeliveries: recorder.takeDeliveries,
+        onUsage: (usage) => emitUsage(session, usage),
         onStart: (s) => {
           startedRef.current = s;
           session.control = {

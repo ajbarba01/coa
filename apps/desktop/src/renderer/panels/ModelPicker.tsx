@@ -1,7 +1,15 @@
 import { useState } from 'react';
-import type { ModelDescriptor } from '@coa/console-viewmodel';
+import type { ModelDescriptor, ModelMetadata } from '@coa/console-viewmodel';
+import {
+  findModelMetadata,
+  formatModalities,
+  formatPerMillion,
+  formatPricing,
+  formatTokenLimit,
+} from '@coa/console-viewmodel';
 import {
   BrandMark,
+  CapsLabel,
   Combobox,
   cx,
   type BrandMarkSpec,
@@ -177,10 +185,107 @@ export function backendRailItems(models: ModelDescriptor[]): ComboboxRailItem[] 
   ];
 }
 
+/** One fact row on the overview card. Renders nothing without a value — absent
+ *  metadata renders as absent, never as a placeholder. */
+function CardRow({ label, value }: { label: string; value?: string | undefined }): React.ReactNode {
+  if (value === undefined) return null;
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-3 py-0.5">
+      <span className="text-fine text-s7">{label}</span>
+      <span className="text-right font-mono text-meta text-s10">{value}</span>
+    </div>
+  );
+}
+
+/** The merge tier's honest provenance line, for the card's quiet footer. */
+function sourceLabel(source: ModelMetadata['source']): string | undefined {
+  if (source === 'models-dev') return 'via models.dev';
+  if (source === 'openrouter') return 'via OpenRouter';
+  if (source === 'static') return 'built-in data';
+  return undefined;
+}
+
+/**
+ * The hover overview card — the ONE place a model's real metadata lives (rows stay
+ * clean of inline badges). Every row is real catalog data; a model the catalog has
+ * nothing on says so in one honest line rather than showing fabricated defaults.
+ * Exported for direct testing.
+ */
+export function ModelOverviewCard({
+  model,
+  row,
+}: {
+  model: ModelDescriptor;
+  row: ModelMetadata | undefined;
+}): React.JSX.Element {
+  const provider = providerOf(model);
+  const cacheRead = row?.pricing?.cacheReadPerMillion;
+  const known =
+    row !== undefined &&
+    (row.contextWindow !== undefined ||
+      row.maxOutputTokens !== undefined ||
+      row.modalities !== undefined ||
+      row.pricing !== undefined ||
+      row.reasoning !== undefined ||
+      row.knowledgeCutoff !== undefined);
+  const source = known ? sourceLabel(row.source) : undefined;
+  return (
+    <div data-model-overview className="py-1">
+      <div className="flex items-center gap-2 px-3 pt-1.5 pb-1">
+        <BrandMark spec={providerMark(provider)} size={15} />
+        <span className="min-w-0 truncate font-[550] text-[12px] text-s11">
+          {modelLabel(model)}
+        </span>
+      </div>
+      <div className="px-3 pb-1 font-mono text-fine break-all text-s6">{model.id}</div>
+      {!known ? (
+        <div className="px-3 py-1.5 text-fine text-s7">No metadata for this model.</div>
+      ) : (
+        <div className="border-t border-s3 pt-1 pb-0.5">
+          <CapsLabel>Model info</CapsLabel>
+          <CardRow
+            label="Context"
+            value={
+              row.contextWindow !== undefined
+                ? `${formatTokenLimit(row.contextWindow)} tokens`
+                : undefined
+            }
+          />
+          <CardRow
+            label="Max output"
+            value={
+              row.maxOutputTokens !== undefined
+                ? `${formatTokenLimit(row.maxOutputTokens)} tokens`
+                : undefined
+            }
+          />
+          <CardRow label="Modalities" value={formatModalities(row.modalities)} />
+          <CardRow label="Pricing" value={formatPricing(row.pricing)} />
+          <CardRow
+            label="Cache read"
+            value={cacheRead !== undefined ? `${formatPerMillion(cacheRead)} /M tokens` : undefined}
+          />
+          <CardRow
+            label="Reasoning"
+            value={row.reasoning === undefined ? undefined : row.reasoning ? 'Yes' : 'No'}
+          />
+          <CardRow label="Knowledge cutoff" value={row.knowledgeCutoff} />
+          {source !== undefined && (
+            <div className="px-3 pt-1 pb-0.5 text-fine text-s6">{source}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface ModelPickerProps {
   models: ModelDescriptor[];
   value: string | undefined;
   onChange: (modelId: string) => void;
+  /** Per-model catalog rows for the hover overview card; absent ⇒ no card (the
+   *  agent editor's field keeps its current, card-less behavior). */
+  metadata?: ModelMetadata[];
   /** The model's own ladder — the `bordered` field's second axis, rendered beneath it.
    *  Absent or empty ⇒ no reasoning surface (a thinking-only model has no ladder to
    *  offer). The `chip` variant never renders one: on the composer's shelf reasoning is
@@ -199,6 +304,7 @@ export function ModelPicker({
   models,
   value,
   onChange,
+  metadata,
   effortOptions = [],
   effortValue = '',
   onEffortChange,
@@ -261,6 +367,23 @@ export function ModelPicker({
           // must not write an empty model id onto the caller.
           if (id !== '') onChange(id);
         }}
+        {...(metadata !== undefined
+          ? {
+              // The hover overview card (detail is proximity): whatever row the cursor
+              // rests on shows its REAL metadata beside the popup; the rows themselves
+              // stay clean of inline badges.
+              detail: (o: ComboboxOption) => {
+                const m = models.find((candidate) => candidate.id === o.value);
+                if (m === undefined) return null;
+                return (
+                  <ModelOverviewCard
+                    model={m}
+                    row={findModelMetadata(metadata, providerOf(m), m.id)}
+                  />
+                );
+              },
+            }
+          : {})}
       />
       {hasEffort && (
         <EffortLadder
