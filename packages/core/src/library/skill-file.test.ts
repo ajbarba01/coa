@@ -66,6 +66,27 @@ describe('parseSkillFile', () => {
     expect(skill.body).toBe('body\r\n');
   });
 
+  it('parses a file whose bytes open with a UTF-8 BOM', () => {
+    const skill = parseSkillFile('﻿---\nname: bom\ndescription: d\n---\nbody', 'from-dir');
+    expect(skill.name).toBe('bom');
+    expect(skill.description).toBe('d');
+    expect(skill.body).toBe('body');
+  });
+
+  it('accepts an EMPTY front-matter block (the whole file falls back to the directory name)', () => {
+    const skill = parseSkillFile('---\n---\nbody', 'from-dir');
+    expect(skill.name).toBe('from-dir');
+    expect(skill.description).toBe('');
+    expect(skill.body).toBe('body');
+    expect(skill.ccKeys).toBeUndefined();
+  });
+
+  it('accepts an empty front-matter block with CRLF endings', () => {
+    const skill = parseSkillFile('---\r\n---\r\nbody\r\n', 'from-dir');
+    expect(skill.name).toBe('from-dir');
+    expect(skill.body).toBe('body\r\n');
+  });
+
   it('throws on a file without a front-matter block', () => {
     expect(() => parseSkillFile('# Just markdown\n', 'x')).toThrow(/front-matter/);
   });
