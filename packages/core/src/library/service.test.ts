@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LibraryService } from './service.js';
-import { copiedSkillPath, libraryStoreDir } from './store.js';
+import { copiedSkillPath, libraryStoreDir, libraryStoreFilePath } from './store.js';
 
 /** A fresh synthetic home+project pair per test — never the real home. */
 function fixture(): { home: string; projectRoot: string; service: LibraryService } {
@@ -189,32 +189,33 @@ describe('LibraryService.unlink / setEnabled', () => {
     // Hand-write the project store the way a hostile repo clone would carry it.
     const storeDir = libraryStoreDir(home, projectRoot, 'project');
     mkdirSync(storeDir, { recursive: true });
-    writeFileSync(
-      join(storeDir, 'library.json'),
-      JSON.stringify({
-        version: 1,
-        records: [
-          {
-            name: '../../../victim',
-            kind: 'skill',
-            mode: 'copy',
-            enabled: true,
-            source: { path: join(projectRoot, 'victim', 'SKILL.md') },
-            provenance: { sourcePath: join(projectRoot, 'victim', 'SKILL.md'), contentHash: 'x' },
-          },
-        ],
-      }),
-    );
+    const storePath = join(storeDir, 'library.json');
+    const storeText = JSON.stringify({
+      version: 1,
+      records: [
+        {
+          name: '../../../victim',
+          kind: 'skill',
+          mode: 'copy',
+          enabled: true,
+          source: { path: join(projectRoot, 'victim', 'SKILL.md') },
+          provenance: { sourcePath: join(projectRoot, 'victim', 'SKILL.md'), contentHash: 'x' },
+        },
+      ],
+    });
+    writeFileSync(storePath, storeText);
 
     // The crafted record must never load as a live entry (only a diagnostic)…
     const view = service.list();
     expect(view.entries).toEqual([]);
     expect(view.diagnostics.some((d) => d.problem === 'invalid')).toBe(true);
-    // …so unlink finds nothing, and the victim directory survives untouched.
-    expect(service.unlink({ kind: 'skill', scope: 'project', name: '../../../victim' })).toBe(
-      false,
-    );
+    // …and a mutation against the store refuses (a save would drop the crafted
+    // record silently), leaving both the victim and the store bytes untouched.
+    expect(() =>
+      service.unlink({ kind: 'skill', scope: 'project', name: '../../../victim' }),
+    ).toThrow(/refusing to modify/);
     expect(existsSync(join(victimDir, 'precious.txt'))).toBe(true);
+    expect(readFileSync(storePath, 'utf8')).toBe(storeText);
   });
 
   it('setEnabled flips the flag and throws for an unknown entry', () => {
@@ -229,6 +230,76 @@ describe('LibraryService.unlink / setEnabled', () => {
     expect(() =>
       service.setEnabled({ kind: 'skill', scope: 'personal', name: 'ghost' }, true),
     ).toThrow(/no skill entry/);
+  });
+});
+
+describe('LibraryService mutation refusal on a lossy store load', () => {
+  // A committed project store mid-merge — an everyday broken state for a file
+  // that lives in version control. It must never be silently replaced.
+  const CONFLICTED = [
+    '{',
+    '  "version": 1,',
+    '<<<<<<< HEAD',
+    '  "records": [{ "name": "ours", "kind": "skill", "mode": "reference", "enabled": true, "source": { "path": "/a/SKILL.md" } }]',
+    '=======',
+    '  "records": [{ "name": "theirs", "kind": "skill", "mode": "reference", "enabled": true, "source": { "path": "/b/SKILL.md" } }]',
+    '>>>>>>> other',
+    '}',
+    '',
+  ].join('\n');
+
+  function writeStore(home: string, projectRoot: string, text: string): string {
+    const path = libraryStoreFilePath(libraryStoreDir(home, projectRoot, 'project'));
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+    return path;
+  }
+
+  it('link refuses to write over an unparseable store; the conflicted file survives byte-for-byte', () => {
+    const { home, projectRoot, service } = fixture();
+    const storePath = writeStore(home, projectRoot, CONFLICTED);
+    const skillPath = writeSkill(join(home, '.claude', 'skills'), 'commits');
+    expect(() =>
+      service.link({ kind: 'skill', scope: 'project', source: { path: skillPath } }),
+    ).toThrow(/refusing to modify/);
+    expect(readFileSync(storePath, 'utf8')).toBe(CONFLICTED);
+  });
+
+  it('a no-op unlink against an unparseable store refuses instead of rewriting it empty', () => {
+    const { home, projectRoot, service } = fixture();
+    const storePath = writeStore(home, projectRoot, CONFLICTED);
+    expect(() => service.unlink({ kind: 'skill', scope: 'project', name: 'ghost' })).toThrow(
+      /refusing to modify/,
+    );
+    expect(readFileSync(storePath, 'utf8')).toBe(CONFLICTED);
+  });
+
+  it('one invalid record among valid ones also refuses — a save would silently drop it', () => {
+    const { home, projectRoot, service } = fixture();
+    const skillPath = writeSkill(join(home, '.claude', 'skills'), 'commits');
+    const text = JSON.stringify({
+      version: 1,
+      records: [
+        {
+          name: 'commits',
+          kind: 'skill',
+          mode: 'reference',
+          enabled: true,
+          source: { path: skillPath },
+        },
+        { name: 'half-a-record' },
+      ],
+    });
+    const storePath = writeStore(home, projectRoot, text);
+    expect(() =>
+      service.setEnabled({ kind: 'skill', scope: 'project', name: 'commits' }, false),
+    ).toThrow(/refusing to modify/);
+    expect(readFileSync(storePath, 'utf8')).toBe(text);
+    // The healthy PERSONAL store is untouched by the project store's problems.
+    const path = writeSkill(join(home, '.claude', 'skills'), 'other');
+    expect(() =>
+      service.link({ kind: 'skill', scope: 'personal', source: { path } }),
+    ).not.toThrow();
   });
 });
 

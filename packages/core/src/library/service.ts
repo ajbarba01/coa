@@ -228,6 +228,18 @@ export class LibraryService {
   #mutate(scope: LibraryScope, change: (file: LibraryStoreFile) => LibraryStoreFile): void {
     const path = this.#storeFilePath(scope);
     const loaded = loadStoreFile(path, scope, this.#storeIO);
+    // Any load diagnostic means content on disk the loaded file does NOT carry
+    // (an unparseable store — e.g. merge-conflict markers in the committed
+    // project file — or an invalid/duplicate record). Saving that lossy view
+    // back would silently destroy the content, and the personal store has no
+    // VCS safety net; refuse the whole mutation BEFORE change() runs so its
+    // side effects (materialized files, directory removals) never fire either.
+    if (loaded.diagnostics.length > 0) {
+      const details = loaded.diagnostics.map((d) => d.detail).join('; ');
+      throw new Error(
+        `refusing to modify the ${scope} library store — ${path} has content that did not load cleanly and a save would destroy it (fix or remove the file first): ${details}`,
+      );
+    }
     saveStoreFile(path, change(loaded.file), this.#storeIO);
   }
 
