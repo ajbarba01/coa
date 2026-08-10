@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CapabilitySet, NeutralConfig } from '@coa/shared';
+import type { CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type {
   BackendConfig,
   CanUseTool,
@@ -8,12 +8,35 @@ import type {
   RuntimeUsage,
   StopPredicate,
 } from '@coa/spi';
+import { SKILL_INDEX_PIECE_NAME } from '../library/injection.js';
 import {
   createSession,
   closeSession,
   type SessionAdapterInit,
   type SessionDeps,
 } from './session.js';
+
+const AXES = {
+  delivery: 'push',
+  salience: 'never',
+  provenance: 'authored',
+} as const satisfies Piece['axes'];
+
+/** One library skill delivered on demand (a `pull` Piece — no renderer folds it in). */
+const pullSkill = (name: string): Piece => ({
+  name,
+  description: `${name} skill`,
+  body: 'b',
+  axes: { ...AXES, delivery: 'pull' },
+});
+
+/** The aggregated advertisement `resolveSkillConfigs` appends for a disclosure set. */
+const skillIndex = (): Piece => ({
+  name: SKILL_INDEX_PIECE_NAME,
+  description: 'the on-demand skills available to this agent',
+  body: 'load its full instructions with the get_piece tool',
+  axes: AXES,
+});
 
 const NEUTRAL: NeutralConfig = {
   prefixHead: [],
@@ -190,6 +213,52 @@ describe('createSession', () => {
     // The resolved server is NOT named as unavailable.
     const messages = frames.map((f) => (f as { message?: string }).message ?? '');
     expect(messages.some((m) => m.includes('gh,') || m.includes(' gh '))).toBe(false);
+  });
+
+  it('compiles no on-demand-skill advertisement when the frame grants no pull tool, and says so', async () => {
+    // The advertisement names `get_piece`; a role whose packages do not grant it
+    // would otherwise be told to pull with a tool the session never registers.
+    const pieces = [pullSkill('commits'), skillIndex()];
+    let compiled: Piece[] | undefined;
+    const h = harness({
+      assemblePieces: () => ({ pieces, frame: { allow: ['Read', 'Edit'], deny: [] } }),
+      compile: (p) => {
+        compiled = p;
+        return NEUTRAL;
+      },
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', onTurn: (frame) => frames.push(frame) },
+      h.deps,
+    );
+    expect(compiled?.map((p) => p.name)).toEqual(['commits']);
+    expect(frames).toContainEqual(
+      expect.objectContaining({
+        t: 'error',
+        origin: 'daemon',
+        message: expect.stringContaining('commits'),
+      }),
+    );
+  });
+
+  it('keeps the on-demand-skill advertisement when the frame grants the pull tool', async () => {
+    const pieces = [pullSkill('commits'), skillIndex()];
+    let compiled: Piece[] | undefined;
+    const h = harness({
+      assemblePieces: () => ({ pieces, frame: { allow: ['get_piece'], deny: [] } }),
+      compile: (p) => {
+        compiled = p;
+        return NEUTRAL;
+      },
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', onTurn: (frame) => frames.push(frame) },
+      h.deps,
+    );
+    expect(compiled?.map((p) => p.name)).toEqual(['commits', SKILL_INDEX_PIECE_NAME]);
+    expect(frames).toEqual([]);
   });
 
   it('reuses a frozen compilation without re-surfacing MCP resolution (assembly skipped)', async () => {

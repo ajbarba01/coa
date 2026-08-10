@@ -19,6 +19,7 @@ import type {
   ToolCatalogue,
   TurnInterrupt,
 } from '@coa/spi';
+import { reconcileSkillIndex } from '../library/injection.js';
 import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import { buildCanUseTool, buildStopGate, type ModeDeps } from './permission.js';
@@ -365,8 +366,20 @@ export async function createSession(
       ...(req.skills !== undefined ? { skills: req.skills } : {}),
     });
     frame = assembled.frame;
-    neutral = deps.compile(assembled.pieces, frame);
+    // The on-demand skill advertisement names a tool, and only the resolved frame
+    // knows whether this session carries it. Reconcile before compiling so the
+    // prompt never points the model at a hole; the dropped skills get the same
+    // visible line the unresolved MCP servers below get (SC-1: surface, never lie).
+    const disclosure = reconcileSkillIndex(assembled.pieces, frame);
+    neutral = deps.compile(disclosure.pieces, frame);
     req.onCompile?.({ neutral, frame });
+    if (disclosure.unadvertised.length > 0) {
+      req.onTurn?.({
+        t: 'error',
+        origin: 'daemon',
+        message: `library skill(s) set to load on demand were not advertised this session: ${disclosure.unadvertised.join(', ')} — this agent's packages grant no get_piece tool, so nothing could pull them (add a package that grants it, or set the skill's delivery to auto). They stay invocable by name.`,
+      });
+    }
     // A package-referenced external MCP server the library did not resolve gets a
     // visible line, never a silent drop (SC-1). Only a compile turn can know the
     // assembly's name list; a frozen turn already surfaced it when it compiled.

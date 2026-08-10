@@ -4,7 +4,9 @@ import {
   createSessionLibraryPort,
   effectiveMcpServers,
   effectiveSkills,
+  grantsPiecePull,
   listInvocableSkills,
+  reconcileSkillIndex,
   resolveInvocation,
   resolveMcpServers,
   resolveSkillConfigs,
@@ -196,6 +198,45 @@ describe('effectiveMcpServers / resolveMcpServers', () => {
     expect(resolveMcpServers(v)).toEqual({
       gh: { transport: 'http', url: 'https://project.example' },
     });
+  });
+});
+
+describe('reconcileSkillIndex', () => {
+  const disclosed = (): Piece[] =>
+    resolveSkillConfigs(view([skillEntry('commits', 'project')]), [
+      { name: 'commits', delivery: 'disclosure' },
+    ]).pieces;
+
+  it('reads the frame the way the transport does: empty allow is unrestricted', () => {
+    expect(grantsPiecePull({ allow: [], deny: [] })).toBe(true);
+    expect(grantsPiecePull({ allow: ['get_piece', 'Read'], deny: [] })).toBe(true);
+    expect(grantsPiecePull({ allow: ['Read', 'Edit'], deny: [] })).toBe(false);
+    expect(grantsPiecePull({ allow: [], deny: ['get_piece'] })).toBe(false);
+  });
+
+  it('keeps the advertisement when the frame grants the pull tool', () => {
+    const pieces = disclosed();
+    const out = reconcileSkillIndex(pieces, { allow: ['get_piece'], deny: [] });
+    expect(out.pieces.map((p) => p.name)).toEqual(pieces.map((p) => p.name));
+    expect(out.unadvertised).toEqual([]);
+  });
+
+  it('drops the advertisement — and names the skill — when the frame grants no pull tool', () => {
+    // The regression: a role whose packages carry no `get_piece` used to still be
+    // told to pull with it, and the pull would fail tool-not-found in silence.
+    const out = reconcileSkillIndex(disclosed(), { allow: ['Read', 'Edit'], deny: [] });
+    expect(out.pieces.map((p) => p.name)).toEqual(['commits']);
+    expect(out.pieces.some((p) => p.name === SKILL_INDEX_PIECE_NAME)).toBe(false);
+    expect(out.unadvertised).toEqual(['commits']);
+  });
+
+  it('is a pass-through when nothing was advertised in the first place', () => {
+    const pieces = resolveSkillConfigs(view([skillEntry('commits', 'project')]), [
+      { name: 'commits', delivery: 'auto' },
+    ]).pieces;
+    const out = reconcileSkillIndex(pieces, { allow: ['Read'], deny: [] });
+    expect(out.pieces).toEqual(pieces);
+    expect(out.unadvertised).toEqual([]);
   });
 });
 

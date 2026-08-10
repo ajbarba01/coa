@@ -1,6 +1,7 @@
 import { pieceSchema } from '@coa/shared';
 import type {
   AgentSkillConfig,
+  CapabilityFrame,
   InvocableSkill,
   LibraryScope,
   LibraryView,
@@ -103,6 +104,9 @@ export interface ResolvedSkillSet {
 /** The aggregated advertisement Piece's name (deduped like any other Piece name). */
 export const SKILL_INDEX_PIECE_NAME = 'library-skills-index';
 
+/** The governed catalogue tool the advertisement below names as the pull channel. */
+const PIECE_PULL_TOOL = 'get_piece';
+
 /**
  * The progressive-disclosure advertisement: `pull` Pieces route to the neutral
  * config's `onDemandPullable` (names only — no renderer folds them into the
@@ -112,6 +116,10 @@ export const SKILL_INDEX_PIECE_NAME = 'library-skills-index';
  * channel the Piece axes already model, not a parallel mechanism. (The
  * vanilla-SKILL.md disclosure floor, per Claude Code's own skill preamble
  * convention: advertise name+description, load the body on demand.)
+ *
+ * Built optimistically here — resolution runs before assembly, so the session's
+ * tool frame is not known yet. {@link reconcileSkillIndex} is what makes the
+ * claim true: it drops this Piece on a session whose frame carries no pull tool.
  */
 function skillIndexPiece(skills: readonly { name: string; description: string }[]): Piece {
   const rows = skills
@@ -160,6 +168,49 @@ export function resolveSkillConfigs(
 
   if (disclosed.length > 0) pieces.push(skillIndexPiece(disclosed));
   return { pieces, selection, missing };
+}
+
+/**
+ * Does this session's resolved frame actually carry the pull tool the
+ * advertisement names? An EMPTY `allow` is the unrestricted floor (every
+ * catalogue tool is registered); a restricting frame carries exactly the tools it
+ * names, and `get_piece` rides only on the packages that list it. So an agent
+ * whose roles bring none of them has no pull channel at all.
+ */
+export function grantsPiecePull(frame: CapabilityFrame): boolean {
+  if (frame.deny.includes(PIECE_PULL_TOOL)) return false;
+  return frame.allow.length === 0 || frame.allow.includes(PIECE_PULL_TOOL);
+}
+
+/**
+ * Keep the disclosure advertisement honest against the frame the session actually
+ * resolved: drop the index Piece when this session carries no `get_piece`, and
+ * name the skills that went unadvertised so the caller can surface them.
+ *
+ * Advertising a tool the session does not have would fail the pull as
+ * tool-not-found with nothing surfaced — the model would be told to reach for a
+ * hole. The alternative degrade (silently promoting `disclosure` to `push`) was
+ * rejected: it rewrites the user's per-skill delivery choice, inflates the prompt
+ * without asking, and leaves the recorded skill selection describing a prompt that
+ * was never compiled. Saying nothing and surfacing why is the honest floor — the
+ * skill stays `/name`-invocable, and the user can add a granting package or flip
+ * the delivery themselves.
+ *
+ * Only the compile path can run this: the frame exists only once assembly has
+ * resolved, and a frozen turn already carries a prompt this ran against.
+ */
+export function reconcileSkillIndex(
+  pieces: readonly Piece[],
+  frame: CapabilityFrame,
+): { pieces: Piece[]; unadvertised: string[] } {
+  const advertised = pieces.some((p) => p.name === SKILL_INDEX_PIECE_NAME);
+  if (!advertised || grantsPiecePull(frame)) return { pieces: [...pieces], unadvertised: [] };
+  return {
+    pieces: pieces.filter((p) => p.name !== SKILL_INDEX_PIECE_NAME),
+    unadvertised: pieces
+      .filter((p) => p.name !== SKILL_INDEX_PIECE_NAME && p.axes.delivery === 'pull')
+      .map((p) => p.name),
+  };
 }
 
 /** A slash invocation's resolved payload: the body that reaches that one turn's context. */
