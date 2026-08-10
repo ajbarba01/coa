@@ -41,6 +41,22 @@ export {
 export { AgentRegistry } from './session/agent-defs.js';
 export { LibraryService, type LibraryServiceDeps } from './library/service.js';
 export { skillToPiece } from './library/skill-piece.js';
+export {
+  createSessionLibraryPort,
+  effectiveMcpServers,
+  effectiveSkills,
+  listInvocableSkills,
+  resolveInvocation,
+  resolveMcpServers,
+  resolveSkillConfigs,
+  SKILL_INDEX_PIECE_NAME,
+  type EffectiveMcpServer,
+  type EffectiveSkill,
+  type InvokedSkillPayload,
+  type ResolvedSkillSet,
+  type SessionLibraryDeps,
+  type SessionLibraryPort,
+} from './library/injection.js';
 export { buildLibraryHandlers, type LibraryPorts } from './rpc/library-handlers.js';
 export { composeSessionDeps, type SessionWiring } from './session/composition.js';
 export { buildSessionHandlers, type SessionCapabilities } from './session/session-handlers.js';

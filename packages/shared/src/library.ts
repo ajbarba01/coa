@@ -222,3 +222,16 @@ export const agentSkillConfigSchema = z.object({
   delivery: z.enum(['auto', 'disclosure']).default('auto'),
 });
 export type AgentSkillConfig = z.infer<typeof agentSkillConfigSchema>;
+
+/**
+ * One skill the composer can invoke by name (`/skill` — an explicit one-turn
+ * load): the `listSkills` verb's row. `name` is the LIBRARY identity (the store
+ * record's name, which the scope fold already deduplicated), not the SKILL.md
+ * front-matter name — invocation and per-agent config both key on it.
+ */
+export const invocableSkillSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  scope: libraryScopeSchema,
+});
+export type InvocableSkill = z.infer<typeof invocableSkillSchema>;

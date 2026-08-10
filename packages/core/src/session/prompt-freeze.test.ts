@@ -61,6 +61,40 @@ describe('configHashOf', () => {
     expect(configHashOf({ role: 'swe', packageIds: ['docs'], exclude: ['core'] })).not.toBe(base);
     expect(configHashOf({ role: 'swe', packageIds: ['research'], exclude: [] })).not.toBe(base);
   });
+
+  it('hashes a skill-less config byte-identically to a pre-library one (no upgrade banner)', () => {
+    expect(configHashOf({ role: 'swe', skills: [] })).toBe(configHashOf({ role: 'swe' }));
+  });
+
+  it('folds the skill selection in: adding a skill or flipping delivery is drift', () => {
+    const none = configHashOf({ role: 'swe' });
+    const auto = configHashOf({ role: 'swe', skills: [{ name: 'commits', delivery: 'auto' }] });
+    const disclosed = configHashOf({
+      role: 'swe',
+      skills: [{ name: 'commits', delivery: 'disclosure' }],
+    });
+    expect(auto).not.toBe(none);
+    expect(disclosed).not.toBe(auto);
+  });
+
+  it('treats the skill selection as a set (order- and duplicate-independent)', () => {
+    const a = configHashOf({
+      role: 'swe',
+      skills: [
+        { name: 'a', delivery: 'auto' },
+        { name: 'b', delivery: 'disclosure' },
+      ],
+    });
+    const b = configHashOf({
+      role: 'swe',
+      skills: [
+        { name: 'b', delivery: 'disclosure' },
+        { name: 'a', delivery: 'auto' },
+        { name: 'A', delivery: 'disclosure' }, // case-folded duplicate: first occurrence wins
+      ],
+    });
+    expect(a).toBe(b);
+  });
 });
 
 describe('promptHasDrifted', () => {

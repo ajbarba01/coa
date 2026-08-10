@@ -1,13 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AgentSkillConfig,
   Attachment,
+  McpServerEntry,
   ModelSelection,
   PermissionMode,
+  Piece,
   Push,
   ToolCall,
   ToolClass,
 } from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
+import type { InvokedSkill } from './skill-invocation.js';
 import type { TurnLifecycle } from './turn-lifecycle.js';
 
 /** The system-wide mode floor a session with no agent-resolved default falls back
@@ -72,6 +76,20 @@ export interface TurnRequest {
    *  from the model-metadata catalog at the RPC edge (never client-claimed), and
    *  consumed by the adapter's image gate. Absent ⇒ unverified, treated as no. */
   visionSupported?: boolean;
+  /** The library-resolved skill selection this turn's agent carries ({name, delivery}
+   *  per resolved skill) — the drift key's skill slice (prompt-freeze.ts). Resolved
+   *  DAEMON-side per turn (`SessionService`'s library port), so a library change
+   *  surfaces as drift on the very next send. */
+  skillSelection?: AgentSkillConfig[];
+  /** The resolved skill Pieces (delivery-mapped push/pull) the assembly injects on a
+   *  fresh compile — the same facts `skillSelection` records, in injectable form. */
+  skillPieces?: Piece[];
+  /** Explicit slash invocations riding THIS turn: each skill's body reaches this one
+   *  turn's context even in disclosure mode (see skill-invocation.ts). */
+  invokedSkills?: InvokedSkill[];
+  /** The library-resolved external MCP servers (name → config) delivered to this
+   *  turn's backend adapter (native on the Claude SDK; a surfaced degrade elsewhere). */
+  mcpServers?: Record<string, McpServerEntry>;
 }
 
 /** A subscriber callback that receives every push fanned out by a session. */

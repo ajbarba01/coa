@@ -134,6 +134,87 @@ describe('createSession', () => {
     expect(seen).toMatchObject({ packageIds: ['research'], exclude: ['core'] });
   });
 
+  it('threads library skill Pieces into assemblePieces and the MCP map into the adapter init', async () => {
+    let seen: Parameters<SessionDeps['assemblePieces']>[0] | undefined;
+    const h = harness({
+      assemblePieces: (ctx) => {
+        seen = ctx;
+        return { pieces: [], frame: { allow: [], deny: [] } };
+      },
+    });
+    const skill = {
+      name: 'commits',
+      description: 'd',
+      body: 'b',
+      axes: {
+        delivery: 'push' as const,
+        salience: 'never' as const,
+        provenance: 'authored' as const,
+      },
+    };
+    const mcpServers = { gh: { transport: 'http' as const, url: 'https://mcp.example' } };
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', skills: [skill], mcpServers },
+      h.deps,
+    );
+    expect(seen?.skills).toEqual([skill]);
+    expect(h.adapter()?.init.mcpServers).toEqual(mcpServers);
+  });
+
+  it('surfaces a package-referenced MCP server the library did not resolve (never silent)', async () => {
+    const h = harness({
+      assemblePieces: () => ({
+        pieces: [],
+        frame: { allow: [], deny: [] },
+        mcpServers: ['gh', 'ghost'],
+      }),
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      {
+        role: 'swe',
+        scope: 'src',
+        input: 'go',
+        mcpServers: { gh: { transport: 'http', url: 'https://mcp.example' } },
+        onTurn: (frame) => frames.push(frame),
+      },
+      h.deps,
+    );
+    expect(frames).toContainEqual(
+      expect.objectContaining({
+        t: 'error',
+        origin: 'daemon',
+        message: expect.stringContaining('ghost'),
+      }),
+    );
+    // The resolved server is NOT named as unavailable.
+    const messages = frames.map((f) => (f as { message?: string }).message ?? '');
+    expect(messages.some((m) => m.includes('gh,') || m.includes(' gh '))).toBe(false);
+  });
+
+  it('reuses a frozen compilation without re-surfacing MCP resolution (assembly skipped)', async () => {
+    let assembled = 0;
+    const h = harness({
+      assemblePieces: () => {
+        assembled += 1;
+        return { pieces: [], frame: { allow: [], deny: [] }, mcpServers: ['ghost'] };
+      },
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      {
+        role: 'swe',
+        scope: 'src',
+        input: 'go',
+        frozen: { neutral: NEUTRAL, frame: { allow: [], deny: [] } },
+        onTurn: (frame) => frames.push(frame),
+      },
+      h.deps,
+    );
+    expect(assembled).toBe(0);
+    expect(frames).toEqual([]);
+  });
+
   it('wires the settlement callback to the cost charge', async () => {
     const h = harness();
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);

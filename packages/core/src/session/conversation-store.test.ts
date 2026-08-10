@@ -357,4 +357,31 @@ describe('conversation store', () => {
     writeFileSync(join(dir, 'c1', 'compilation.json'), '{ not json', 'utf8');
     expect(store.getCompilation('c1')).toBeUndefined();
   });
+
+  it('round-trips the injected skill selection on the stored compilation (the drift key survives a reopen)', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    store.setCompilation('c1', {
+      neutral: {
+        prefixHead: [],
+        systemReminders: [],
+        onDemandPullable: ['review'],
+        scopePushed: [],
+        toolIntents: { allow: [], deny: [] },
+      },
+      frame: { allow: [], deny: [] },
+      promptVersion: 'pv',
+      configHash: 'cfg',
+      config: {
+        role: 'swe',
+        skills: [
+          { name: 'commits', delivery: 'auto' },
+          { name: 'review', delivery: 'disclosure' },
+        ],
+      },
+    });
+    expect(createConversationStore(dir, fakeClock()).getCompilation('c1')?.config.skills).toEqual([
+      { name: 'commits', delivery: 'auto' },
+      { name: 'review', delivery: 'disclosure' },
+    ]);
+  });
 });

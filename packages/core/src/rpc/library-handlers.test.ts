@@ -46,6 +46,10 @@ function makePorts(): { ports: LibraryPorts; calls: string[] } {
         if (ref.name === 'ghost') throw new Error('no such entry');
         return summary;
       },
+      invocable: () => {
+        calls.push('invocable');
+        return [{ name: 'commits', description: 'commit discipline', scope: 'personal' }];
+      },
     },
   };
 }
@@ -66,6 +70,18 @@ describe('buildLibraryHandlers', () => {
     expect(list).toMatchObject({ result: emptyView });
     expect(rescan).toMatchObject({ result: emptyView });
     expect(calls).toEqual(['list', 'list']);
+  });
+
+  it('serves listSkills from the invocable port (the composer /skill picker)', async () => {
+    const { ports, calls } = makePorts();
+    const handlers = buildLibraryHandlers(ports);
+    const response = await dispatch(req('listSkills'), handlers);
+    expect(response).toMatchObject({
+      result: {
+        skills: [{ name: 'commits', description: 'commit discipline', scope: 'personal' }],
+      },
+    });
+    expect(calls).toEqual(['invocable']);
   });
 
   it('validates link params at the edge and passes them through', async () => {

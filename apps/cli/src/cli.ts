@@ -18,9 +18,11 @@ import {
   connectClient,
   createConversationStore,
   createMessageLog,
+  createSessionLibraryPort,
   defaultDaemonPath,
   effectiveModels,
   LibraryService,
+  listInvocableSkills,
   LiveSessionRegistry,
   MODEL_PROVIDERS,
   ModelCatalogStore,
@@ -343,6 +345,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     copy: (args) => library.copy(args),
     unlink: (ref) => library.unlink(ref),
     setEnabled: (ref, enabled) => library.setEnabled(ref, enabled),
+    invocable: () => listInvocableSkills(library.list()),
   });
   // The agent-definition registry: built-in ∪ ~/.coa/agents ∪ <repo>/.coa/agents.
   const agentRegistry = new AgentRegistry(home, root);
@@ -392,6 +395,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     store,
     listAgents: () => agentRegistry.list().agents,
     messageLog,
+    // Skill injection + slash invocation + external MCP delivery, resolved fresh per
+    // turn from the same declarative library the verbs above manage. Resolved skill
+    // Pieces are also registered into the kernel piece store, which is what makes a
+    // disclosure skill's body genuinely pullable via the governed `get_piece` tool.
+    library: createSessionLibraryPort({
+      list: () => library.list(),
+      registerPiece: (piece) => handle.kernel.registerPiece(piece),
+    }),
   });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The

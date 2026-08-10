@@ -2,6 +2,7 @@ import {
   libraryKindSchema,
   libraryScopeSchema,
   librarySourceSchema,
+  type InvocableSkill,
   type LibrarySummary,
   type LibraryView,
 } from '@coa/shared';
@@ -28,6 +29,9 @@ export interface LibraryPorts {
   /** `false` means there was nothing there to remove (a second unlink is a no-op). */
   unlink: (ref: EntryRef) => boolean;
   setEnabled: (ref: EntryRef, enabled: boolean) => LibrarySummary;
+  /** The composer's `/skill` picker: every effective (enabled, resolvable,
+   *  scope-folded) skill's name + description (library/injection.ts). */
+  invocable: () => InvocableSkill[];
 }
 
 const noParams = z.unknown().optional();
@@ -53,6 +57,7 @@ export function buildLibraryHandlers(ports: LibraryPorts): RpcHandlers {
   return {
     listLibrary: rpcMethod(noParams, () => ports.list()),
     rescanLibrary: rpcMethod(noParams, () => ports.list()),
+    listSkills: rpcMethod(noParams, () => ({ skills: ports.invocable() })),
     linkLibrary: rpcMethod(linkParams, (p) => ports.link(p)),
     copyLibrary: rpcMethod(copyParams, (p) => ports.copy(p)),
     unlinkLibrary: rpcMethod(entryRefParams, (p) => ({ removed: ports.unlink(p) })),
