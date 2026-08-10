@@ -29,7 +29,7 @@ import { modelPickerLabel } from './AgentsPanel.js';
 import { computeChatBanners, resolvableSkillSelection, type ChatNotice } from './banners.js';
 import { Composer } from './Composer.js';
 import { useLibraryStore } from './libraryStore.js';
-import type { ConsoleState } from './state.js';
+import type { ConsoleState, Remote } from './state.js';
 
 // Keep-alive tab caches (module scope — they outlive renders): the last frames
 // and send-nonce each session rendered with, so a hidden tab keeps its DOM
@@ -103,9 +103,9 @@ export type ChatVm =
       /** F2: live-switch the active session's permission mode. No-op with no active
        *  session. */
       onSetMode: (mode: PermissionMode) => void;
-      /** The invocable library skills the composer's slash popover offers; absent ⇒
-       *  the library read hasn't settled (the popover states that, never "empty"). */
-      skills?: InvocableSkill[] | undefined;
+      /** The invocable library skills the composer's slash popover offers, states-first:
+       *  loading and error are the popover's own rows, never rendered as "empty". */
+      skills: Remote<InvocableSkill[]>;
       /** Send, with any staged attachments and explicit skill invocations riding the
        *  same governed send. */
       onSend: (
@@ -382,7 +382,7 @@ export function interleaveNotes(
 export function selectChatVm(
   state: ConsoleState,
   nowIso = new Date().toISOString(),
-  invocableSkills?: InvocableSkill[],
+  skillsRead: Remote<InvocableSkill[]> = { status: 'loading' },
 ): ChatVm {
   const r = state.data.turns;
   if (r.status !== 'ok') return r;
@@ -499,8 +499,9 @@ export function selectChatVm(
       // The skill slice a send would compile: configured skills narrowed to the ones
       // the effective library still serves (their disappearance IS drift — the daemon
       // excludes them from the frozen selection the same way).
-      skills: resolvableSkillSelection(activeAgent?.skills, invocableSkills),
+      skills: resolvableSkillSelection(activeAgent?.skills, skillsRead),
     },
+    skillsRead,
     ...(activeSessionId !== undefined && state.ui.dismissedDrift[activeSessionId] !== undefined
       ? { dismissedDriftKey: state.ui.dismissedDrift[activeSessionId] }
       : {}),
@@ -602,7 +603,7 @@ export function selectChatVm(
     ...(activeModelMetadata !== undefined ? { activeModelMetadata } : {}),
     ...(ringUsage !== undefined ? { ringUsage } : {}),
     attach,
-    ...(invocableSkills !== undefined ? { skills: invocableSkills } : {}),
+    skills: skillsRead,
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
     onInterrupt: () => {

@@ -46,7 +46,7 @@ const VIEW: LibraryView = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useLibraryStore.setState({ read: { status: 'loading' }, invocable: undefined });
+  useLibraryStore.setState({ read: { status: 'loading' }, invocable: { status: 'loading' } });
   useNotices.setState({ notice: undefined });
   rpc.rpcListSkills.mockResolvedValue({ skills: [] });
 });
@@ -59,9 +59,10 @@ describe('hydrate', () => {
     });
     await useLibraryStore.getState().hydrate();
     expect(useLibraryStore.getState().read).toEqual({ status: 'ok', view: VIEW });
-    expect(useLibraryStore.getState().invocable).toEqual([
-      { name: 'commits', description: 'Commit style', scope: 'project' },
-    ]);
+    expect(useLibraryStore.getState().invocable).toEqual({
+      status: 'ok',
+      value: [{ name: 'commits', description: 'Commit style', scope: 'project' }],
+    });
   });
 
   it('maps a cold-read failure into the error state', async () => {
@@ -81,13 +82,24 @@ describe('hydrate', () => {
   });
 
   it('keeps the last known invocable rows when only the skills read fails', async () => {
-    useLibraryStore.setState({ invocable: [{ name: 'kept', description: '', scope: 'project' }] });
+    const kept = [{ name: 'kept', description: '', scope: 'project' as const }];
+    useLibraryStore.setState({ invocable: { status: 'ok', value: kept } });
     rpc.rpcListLibrary.mockResolvedValue(EMPTY_VIEW);
     rpc.rpcListSkills.mockRejectedValue(new Error('blip'));
     await useLibraryStore.getState().hydrate();
-    expect(useLibraryStore.getState().invocable).toEqual([
-      { name: 'kept', description: '', scope: 'project' },
-    ]);
+    expect(useLibraryStore.getState().invocable).toEqual({ status: 'ok', value: kept });
+  });
+
+  it('maps a COLD skills-read failure into the error state, never a standing "loading"', async () => {
+    // The regression: the invocable feed swallowed every failure and stayed
+    // `undefined`, which both consumers render as "Reading the library…" forever.
+    rpc.rpcListLibrary.mockResolvedValue(EMPTY_VIEW);
+    rpc.rpcListSkills.mockRejectedValue(new Error('daemon unreachable'));
+    await useLibraryStore.getState().hydrate();
+    expect(useLibraryStore.getState().invocable).toEqual({
+      status: 'error',
+      message: 'daemon unreachable',
+    });
   });
 });
 

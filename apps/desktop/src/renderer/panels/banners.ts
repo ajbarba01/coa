@@ -1,4 +1,5 @@
 import type { Banner, ModelSelection } from '@coa/console-viewmodel';
+import type { Remote } from './state.js';
 
 /**
  * Predictive chat banners — computed live in the console from what a send WOULD do,
@@ -30,28 +31,47 @@ export interface PromptConfigView {
   skills?: readonly SkillSelectionItem[] | undefined;
 }
 
+/** The invocable-skill feed as the drift compare sees it — the library store's read,
+ *  carrying its loading and error states rather than collapsing both to "absent". */
+export type SkillsRead = Remote<readonly { name: string }[]>;
+
 /**
  * The skill slice a send WOULD compile — the agent's configured skills narrowed to
  * the ones that actually resolve in the effective library set, wearing the set's
  * canonical (library-record) names. Mirrors the daemon's own per-turn resolution:
  * a configured skill the library no longer serves is EXCLUDED from the frozen
- * selection, so its disappearance IS drift. `invocable` still `undefined` (the
- * library read hasn't settled) passes the configured list through unfiltered —
- * predicting drift from a list that merely hasn't loaded yet would be a lie.
+ * selection, so its disappearance IS drift.
+ *
+ * An unsettled read (still loading, or failed) cannot narrow anything, so the
+ * configured list passes through as-is — and {@link driftCompareConfig} is what
+ * keeps that pass-through from being read as a prediction.
  */
 export function resolvableSkillSelection(
   configured: readonly SkillSelectionItem[] | undefined,
-  invocable: readonly { name: string }[] | undefined,
+  read: SkillsRead,
 ): SkillSelectionItem[] {
   const list = configured ?? [];
-  if (invocable === undefined) return list.map((s) => ({ name: s.name, delivery: s.delivery }));
-  const canonical = new Map(invocable.map((row) => [row.name.toLowerCase(), row.name]));
+  if (read.status !== 'ok') return list.map((s) => ({ name: s.name, delivery: s.delivery }));
+  const canonical = new Map(read.value.map((row) => [row.name.toLowerCase(), row.name]));
   const out: SkillSelectionItem[] = [];
   for (const s of list) {
     const name = canonical.get(s.name.toLowerCase());
     if (name !== undefined) out.push({ name, delivery: s.delivery });
   }
   return out;
+}
+
+/**
+ * The drift-compare view of a prompt config: the skill slice rides ONLY while the
+ * library read has settled. An unreadable library makes the slice unknowable, not
+ * empty and not the raw configured list — and comparing an unknowable slice either
+ * way invents drift. A failed `listSkills` used to leave the compare guessing, which
+ * raised a "the config changed" banner for a selection the frozen prompt would never
+ * have produced. Applied to BOTH sides, so the compare falls back to what IS
+ * knowable: the role and package selection.
+ */
+export function driftCompareConfig(config: PromptConfigView, read: SkillsRead): PromptConfigView {
+  return read.status === 'ok' ? config : { ...config, skills: undefined };
 }
 
 /** Per-provider prompt-cache TTL (ms) — the idle window past which a session is cold.
@@ -143,6 +163,9 @@ export interface ChatBannerInput {
   frozenConfig?: PromptConfigView | undefined;
   /** The config a send would use now (the agent's role + package selection). */
   agentConfig: PromptConfigView;
+  /** The live invocable-skill read. Anything but `ok` drops the skill slice from the
+   *  drift compare (see {@link driftCompareConfig}) — never guessed into a banner. */
+  skillsRead: SkillsRead;
   /** The config key the user dismissed the drift banner for (suppresses re-show). */
   dismissedDriftKey?: string | undefined;
   /** The `cacheKey` the user dismissed the cache notice for (suppresses re-show). */
@@ -184,8 +207,9 @@ export function computeChatBanners(input: ChatBannerInput): ChatNotice[] {
 
   // Drift: the running prompt's config differs from what a send would use.
   if (input.frozenConfig !== undefined) {
-    const currentKey = configKey(input.agentConfig);
-    if (configKey(input.frozenConfig) !== currentKey && input.dismissedDriftKey !== currentKey) {
+    const currentKey = configKey(driftCompareConfig(input.agentConfig, input.skillsRead));
+    const frozenKey = configKey(driftCompareConfig(input.frozenConfig, input.skillsRead));
+    if (frozenKey !== currentKey && input.dismissedDriftKey !== currentKey) {
       drift.push(DRIFT_BANNER);
     }
   }

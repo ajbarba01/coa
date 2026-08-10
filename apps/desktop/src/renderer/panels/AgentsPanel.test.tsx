@@ -1039,10 +1039,13 @@ describe('AgentEditor — the skills section', () => {
 
   beforeEach(() => {
     useLibraryStore.setState({
-      invocable: [
-        { name: 'commits', description: 'Commit style', scope: 'project' },
-        { name: 'review', description: 'Review checklist', scope: 'personal' },
-      ],
+      invocable: {
+        status: 'ok',
+        value: [
+          { name: 'commits', description: 'Commit style', scope: 'project' },
+          { name: 'review', description: 'Review checklist', scope: 'personal' },
+        ],
+      },
       // Silence the surface's mount read — these tests drive the store state directly.
       hydrate: vi.fn().mockResolvedValue(undefined),
     });
@@ -1105,12 +1108,29 @@ describe('AgentEditor — the skills section', () => {
   });
 
   it('states an empty library instead of offering an empty picker', () => {
-    useLibraryStore.setState({ invocable: [] });
+    useLibraryStore.setState({ invocable: { status: 'ok', value: [] } });
     render(<AgentsSurface state={skillState()} />);
     expect(
       screen.getByText('No skills in the library — link one on the Library surface'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add Skill' })).toBeNull();
+  });
+
+  it('names a FAILED library read, and never marks a configured skill absent on it', () => {
+    // The regression: an unreadable library left the footer on "Reading the library…"
+    // forever AND is no evidence that a configured skill is gone.
+    useLibraryStore.setState({ invocable: { status: 'error', message: 'daemon unreachable' } });
+    render(<AgentsSurface state={skillState()} />);
+    expect(screen.queryByText('Reading the library…')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('daemon unreachable');
+    expect(screen.queryByText('Not in the library')).toBeNull();
+  });
+
+  it('says the library is still being read while the read is in flight', () => {
+    useLibraryStore.setState({ invocable: { status: 'loading' } });
+    render(<AgentsSurface state={skillState()} />);
+    expect(screen.getByText('Reading the library…')).toBeInTheDocument();
+    expect(screen.queryByText('Not in the library')).toBeNull();
   });
 
   it('renders a built-in agent read-only: no picker, delivery inert, no remove', () => {

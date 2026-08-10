@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { cacheKey, computeChatBanners, configKey, resolvableSkillSelection } from './banners.js';
+import {
+  cacheKey,
+  computeChatBanners,
+  configKey,
+  driftCompareConfig,
+  resolvableSkillSelection,
+  type SkillsRead,
+} from './banners.js';
+
+/** The library read as the drift compare sees it — settled unless a test says otherwise. */
+const settled = (...names: string[]): SkillsRead => ({
+  status: 'ok',
+  value: names.map((name) => ({ name })),
+});
 
 const NOW = '2026-07-02T12:00:00Z';
-const base = { agentConfig: { roles: ['swe'] }, hasRun: true, now: NOW } as const;
+const base = {
+  agentConfig: { roles: ['swe'] },
+  hasRun: true,
+  now: NOW,
+  skillsRead: settled(),
+} as const;
 
 describe('configKey', () => {
   it('is order- and duplicate-independent and treats omitted as empty', () => {
@@ -70,20 +88,35 @@ describe('resolvableSkillSelection', () => {
   ];
 
   it('passes the configured list through while the library read has not settled', () => {
-    expect(resolvableSkillSelection(configured, undefined)).toEqual(configured);
+    expect(resolvableSkillSelection(configured, { status: 'loading' })).toEqual(configured);
+    expect(resolvableSkillSelection(configured, { status: 'error', message: 'x' })).toEqual(
+      configured,
+    );
   });
 
   it('narrows to the effective set with canonical library names (case-insensitive)', () => {
-    const invocable = [{ name: 'review' }];
     // `commits` no longer resolves ⇒ excluded (its disappearance IS drift); `Review`
     // matches case-insensitively and takes the library's own casing.
-    expect(resolvableSkillSelection(configured, invocable)).toEqual([
+    expect(resolvableSkillSelection(configured, settled('review'))).toEqual([
       { name: 'review', delivery: 'disclosure' },
     ]);
   });
 
   it('is empty for an agent with no skills configured', () => {
-    expect(resolvableSkillSelection(undefined, [{ name: 'commits' }])).toEqual([]);
+    expect(resolvableSkillSelection(undefined, settled('commits'))).toEqual([]);
+  });
+});
+
+describe('driftCompareConfig', () => {
+  const config = { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' as const }] };
+
+  it('keeps the skill slice once the library read has settled', () => {
+    expect(driftCompareConfig(config, settled('commits'))).toEqual(config);
+  });
+
+  it('drops the skill slice while the read is loading or failed', () => {
+    expect(driftCompareConfig(config, { status: 'loading' }).skills).toBeUndefined();
+    expect(driftCompareConfig(config, { status: 'error', message: 'x' }).skills).toBeUndefined();
   });
 });
 
@@ -229,6 +262,49 @@ describe('computeChatBanners — drift', () => {
         agentConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] },
       }),
     ).toEqual([]);
+  });
+
+  it('does not raise skill drift while the library read is unsettled (either direction)', () => {
+    // The regression: a `listSkills` read that failed left the compare guessing, and
+    // the guess raised "the config changed" for a selection the frozen prompt would
+    // never have produced. Neither direction is knowable without the effective set.
+    for (const skillsRead of [
+      { status: 'loading' } as const,
+      { status: 'error', message: 'daemon unreachable' } as const,
+    ]) {
+      const configuredButUnresolvable = computeChatBanners({
+        ...base,
+        skillsRead,
+        pinned,
+        frozenConfig: { roles: ['swe'] },
+        agentConfig: {
+          roles: ['swe'],
+          skills: resolvableSkillSelection([{ name: 'commits', delivery: 'auto' }], skillsRead),
+        },
+      });
+      expect(configuredButUnresolvable.some((b) => b.kind === 'drift')).toBe(false);
+
+      const frozenWithSkills = computeChatBanners({
+        ...base,
+        skillsRead,
+        pinned,
+        frozenConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] },
+        agentConfig: { roles: ['swe'], skills: resolvableSkillSelection(undefined, skillsRead) },
+      });
+      expect(frozenWithSkills.some((b) => b.kind === 'drift')).toBe(false);
+    }
+  });
+
+  it('still raises role/package drift while the library read is unsettled', () => {
+    // Dropping the unknowable slice must not suppress the drift that IS knowable.
+    const banners = computeChatBanners({
+      ...base,
+      skillsRead: { status: 'error', message: 'daemon unreachable' },
+      pinned,
+      frozenConfig: { roles: ['swe'] },
+      agentConfig: { roles: ['swe'], packageIds: ['research'] },
+    });
+    expect(banners.some((b) => b.kind === 'drift')).toBe(true);
   });
 
   it('stays dismissed for the dismissed config key, and re-shows once the config changes again', () => {
