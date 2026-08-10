@@ -2,7 +2,6 @@ import {
   parseAgentsResult,
   pushSchema,
   pushToViewFrames,
-  reasoningValue,
   reconcileStreaming,
   reloadToViewFrames,
   type AgentFile,
@@ -26,10 +25,6 @@ import {
   type WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-// From the picker module directly, NOT via AgentsPanel's re-export: the agents
-// surface pulls in the whole panel tree, so an AgentsPanel import here would drag
-// the surface layer into the controller.
-import { modelLabel } from './panels/ModelPicker.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import {
@@ -41,48 +36,32 @@ import {
 import { invocableSkills } from './panels/rpc.js';
 import {
   initialState,
+  NO_APPROVAL_SEAM_REASON,
   type ConsoleState,
   type PendingApprovalItem,
   type Remote,
+  type SessionModeSnapshot,
 } from './panels/state.js';
 import { reportFailure, reportNotice, surfaceWrite } from './shell/failures.js';
 import { applySettings } from './theme.js';
 
-/** F2 — the daemon's answer to the `sessionMode` reattach read: a session's current
- *  permission-mode state, or `{found:false}` for an unknown id. */
-export type SessionModeSnapshot =
-  | { found: false }
-  | {
-      found: true;
-      mode: PermissionMode;
-      effectiveMode: PermissionMode;
-      pending: Array<{
-        requestId: string;
-        tool: string;
-        summary: string;
-        input: Record<string, unknown>;
-      }>;
-    };
-
-/** F2 — the honest reason surfaced when a session's enforcement degrades to bypass
- *  (mirrors the daemon's own `LiveSession#modePush` wording, so the reattach-hydrated
- *  read and the live push read as one honest voice, never two). */
-const NO_APPROVAL_SEAM_REASON =
-  'the active backend has no approval seam — enforcement degrades to bypass';
-
-/** Builds the "switched model" note text from an applied override, e.g.
- *  `switched to Opus 4.8 · high`. `models` resolves the friendly label when the
- *  descriptor is known; falls back to the raw model id otherwise. Effort is omitted
- *  when the override carries no reasoning (defensive — a bare model switch shouldn't
- *  claim an effort it didn't set). Exported for unit testing. */
-export function modelSwitchNoteText(override: ModelSelection, models: ModelDescriptor[]): string {
-  const descriptor = models.find((m) => m.id === override.model);
-  const label = descriptor ? modelLabel(descriptor) : (override.model ?? 'default model');
-  const effort = override.reasoning ? reasoningValue(override.reasoning) : undefined;
-  return effort !== undefined && effort !== 'off'
-    ? `switched to ${label} · ${effort}`
-    : `switched to ${label}`;
-}
+// The note text, the auth-frame sniff and the two cross-store hooks live in
+// `store/notices.ts` — one registry, so whichever controller is driving the app the
+// library and model stores are talking to the same sink. Re-exported here for the
+// consumers that still reach this module by name.
+export {
+  detectAuthFailure,
+  modelSwitchNoteText,
+  notifyModelsChanged,
+  onAuthFailure,
+  onModelsChanged,
+} from './store/notices.js';
+import {
+  detectAuthFailure,
+  modelSwitchNoteText,
+  onModelsChanged,
+  reportAuthFailure,
+} from './store/notices.js';
 
 /** The subset of `window.coa` the controller needs (injected for testing). */
 export interface ConsoleBridge {
@@ -183,33 +162,6 @@ export interface ConsoleBridge {
   getSettings(): Promise<ConsoleSettings>;
   saveSettings(settings: ConsoleSettings): Promise<void>;
 }
-
-/** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose:
- *  a false hit costs an amber dot the next probe clears, never a block — so the net is
- *  wide (401s, OAuth, login wording) but only ever reads ERROR frames, never chat. */
-const AUTH_FAILURE = /auth|401|unauthorized|oauth|logged? ?in|login/i;
-
-/** Pure: whether a batch of pushed frames carries an auth failure. Exported for tests. */
-export function detectAuthFailure(frames: TurnFrame[]): boolean {
-  return frames.some((f) => f.kind === 'error' && AUTH_FAILURE.test(f.message));
-}
-
-/** The auth-failure hook, mirroring `onModelsChanged` below: the bootstrap registers the
- *  store-side reporter (loginStore's — it owns the auth-store reach) so the push consumer
- *  can flag the active login WITHOUT importing the auth store, which imports the rpc
- *  wrappers — a static cycle the dependency ruleset forbids. */
-let authFailureSink: () => void = () => {};
-export const onAuthFailure = (fn: () => void): void => {
-  authFailureSink = fn;
-};
-
-/** The models-changed hook: the controller registers its `loadModels` here so a
- *  catalog edit refreshes the chip/agent-picker feed in the same breath. */
-let modelsChanged: () => Promise<void> = () => Promise.resolve();
-export const onModelsChanged = (fn: () => Promise<void>): void => {
-  modelsChanged = fn;
-};
-export const notifyModelsChanged = (): Promise<void> => modelsChanged();
 
 export interface ConsoleController {
   refresh(): Promise<void>;
@@ -1174,7 +1126,7 @@ export async function startConsole(
       // pushing session's own backend — a deepseek/other-provider auth error has nothing
       // to do with the claude login and must not light that badge. No provider recorded
       // (session unpinned, agent unset) means the default backend, which is claude.
-      if (detectAuthFailure(frames) && sessionUsesClaude(data.sessionId)) authFailureSink();
+      if (detectAuthFailure(frames) && sessionUsesClaude(data.sessionId)) reportAuthFailure();
       appendTurns(data.sessionId, frames);
     }
   });
