@@ -6,6 +6,7 @@ import { AgentsStrip, AgentsSurface } from '../panels/AgentsPanel.js';
 import { AuthStrip, AuthSurface } from '../panels/AuthPanel.js';
 import { ChatSurface } from '../panels/ChatPanel.js';
 import { FlagsSurface } from '../panels/FlagsPanel.js';
+import { LibraryStrip, LibrarySurface } from '../panels/LibraryPanel.js';
 import { ShowcaseSurface } from '../panels/ShowcasePanel.js';
 import { TimelineSurface } from '../panels/TimelinePanel.js';
 import { UsageStrip, UsageSurface } from '../panels/UsagePanel.js';
@@ -78,6 +79,10 @@ function SurfaceHost({
       return <UsageSurface />;
     case 'agents':
       return <AgentsSurface state={state} />;
+    // The library owns its data via its own daemon-fed store (libraryStore.ts), so
+    // no ConsoleState — the auth-surface precedent.
+    case 'library':
+      return <LibrarySurface />;
     case 'showcase':
       // Dev-gated here as well as in the nav registry: a persisted layout restores the
       // raw surface id, so a production build must fall to the floor even when an old
@@ -203,6 +208,8 @@ export function Center(): React.JSX.Element {
             <UsageStrip />
           ) : surface === 'agents' ? (
             <AgentsStrip />
+          ) : surface === 'library' ? (
+            <LibraryStrip />
           ) : (
             <>
               {/* The nav's label, not the raw id: this strip sits in the same slot as
