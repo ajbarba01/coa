@@ -1,294 +1,63 @@
 /**
- * @coa/core (M1) — the Change Kernel: the narrow waist and only shared mutable
- * substrate. Producers and consumers point only here. This is the floor (WAL +
- * typed graph + symbol/fuzzy/piece index + reconciler + projections +
- * checkpoint/rewind); the GRF-* graph hardening and SCO-* scope tier are a
- * follow-up batch.
+ * @coa/core — the Change Kernel: the narrow waist and only shared mutable
+ * substrate. Producers and consumers point only here. This barrel is the
+ * package's public surface: exactly the composition/daemon/CLI seams the
+ * shippable apps consume. Everything else in the package is internal and
+ * composed through relative imports (tests included — they import internals
+ * directly by repo policy).
  */
 
-export { ChangeKernel, type ChangeKernelOptions } from './kernel.js';
-export { type ChangeEventDraft, stampFrame } from './event.js';
-export { Wal } from './wal/wal.js';
-export { readFrames, serializeFrame, type ReadResult, type QuarantineNotice } from './wal/frame.js';
-export { TypedGraph } from './graph/graph.js';
-export { SymbolTable } from './graph/symbol-table.js';
-export { FuzzyIndex } from './graph/fuzzy-index.js';
-export { PieceStore, resolvePiece } from './graph/resolve-piece.js';
-export { reparseSymbols, reparseFile } from './graph/reparse.js';
-export { findCycles, type CycleComponent } from './graph/cycles.js';
-export { computeCoupling, type CouplingFan } from './graph/coupling.js';
-export {
-  temporal,
-  type FileTouch,
-  type TemporalView,
-  type TemporalOptions,
-} from './graph/temporal.js';
-export { extractImports } from './graph/extract-imports.js';
-export { resolveImportSpecifier, importCandidates } from './graph/resolve-import.js';
-export { exportScip, buildScipIndex, type ScipIndex, type ScipOptions } from './graph/scip.js';
-export {
-  ExtractorRegistry,
-  STARTER_EXTRACTORS,
-  codegenMarkerExtractor,
-  registrySingletonExtractor,
-  type ConventionExtractor,
-  type ExtractionResult,
-} from './graph/conventions.js';
-export { Reconciler, scanWorktree, type ReconcilerDeps } from './reconcile/reconciler.js';
-export {
-  classifyObservation,
-  type Observation,
-  type PreciseOp,
-  type PathState,
-} from './reconcile/dedup.js';
-export { matchGlob, globToRegExp } from './scope/glob.js';
-export { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
-export { validateScopesConfig, loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
-export { lintScopes, type ScopeLintFinding, type ScopeLintContext } from './scope/scope-linter.js';
-export {
-  FlagPipeline,
-  type FlagPipelineOptions,
-  type GateResult,
-  type ToolDenyRule,
-  type ToolDenyVerdict,
-} from './flags/pipeline.js';
-export {
-  validateProducer,
-  type Producer,
-  type ProducerInput,
-  type ValidationResult,
-} from './flags/producer.js';
-export {
-  assignSeverity,
-  assignConfidence,
-  maxSeverity,
-  type FlagSignals,
-} from './flags/severity.js';
-export { mergeConcern } from './flags/dedup.js';
-export {
-  resolutionFor,
-  type FeedbackReason,
-  type FeedbackRecord,
-  type FeedbackResolution,
-} from './flags/feedback.js';
-export {
-  groupSelection,
-  contextKeyOf,
-  type Verdict,
-  type ValidatorJudge,
-  type ValidatorGroup,
-  type ValidatorVerdict,
-  type ValidatorRun,
-} from './flags/validator.js';
-export { Governance, type GovernanceOptions } from './governance/governance.js';
-export { CostCap, type CapState, type CostCapOptions } from './governance/cost-cap.js';
-export { Ledger, redactLedgerEvent, type LedgerRecord } from './governance/ledger.js';
-export {
-  sandboxPolicy,
-  DENY_READ_GLOBS,
-  SECRETS_GLOB,
-  type SessionTrustCtx,
-  type SandboxOptions,
-} from './governance/sandbox.js';
-export { compile } from './compiler/compile.js';
-export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
+export { type ChangeEventDraft } from './event.js';
+export { type Producer } from './flags/producer.js';
+export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
+export { connectClient } from './rpc/client.js';
+export { bindDaemon } from './rpc/lifecycle.js';
+export { dispatch, type RpcHandlers } from './rpc/router.js';
 export {
   buildAgentRegistryHandlers,
   buildConsoleHandlers,
   buildRegistryHandlers,
-  type AgentRegistryPorts,
-  type ConsoleReadPorts,
-  type RegistryReadPorts,
 } from './rpc/console-handlers.js';
-export { encodeLine, FrameDecoder } from './rpc/codec.js';
-export {
-  serveOverStream,
-  type DuplexLike,
-  type StreamServer,
-  type StreamHandlers,
-  type RpcConnection,
-} from './rpc/stream.js';
-export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
-export { connectClient, type RpcClient } from './rpc/client.js';
-export { bindDaemon, probeDaemon } from './rpc/lifecycle.js';
-export {
-  governanceFor,
-  type GovernanceCoverage,
-  type GovernanceOracle,
-} from './context/spec-tier.js';
-export {
-  createSsotConstraintProducer,
-  type GenerationRelation,
-  type GenerationRunner,
-  type RegenOutput,
-  type DegradedRelation,
-  type SsotConstraintProducer,
-} from './context/ssot-constraint.js';
-export {
-  publishGenerationSeam,
-  type SymbolExtractor,
-  type SeamPublisher,
-  type GoverningConstraint,
-  type GenerationSeam,
-} from './context/generation-seam.js';
-export {
-  loadGenerateFile,
-  validateGenerateConfig,
-  type GenerationEntry,
-  type RunTrigger,
-} from './context/generate-config.js';
+export { buildAuthHandlers } from './rpc/auth-handlers.js';
+export { buildModelHandlers, MODEL_PROVIDERS } from './rpc/model-handlers.js';
+export { loadGenerateFile } from './context/generate-config.js';
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
 export { assembleProducers } from './context/producers.js';
-export { createOriginAnchorProducer, type UnverifiableRelation } from './context/origin-anchor.js';
 export {
-  createGovernanceAnchorProducer,
-  type GovernanceGraph,
-} from './context/governance-anchor.js';
-export { composeProfile, type WorstPredicate } from './context/health-profile.js';
-export {
-  health,
-  DEFAULT_HEALTH_THRESHOLDS,
-  type HealthSource,
-  type HealthThresholds,
-} from './context/health.js';
-export { applyDiff, type DiffResult } from './workbench/apply-diff.js';
-export {
-  confinePath,
-  WORKTREE_FORBIDDEN,
-  type ConfinementPolicy,
-  type ConfineResult,
-} from './workbench/confine.js';
-export {
-  editSymbol,
-  applyPatch,
-  type WorkbenchDeps,
-  type MutateResult,
-} from './workbench/mutate.js';
-export { enrich, type EnrichDeps } from './workbench/enrich.js';
-export {
-  getSymbol,
-  findReferences,
-  outline,
-  getPiece,
-  type RetrieveDeps,
-  type GetSymbolResult,
-  type OutlineResult,
-  type ReferencesResult,
-  type GetPieceResult,
-} from './workbench/retrieve.js';
-export {
-  runChecks,
-  contextStatus,
-  getSpec,
-  type InspectDeps,
-  type ContextStatusResult,
-  type GetSpecResult,
-} from './workbench/inspect.js';
-export {
-  TOOL_CATALOGUE,
-  kernelTools,
-  findTools,
-  loadTool,
-  type ToolPartition,
-  type ToolManifestEntry,
-} from './workbench/catalogue.js';
-export { buildGovernedTools, type GovernedToolDeps } from './workbench/governed-tools.js';
-export {
-  buildCanUseTool,
-  buildStopGate,
-  sessionBudget,
-  type PermissionDeps,
-} from './session/permission.js';
-export { DeliveryQueue } from './session/delivery.js';
-export {
-  createSession,
-  closeSession,
   type SessionDeps,
   type SessionAdapterInit,
   type SessionStrategy,
   type ActiveAccountResolution,
-  type AssemblePiecesContext,
 } from './session/session.js';
+export { createRegistryAssemblePieces } from './session/assemble-agent.js';
+export { resolveShell, shellLabel } from './session/shell.js';
 export {
-  baselinePieces,
-  baselineStablePieces,
-  baselineVolatilePieces,
-  createBaselineAssemblePieces,
-  type BaselineContext,
-} from './session/baseline-pieces.js';
-export {
-  assembleAgent,
-  createRegistryAssemblePieces,
-  CORE_PACKAGE_ID,
-  type AgentSpec,
-  type AgentAssembly,
-} from './session/assemble-agent.js';
-export {
-  resolveShell,
-  shellLabel,
-  type ShellResolution,
-  type ShellProbe,
-} from './session/shell.js';
-export {
-  STARTER_PACKAGES,
-  STARTER_ROLES,
   packageRegistry,
   roleRegistry,
-  toRoleSummary,
-  toPackageSummary,
   roleSummaries,
   packageSummaries,
 } from './session/agent-registry.js';
-export { AgentRegistry, type LoadedAgents } from './session/agent-defs.js';
-export { composeSessionDeps, type DaemonCore, type SessionWiring } from './session/composition.js';
+export { AgentRegistry } from './session/agent-defs.js';
+export { composeSessionDeps, type SessionWiring } from './session/composition.js';
+export { buildSessionHandlers } from './session/session-handlers.js';
 export {
-  buildSessionHandlers,
-  type SpawnSupport,
-  type StartChildFn,
-} from './session/session-handlers.js';
+  SessionService,
+  type SendRequest,
+  type SessionServiceOptions,
+  type StartChildRequest,
+} from './session/session-service.js';
 export { LiveSessionRegistry } from './session/live-registry.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
-export { ModelCache, type ModelCacheAccount, type ModelCacheDeps } from './session/model-cache.js';
-export {
-  createConversationStore,
-  type ConversationStore,
-  type SessionMeta,
-  type PersistedTurn,
-} from './session/conversation-store.js';
-export {
-  createDaemonCore,
-  buildDaemonConsoleHandlers,
-  type DaemonCoreOptions,
-  type DaemonCoreHandle,
-} from './session/daemon.js';
-export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
-export { type Checkpoint } from './checkpoint.js';
-export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
-export {
-  LoginManager,
-  type Health,
-  type LoginDriverPort,
-  type LoginPhase,
-  type LoginSnapshot,
-} from './auth/login-manager.js';
-export {
-  BrowserSession,
-  browserProfileDir,
-  detectBrowser,
-  type BrowserSessionDeps,
-  type BrowserSessionSettings,
-  type BrowserSessionView,
-} from './auth/browser-session.js';
-export { buildAuthHandlers } from './rpc/auth-handlers.js';
-export { ModelCatalogStore, modelsPath } from './models/model-catalog-store.js';
-export { defaultCatalog, catalogDescriptor } from './models/default-catalog.js';
+export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
+export { createConversationStore } from './session/conversation-store.js';
+export { createDaemonCore, type DaemonCoreHandle } from './session/daemon.js';
+export { AccountsRegistry } from './auth/registry.js';
+export { LoginManager } from './auth/login-manager.js';
+export { BrowserSession } from './auth/browser-session.js';
+export { ConsoleStateStore } from './console/console-state-store.js';
+export { KeyStateStore } from './workbench/web/key-state-store.js';
+export { ModelCatalogStore } from './models/model-catalog-store.js';
 export { effectiveModels } from './models/effective-models.js';
-export {
-  buildModelHandlers,
-  MODEL_PROVIDERS,
-  type ModelCatalogView,
-} from './rpc/model-handlers.js';
-export { type WebConfig } from './workbench/web/web-config.js';
 export {
   WebConfigStore,
   webConfigPath,
@@ -297,3 +66,6 @@ export {
   FETCH_KINDS,
   type WebChain,
 } from './workbench/web/web-config-store.js';
+export { buildWebToolDeps, webConfigSchema, type WebConfig } from './workbench/web/web-config.js';
+export { makeSummarizer } from './workbench/web/summarizer.js';
+export { type Summarizer, type WebToolDeps } from './workbench/web-tools.js';

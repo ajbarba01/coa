@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/syntaxTheme.ts
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import bash from 'react-syntax-highlighter/dist/esm/languages/hljs/bash';
 import css from 'react-syntax-highlighter/dist/esm/languages/hljs/css';
@@ -13,10 +12,13 @@ import typescript from 'react-syntax-highlighter/dist/esm/languages/hljs/typescr
 import xml from 'react-syntax-highlighter/dist/esm/languages/hljs/xml';
 import yaml from 'react-syntax-highlighter/dist/esm/languages/hljs/yaml';
 import { cx } from '@coa/console-kit';
+import type { Grammar } from './grammar.js';
 
 // The `Light` build ships with NO languages registered, so without this every code
 // block renders unhighlighted. Register once at module load (side effect on import).
-const LANGUAGES: Record<string, (hljs: unknown) => unknown> = {
+// Keyed by Grammar so this map and the vocabulary in grammar.ts cannot drift apart:
+// a grammar in one and not the other fails to compile.
+const LANGUAGES: Record<Grammar, (hljs: unknown) => unknown> = {
   bash,
   css,
   go,

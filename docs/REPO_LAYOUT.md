@@ -19,22 +19,23 @@ coa/
     shared/                  M0 — @coa/shared        (types + Zod schemas only; no behavior)
     code-intel/              M2 — @coa/code-intel     (pure byte→structure; child-process parser seam)
     core/                    M1,M3–M8 — @coa/core     (the spine + consumers + services; see below)
-    spi/                     M9 ports — @coa/spi       (capability port types; null-fallback contracts)
+    spi/                     M9 ports — @coa/spi       (capability port types)
     loop-driver/             M9 — @coa/loop-driver     (coa-owned governed ReAct loop for pure-API backends; `complete()` primitive + driver; neutral, no backend SDK)
     adapter-claude-sdk/      M9 impl  — @coa/adapter-claude-sdk (neutral→native render, TS-LSP backend, SDK loop)
-    adapter-deepseek/        M9 impl  — @coa/adapter-deepseek (thin pure-API backend: DeepSeek `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
-    adapter-longcat/         M9 impl  — @coa/adapter-longcat (thin pure-API backend: LongCat `complete()` over HTTP + the shared loop-driver; no backend SDK, just fetch)
+    adapter-openai-compat/   M9 impl  — @coa/adapter-openai-compat (ONE thin pure-API backend: `complete()` over any OpenAI-compatible HTTP API + the shared loop-driver, parameterized by a data-only `ProviderSpec` — endpoints, key/price/effort env vars, reasoning-field mapping, usage extraction; DeepSeek + LongCat + OpenAI + OpenRouter ship as spec objects, so a new compatible provider is a new spec, not a new package; no backend SDK, just fetch)
     console-viewmodel/       M10 — @coa/console-viewmodel (pure daemon-result→render-props; no electron/react/core)
     console-transcript/      M10 — @coa/console-transcript (the streaming conversation renderer: the non-virtualized Transcript + its internal FindBar, StreamingMarkdown, the rich `ToolCard` and its supporting members, and `DenyNotice`; a composite built ON the kit, never the reverse; pure react, no electron/core).
     console-kit/             M10 — @coa/console-kit (the workbench design system's kit: sand-dark theme seam + structural tokens + component vocabulary, COMPONENTS.md generated; pure react/@base-ui, no electron/core)
   apps/                      shippable binaries (M10 Console)
-    cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue)
-    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer is the three-column workbench (`src/renderer/shell/`: nav + center canvas + collapsible session column, daemon gate, ⌘K palette, settings dialog) composed from `@coa/console-kit`, fed by the controller in `src/renderer/console.ts` publishing one `ConsoleState` into a store; The IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); the shell arrangement (surface/tabs/columns) and console settings (theme/motion) persist per-user via the main process (`src/main/persistence.ts`: `layout.json` + `settings.json`). Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated).
+    cli/                     M10 — the `coa` CLI (talks only to the daemon's JSON-RPC catalogue). Also the daemon's composition root: `src/session-deps.ts` binds the core to a backend, and `src/console-handlers.ts` builds the inspector+auth handler map — the `~/.coa` stores, the browser-isolation session, and the login manager over `src/login-driver.ts`'s pty driver — so core declares those ports without constructing them
+    desktop/                 M10 — the Electron console (electron-vite; main pipe-client, isolated renderer). The renderer is the three-column workbench (`src/renderer/shell/`: nav + center canvas + collapsible session column, daemon gate, ⌘K palette, settings dialog) composed from `@coa/console-kit`, fed by the controller in `src/renderer/console.ts` publishing one `ConsoleState` into a store; The IPC bridge is generated from a shared Zod method registry (`src/shared/methods.ts`); the shell arrangement (surface/tabs/columns) and console settings (theme/motion) persist per-user via the main process (`src/main/persistence.ts`: `layout.json` + `settings.json`). Tool-card links resolve through main-owned IPC: `src/main/openPath.ts` reveals a file in the editor (`code -g`, spawned shell-free + worktree-confined, resolved against the daemon's project root) and `src/main/openExternal.ts` opens a web URL in the browser (http/https-validated). Every user-initiated write that fails announces itself on one shared surface (`src/renderer/shell/failures.ts` + its `FailureToast` mount) — advisory, never a gate.
   docs/
     design/handoff/          SPEC.md (a per-module index over spec/M0..M10.md) · IMPL-SPEC-BRIEF.md · OPEN.md  (product source of truth)
     adr/                     architecture decision records — immutable, the durable "why" (README is the index)
     superpowers/             transient in-flight specs/ + plans/; graduated to adr/ + ROADMAP, then deleted (reappears as new work needs it)
     *.md                     the engineering framework (this doc, ENGINEERING, CODE_STYLE, WORKFLOW, DESIGN, UI)
+  test/                      repo-level tooling tests (the dependency-cruiser canary)
+  archive/                   parked feature code — never compiled, linted, or cruised
   AGENTS.md  CLAUDE.md       how work is done (router + Claude shim)
   ROADMAP.md                 project status + path forward (the in-repo status authority)
   LICENSE                    Apache-2.0
@@ -53,15 +54,15 @@ shippable apps.
 | Module                       | Package                                | Notes                                                                              |
 | ---------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
 | M0 Shared Schema             | `packages/shared`                      | Types + Zod schemas only; imported by everything; imports nothing.                 |
-| M1 Change Kernel             | `packages/core` → the **spine** ring   | WAL, bus, in-mem graph, symbol table / fuzzy index / piece-resolver, projections. |
+| M1 Change Kernel             | `packages/core` → the **spine** ring   | WAL, bus, in-mem graph, symbol table / piece-resolver, projections.                |
 | M2 Code Lens                 | `packages/code-intel`                  | Byte→structure; the parser runs as a **separate child process** (isolation seam).  |
 | M3 Constraint & Flag         | `packages/core` → a **consumer** + gate | Flags projection + the one close-gate service.                                     |
 | M4 Context Engine            | `packages/core` → **consumer/services** | Staleness consumer + generation/assembly/detection services.                      |
 | M5 Config Compiler           | `packages/core/compiler/`              | `compile(pieces) -> NeutralConfig`; **promotable to a standalone `compiler` package if it grows.** |
-| M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface; `workbench/base-tools.ts` (Read/Glob/Grep/Write/Edit/Bash for non-`claude` providers) pulls in `@vscode/ripgrep` + `tinyglobby`; `workbench/render-result.ts` renders each tool's structured result to human-readable display text (+ a success predicate) for the pure-API loop, which has no SDK-provided result text; `workbench/web/` (credential-gated WebSearch/WebFetch) pulls in `turndown` and routes BOTH tools through cooldown-aware provider chains (`routing.ts` + `key-state-store.ts` → `~/.coa/web-keys.json`, shared `limits.ts` classifiers): fetch = `firecrawl.ts`/`tavily.ts` scrape+extract → `plain-fetch.ts` free floor; search = `tavily.ts`/`firecrawl.ts`/`parallel.ts`; the WebFetch summarizer is composed at the daemon root over `@coa/adapter-deepseek`. Keys are managed user-global via `workbench/web/web-config-store.ts` (`~/.coa/web.yaml` pointers + `~/.coa/keys/` secrets), driven by the `coa websearch`/`coa webfetch` CLI (`apps/cli/src/web-cli.ts`) and loaded into the daemon by `apps/cli/src/session-deps.ts`. |
+| M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface; `workbench/base-tools.ts` (Read/Glob/Grep/Write/Edit/Bash for non-`claude` providers) declares those ports and `workbench/{ripgrep,file-listing,exec}.ts` implement the disk/process halves the daemon root binds them to (`@vscode/ripgrep` search + parse, `tinyglobby` globbing behind a `.gitignore` translation, and the shell `spawnSync` wrapper); `workbench/render-result.ts` renders each tool's structured result to human-readable display text (+ a success predicate) for the pure-API loop, which has no SDK-provided result text; `workbench/web/` (credential-gated WebSearch/WebFetch) pulls in `turndown` and routes BOTH tools through cooldown-aware provider chains (`routing.ts` + `key-state-store.ts` → `~/.coa/web-keys.json`, shared `limits.ts` classifiers): fetch = `firecrawl.ts`/`tavily.ts` scrape+extract → `plain-fetch.ts` free floor; search = `tavily.ts`/`firecrawl.ts`/`parallel.ts`; the chains and the WebFetch summarizer are assembled in the CLI composition root (`apps/cli/src/web-tools.ts` over `apps/cli/src/fetch-summarizer.ts` and `@coa/adapter-openai-compat`) and injected as finished deps into the daemon core, which stays backend-blind and never reads the process environment. Keys are managed user-global via `workbench/web/web-config-store.ts` (`~/.coa/web.yaml` pointers + `~/.coa/keys/` secrets), driven by the `coa websearch`/`coa webfetch` CLI (`apps/cli/src/web-cli.ts`) and loaded into the daemon by `apps/cli/src/session-deps.ts`. |
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
 | M8 Daemon Orchestration      | `packages/core` → services + `rpc/`    | Transport, session, worktree, daemon host (lifecycle, not domain logic).           |
-| M9 Runtime Adapter           | `packages/spi` + `packages/loop-driver` + `packages/adapter-claude-sdk` + `packages/adapter-deepseek` + `packages/adapter-longcat` | Ports (types) + the shared pure-API loop driver + the SDK backend + the thin DeepSeek backend + the thin LongCat backend. |
+| M9 Runtime Adapter           | `packages/spi` + `packages/loop-driver` + `packages/adapter-claude-sdk` + `packages/adapter-openai-compat` | Ports (types) + the shared pure-API loop driver + the SDK backend + the one thin OpenAI-compatible backend (DeepSeek, LongCat, OpenAI, and OpenRouter as `ProviderSpec` objects). |
 | M10 Console                  | `apps/cli` + `apps/desktop` + `packages/console-viewmodel` + `packages/console-kit` + `packages/console-transcript` | CLI first; `apps/desktop` is the Electron console ("app" in SPEC §A.4); `console-viewmodel` is its pure daemon-result→render-props layer; `console-kit` owns the design system (theme seam, structural tokens, component vocabulary, COMPONENTS.md); `console-transcript` owns the conversation renderer built on it. |
 
 **Why M1 and M3–M8 share one `core` package.** They are the daemon's rings around the spine; they share the
@@ -73,23 +74,48 @@ not by package splits.
 
 ```
 core/src/
-  spine/         M1 — emit/subscribe, WAL writer, in-mem graph, symbol table, fuzzy index, piece-resolver,
-                      reconciler (producer ②), checkpoint timeline, idle scheduler
+  *.ts           M1 — the spine, at the root: kernel (emit/subscribe + in-mem graph host), event,
+                      projection, checkpoint timeline, idle scheduler; index.ts is the package barrel
+  graph/         M1 — in-mem graph, symbol table, import/piece resolution
+  wal/           M1 — the single-writer WAL
+  reconcile/     M1 — the reconciler (producer ②)
+  scope/         M1 — scope config/resolution/linting, glob machinery
   flags/         M3 — the one pipeline (registerProducer/ingest), dedup, the two audiences, the close-gate
   context/       M4 — generation, assembly, detection/staleness services
   compiler/      M5 — compile(pieces) -> NeutralConfig (its own service boundary)
-  workbench/     M6 — the Mutate producer + mcp/ tool surface
+  workbench/     M6 — the Mutate producer + the outer-ring tool surface
   governance/    M7 — cost ledger, provenance, decision log, policy
+  models/        model catalog + effective-model resolution
+  console/       console state store
   session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
     agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store
     builtin-agents.ts the two code-shipped definitions (general-purpose, explorer)
+    session-service.ts the daemon's one owner of live-session lifetime: send-or-create,
+                      the drive loop, subagent dispatch, the conversation store. Built
+                      once at the composition root; a connection only translates onto it
+    session-handlers.ts the session-lifecycle JSON-RPC verbs, as pure translation over
+                      the service, plus the sinks/unsubscribes that die with the socket
+    frame-recorder.ts the one writer of a turn's frames — push + durable append, the
+                      delta/persist rule and the delivery-legality gate; parameterized by
+                      the seq cursor + start handle so every drive strategy shares it
+    turn-persistence.ts the per-turn conversation prelude (create/title/memory hand-off/
+                      selection pin/user-prompt append) and the session-call hooks it feeds
+    turn-driver.ts    the contract a drive strategy is built against — all daemon-scoped;
+                      a turn's own per-send facts ride the queued turn instead
+    turn-lifecycle.ts a turn's one owned state (running / stop-requested / stopped /
+                      settled) with its legal edges as a table — the stop path's single
+                      source of truth, read by both drivers and the service
+    per-turn-driver.ts   one session call per turn (every pure-API backend)
+    held-open-driver.ts  one session call held open across turns, fed an input channel
   rpc/           M8 — JSON-RPC server plumbing
   auth/          credential-blind account registry — login pointers (no secrets), the active-login selector
 ```
 
-**The intra-`core` rule** (mechanically enforced): only `spine/` is shared mutable substrate. `flags/`,
-`context/`, `governance/`, etc. import **from `spine/` and `@coa/shared`**, never from each other. `compiler/`
-reads `context/`'s output but not vice versa. `workbench/` is a producer (writes via `spine/.emit`) and reads
+**The intra-`core` rule** (mechanically enforced): only the spine (the root-level files plus `graph/`,
+`wal/`, `reconcile/`, `scope/`) is shared mutable substrate. Every other ring imports **from the spine and
+`@coa/shared`**, never from a sibling ring sideways. Two hubs are exempt: `session/` (M8 composition — it
+wires the rings into a daemon) and `rpc/` (M8 transport — it exposes them over JSON-RPC). `compiler/` reads
+`context/`'s output but not vice versa. `workbench/` is a producer (writes via the spine) and reads
 `flags/`/`context/`/`governance/` only as the SPEC's M6 dependency allows.
 
 ## Dependency rules (enforced by `dependency-cruiser` in CI)
@@ -101,15 +127,23 @@ The ruleset asserts the SPEC §A.4 arrows as hard constraints:
 - **Producers → spine ← consumers** — no consumer ring imports another consumer ring sideways; everything goes
   through `spine/`.
 - **Backend isolation** — only `adapter-claude-sdk` may import the Claude Agent SDK (or any backend SDK). The core
-  calls `spi` port types and takes the defined null-fallback (D109) — no `which-backend?` branch anywhere else.
+  calls `spi` port types — no `which-backend?` branch anywhere else.
 - **Apps depend on libraries, never the reverse** — `apps/*` import `packages/*`; no package imports an app.
-- **M9 fan-in is injected, not imported** — `core` does not compile-time-depend on `adapter-claude-sdk`; M8 wires
-  the adapter in at session construction (dependency injection), keeping M9 a swappable leaf.
+- **M9 fan-in is injected, not imported** — `core` does not depend on any adapter package (enforced:
+  `backend-fan-in-is-injected`); the app composition roots construct the concrete backends (session adapter
+  factory, WebFetch summarizer, login driver) and inject them through the `spi` port types, keeping M9 a
+  swappable leaf.
 - **`console-viewmodel` stays pure** — it imports only `zod` today (it may add `@coa/shared` later), never
   `electron`/`react`/`core` (enforced: `viewmodel-no-electron-react`).
 - **`console-kit` and `console-transcript` are pure UI packages** — they import only
   `react`/`@base-ui`/`lucide-react` (+ the kit's tokens), never `electron`/`core` (enforced:
   `console-ui-no-electron-core`). `console-transcript` depends on `console-kit`; never the reverse.
+- **The ruleset is kept honest, not decorative** — every package's `exports` map carries a
+  `development` condition pointing at its TypeScript source, and the cruiser resolves with
+  `development` first, so cross-package `@coa/*` edges land on the source paths the rules match
+  rather than on built `dist` (which is excluded from the graph). The cruise covers `packages` and
+  `apps` (both binaries). A canary test (`test/depcruise-canary.test.ts`) plants a forbidden edge
+  and asserts it is reported, so a resolution regression cannot silently disarm the rules.
 
 A violation fails CI. When a genuinely new edge is needed, it changes the SPEC §A.4 map and the ruleset in the
 **same commit** (the same-commit doc rule).

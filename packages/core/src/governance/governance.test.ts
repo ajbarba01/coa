@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Governance } from './governance.js';
 
-describe('Governance (the composed M7 surface)', () => {
-  it('exposes the cost cap as a default pass-through and meters when charged', () => {
+describe('Governance (the composed governance surface)', () => {
+  it('exposes the cost read as a pass-through and accepts settled charges', () => {
     const gov = new Governance();
     gov.charge('s1', 5);
     expect(gov.capState()).toEqual({ remaining: null, capHit: false });

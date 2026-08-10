@@ -10,7 +10,7 @@ import {
 } from './browser-paths.js';
 
 /**
- * Finding and deleting cookie jars no account uses any more (docs/adr/0024).
+ * Finding and deleting cookie jars no account uses any more.
  *
  * Separate from `browser-session.ts` on purpose: that module's job is to LAUNCH a login,
  * and enumerating dead directories is a different one. It borrows only the pure path
@@ -20,9 +20,9 @@ import {
  * this list is normally empty — and a non-empty one is information rather than debris. The
  * pre-shared-root layout is not enumerated here at all: the clean break made
  * `~/.coa/browser-profiles/` dead in one piece, with no per-item decision to offer, so it is
- * removed by hand rather than through a surface (docs/adr/0024).
+ * removed by hand rather than through a surface.
  *
- * ADR-0018 still binds: coa never deletes a profile on its own initiative. Everything here
+ * The standing rule still binds: coa never deletes a profile on its own initiative. Everything here
  * runs because a user clicked.
  */
 
@@ -67,8 +67,8 @@ function dirsIn(deps: ReclaimDeps, path: string): string[] {
  * Jars in the shared root that no account resolves to, newest layout only.
  *
  * `knownEmails` is every account's declared email — the caller passes the whole registry,
- * including accounts under other providers, because one jar can back several rows
- * (docs/adr/0021). A jar any live account resolves to never enters this list, so the
+ * including accounts under other providers, because one jar can back several rows.
+ * A jar any live account resolves to never enters this list, so the
  * surface can never offer to sign a working login out.
  *
  * Sweeps any trash a previous failed deletion left behind on the way past.
@@ -110,7 +110,7 @@ export function listReclaimable(
  * PARTWAY: measured 2026-07-31, `rmSync` refused at a locked `journal.baj` and left 349
  * files behind, in a directory that still looked like a profile. A rename is atomic — it
  * succeeds whole or fails whole — so a locked jar stays intact and simply appears in the
- * list again, which is the whole error report the surface needs (SC-1: no error channel,
+ * list again, which is the whole error report the surface needs (no error channel,
  * the list tells the truth).
  */
 export function reclaimProfile(deps: ReclaimDeps, key: string): void {

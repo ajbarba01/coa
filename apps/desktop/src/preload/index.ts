@@ -7,14 +7,14 @@ import {
   WINDOW_CONTROL,
   WINDOW_STATE_CHANNEL,
   channel,
-  type DaemonStatus,
+  type DaemonReport,
   type MethodName,
 } from '../shared/methods.js';
 
 // One named method per verb, generated from the shared registry; no raw
 // ipcRenderer is exposed. `process.platform` is available in the sandboxed
 // preload and is injected so the renderer applies title-bar insets without
-// touching `process` (spec §9).
+// touching `process` directly.
 const api: Record<string, unknown> = { platform: process.platform };
 for (const name of Object.keys(METHODS) as MethodName[]) {
   api[name] = (params?: unknown): Promise<unknown> => ipcRenderer.invoke(channel(name), params);
@@ -33,13 +33,14 @@ api['onPush'] = (listener: (payload: unknown) => void): (() => void) => {
 // subscription (mirrors `onPush`). Status is a transport fact owned by main, not a
 // daemon RPC read, so it lives on its own channels.
 api['daemon'] = {
-  status: (): Promise<DaemonStatus> =>
-    ipcRenderer.invoke(DAEMON_CONTROL.status) as Promise<DaemonStatus>,
+  status: (): Promise<DaemonReport> =>
+    ipcRenderer.invoke(DAEMON_CONTROL.status) as Promise<DaemonReport>,
   start: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.start) as Promise<void>,
+  adopt: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.adopt) as Promise<void>,
   stop: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.stop) as Promise<void>,
   restart: (): Promise<void> => ipcRenderer.invoke(DAEMON_CONTROL.restart) as Promise<void>,
-  onStatus: (listener: (status: DaemonStatus) => void): (() => void) => {
-    const handler = (_event: unknown, status: DaemonStatus): void => listener(status);
+  onStatus: (listener: (report: DaemonReport) => void): (() => void) => {
+    const handler = (_event: unknown, report: DaemonReport): void => listener(report);
     ipcRenderer.on(DAEMON_STATUS_CHANNEL, handler);
     return () => ipcRenderer.removeListener(DAEMON_STATUS_CHANNEL, handler);
   },

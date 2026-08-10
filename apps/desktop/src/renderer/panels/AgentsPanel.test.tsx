@@ -14,8 +14,8 @@ import {
   selectAgentsVm,
 } from './AgentsPanel.js';
 import { useAgentsUi } from './agentsUi.js';
-import { makeState, type StateOverrides } from './fixtures.js';
-import { MOCK_AGENTS } from './mockAgents.js';
+import { makeState, type StateOverrides } from '../testing/fixtures.js';
+import { MOCK_AGENTS } from '../testing/mockAgents.js';
 import { PKGS } from './resolvedSet.test.js';
 import { publishConsoleState, useConsoleState } from '../shell/consoleStore.js';
 import type {
@@ -560,7 +560,7 @@ describe('AgentsSurface', () => {
 
   it('states the permissive floor when no roles are selected, rendering no tool count', () => {
     // No roles ⇒ createRegistryAssemblePieces never reaches the package union at all —
-    // it returns the permissive floor (D85 pass-through). `core` is still a default
+    // it returns the permissive floor (pass-through floor). `core` is still a default
     // package here (toolRefs: ['Read']), so a naive union would wrongly claim "1 tool".
     const agent: AgentSummary = {
       ref: 'roles/permissive',

@@ -3,8 +3,8 @@ import type { ClaudeEffort, ModelDescriptor, ModelEntry } from '@coa/shared';
 /**
  * The coa-owned default model catalog — hand-curated, versioned by us, enriched
  * (never defined) by the backend read. The Claude backend advertises aliases
- * only, so the authoritative "these work" set is ours (see the ADR added with
- * this feature). Seeds a provider's editable list on first touch and backs the
+ * only, so the authoritative "these work" set is ours (a decision recorded when
+ * this feature landed). Seeds a provider's editable list on first touch and backs the
  * "add from defaults" picker.
  *
  * last-verified: 2026-07-18 (claude ids against a live Pro subscription).
@@ -29,6 +29,12 @@ const FULL_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLeve
 const PRE_XHIGH_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = {
   supportsEffort: true,
   supportedEffortLevels: ['low', 'medium', 'high', 'max'] as ClaudeEffort[],
+};
+
+/** OpenAI's reasoning_effort grades: low/medium/high (its ladder tops out at high). */
+const OPENAI_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = {
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high'] as ClaudeEffort[],
 };
 
 const CATALOG: Record<string, CatalogRow[]> = {
@@ -71,6 +77,18 @@ const CATALOG: Record<string, CatalogRow[]> = {
   // The id LongCat's own platform documents — and the one its price table keys, so a
   // mismatch here silently bills every LongCat turn at the zero floor.
   longcat: [{ id: 'LongCat-2.0', label: 'LongCat 2.0', caps: { supportsThinking: true } }],
+  // The chat-completions reasoning models: graded reasoning_effort, capped at
+  // OpenAI's top rung (high) — the ids its published price table keys.
+  openai: [
+    { id: 'gpt-5', label: 'GPT-5', caps: OPENAI_EFFORT },
+    { id: 'gpt-5-mini', label: 'GPT-5 mini', caps: OPENAI_EFFORT },
+    { id: 'gpt-5-nano', label: 'GPT-5 nano', caps: OPENAI_EFFORT },
+    { id: 'o3', label: 'o3', caps: OPENAI_EFFORT },
+    { id: 'o4-mini', label: 'o4-mini', caps: OPENAI_EFFORT },
+  ],
+  // The routed catalog is huge and live-fetched; only the always-valid routing
+  // sentinel ships. Real entries come from the live /models list or the user.
+  openrouter: [{ id: 'openrouter/auto', label: 'Auto Router' }],
 };
 
 /** The default entries a provider's list seeds from (fresh copies every call). */

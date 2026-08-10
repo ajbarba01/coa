@@ -1,6 +1,6 @@
 # 0032 — The cost cap bounds fan-out, not a depth counter
 
-- Status: accepted
+- Status: superseded by [0035](0035-the-close-gate-is-the-only-block.md)
 - Date: 2026-08-06
 
 ## Context and problem

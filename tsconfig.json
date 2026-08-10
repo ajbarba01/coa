@@ -8,9 +8,9 @@
     { "path": "packages/spi" },
     { "path": "packages/loop-driver" },
     { "path": "packages/adapter-claude-sdk" },
-    { "path": "packages/adapter-deepseek" },
-    { "path": "packages/adapter-longcat" },
+    { "path": "packages/adapter-openai-compat" },
     { "path": "packages/console-viewmodel" },
+    { "path": "packages/console-kit" },
     { "path": "packages/console-transcript" },
     { "path": "apps/cli" },
     { "path": "apps/desktop" }

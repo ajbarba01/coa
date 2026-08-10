@@ -129,13 +129,13 @@ function PaneOverlayHost({
       aria-modal="true"
       aria-label={title}
     >
-      {/* Backdrop confined to the pane; click to dismiss. Scrim matches the kit Dialog. */}
+      {/* Backdrop confined to the pane; click to dismiss. */}
       <button
         type="button"
         aria-label="Dismiss"
         tabIndex={-1}
         onClick={onClose}
-        className="overlay-scrim absolute inset-0 cursor-default bg-black/50"
+        className="absolute inset-0 cursor-default bg-black/50"
       />
       <div
         ref={panelRef}

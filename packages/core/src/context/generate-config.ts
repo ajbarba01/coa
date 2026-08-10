@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { GenerationRelation } from './ssot-constraint.js';
 
 /**
- * M4 / L-GEN (GEN-2) — the committed, portable `.coa/generate.yaml` registry that
+ * L-GEN (GEN-2) — the committed, portable `.coa/generate.yaml` registry that
  * maps each declared generator, **validated at load**: a malformed relation, an
  * unknown `run_on` trigger, or an unknown `normalize` mode is **rejected loudly**,
  * never loaded as a silent no-op (mirrors the SCO-3 `.coa/scopes.yaml` posture).
@@ -22,7 +22,7 @@ export type RunTrigger = 'source-change' | 'idle' | 'demand';
 
 /** A `.coa/generate.yaml` row: a {@link GenerationRelation} plus its runner execution detail. */
 export interface GenerationEntry extends GenerationRelation {
-  /** The pinned generator invocation the runner orchestrates (P8 — never reimplemented). */
+  /** The pinned generator invocation the runner orchestrates (never reimplemented). */
   readonly command: string;
   /** The pinned generator version (a declared input; a bump is a separate attributed event). */
   readonly version: string;

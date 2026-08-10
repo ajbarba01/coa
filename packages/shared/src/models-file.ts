@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { claudeEffortSchema } from './config.js';
 
 /**
- * M0 — the user-editable model list (`~/.coa/models.yaml`), the single source of
+ * The user-editable model list (`~/.coa/models.yaml`), the single source of
  * truth for every place a model is chosen. Entries are per provider (the map key,
  * so an entry never repeats it). `origin` gates the remove-confirm in the editor:
  * a `custom` entry has no catalog to re-add from. Reads are drop-unknown /

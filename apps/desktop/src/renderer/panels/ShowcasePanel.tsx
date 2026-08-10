@@ -81,8 +81,8 @@ const TRANSCRIPT_FRAMES: TranscriptFrame[] = [
   {
     id: '6',
     kind: 'deny',
-    denyKind: 'cost-cap',
-    reason: 'Session cost cap reached ($5.00).',
+    denyKind: 'close-gate',
+    reason: 'Close blocked: open Type-1 flags.',
   },
   {
     id: '7',

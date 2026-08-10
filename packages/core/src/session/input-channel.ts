@@ -1,6 +1,6 @@
 /**
  * A push-driven `AsyncIterable<string>` that feeds a held-open backend query its
- * successive user turns (the SDK streaming-input strategy — see docs/adr/0012).
+ * successive user turns (the SDK streaming-input strategy).
  * `push` enqueues a turn's text (an initial turn or a mid-turn steer); `close` ends
  * the stream so the query terminates after the last turn's result. One instance is
  * created per held-open query (the LiveSession's long-lived turn channel is

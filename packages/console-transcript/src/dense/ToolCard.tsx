@@ -1,11 +1,10 @@
-// packages/console-ui/src/dense/ToolCard.tsx
 import { useState } from 'react';
 import { Tooltip, cx } from '@coa/console-kit';
 import { usePaneOverlay } from '@coa/console-kit';
 import { describeTool, toolTarget } from './toolRegistry.js';
 import { diffLines, type DiffLine } from './toolDiff.js';
 import { estimateTokens, formatTokens } from './tokenEstimate.js';
-import { languageForPath } from './pathLanguage.js';
+import { languageForPath } from './grammar.js';
 import { clampLines } from './clampLines.js';
 import { markErrors } from './errorMarks.js';
 import { parseMatchLine } from './matchLines.js';
@@ -92,7 +91,7 @@ type Body =
  *  failed — the per-check ✗ marks already surface the failure; `RunChecks` itself falls
  *  back to a plain preview, in the failed treatment when `ok === false`, when its output
  *  doesn't parse). Otherwise a failure takes PRIORITY over every other branch: its output
- *  renders as the plain error body, always visible (SC-1). A successful WebFetch keeps its
+ *  renders as the plain error body, always visible (honest surfacing — never hide a failure). A successful WebFetch keeps its
  *  fetched/digested output in the plain `out` treatment below (see the MAINTAINER OVERRIDE
  *  comment) — it stays in `RESTS_COLLAPSED` so at rest it's still a quiet one-line receipt. */
 function resolveBody(
@@ -206,7 +205,7 @@ function StatusDot({ status }: { status: ToolStatus }): React.JSX.Element {
  *  closed and open — status dot, glyph, verb, linked target, then meta and a chevron on
  *  the right. Expanding fades the card chrome in and slides the body open beneath it, so
  *  the change reads as "the result appears", never as a different component. A failure's
- *  output is always visible (SC-1). */
+ *  output is always visible (honest surfacing — never hide a failure). */
 export function ToolCard({
   tool,
   input,

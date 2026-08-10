@@ -3,7 +3,7 @@ import { fireEvent, render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDismissLayer } from '@coa/console-kit';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
-import { makeState } from '../panels/fixtures.js';
+import { makeState } from '../testing/fixtures.js';
 import { useAgentsUi } from '../panels/agentsUi.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { DEFAULT_KEYBINDS } from './keybinds.js';
@@ -39,7 +39,7 @@ describe('useGlobalKeys', () => {
     expect(useShell.getState().surface).toBe('chat');
   });
 
-  it('Escape with no open layer stops the running turn (SC-1 advisory)', () => {
+  it('Escape with no open layer stops the running turn (advisory)', () => {
     const interruptSession = vi.fn();
     publishConsoleState(
       makeState({

@@ -23,7 +23,7 @@ import type { LucideIcon } from 'lucide-react';
  * drawing Lucide art (the composer's attach + mic were its paths, hand-copied with no
  * version and no attribution), so this makes honest what was already true and stops the
  * copy-paste drift. The kit already takes @base-ui/react for mechanics on the same
- * reasoning; see docs/adr/0014 and constitution P8.
+ * reasoning: compose existing, well-maintained pieces rather than reinventing them.
  *
  * Every visual default (stroke width, caps, joins, viewBox, currentColor) comes from
  * Lucide's own attributes, which is precisely the convention the hand-copied SVGs used —

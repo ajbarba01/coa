@@ -33,9 +33,10 @@ describe('buildConversationHandlers', () => {
     const { id } = (await h['newSession']!.handle({ agentRef: 'r', scope: '' })) as { id: string };
     store.append(id, [{ seq: 0, frame: { t: 'text', text: 'hi' } }]);
     expect(((await h['listSessions']!.handle(undefined)) as unknown[]).length).toBe(1);
-    expect(await h['reloadConversation']!.handle({ id })).toEqual([
-      { seq: 0, frame: { t: 'text', text: 'hi' } },
-    ]);
+    expect(await h['reloadConversation']!.handle({ id })).toEqual({
+      turns: [{ seq: 0, frame: { t: 'text', text: 'hi' } }],
+      skipped: 0,
+    });
   });
 
   it('enriches a listed session with the running prompt config when one is frozen', async () => {
@@ -68,6 +69,9 @@ describe('buildConversationHandlers', () => {
   });
 
   it('reloads an unknown id as an empty conversation', async () => {
-    expect(await h['reloadConversation']!.handle({ id: 'nope' })).toEqual([]);
+    expect(await h['reloadConversation']!.handle({ id: 'nope' })).toEqual({
+      turns: [],
+      skipped: 0,
+    });
   });
 });

@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { credentialsOf, poolHealth, type Credential } from './mockAuth.js';
+import { credentialsOf, poolHealth, type Credential } from './authStore.js';
+import type { Range } from './format.js';
 import { providerById } from './providers.js';
 
 /**
@@ -19,18 +19,6 @@ import { providerById } from './providers.js';
  * sums over the same daily series — so the range control genuinely moves them, and no two
  * figures on the surface can disagree.
  */
-
-export type Range = 'today' | '7d' | '30d' | 'all';
-export const RANGES: Range[] = ['today', '7d', '30d', 'all'];
-
-/** Value/label split: the ids key the ledger arithmetic and the view state, the labels are
- *  the only thing the range control shows. `7d`/`30d` are durations, not words. */
-export const RANGE_LABEL: Record<Range, string> = {
-  today: 'Today',
-  '7d': '7d',
-  '30d': '30d',
-  all: 'All',
-};
 
 /** The mock ledger is 30 days deep, so `all` is 30 — an honest "everything we have", not an
  *  invented longer history. */
@@ -408,71 +396,9 @@ export function poolAttention(
   return undefined;
 }
 
-/** Money, the way this console says it. */
-export function usd(n: number): string {
-  return `$${n.toFixed(2)}`;
-}
-
 export function formatTokens(n: number): string {
   if (n <= 0) return '0';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
   return String(Math.round(n));
-}
-
-/* ------------------------------- the usage HUD ------------------------------- */
-
-export interface UsageHudState {
-  /** `${accountLabel}:${limitId}` — what the rail actually draws. */
-  meters: string[];
-  showSpend: boolean;
-  /** The quieting rule: a meter with headroom is not news. Off ⇒ show everything ticked. */
-  onlyAboveHalf: boolean;
-  toggleMeter: (id: string) => void;
-  setShowSpend: (on: boolean) => void;
-  setOnlyAboveHalf: (on: boolean) => void;
-}
-
-export const useUsageHud = create<UsageHudState>((set) => ({
-  meters: ['worm:5h', 'worm:7d', 'worm:7d-opus', 'school:7d'],
-  showSpend: true,
-  onlyAboveHalf: false,
-  toggleMeter: (id) =>
-    set((s) => ({
-      meters: s.meters.includes(id) ? s.meters.filter((m) => m !== id) : [...s.meters, id],
-    })),
-  setShowSpend: (showSpend) => set({ showSpend }),
-  setOnlyAboveHalf: (onlyAboveHalf) => set({ onlyAboveHalf }),
-}));
-
-export interface HudRow {
-  id: string;
-  name: string;
-  percent: number;
-}
-
-/** Pure: what the rail HUD draws, given the accounts and the user's picks. The HUD is a
- *  PROJECTION of the same reads the surface renders — never a second source of truth. */
-export function hudRows(
-  accounts: AccountUsage[],
-  meters: string[],
-  onlyAboveHalf: boolean,
-): HudRow[] {
-  const rows: HudRow[] = [];
-  for (const id of meters) {
-    const [label, limitId] = id.split(':');
-    const account = accounts.find((a) => a.label === label);
-    const limit = account?.limits?.find((l) => l.id === limitId);
-    if (limit === undefined) continue; // an unreadable meter draws nothing, never a fake zero
-    if (onlyAboveHalf && limit.percent < 50) continue;
-    rows.push({ id, name: `${label} · ${limit.label}`, percent: limit.percent });
-  }
-  return rows;
-}
-
-/** Every meter the user COULD tick — the gear's menu. */
-export function hudChoices(accounts: AccountUsage[]): { id: string; name: string }[] {
-  return accounts.flatMap((a) =>
-    (a.limits ?? []).map((l) => ({ id: `${a.label}:${l.id}`, name: `${a.label} · ${l.label}` })),
-  );
 }

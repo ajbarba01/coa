@@ -5,7 +5,7 @@
  * `tierFor`) can ask "is there a grammar?" without loading the parser addon.
  *
  * Grammar coverage this round (a ratified decision): the Tier-0 universal floor
- * plus the TS/JS bounded grammar. Everything else degrades to the floor (D85).
+ * plus the TS/JS bounded grammar. Everything else degrades to the floor.
  */
 
 /** A `lang` id with a bounded grammar. The native Language objects load in {@link ./parser}. */

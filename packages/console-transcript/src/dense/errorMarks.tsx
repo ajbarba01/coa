@@ -8,7 +8,7 @@ const MARKERS = /error TS\d+|Exit code: \d+|^error:/gmu;
 
 /** Wrap error markers (`error TS\d+`, `Exit code: \d+`, a leading `error:`) in a strong
  *  `crit` token span, layered over whatever tint the surrounding body already applies.
- *  Byte-faithful (D128): the returned fragments' combined textContent equals the input —
+ *  Byte-faithful: the returned fragments' combined textContent equals the input —
  *  markers are span-wrapped, never rewritten. Pure; never throws. */
 export function markErrors(text: string): ReactNode {
   MARKERS.lastIndex = 0;

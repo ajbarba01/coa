@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 /* The console's ONE token substrate: the sand-dark scale, Slipstream motion, and the
    type/z/radius scales. There is no second theme to lose a collision to — the retired
-   kit's runtime-injected palette is gone (docs/adr/0025). */
+   kit's runtime-injected palette is gone (the legacy kit was retired along with its palette). */
 @import '@coa/console-kit/tokens.css';
 
 /* Utilities used inside both kits must be visible to the scanner. Excluding the
@@ -270,132 +270,6 @@ code,
   .status-outline {
     display: none;
   }
-}
-
-/* ---------- legacy content motion (console-ui surfaces; retires with them) ---------- */
-
-/* Toast enter/exit. Radix keeps the node mounted through data-state='closed'
-   so the exit animation plays before removal. Reduced motion is neutralized by
-   the [data-motion='reduce'] rule above. */
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(0.5rem);
-  }
-}
-@keyframes toast-out {
-  to {
-    opacity: 0;
-    transform: translateX(0.5rem);
-  }
-}
-.toast-root[data-state='open'] {
-  animation: toast-in 150ms cubic-bezier(0, 0, 0.38, 0.9);
-}
-.toast-root[data-state='closed'] {
-  animation: toast-out 120ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
-}
-
-/* Scrim fade (Dialog/Sheet backdrops). */
-@keyframes overlay-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes overlay-fade-out {
-  to {
-    opacity: 0;
-  }
-}
-.overlay-scrim[data-state='open'] {
-  animation: overlay-fade-in 150ms ease-out;
-}
-.overlay-scrim[data-state='closed'] {
-  animation: overlay-fade-out 120ms ease-in forwards;
-}
-
-/* Opacity-only fade (Select — popper positions via a wrapper, so a plain fade
-   reads cleanly without competing with the anchor transform). */
-.overlay-fade[data-state='open'] {
-  animation: overlay-fade-in 120ms ease-out;
-}
-.overlay-fade[data-state='closed'] {
-  animation: overlay-fade-out 100ms ease-in forwards;
-}
-
-/* Popper overlays (Popover/Menu/Tooltip): Radix positions the wrapper, so
-   animating the content's transform is safe. */
-@keyframes overlay-pop-in {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-}
-@keyframes overlay-pop-out {
-  to {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-}
-.overlay-content[data-state='open'] {
-  animation: overlay-pop-in 150ms cubic-bezier(0, 0, 0.38, 0.9);
-}
-.overlay-content[data-state='closed'] {
-  animation: overlay-pop-out 120ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
-}
-
-/* Centered Dialog — preserve the -50%/-50% centering transform through the scale. */
-@keyframes dialog-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.97);
-  }
-}
-@keyframes dialog-out {
-  to {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.97);
-  }
-}
-.dialog-content[data-state='open'] {
-  animation: dialog-in 150ms cubic-bezier(0, 0, 0.38, 0.9);
-}
-.dialog-content[data-state='closed'] {
-  animation: dialog-out 120ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
-}
-
-/* Side Sheet slides from its anchored edge. */
-@keyframes sheet-in-right {
-  from {
-    transform: translateX(100%);
-  }
-}
-@keyframes sheet-out-right {
-  to {
-    transform: translateX(100%);
-  }
-}
-@keyframes sheet-in-left {
-  from {
-    transform: translateX(-100%);
-  }
-}
-@keyframes sheet-out-left {
-  to {
-    transform: translateX(-100%);
-  }
-}
-.sheet-content[data-side='right'][data-state='open'] {
-  animation: sheet-in-right 200ms cubic-bezier(0, 0, 0.38, 0.9);
-}
-.sheet-content[data-side='right'][data-state='closed'] {
-  animation: sheet-out-right 160ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
-}
-.sheet-content[data-side='left'][data-state='open'] {
-  animation: sheet-in-left 200ms cubic-bezier(0, 0, 0.38, 0.9);
-}
-.sheet-content[data-side='left'][data-state='closed'] {
-  animation: sheet-out-left 160ms cubic-bezier(0.2, 0, 1, 0.9) forwards;
 }
 
 /* Find-in-conversation term highlights (CSS Custom Highlight API — the ranges are

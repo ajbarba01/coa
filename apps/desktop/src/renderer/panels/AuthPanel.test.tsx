@@ -9,9 +9,9 @@ import {
   credentialStatus,
   credentialsOf,
   poolHealth,
-  useMockAuth,
+  useAuthStore,
   type Credential,
-} from './mockAuth.js';
+} from './authStore.js';
 import { useAuthUi } from './surfaceUi.js';
 import { useModels } from './modelsStore.js';
 
@@ -73,12 +73,12 @@ import { useLogin } from './loginStore.js';
 // The store is module-level (it feeds the surface AND the rail HUD), so each test starts from
 // the same empty shape rather than its predecessor's leftovers. The shell store joins the
 // reset because the add-provider dialog lives in its single-dialog slot.
-const EMPTY_STATE = useMockAuth.getState();
+const EMPTY_STATE = useAuthStore.getState();
 const UI_SEED = useAuthUi.getState();
 const SHELL_SEED = useShell.getState();
 beforeEach(() => {
   vi.resetAllMocks();
-  useMockAuth.setState(EMPTY_STATE, true);
+  useAuthStore.setState(EMPTY_STATE, true);
   useAuthUi.setState(UI_SEED, true);
   useShell.setState(SHELL_SEED, true);
   useModels.setState({ lists: {}, catalog: {} });
@@ -239,7 +239,7 @@ async function renderAuth(view: AuthView = FIXTURE_VIEW): Promise<void> {
       <AuthSurface />
     </>,
   );
-  await waitFor(() => expect(useMockAuth.getState().added).toEqual(view.added));
+  await waitFor(() => expect(useAuthStore.getState().added).toEqual(view.added));
 }
 
 /** Label-adjacency law (UI.md): the strip's re-read control is icon-ONLY, so its mark is
@@ -265,9 +265,9 @@ const credential = (over: Partial<Credential> = {}): Credential => ({
 describe('hydrate', () => {
   it('populates the store from authView and keeps selectors working', async () => {
     vi.mocked(rpcAuthView).mockResolvedValue(FIXTURE_VIEW);
-    await useMockAuth.getState().hydrate();
-    expect(credentialsOf(useMockAuth.getState().credentials, 'tavily').length).toBe(7);
-    expect(useMockAuth.getState().added).toEqual(FIXTURE_VIEW.added);
+    await useAuthStore.getState().hydrate();
+    expect(credentialsOf(useAuthStore.getState().credentials, 'tavily').length).toBe(7);
+    expect(useAuthStore.getState().added).toEqual(FIXTURE_VIEW.added);
   });
 });
 
@@ -335,7 +335,7 @@ describe('AuthSurface', () => {
 
     expect(rpcRenameCredential).toHaveBeenCalledWith('c4', 'ds-main');
     await waitFor(() =>
-      expect(useMockAuth.getState().credentials.some((c) => c.label === 'ds-main')).toBe(true),
+      expect(useAuthStore.getState().credentials.some((c) => c.label === 'ds-main')).toBe(true),
     );
   });
 
@@ -376,16 +376,16 @@ describe('AuthSurface', () => {
     await screen.findByText(/^keys$/i);
     await user.click(screen.getByRole('button', { name: /^tavily-3 actions$/i }));
     await user.click(await screen.findByText(/^replace key…$/i));
-    await user.type(
-      await screen.findByLabelText(/paste the replacement/i),
-      'tvly-brand-new-key-000zzz',
-    );
+    // Pasted, not typed: a key arrives from the clipboard in one go (the field says so), and
+    // driving it character by character costs a re-render per character for no coverage.
+    await user.click(await screen.findByLabelText(/paste the replacement/i));
+    await user.paste('tvly-brand-new-key-000zzz');
     await user.click(screen.getByRole('button', { name: /^replace$/i }));
 
     expect(rpcReplaceSecret).toHaveBeenCalledWith('t3', 'tvly-brand-new-key-000zzz');
     await waitFor(() =>
       expect(
-        useMockAuth.getState().credentials.find((c) => c.id === 't3')?.coolingSec,
+        useAuthStore.getState().credentials.find((c) => c.id === 't3')?.coolingSec,
       ).toBeUndefined(),
     );
   });
@@ -435,13 +435,14 @@ describe('AuthSurface', () => {
     await user.click(within(dialog).getByRole('button', { name: /exa/i }));
 
     // Step 2 is chosen by the LOCATOR KIND (exa is key-file), never by the provider.
-    await user.type(await screen.findByLabelText(/paste the key/i), 'exa-key-abc123456');
+    await user.click(await screen.findByLabelText(/paste the key/i));
+    await user.paste('exa-key-abc123456');
     await user.click(screen.getByRole('button', { name: /^add key$/i }));
 
     expect(rpcAddProvider).toHaveBeenCalledWith('exa');
     expect(rpcAddCredential).toHaveBeenCalledWith('exa', 'exa', 'exa-key-abc123456');
-    await waitFor(() => expect(useMockAuth.getState().added).toContain('exa'));
-    expect(useMockAuth.getState().credentials.some((c) => c.providerId === 'exa')).toBe(true);
+    await waitFor(() => expect(useAuthStore.getState().added).toContain('exa'));
+    expect(useAuthStore.getState().credentials.some((c) => c.providerId === 'exa')).toBe(true);
   });
 
   it('adds a key inline, without a modal covering the table it is adding to', async () => {
@@ -460,13 +461,14 @@ describe('AuthSurface', () => {
     await user.click(await screen.findByRole('button', { name: /^\+ add key$/i }));
 
     expect(screen.queryByRole('dialog')).toBeNull();
-    await user.type(await screen.findByLabelText(/paste the key/i), 'tvly-eighth-key-99001');
+    await user.click(await screen.findByLabelText(/paste the key/i));
+    await user.paste('tvly-eighth-key-99001');
     await user.click(screen.getByRole('button', { name: /^add$/i }));
 
     expect(rpcAddCredential).toHaveBeenCalledWith('tavily', 'tavily-8', 'tvly-eighth-key-99001');
     await waitFor(() =>
       expect(
-        useMockAuth.getState().credentials.filter((c) => c.providerId === 'tavily').length,
+        useAuthStore.getState().credentials.filter((c) => c.providerId === 'tavily').length,
       ).toBe(8),
     );
   });
@@ -483,7 +485,7 @@ describe('AuthSurface', () => {
     await user.click(screen.getByRole('button', { name: /^use school$/i }));
 
     expect(rpcMakeActive).toHaveBeenCalledWith('c2');
-    await waitFor(() => expect(useMockAuth.getState().activeByProvider['claude']).toBe('c2'));
+    await waitFor(() => expect(useAuthStore.getState().activeByProvider['claude']).toBe('c2'));
   });
 
   it('offers no one-click activation for a pool — a service has no "active" key', async () => {
@@ -512,7 +514,7 @@ describe('AuthSurface', () => {
 
     expect(rpcSetCredentialDisabled).toHaveBeenCalledWith('t5', false);
     await waitFor(() =>
-      expect(useMockAuth.getState().credentials.find((c) => c.id === 't5')?.disabled).toBe(false),
+      expect(useAuthStore.getState().credentials.find((c) => c.id === 't5')?.disabled).toBe(false),
     );
   });
 
@@ -537,7 +539,7 @@ describe('AuthSurface', () => {
     expect(rpcClearCooldown).toHaveBeenCalledWith('t3');
     await waitFor(() =>
       expect(
-        useMockAuth.getState().credentials.find((c) => c.id === 't3')?.coolingSec,
+        useAuthStore.getState().credentials.find((c) => c.id === 't3')?.coolingSec,
       ).toBeUndefined(),
     );
   });
@@ -558,7 +560,7 @@ describe('AuthSurface', () => {
 
     expect(rpcRemoveCredential).toHaveBeenCalledWith('t7', undefined);
     await waitFor(() =>
-      expect(useMockAuth.getState().credentials.some((c) => c.id === 't7')).toBe(false),
+      expect(useAuthStore.getState().credentials.some((c) => c.id === 't7')).toBe(false),
     );
   });
 
@@ -581,7 +583,7 @@ describe('AuthSurface', () => {
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
     expect(rpcRemoveProvider).not.toHaveBeenCalled();
-    expect(useMockAuth.getState().added).toContain('tavily');
+    expect(useAuthStore.getState().added).toContain('tavily');
 
     await user.click(screen.getByRole('button', { name: /^tavily actions$/i }));
     await user.click(await screen.findByText(/^remove provider…$/i));
@@ -589,8 +591,8 @@ describe('AuthSurface', () => {
     await user.click(within(again).getByRole('button', { name: /^remove provider$/i }));
 
     expect(rpcRemoveProvider).toHaveBeenCalledWith('tavily', undefined);
-    await waitFor(() => expect(useMockAuth.getState().added).not.toContain('tavily'));
-    expect(useMockAuth.getState().credentials.some((c) => c.providerId === 'tavily')).toBe(false);
+    await waitFor(() => expect(useAuthStore.getState().added).not.toContain('tavily'));
+    expect(useAuthStore.getState().credentials.some((c) => c.providerId === 'tavily')).toBe(false);
   });
 
   it('joins the single-dialog rule — opening another shell dialog closes it, and vice versa', () => {
@@ -649,19 +651,19 @@ describe('AuthSurface', () => {
       enabled: { ...FIXTURE_VIEW.enabled, tavily: false },
     };
     vi.mocked(rpcSetProviderEnabled).mockResolvedValue(benched);
-    const before = useMockAuth.getState().credentials.length;
+    const before = useAuthStore.getState().credentials.length;
 
     await user.click(screen.getAllByRole('switch', { name: /^tavily enabled$/i })[0]!);
 
     expect(rpcSetProviderEnabled).toHaveBeenCalledWith('tavily', false);
-    await waitFor(() => expect(useMockAuth.getState().enabled['tavily']).toBe(false));
-    expect(useMockAuth.getState().credentials.length).toBe(before);
+    await waitFor(() => expect(useAuthStore.getState().enabled['tavily']).toBe(false));
+    expect(useAuthStore.getState().credentials.length).toBe(before);
   });
 });
 
 describe('login health on the surface', () => {
   /** The fixture with the ACTIVE claude login flagged by the probe — the headline case:
-   *  flagged, never auto-switched (SC-1). */
+   *  flagged, never auto-switched (advisory). */
   const FLAGGED_VIEW: AuthView = {
     ...FIXTURE_VIEW,
     credentials: FIXTURE_VIEW.credentials.map((c) =>
@@ -677,7 +679,7 @@ describe('login health on the surface', () => {
     expect(rpcProbeHealth).toHaveBeenCalled();
     // The probe's view reprojects: the flagged row appears without a manual refresh.
     await waitFor(() =>
-      expect(useMockAuth.getState().credentials.find((c) => c.id === 'c1')?.health).toBe(
+      expect(useAuthStore.getState().credentials.find((c) => c.id === 'c1')?.health).toBe(
         'needs-relogin',
       ),
     );
@@ -762,7 +764,7 @@ describe('removing a login with a browser profile', () => {
     const user = userEvent.setup();
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly());
-    useMockAuth.setState({ removeCredential: remove });
+    useAuthStore.setState({ removeCredential: remove });
     await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
     await user.click(await screen.findByText(/^remove$/i));
     expect(remove).toHaveBeenCalledWith('claude:a@b.org', undefined);
@@ -772,7 +774,7 @@ describe('removing a login with a browser profile', () => {
     const user = userEvent.setup();
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly({ hasProfile: true }));
-    useMockAuth.setState({ removeCredential: remove });
+    useAuthStore.setState({ removeCredential: remove });
     await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
     await user.click(await screen.findByText(/^remove$/i));
     expect(remove).not.toHaveBeenCalled();
@@ -784,7 +786,7 @@ describe('removing a login with a browser profile', () => {
     const user = userEvent.setup();
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly({ hasProfile: true }));
-    useMockAuth.setState({ removeCredential: remove });
+    useAuthStore.setState({ removeCredential: remove });
     await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
     await user.click(await screen.findByText(/^remove$/i));
     await user.click(screen.getByLabelText(/^also delete the browser profile$/i));
@@ -793,12 +795,12 @@ describe('removing a login with a browser profile', () => {
   });
 
   /** Keyed by identity, one jar can back several logins — so the option to delete it is not
-   *  this row's to offer, and the prompt says why rather than going quiet (docs/adr/0021). */
+   *  this row's to offer, and the prompt says why rather than going quiet (profiles are keyed by identity, which several accounts can share). */
   it('offers no profile deletion when another login shares the identity', async () => {
     const user = userEvent.setup();
     const remove = vi.fn().mockResolvedValue(undefined);
     await renderAuth(claudeOnly({ hasProfile: true, profileShared: true }));
-    useMockAuth.setState({ removeCredential: remove });
+    useAuthStore.setState({ removeCredential: remove });
     await user.click(screen.getByRole('button', { name: /^a@b\.org actions$/i }));
     await user.click(await screen.findByText(/^remove$/i));
     expect(screen.queryByLabelText('also delete the browser profile')).toBeNull();

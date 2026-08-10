@@ -1,5 +1,5 @@
-/* Mirrors packages/console-ui/src/lib — the legacy kit's proven discipline. Copied, not imported:
- * console-ui retires with the workbench rebuild and the new kit must not depend on it. */
+/* The retired legacy kit's proven discipline, copied (not imported) so this kit
+ * never depended on it — see docs/adr/0025. */
 
 /** The per-component usage declaration. Presence + completeness are enforced;
  *  correctness is a review judgment. All intents compile into COMPONENTS.md. */

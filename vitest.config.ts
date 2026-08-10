@@ -16,16 +16,18 @@ const workspaceAlias = {
   '@coa/adapter-claude-sdk': fileURLToPath(
     new URL('./packages/adapter-claude-sdk/src/index.ts', import.meta.url),
   ),
-  '@coa/adapter-deepseek': fileURLToPath(
-    new URL('./packages/adapter-deepseek/src/index.ts', import.meta.url),
-  ),
-  '@coa/adapter-longcat': fileURLToPath(
-    new URL('./packages/adapter-longcat/src/index.ts', import.meta.url),
+  '@coa/adapter-openai-compat': fileURLToPath(
+    new URL('./packages/adapter-openai-compat/src/index.ts', import.meta.url),
   ),
   '@coa/console-viewmodel': fileURLToPath(
     new URL('./packages/console-viewmodel/src/index.ts', import.meta.url),
   ),
-  '@coa/console-ui': fileURLToPath(new URL('./packages/console-ui/src/index.ts', import.meta.url)),
+  '@coa/console-kit': fileURLToPath(
+    new URL('./packages/console-kit/src/index.ts', import.meta.url),
+  ),
+  '@coa/console-transcript': fileURLToPath(
+    new URL('./packages/console-transcript/src/index.ts', import.meta.url),
+  ),
 };
 
 export default defineConfig({
@@ -39,6 +41,8 @@ export default defineConfig({
       'packages/*/test/**/*.test.ts',
       'apps/*/src/**/*.test.ts',
       'apps/*/src/**/*.test.tsx',
+      // Repo-level tooling tests (e.g. the dependency-cruiser canary).
+      'test/**/*.test.ts',
     ],
   },
 });

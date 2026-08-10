@@ -1,4 +1,4 @@
-/** One classified line of a diff. `text` is always a verbatim source line (D128:
+/** One classified line of a diff. `text` is always a verbatim source line (byte-faithful:
  *  no trimming or normalization) — the renderer colorizes, never mutates bytes. */
 export interface DiffLine {
   kind: 'context' | 'added' | 'removed';

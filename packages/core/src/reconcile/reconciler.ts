@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeEventDraft } from '../event.js';
 import { classifyObservation, type Observation, type PathState, type PreciseOp } from './dedup.js';
 
 /**
- * Producer ② — the git-centric reconciler (D123). Truth resolution is
+ * Producer ② — the git-centric reconciler. Truth resolution is
  * git-centric: a scoped `git status` scopes dirty paths, content-hashing dedups,
  * and the causal-dedup decision turns each real transition into a change-event.
  * It is provenance-blind and **respects `.gitignore` by default** (engine
@@ -45,7 +45,14 @@ export class Reconciler {
    * standalone, this `git ls-files` pass is the equivalent disk baseline.
    */
   private seedTrackedBaseline(): void {
-    const listed = execFileSync('git', ['ls-files'], { cwd: this.deps.root, encoding: 'utf8' });
+    // stderr is captured rather than inherited: failing here is an EXPECTED, handled
+    // outcome on a non-git root (the caller degrades producer 2 to a no-op), so the
+    // failure must not print to the daemon's console as if something went wrong.
+    const listed = execFileSync('git', ['ls-files'], {
+      cwd: this.deps.root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     for (const path of listed.split('\n')) {
       if (path.length === 0 || this.priorHash.has(path)) continue;
       this.priorHash.set(path, hashFile(join(this.deps.root, path)));
@@ -79,6 +86,7 @@ export function scanWorktree(root: string, worktree: string): Observation[] {
   const output = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd: root,
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   const observations: Observation[] = [];
   for (const line of output.split('\n')) {
@@ -91,8 +99,26 @@ export function scanWorktree(root: string, worktree: string): Observation[] {
 
 /** sha256 of a file's bytes, or `null` if it does not exist (deleted). */
 function hashFile(absolute: string): string | null {
-  if (!existsSync(absolute)) return null;
-  return createHash('sha256').update(readFileSync(absolute)).digest('hex');
+  try {
+    return createHash('sha256').update(readFileSync(absolute)).digest('hex');
+  } catch (error) {
+    // Read straight through instead of asking whether the file exists first: a scan
+    // lists a path and we hash it a moment later, so anything that checked existence
+    // up front would still have to survive the file vanishing in between. A file that
+    // is gone by the time we read it means exactly what a file that was never there
+    // means — no content to hash — and an ordinary `rm` or build cleanup running
+    // alongside a scan is enough to hit it. Any other read failure is a real fault and
+    // stays visible to the caller.
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+/** True for the errno codes that mean "this path is not there", including a parent
+ *  component that disappeared (which surfaces as ENOTDIR rather than ENOENT). */
+function isMissing(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
 }
 
 /** Extract the path from a porcelain line, taking the post-rename target for renames. */

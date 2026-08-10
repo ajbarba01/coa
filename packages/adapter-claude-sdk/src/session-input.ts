@@ -1,11 +1,11 @@
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 
 /**
- * The M9 neutral→SDK input mapping: coa's backend-neutral session input (a
+ * The neutral→SDK input mapping: coa's backend-neutral session input (a
  * one-shot string or a stream of user-turn strings) → the Claude SDK's `query`
  * prompt. A string passes through as the SDK's one-shot form; a stream is wrapped
  * turn-by-turn into `SDKUserMessage`s (streaming-input mode). This isolates the
- * SDK's user-message shape to M9 so M8's session seam stays backend-neutral and a
+ * SDK's user-message shape to this adapter so the daemon's session seam stays backend-neutral and a
  * from-scratch adapter maps the same neutral input to its own wire format.
  */
 export function toSdkPrompt(

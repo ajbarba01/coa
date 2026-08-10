@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { flagRecordSchema } from './flag.js';
 
 /**
- * The assembled context package (L-ASM) — ephemeral, byte-stable, inspectable;
- * not a committed git artifact. M0 owns the shape.
+ * The assembled context package — ephemeral, byte-stable, inspectable;
+ * not a committed git artifact. This package owns the shape.
  */
 export const contextPackageSchema = z.object({
   header: z.object({
@@ -16,7 +16,7 @@ export const contextPackageSchema = z.object({
 });
 export type ContextPackage = z.infer<typeof contextPackageSchema>;
 
-/** A reference to an assembled package by scope + WAL position (the M5 compile slot). */
+/** A reference to an assembled package by scope + WAL position (the compiled-config slot). */
 export const contextPackageRefSchema = z.object({
   scope: z.string(),
   walPosition: z.number(),

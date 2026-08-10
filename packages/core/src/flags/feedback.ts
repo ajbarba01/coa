@@ -1,8 +1,8 @@
 /**
- * D131 — the structured flag-feedback channel. The typed reason records WHY a flag
+ * The structured flag-feedback channel. The typed reason records WHY a flag
  * was acted on or dismissed, seeding future constraint proposals (the deferred
  * constraint-mining producer). Any subtractive effect it drives is surfaced via
- * the M7 visibility floor, never a silent reclassification. The typed reason is
+ * the governance visibility floor, never a silent reclassification. The typed reason is
  * categorical (recordable); a free-text `note` is prose-bearing and stays
  * WAL-local (DT-5) — never on the sync-eligible ledger.
  */

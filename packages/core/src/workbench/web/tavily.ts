@@ -7,7 +7,7 @@ import { tavilyLimit } from './limits.js';
  * The Tavily adapters (search + extract) — thin HTTP over `api.tavily.com`, each
  * mapping the response to a {@link ProviderOutcome}: 429 → rate-limit, 432/433 →
  * quota, 401 → error (a bad key — no cooldown), other non-ok → error. Injectable
- * `fetchImpl`; credential-blind (the key is passed in). Never throws (SC-1).
+ * `fetchImpl`; credential-blind (the key is passed in). Never throws.
  * Exports both the extract (`makeTavilyFetch`) and search (`makeTavilySearch`) adapters.
  */
 const DEFAULT_BASE_URL = 'https://api.tavily.com';

@@ -16,7 +16,8 @@ import {
 } from './live-smoke-helpers.js';
 
 /**
- * The append-only source-of-truth de-risk gate (docs/adr/0010): a real
+ * The append-only source-of-truth de-risk gate (the event log is the canonical
+ * conversation record): a real
  * `@anthropic-ai/claude-agent-sdk` tool-using turn driven through
  * {@link ClaudeSdkAdapter}, proving the assumption the fake suite cannot — that the
  * REAL SDK `tool_result` maps to an enriched `onTurn(frame, full)` whose `full`
@@ -81,7 +82,7 @@ describe.skipIf(!process.env['COA_LIVE'])(
 
       const toolResults = events.filter((e) => e.frame.t === 'tool_result');
       // The FULL body carries the real file content the model saw — this is what the
-      // fold persists as the `tool` message content (docs/adr/0010).
+      // fold persists as the `tool` message content in the append-only log.
       const withMarker = toolResults.find((e) => (e.full ?? '').includes(marker));
       expect(withMarker).toBeDefined();
       expect(withMarker!.full).toBeDefined();

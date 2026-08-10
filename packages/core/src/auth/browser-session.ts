@@ -28,7 +28,7 @@ export {
 } from './browser-paths.js';
 
 /**
- * Isolated browser sessions for driven logins (docs/adr/0018). coa cannot own the
+ * Isolated browser sessions for driven logins. coa cannot own the
  * browser's cookie jar, so a declared `--email` is only a prefill hint — the handshake
  * lands as whoever the browser is already signed in as. Launching a real browser with a
  * per-account `--user-data-dir` gives each account its own jar, which is what makes an
@@ -36,7 +36,7 @@ export {
  * (`isolatedBrowserSession`), this module owns the mechanism, and the Claude adapter is
  * one consumer.
  *
- * The open is two pieces, not one (docs/adr/0020). `BROWSER` points the rented CLI at a shim
+ * The open is two pieces, not one. `BROWSER` points the rented CLI at a shim
  * ({@link courierScript}) whose only job is to WRITE DOWN the url it is handed and exit — it
  * launches nothing. coa then performs the real open itself ({@link BrowserSession.openUrl}),
  * as argv with no shell in the path, which is immune to the quoting failures that sank the
@@ -50,7 +50,7 @@ export {
  * the good one, so coa reads it from the file and prefers it, falling back to the printed url
  * whenever the relay does not arrive.
  *
- * Everything here is an affordance (SC-1): every failure path returns "no launcher" (or,
+ * Everything here is an affordance: every failure path returns "no launcher" (or,
  * for `openUrl`, simply launches nothing), and the login falls back to the copy-link +
  * paste-code flow that already works.
  */
@@ -64,7 +64,7 @@ const CHROMIUM_FLAGS = ['--no-first-run', '--no-default-browser-check'];
  * machine learning. Component updates bring the text-to-speech engine, the omnibox suggest
  * model and the component extension cache; the optimization guide brings a ~49 MB model
  * store; the shader cache is pure GPU warm-up. None of them serve a window whose only job
- * is one sign-in, and each one measurably occupied the profile root (docs/adr/0024).
+ * is one sign-in, and each one measurably occupied the profile root.
  *
  * Safe Browsing is deliberately NOT disabled. It is the second-largest item on disk and
  * also the phishing database guarding a window where a password gets typed — the wrong
@@ -109,8 +109,8 @@ export function detectBrowser(
 
 /** Pure: whether any of `otherEmails` resolves to the same jar as `email`. Keying by identity
  *  means one jar can back several account rows — a Claude and a Codex login as the same
- *  person, say — so deleting it on one row's removal would sign the others out too
- *  (docs/adr/0021). Callers pass every OTHER account's email. */
+ *  person, say — so deleting it on one row's removal would sign the others out too.
+ *  Callers pass every OTHER account's email. */
 export function isProfileShared(
   email: string | undefined,
   otherEmails: (string | undefined)[],
@@ -122,7 +122,7 @@ export function isProfileShared(
 
 /** Pure: guards a path before it is trusted as something to launch. A `"`, a `%`, or a
  *  newline in a hand-edited override is copy-paste damage or tampering, not a real install
- *  path — real chrome.exe/msedge.exe locations never contain them (docs/adr/0018) — so
+ *  path — real chrome.exe/msedge.exe locations never contain them — so
  *  this refuses it rather than launch something unexpected. Detection never produces any
  *  of these; only a hand-edited override can, so this is a guard against that input, not a
  *  normalizer. */
@@ -178,7 +178,7 @@ const COURIER_INTERVAL_MS = 120;
  *  `&` to be lost in (the failure mode the courier shim exists to route around).
  *
  *  The root/key split is the isolation: one user-data-dir shared by every identity, one
- *  profile-directory per identity (docs/adr/0024). */
+ *  profile-directory per identity. */
 export function browserArgs(userDataDir: string, key: string, url: string): string[] {
   return [
     `--user-data-dir=${userDataDir}`,
@@ -222,11 +222,11 @@ export interface BrowserSessionView {
   available(): boolean;
   detected(): string | undefined;
   override(): string | undefined;
-  /** Keyed by identity, so both take the account's declared email (docs/adr/0021). */
+  /** Keyed by identity, so both take the account's declared email. */
   hasProfile(email: string): boolean;
   removeProfile(email: string): void;
   /** Jars no account resolves to, and the door that deletes one. Reads and deletes only —
-   *  still launcher-free, so the seam's guarantee holds (docs/adr/0024). */
+   *  still launcher-free, so the seam's guarantee holds. */
   listReclaimable(knownEmails: readonly (string | undefined)[]): string[];
   reclaimProfile(key: string): void;
 }
@@ -252,8 +252,7 @@ function readIfPresent(path: string): string | undefined {
 
 /** Detached and stdio-ignored: a login flow must never block on the browser window
  *  closing, mirroring why the old shim needed `start ""` for the same reason one level
- *  down. No `shell: true` — argv reaching the OS untouched is the entire point
- *  (docs/adr/0019). */
+ *  down. No `shell: true` — argv reaching the OS untouched is the entire point. */
 function launchBrowser(command: string, args: string[]): void {
   const child = spawn(command, args, { detached: true, stdio: 'ignore' });
   child.unref();
@@ -302,7 +301,7 @@ export class BrowserSession implements BrowserSessionView {
   /** The binary a launch would actually use. An override that exists in the settings but
    *  fails validation makes this — and `available()` — `undefined` rather than quietly
    *  substituting the detected browser: the user asked for a specific binary, and
-   *  launching a different one instead would be its own dishonesty (docs/adr/0018). */
+   *  launching a different one instead would be its own dishonesty. */
   browser(): string | undefined {
     return this.#rawOverride() === undefined ? this.detected() : this.override();
   }
@@ -321,11 +320,11 @@ export class BrowserSession implements BrowserSessionView {
    * The launcher `BROWSER` should point at for this login, or `undefined` when isolation
    * does not apply — setting off, provider without the capability, no browser, an id that
    * could escape the profile root, or an unwritable launcher. Every one of those is a
-   * plain fallback to the copy-link + paste-code path, never an error (SC-1).
+   * plain fallback to the copy-link + paste-code path, never an error.
    *
    * No legacy adoption: jars from before the shared root are not carried over. Adopting one
    * would import the old layout into the new, which the clean break rejects — they are the
-   * reclaim surface's business now, not this one's (docs/adr/0024).
+   * reclaim surface's business now, not this one's.
    */
   launcherFor(provider: string, email: string): string | undefined {
     try {
@@ -340,7 +339,7 @@ export class BrowserSession implements BrowserSessionView {
       // A url left by an earlier attempt names a localhost port that died with it. Clearing
       // it here — the one moment a login is known to be starting — is what keeps `openUrl`
       // from relaying a dead callback. Best-effort: if it cannot be cleared, the sign-in
-      // still reaches the browser and the copy-link path still works (SC-1).
+      // still reaches the browser and the copy-link path still works.
       try {
         (this.#deps.remove ?? removePath)(courier);
       } catch {
@@ -379,7 +378,7 @@ export class BrowserSession implements BrowserSessionView {
    * Opens the profiled browser at the authorize url — preferring the one the shim relayed
    * (localhost callback, completes itself) over `printedUrl`, the human-fallback the CLI
    * printed (remote callback, ends in a code to paste). See the module doc for why they
-   * differ. Same guards as {@link launcherFor}, and the same SC-1 contract: any failure is
+   * differ. Same guards as {@link launcherFor}, and the same never-throw contract: any failure is
    * silent and the copy-link + paste-code path is what the user sees instead.
    */
   async openUrl(provider: string, email: string, printedUrl: string): Promise<void> {
@@ -396,7 +395,7 @@ export class BrowserSession implements BrowserSessionView {
         browserArgs(browserUserDataDir(this.#deps.home), key, relayed ?? printedUrl),
       );
     } catch {
-      // SC-1: a failed open is a no-op, never an error into the login flow.
+      // a failed open is a no-op, never an error into the login flow.
     }
   }
 

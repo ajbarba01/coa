@@ -74,7 +74,7 @@ describe('reconcileStreaming', () => {
     ]);
   });
 
-  it('passes non-streaming frames through unchanged (D85 / reloaded log has no deltas)', () => {
+  it('passes non-streaming frames through unchanged (pass-through floor / reloaded log has no deltas)', () => {
     const you: TurnFrame = { id: 'u', role: 'you', kind: 'text', text: 'hi' };
     const settled = settledText('s', 'reply');
     expect(reconcileStreaming([], [you, settled])).toEqual([you, settled]);

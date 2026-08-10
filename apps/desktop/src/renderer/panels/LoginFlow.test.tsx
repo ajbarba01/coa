@@ -18,14 +18,14 @@ const rpc = vi.hoisted(() => ({
 vi.mock('../console.js', () => rpc);
 // Same stub-store shape as `hydrate` was (loginStore's `apply` calls it on every finalize),
 // widened to also carry the isolated-browser-session read the pre-step now projects — a
-// minimal double, not the real daemon-backed store (ADR-0018).
+// minimal double, not the real daemon-backed store.
 const authState = vi.hoisted(() => ({
   hydrate: vi.fn().mockResolvedValue(undefined),
   browserSession: { enabled: false, available: false },
 }));
 type AuthStateStub = typeof authState;
-vi.mock('./mockAuth.js', () => ({
-  useMockAuth: Object.assign((selector: (s: AuthStateStub) => boolean) => selector(authState), {
+vi.mock('./authStore.js', () => ({
+  useAuthStore: Object.assign((selector: (s: AuthStateStub) => boolean) => selector(authState), {
     getState: () => authState,
     setState: (partial: Partial<AuthStateStub>) => Object.assign(authState, partial),
   }),
@@ -33,7 +33,7 @@ vi.mock('./mockAuth.js', () => ({
 
 import { useLogin } from './loginStore.js';
 import { LoginDialog, SignInButton } from './LoginFlow.js';
-import { useMockAuth } from './mockAuth.js';
+import { useAuthStore } from './authStore.js';
 import { PROVIDERS } from './providers.js';
 
 const claude = PROVIDERS.find((p) => p.id === 'claude');
@@ -58,7 +58,7 @@ describe('the driven login dialog', () => {
     vi.clearAllMocks();
     useLogin.setState({ flow: undefined });
     useShell.setState(SHELL_SEED, true);
-    useMockAuth.setState({ browserSession: { enabled: false, available: false } });
+    useAuthStore.setState({ browserSession: { enabled: false, available: false } });
   });
 
   it('sign in opens the email-first step and starts the flow with the email', () => {
@@ -77,13 +77,13 @@ describe('the driven login dialog', () => {
 
   describe('the email pre-step', () => {
     it('names the dedicated profile in the pre-step when isolation is live', () => {
-      useMockAuth.setState({ browserSession: { enabled: true, available: true } });
+      useAuthStore.setState({ browserSession: { enabled: true, available: true } });
       renderEmailStep();
       expect(screen.getByText(/its own browser profile/i)).toBeTruthy();
     });
 
     it('keeps today’s copy when isolation is off', () => {
-      useMockAuth.setState({ browserSession: { enabled: false, available: false } });
+      useAuthStore.setState({ browserSession: { enabled: false, available: false } });
       renderEmailStep();
       expect(screen.getByText(/opens in your browser/i)).toBeTruthy();
     });

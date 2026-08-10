@@ -11,13 +11,13 @@
   },
   "dependencies": {
     "@coa/adapter-claude-sdk": "workspace:*",
-    "@coa/adapter-deepseek": "workspace:*",
-    "@coa/adapter-longcat": "workspace:*",
+    "@coa/adapter-openai-compat": "workspace:*",
     "@coa/core": "workspace:*",
     "@coa/shared": "workspace:*",
     "@coa/spi": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1"
+    "@types/node": "^26.0.1",
+    "zod": "^4.4.3"
   }
 }

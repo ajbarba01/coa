@@ -58,6 +58,9 @@ export interface ShellState {
   composerFocus: number;
   /** The coa daemon itself — the console is a client; no daemon, no console. */
   daemon: DaemonStatus;
+  /** Why the daemon is in that state, when there is anything to say (a failure). The gate
+   *  renders it: an error the user cannot read the reason for is an error they cannot fix. */
+  daemonReason?: string | undefined;
   /** The REAL window maximize state (main pushes it) — drives the restore glyph. */
   maximized: boolean;
   /** The open project, read from main (which derives it from the daemon's cwd). */
@@ -99,7 +102,7 @@ export interface ShellState {
   setLoginEmailFor: (target: { providerId: string; credentialId?: string } | undefined) => void;
   /** Put the caret in the composer — whatever the user types next is a message. */
   focusComposer: () => void;
-  setDaemon: (daemon: DaemonStatus) => void;
+  setDaemon: (daemon: DaemonStatus, reason?: string) => void;
   setMaximized: (maximized: boolean) => void;
   setWorkspace: (workspace: { name: string; root: string }) => void;
 }
@@ -144,6 +147,7 @@ export const useShell = create<ShellState>((set, get) => ({
   loginEmailFor: undefined,
   composerFocus: 0,
   daemon: 'stopped',
+  daemonReason: undefined,
   maximized: false,
   workspace: undefined,
 
@@ -244,7 +248,7 @@ export const useShell = create<ShellState>((set, get) => ({
         : { loginEmailFor: undefined },
     ),
   focusComposer: () => set((s) => ({ composerFocus: s.composerFocus + 1 })),
-  setDaemon: (daemon) => set({ daemon }),
+  setDaemon: (daemon, daemonReason) => set({ daemon, daemonReason }),
   setMaximized: (maximized) => set({ maximized }),
   setWorkspace: (workspace) => set({ workspace }),
 }));

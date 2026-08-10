@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** The house error shape the core throws (D-CAT). */
+/** The house error shape the core throws. */
 export const coaErrorSchema = z.object({
   code: z.string(),
   message: z.string(),

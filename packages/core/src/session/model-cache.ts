@@ -1,7 +1,7 @@
 import type { Locator, ModelDescriptor } from '@coa/shared';
 
 /**
- * M8 — the per-account model-capability cache. Model lists (and each model's real
+ * The per-account model-capability cache. Model lists (and each model's real
  * effort levels) are account-specific and low-frequency, so they are fetched once
  * per account and reused. Keyed by account label, so an account switch naturally
  * reads a different entry (no explicit invalidation needed on switch). A failed

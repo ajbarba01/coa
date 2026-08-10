@@ -4,23 +4,24 @@ import { flagRecordSchema } from './flag.js';
 /**
  * The server-to-client push wire records (the CHAT and CON families). `tokens` is the
  * degrade-to-floor raw stream; the structured `turn` kind is the bounded
- * high-fidelity layer (D85). M0 owns the wire types; M8 owns the emission policy.
+ * high-fidelity layer (each degrades independently, never breaking the floor).
+ * This package owns the wire types; the session host owns the emission policy.
  */
 
-/** The discriminated turn-event union (CHAT-5). */
+/** The discriminated turn-event union. */
 export const turnFrameSchema = z.discriminatedUnion('t', [
   // `durationMs` (optional): wall-clock the model spent on this reasoning block, stamped by
-  // M8 from the delta→settle timing so a reload renders "Thought for Ns" identically to the
+  // the session host from the delta→settle timing so a reload renders "Thought for Ns" identically to the
   // live stream (a token estimate is derived from `text`, so it needs no field). Omitted by a
   // non-streamed backend or the floor.
   z.object({ t: z.literal('thinking'), text: z.string(), durationMs: z.number().optional() }),
-  // Delivery-only streaming deltas (Piece B / G7): pushed over R-12 for live render,
-  // NEVER store.append-ed — the durable log holds only settled frames (docs/adr/0010,
-  // docs/adr/0013). The console appends a delta to the in-progress block; the settled
+  // Delivery-only streaming deltas: pushed over the notification channel for live render,
+  // NEVER store.append-ed — the durable log holds only settled frames. The console
+  // appends a delta to the in-progress block; the settled
   // `text`/`thinking` frame that follows is the canonical record.
   z.object({ t: z.literal('text-delta'), text: z.string() }),
   z.object({ t: z.literal('thinking-delta'), text: z.string() }),
-  // `role` marks a persisted user prompt in the R-7 store (assistant text omits it,
+  // `role` marks a persisted user prompt in the conversation store (assistant text omits it,
   // staying the live-stream default); the console renders a `user` text as a `you` turn.
   // `system` is a mid-loop delivery (a coa-originated notice, not a person) — it rides
   // the API's `user` role live (the Messages API has no other slot for mid-conversation
@@ -35,7 +36,7 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     t: z.literal('tool_use'),
     tool: z.string(),
     input: z.record(z.string(), z.unknown()),
-    /** → M8.getToolDetail for the byte-faithful diff/args (CHAT-4); raw stays in the daemon (D57). */
+    /** → the daemon's getToolDetail for the byte-faithful diff/args; raw stays in the daemon. */
     handle: z.string(),
   }),
   z.object({
@@ -50,20 +51,19 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     message: z.string(),
     origin: z.enum(['tool', 'loop', 'daemon']),
   }),
-  // A DELIBERATE stop, not a fault — one of the system's only two blocks (SC-1): M3's
-  // close-gate and M7's cost cap. Distinct from `error` so a governed stop never renders
+  // A DELIBERATE stop, not a fault — the system's one block: the close-gate.
+  // Distinct from `error` so a governed stop never renders
   // as a crash. `denyKind` matches the console's renderer enum exactly. A vendor bound
   // like `maxTurns` is NOT a coa block and rides `turn-boundary.terminal` instead.
-  // See docs/adr/0028.
   z.object({
     t: z.literal('deny'),
-    denyKind: z.enum(['close-gate', 'cost-cap']),
+    denyKind: z.enum(['close-gate']),
     reason: z.string(),
   }),
   z.object({ t: z.literal('permission'), requestId: z.string() }),
   // A user interrupt (bare stop) recorded into the append-only log: it settles the turn, makes
   // the model aware next turn (the fold surfaces it as a "[Request interrupted by user]" notice),
-  // and renders as a quiet system line — persisted so live and reload read identically (SC-1: a
+  // and renders as a quiet system line — persisted so live and reload read identically (a
   // user stop, never a governance block / error).
   z.object({ t: z.literal('interrupted') }),
   z.object({
@@ -148,7 +148,7 @@ export const pushSchema = z.discriminatedUnion('kind', [
       'blocked-tool',
       'done',
       'error',
-      // A user-initiated stop (M8's interruptSession), never a governance block — SC-1.
+      // A user-initiated stop (the daemon's interruptSession), never a governance block.
       'interrupted',
     ]),
   }),

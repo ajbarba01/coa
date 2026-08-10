@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { edgeTypeSchema, symbolRecordSchema } from './graph.js';
 
 /**
- * The change-event log line frame (D126 clause 1). The durable log is NDJSON:
+ * The change-event log line frame. The durable log is NDJSON:
  * one Zod-validated change-event per line, single-writer (the daemon). The frame
- * is a discriminated union on `kind`; M0 owns the schema, M1 owns the runtime.
+ * is a discriminated union on `kind`; this package owns the schema, the spine owns the runtime.
  *
  * Wire field names follow the on-disk frame verbatim (`schema_version`,
  * `pre_hash`, `post_hash`, `op_id`) — snake_case is the NDJSON contract.
@@ -27,7 +27,7 @@ const envelopeShape = {
   /** Non-null for all precise + edge kinds; null ONLY for a bare reconciler file observation. */
   op_id: z.string().nullable(),
   provenance: z.enum(['declared', 'inferred', 'gated']),
-  /** Optional regenerate provenance the WAL preserves (M4 stamps it). */
+  /** Optional regenerate provenance the WAL preserves (the generation layer stamps it). */
   cause: causeSchema,
 };
 

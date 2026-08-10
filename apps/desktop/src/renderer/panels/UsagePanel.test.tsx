@@ -3,27 +3,25 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { UsageStrip, UsageSurface, healthWords } from './UsagePanel.js';
-import { useMockAuth, type Credential } from './mockAuth.js';
+import { useAuthStore, type Credential } from './authStore.js';
 import {
   accountStackedUsage,
   accountUsage,
   attentionItems,
-  hudRows,
   poolAttention,
-  useUsageHud,
   workspaceUsage,
   type AccountUsage,
 } from './mockUsage.js';
+import { hudRows, useUsageHud } from './usageHud.js';
 import { useAuthUi, useUsageUi } from './surfaceUi.js';
 import { useShell } from '../shell/store.js';
 
-// The store is empty until `hydrate()` resolves (Task 10 — live daemon reads). This file
+// The store is empty until `hydrate()` resolves (the live daemon reads land later). This file
 // never mocks `../console.js`, so the surface's mount-time `hydrate()` fires the REAL
-// `rpcAuthView` against an absent `window.coa` in jsdom, rejects, and is swallowed (SC-1,
-// see AuthPanel/UsagePanel's mount effects) — leaving whatever this fixture seeds directly
-// below untouched. Usage stays Phase 2 mock: these are rendering assertions against a known
+// `rpcAuthView` against an absent `window.coa` in jsdom, rejects, and is swallowed (see AuthPanel/UsagePanel's mount effects) — leaving whatever this fixture seeds directly
+// below untouched. Usage stays a mock for now: these are rendering assertions against a known
 // credential set, not RPC wiring (that's AuthPanel.test.tsx's job).
-const EMPTY_STATE = useMockAuth.getState();
+const EMPTY_STATE = useAuthStore.getState();
 const FIXTURE_CREDENTIALS: Credential[] = [
   {
     id: 'x',
@@ -61,8 +59,8 @@ const HUD_SEED = useUsageHud.getState();
 const UI_SEED = useUsageUi.getState();
 const AUTH_UI_SEED = useAuthUi.getState();
 beforeEach(() => {
-  useMockAuth.setState(EMPTY_STATE, true);
-  useMockAuth.setState({
+  useAuthStore.setState(EMPTY_STATE, true);
+  useAuthStore.setState({
     added: FIXTURE_ADDED,
     credentials: FIXTURE_CREDENTIALS,
     enabled: FIXTURE_ENABLED,
@@ -90,6 +88,24 @@ const credential = (over: Partial<Credential> = {}): Credential => ({
   masked: '~/.claude',
   disabled: false,
   ...over,
+});
+
+describe('the surface admits its figures are not real', () => {
+  // The numbers here come from a renderer-owned stand-in but the account names and providers
+  // beside them are genuinely live, which is what makes an unlabelled reading misleading
+  // rather than merely incomplete. The label is the whole honesty of this surface until the
+  // reads are wired, so it is pinned rather than left to survive by habit.
+  it('says so in the strip, in both readings and inside a drill-down', () => {
+    renderUsage();
+    expect(screen.getByText(/sample data/i)).toBeInTheDocument();
+
+    useUsageUi.setState({ view: 'tools' });
+    expect(screen.getByText(/sample data/i)).toBeInTheDocument();
+
+    // The drill-down is the most misleading view — a named account with invented dollars.
+    useUsageUi.setState({ view: 'providers', opened: FIXTURE_CREDENTIALS[0]?.id });
+    expect(screen.getByText(/sample data/i)).toBeInTheDocument();
+  });
 });
 
 describe('honest degradation', () => {
@@ -374,7 +390,7 @@ describe('UsageSurface', () => {
   });
 
   it('meters nothing when there is nothing to meter', () => {
-    useMockAuth.setState({ added: [], credentials: [] });
+    useAuthStore.setState({ added: [], credentials: [] });
     renderUsage();
     expect(screen.getByText(/nothing to meter/i)).toBeTruthy();
   });

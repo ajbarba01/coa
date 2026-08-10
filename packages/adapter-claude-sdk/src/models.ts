@@ -4,7 +4,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessionAuthEnv } from './auth-env.js';
 
 /**
- * Backend capability discovery for models (M9). `modelInfoToDescriptor` is the
+ * Backend capability discovery for models. `modelInfoToDescriptor` is the
  * pure SDK→neutral map — kept faithful so each model's REAL `supportedEffortLevels`
  * reach the console (model-specific, not a flat set). `fetchClaudeModels` obtains
  * the account's live list via the SDK's control-plane `supportedModels()`: it opens

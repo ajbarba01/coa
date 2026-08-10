@@ -9,7 +9,7 @@ import { scopeSchema, type Scope, type ScopeExpr } from '@coa/shared';
  * or a cycle in scope-composition is **rejected loudly**, never loaded as a
  * silent no-op. Tags are stored as `tag → globs` bulk rules here (committed, so
  * they travel); the graph-edge-backed per-file tag annotation that follows
- * renames (SCO-3 (b)) needs an M0 tag relation and is deferred — flagged for the
+ * renames (SCO-3 (b)) needs a shared-schema tag relation and is deferred — flagged for the
  * maintainer.
  */
 export interface ScopesConfig {

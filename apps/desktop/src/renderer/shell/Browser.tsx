@@ -61,7 +61,7 @@ function compareSessions(a: SessionSummary, b: SessionSummary, sort: SortKey): n
  *  uses fixes that without touching intra-tree nesting order. Re-sorting an
  *  already-sorted array by the identical comparator is a stable no-op, so the
  *  ordinary empty-query case (where nothing was pulled and `hits` already
- *  came out of that same sort) renders byte-identical to before (D85).
+ *  came out of that same sort) renders byte-identical to before.
  *
  *  Only meaningful for a flat bucket — the agent/status pickers already cut
  *  across family trees on purpose, so nesting is deliberately NOT attempted

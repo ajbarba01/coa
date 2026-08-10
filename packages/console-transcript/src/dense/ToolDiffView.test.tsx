@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/ToolDiffView.test.tsx
 // @vitest-environment jsdom
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -16,7 +15,7 @@ describe('ToolDiffView', () => {
     expect(removed?.lastElementChild?.textContent).toBe('b');
   });
 
-  it('keeps the gutter marker as a separate aria-hidden span (D128: not fused into text)', () => {
+  it('keeps the gutter marker as a separate aria-hidden span (byte-faithful: not fused into text)', () => {
     const { lines } = diffLines('x', 'y');
     const { container } = render(<ToolDiffView lines={lines} />);
     const marker = container.querySelector('[aria-hidden="true"]');

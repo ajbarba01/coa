@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   detectAuthFailure,
   modelSwitchNoteText,
@@ -9,9 +9,10 @@ import {
 } from './console.js';
 import type { AgentFile, AgentSummary, TurnFrame } from '@coa/console-viewmodel';
 import type { ConsoleState } from './panels/state.js';
-import { MOCK_AGENTS } from './panels/mockAgents.js';
+import { MOCK_AGENTS } from './testing/mockAgents.js';
+import { useNotices } from './shell/failures.js';
 
-/** A daemon-backed session + its persisted transcript (R-7), fed through the fake bridge. */
+/** A daemon-backed session + its persisted transcript, fed through the fake bridge. */
 const FAKE_SESSIONS = [
   {
     id: 'c1',
@@ -24,6 +25,9 @@ const FAKE_TURNS = [
   { seq: 0, frame: { t: 'text', text: 'Refactor the auth module', role: 'user' } },
   { seq: 1, frame: { t: 'text', text: 'on it' } },
 ];
+/** `reloadConversation` answers with the turns it could read AND how many stored events
+ *  it could not — a record that read cleanly is `skipped: 0`. */
+const reloaded = (turns: unknown[] = FAKE_TURNS, skipped = 0) => ({ turns, skipped });
 
 function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
   return {
@@ -42,7 +46,7 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     deleteAgent: vi.fn().mockResolvedValue({ removed: true }),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
-    reloadConversation: vi.fn().mockResolvedValue(FAKE_TURNS),
+    reloadConversation: vi.fn().mockResolvedValue(reloaded()),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     recompilePrompt: vi.fn().mockResolvedValue({ recompiled: true }),
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
@@ -54,6 +58,49 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     getSettings: vi.fn().mockResolvedValue({ theme: 'dark', motion: 'full', pinnedAgents: [] }),
     saveSettings: vi.fn().mockResolvedValue(undefined),
     ...over,
+  };
+}
+
+/** One agent file on the fake disk. Keyed the way disk actually is — one file per
+ *  (scope, ref) — so a scope move that half-completes is observable as a surviving
+ *  file, not merely as a mock call order. */
+interface DiskAgentFile {
+  scope: 'personal' | 'project';
+  ref: string;
+  file: AgentFile;
+}
+
+/** A stand-in for the daemon's per-agent-file registry. `listAgents` folds the scopes
+ *  the way the daemon's own merge does (personal then project, project winning a
+ *  shared ref), so a leftover copy in the losing scope is invisible in the list —
+ *  exactly as it would be in the real app. */
+function fakeAgentDisk(seed: AgentSummary[]) {
+  let files: DiskAgentFile[] = seed.flatMap((a): DiskAgentFile[] => {
+    const { ref, scope, ...file } = a;
+    return scope === 'builtin' ? [] : [{ ref, scope, file }];
+  });
+  return {
+    /** Every scope that currently holds a file for this ref — empty means the file is gone. */
+    scopesOf: (ref: string): ('personal' | 'project')[] =>
+      files.filter((f) => f.ref === ref).map((f) => f.scope),
+    saveAgent: (p: { ref: string; scope: 'personal' | 'project'; file: AgentFile }) => {
+      files = [...files.filter((f) => !(f.ref === p.ref && f.scope === p.scope)), { ...p }];
+      return Promise.resolve({ ok: true });
+    },
+    deleteAgent: (p: { ref: string; scope: 'personal' | 'project' }) => {
+      const before = files.length;
+      files = files.filter((f) => !(f.ref === p.ref && f.scope === p.scope));
+      return Promise.resolve({ removed: files.length < before });
+    },
+    listAgents: () => {
+      const byRef = new Map<string, AgentSummary>();
+      for (const scope of ['personal', 'project'] as const) {
+        for (const f of files.filter((x) => x.scope === scope)) {
+          byRef.set(f.ref, { ...f.file, ref: f.ref, scope });
+        }
+      }
+      return Promise.resolve({ agents: [...byRef.values()], diagnostics: [] });
+    },
   };
 }
 
@@ -183,7 +230,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().data.timeline).toEqual({ status: 'ok', value: [entry] });
   });
 
-  it('loads the reloaded (R-7) conversation transcript into state on mount', async () => {
+  it('loads the reloaded persisted conversation transcript into state on mount', async () => {
     const { last } = await mount();
     expect(last().data.turns).toEqual({
       status: 'ok',
@@ -192,6 +239,21 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
         { id: 't1', role: 'agent', kind: 'text', text: 'on it' },
       ],
     });
+  });
+
+  it('shows a transcript the daemon could not fully read as incomplete, not as the whole record', async () => {
+    // The daemon's reload never throws — it hands back what it could read. Rendering that
+    // remainder alone would present a fragment as the complete conversation, and nothing
+    // else in the UI can hint otherwise, since missing turns leave no visible gap.
+    const { last } = await mount(
+      fakeBridge({ reloadConversation: vi.fn().mockResolvedValue(reloaded(FAKE_TURNS, 2)) }),
+    );
+    const turns = last().data.turns;
+    expect(turns.status).toBe('ok');
+    if (turns.status !== 'ok') return;
+    expect(turns.value).toHaveLength(FAKE_TURNS.length + 1);
+    expect(turns.value.at(-1)).toMatchObject({ role: 'system', kind: 'text' });
+    expect(JSON.stringify(turns.value.at(-1))).toContain('2 unreadable events');
   });
 
   // Pushes under the mounted/active session ('c1', see FAKE_SESSIONS) so the frame
@@ -364,7 +426,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
-  it('hydrates the run-status pill from the daemon on connect (G4 reattach), not from local send-tracking', async () => {
+  it('hydrates the run-status pill from the daemon on connect (reattach — the session exists independent of any viewer), not from local send-tracking', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
       onPush: vi.fn((listener: (payload: unknown) => void) => {
@@ -488,7 +550,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
           updatedAt: '2026-07-01T00:00:00Z',
         },
       ]),
-      reloadConversation: vi.fn().mockResolvedValue([]),
+      reloadConversation: vi.fn().mockResolvedValue(reloaded([])),
       onPush: vi.fn((listener: (payload: unknown) => void) => {
         emit = listener;
         return () => {};
@@ -556,7 +618,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
       reloadConversation: vi
         .fn()
-        .mockResolvedValueOnce(FAKE_TURNS) // boot-time open (newest = c1)
+        .mockResolvedValueOnce(reloaded()) // boot-time open (newest = c1)
         .mockImplementationOnce(
           () =>
             new Promise((r) => {
@@ -569,7 +631,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     // No await: the switch must not wait on the daemon round-trip.
     expect(last().ui.activeSessionId).toBe('c2');
     expect(last().data.turns).toEqual({ status: 'loading' });
-    resolveReload([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]);
+    resolveReload(reloaded([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]));
     await new Promise((r) => setTimeout(r, 0));
     expect(last().data.turns.status).toBe('ok');
   });
@@ -583,8 +645,8 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
       reloadConversation: vi
         .fn()
-        .mockResolvedValueOnce(FAKE_TURNS) // boot: c1
-        .mockResolvedValueOnce([{ seq: 0, frame: { t: 'text', text: 'second turn' } }]) // c2
+        .mockResolvedValueOnce(reloaded()) // boot: c1
+        .mockResolvedValueOnce(reloaded([{ seq: 0, frame: { t: 'text', text: 'second turn' } }])) // c2
         .mockImplementationOnce(() => new Promise(() => {})), // c1 again — held forever
     });
     const { last } = await mount(bridge);
@@ -608,20 +670,20 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
       reloadConversation: vi
         .fn()
-        .mockResolvedValueOnce(FAKE_TURNS) // boot: c1
+        .mockResolvedValueOnce(reloaded()) // boot: c1
         .mockImplementationOnce(
           () =>
             new Promise((r) => {
               resolveC2 = r;
             }),
         ) // c2 — held
-        .mockResolvedValueOnce(FAKE_TURNS), // c1 again
+        .mockResolvedValueOnce(reloaded()), // c1 again
     });
     const { last } = await mount(bridge);
     last().actions.selectSession('c2');
     last().actions.selectSession('c1');
     await new Promise((r) => setTimeout(r, 0));
-    resolveC2([{ seq: 0, frame: { t: 'text', text: 'late c2 turn' } }]);
+    resolveC2(reloaded([{ seq: 0, frame: { t: 'text', text: 'late c2 turn' } }]));
     await new Promise((r) => setTimeout(r, 0));
     expect(last().ui.activeSessionId).toBe('c1');
     const turns = last().data.turns;
@@ -867,7 +929,7 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     }
   });
 
-  it('updateAgent moving scope deletes the old file before writing the new one — otherwise the agent exists twice', async () => {
+  it('updateAgent moving scope writes the new copy before removing the old one', async () => {
     const saveAgent = vi.fn().mockResolvedValue({ ok: true });
     const deleteAgent = vi.fn().mockResolvedValue({ removed: true });
     const bridge = fakeBridge({ saveAgent, deleteAgent });
@@ -876,10 +938,101 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(deleteAgent).toHaveBeenCalledWith({ ref: 'roles/reviewer', scope: 'project' });
     expect(saveAgent).toHaveBeenCalledWith(
       expect.objectContaining({ ref: 'roles/reviewer', scope: 'personal' }),
     );
+    expect(deleteAgent).toHaveBeenCalledWith({ ref: 'roles/reviewer', scope: 'project' });
+    // Order is the whole safety property, not an implementation detail: the copy has to
+    // exist before the original is removed.
+    const saveOrder = saveAgent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    const deleteOrder = deleteAgent.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    expect(saveOrder).toBeLessThan(deleteOrder);
+  });
+
+  it('updateAgent keeps the agent file when the second write of a scope move fails', async () => {
+    // A scope move is two daemon writes and either can fail between them. Removing the
+    // old copy first meant a failed second step erased the agent from BOTH scopes with
+    // nothing left to recover it from — the one way this console could destroy a user
+    // file. Writing first turns the same failure into a leftover copy.
+    const disk = fakeAgentDisk(MOCK_AGENTS);
+    let writes = 0;
+    const failSecondWrite = <P,>(op: (p: P) => Promise<unknown>) =>
+      vi.fn((p: P) => (++writes === 2 ? Promise.reject(new Error('EIO')) : op(p)));
+    const bridge = fakeBridge({
+      listAgents: vi.fn(disk.listAgents),
+      saveAgent: failSecondWrite(disk.saveAgent),
+      deleteAgent: failSecondWrite(disk.deleteAgent),
+    });
+    const { last } = await mount(bridge);
+    expect(disk.scopesOf('roles/reviewer')).toEqual(['project']);
+
+    last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The file survives the half-finished move — the agent is still on disk.
+    expect(disk.scopesOf('roles/reviewer')).toContain('personal');
+    expect(disk.scopesOf('roles/reviewer').length).toBeGreaterThan(0);
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      const rows = agents.value.filter((a) => a.ref === 'roles/reviewer');
+      // Reconciled against disk: one row, and it reports the scope the daemon actually
+      // resolves the agent from — so the move visibly did not take rather than the UI
+      // claiming a move it only half made.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.scope).toBe('project');
+    }
+  });
+
+  it('updateAgent rolls the edit back and re-reads the registry when the save fails', async () => {
+    const bridge = fakeBridge({ saveAgent: vi.fn().mockRejectedValue(new Error('EACCES')) });
+    const { last } = await mount(bridge);
+    expect(bridge.listAgents).toHaveBeenCalledTimes(1);
+
+    last().actions.updateAgent('roles/reviewer', { name: 'sec-reviewer' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.find((a) => a.ref === 'roles/reviewer')?.name).toBe('reviewer');
+    }
+    // Reconciled on SETTLE, not only on success.
+    expect(bridge.listAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it('createAgent takes the optimistic row back down when the save fails', async () => {
+    const bridge = fakeBridge({ saveAgent: vi.fn().mockRejectedValue(new Error('ENOSPC')) });
+    const { last } = await mount(bridge);
+    const selectedBefore = last().ui.selectedAgentRef;
+
+    last().actions.createAgent('personal');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.some((a) => a.ref === 'untitled-agent')).toBe(false);
+    }
+    expect(last().ui.selectedAgentRef).toBe(selectedBefore);
+    expect(bridge.listAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it('deleteAgent puts the row and the selection back when the delete fails', async () => {
+    const bridge = fakeBridge({ deleteAgent: vi.fn().mockRejectedValue(new Error('EBUSY')) });
+    const { last } = await mount(bridge);
+    last().actions.selectAgent('personal/scratch-helper');
+
+    last().actions.deleteAgent('personal/scratch-helper');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const agents = last().data.agents;
+    expect(agents.status).toBe('ok');
+    if (agents.status === 'ok') {
+      expect(agents.value.some((a) => a.ref === 'personal/scratch-helper')).toBe(true);
+    }
+    expect(last().ui.selectedAgentRef).toBe('personal/scratch-helper');
+    expect(bridge.listAgents).toHaveBeenCalledTimes(2);
   });
 
   it('updateAgent refuses a builtin agent — it never reaches the bridge', async () => {
@@ -1014,5 +1167,285 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(bridge.listSessions).not.toHaveBeenCalled();
     expect(bridge.reloadConversation).not.toHaveBeenCalled();
     expect(last().ui.activeSessionId).toBe('c1');
+  });
+});
+
+describe('failed writes are said out loud', () => {
+  beforeEach(() => {
+    useNotices.setState({ notice: undefined });
+  });
+
+  it('announces a conversation that could not be deleted, and leaves the rail alone', async () => {
+    const bridge = fakeBridge({
+      deleteSession: vi.fn().mockRejectedValue(new Error('conversation is locked')),
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.deleteSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't delete that conversation",
+      detail: 'conversation is locked',
+    });
+    // Nothing was removed, so the session the user is looking at must not move.
+    expect(last().ui.activeSessionId).toBe('c1');
+  });
+
+  it('announces an account switch the daemon refused instead of rejecting into the void', async () => {
+    const bridge = fakeBridge({
+      useAccount: vi.fn().mockRejectedValue(new Error('no such login')),
+    });
+    const { last } = await mount(bridge);
+    vi.mocked(bridge.listAccounts).mockClear();
+
+    last().actions.switchAccount('work', 'claude');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({ title: "Couldn't switch accounts" });
+    // The daemon is still on the old account — there is nothing new to read.
+    expect(bridge.listAccounts).not.toHaveBeenCalled();
+  });
+
+  it('announces an agent write that failed, on top of snapping the list back', async () => {
+    const bridge = fakeBridge({ saveAgent: vi.fn().mockRejectedValue(new Error('read-only')) });
+    const { last } = await mount(bridge);
+    const before = last().data.agents;
+
+    last().actions.createAgent('project');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't create that agent",
+      detail: 'read-only',
+    });
+    expect(last().data.agents).toEqual(before);
+  });
+
+  it('keeps the drift banner honest when a recompile fails: the suppression stays put', async () => {
+    const bridge = fakeBridge({
+      recompilePrompt: vi.fn().mockRejectedValue(new Error('daemon is busy')),
+    });
+    const { last } = await mount(bridge);
+    // The banner was dismissed for this config earlier; the recompile is the OTHER action.
+    last().actions.onBannerAction('c1', 'drift', 'dismiss');
+    await new Promise((r) => setTimeout(r, 0));
+    const suppressed = last().ui.dismissedDrift['c1'];
+
+    last().actions.onBannerAction('c1', 'drift', 'recompile');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't recompile that prompt",
+      detail: 'daemon is busy',
+    });
+    // The prompt never recompiled, so the state that describes it must not have moved —
+    // clearing the suppression here is what made the button look like it did nothing.
+    expect(last().ui.dismissedDrift['c1']).toBe(suppressed);
+  });
+
+  it('clears the drift suppression once the daemon confirms the recompile', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.onBannerAction('c1', 'drift', 'dismiss');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.dismissedDrift['c1']).toBeDefined();
+
+    last().actions.onBannerAction('c1', 'drift', 'recompile');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.dismissedDrift['c1']).toBeUndefined();
+    expect(useNotices.getState().notice).toBeUndefined();
+  });
+});
+
+describe('the daemon is the authority on what is still running', () => {
+  beforeEach(() => {
+    useNotices.setState({ notice: undefined });
+  });
+
+  /** Put a session into the running state the only way the app does: a daemon status push. */
+  function pushRunning(emit: ((payload: unknown) => void) | undefined, sessionId: string): void {
+    emit?.({ kind: 'status', sessionId, worktree: 'w', state: 'running' });
+  }
+
+  it('clears the pill when a reattach comes back not-subscribed — the daemon has no such turn', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    // A daemon that died mid-turn and came back knows nothing about this conversation:
+    // it refuses the subscribe and sends no hydrating status at all.
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+      subscribeSession: vi.fn().mockResolvedValue({ subscribed: false }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    last().actions.selectSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('leaves a send issued while the reattach was in flight alone', async () => {
+    let answer!: (value: { subscribed: boolean }) => void;
+    const bridge = fakeBridge({
+      subscribeSession: vi
+        .fn()
+        .mockReturnValue(new Promise<{ subscribed: boolean }>((r) => (answer = r))),
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.selectSession('c1');
+    // The user types and sends before the daemon answers — the send is the newer news.
+    last().actions.sendMessage('carry on');
+    answer({ subscribed: false });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('a subscribe the daemon accepts leaves run state to the push stream', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+
+    last().actions.selectSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('forgets every running claim when a daemon connection comes up, without moving the user', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last, controller } = await mount(bridge);
+    pushRunning(emit, 'c1');
+    // A background conversation can hold a claim too — the map outlives the open session.
+    pushRunning(emit, 'c-other');
+    expect(Object.keys(last().ui.runStatus)).toHaveLength(2);
+
+    controller.clearRunState();
+
+    expect(last().ui.runStatus).toEqual({});
+    expect(last().ui.activeSessionId).toBe('c1');
+  });
+
+  it('says so when Stop finds nothing to stop, and drops the claim that said otherwise', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+      interruptSession: vi.fn().mockResolvedValue({ interrupted: false }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+
+    last().actions.interruptSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({ title: 'Nothing to stop' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('leaves a real stop to the daemon push and says nothing', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    pushRunning(emit, 'c1');
+
+    last().actions.interruptSession('c1');
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The daemon accepted the stop: the pill is still the push stream's to clear.
+    expect(useNotices.getState().notice).toBeUndefined();
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+});
+
+describe('a write the daemon answered but did not carry out is said out loud', () => {
+  beforeEach(() => {
+    useNotices.setState({ notice: undefined });
+  });
+
+  it('says so when the delete found no file to remove', async () => {
+    const bridge = fakeBridge({ deleteAgent: vi.fn().mockResolvedValue({ removed: false }) });
+    const { last } = await mount(bridge);
+
+    last().actions.deleteAgent('personal/scratch-helper');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({ title: 'Nothing to delete' });
+  });
+
+  it('stays quiet when the delete actually removed the file', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.deleteAgent('personal/scratch-helper');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toBeUndefined();
+  });
+
+  it('names the removal, not the save, when a scope move cannot delete the old copy', async () => {
+    // The half that failed is the half to name: the copy IS in the new scope, so
+    // "couldn't save that agent" would send the user looking at the wrong thing.
+    const bridge = fakeBridge({
+      deleteAgent: vi.fn().mockRejectedValue(new Error('EBUSY: file is open elsewhere')),
+    });
+    const { last } = await mount(bridge);
+
+    last().actions.updateAgent('roles/reviewer', { scope: 'personal' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toMatchObject({
+      title: "Couldn't finish moving that agent",
+    });
+    // Both facts the user needs: the copy landed, and why the old file is still there.
+    expect(useNotices.getState().notice?.detail).toContain('copied to personal');
+    expect(useNotices.getState().notice?.detail).toContain('EBUSY: file is open elsewhere');
+  });
+
+  it('says so when a steer reached no running turn', async () => {
+    const bridge = fakeBridge({ steerSession: vi.fn().mockResolvedValue({ steered: false }) });
+    const { last } = await mount(bridge);
+
+    last().actions.steerSession('c1', 'actually, stop at the tests');
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Without this the text is simply gone: the pin sweeps and no frame ever arrives.
+    expect(useNotices.getState().notice).toMatchObject({ title: 'Nothing to steer' });
+  });
+
+  it('stays quiet when the steer was taken', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.steerSession('c1', 'actually, stop at the tests');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useNotices.getState().notice).toBeUndefined();
   });
 });

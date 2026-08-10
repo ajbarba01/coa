@@ -1,11 +1,12 @@
 import { TooltipProvider } from '@coa/console-kit';
 import { useEffect, useRef } from 'react';
-import type { DaemonStatus } from '../shared/methods.js';
+import type { DaemonReport } from '../shared/methods.js';
 import { onAuthFailure, startConsole, type ConsoleController } from './console.js';
 import { reportActiveClaudeAuthFailure } from './panels/loginStore.js';
 import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
 import { DaemonGate } from './shell/DaemonGate.js';
 import { EditMenu } from './shell/EditMenu.js';
+import { FailureToast } from './shell/FailureToast.js';
 import { bindLayoutPersistence } from './shell/layoutPersistence.js';
 import { useShell } from './shell/store.js';
 import { Workbench } from './shell/Workbench.js';
@@ -52,10 +53,15 @@ export function App(): React.JSX.Element {
   // one-way status stream. A transition INTO `running` (launch/restart) triggers
   // a refresh so the surfaces repopulate.
   useEffect(() => {
-    const apply = (status: DaemonStatus): void => {
-      const cameUp = status === 'running' && useShell.getState().daemon !== 'running';
-      useShell.getState().setDaemon(status);
+    const apply = (report: DaemonReport): void => {
+      const cameUp = report.status === 'running' && useShell.getState().daemon !== 'running';
+      useShell.getState().setDaemon(report.status, report.reason);
       if (cameUp) {
+        // Whatever this renderer still thinks is running died with the old connection —
+        // a daemon that has only just come up cannot be driving a turn we started. Clear
+        // the claims BEFORE the reads, so nothing renders a spinner for a turn that is
+        // gone while the reattach is still in flight.
+        controllerRef.current?.clearRunState();
         void controllerRef.current?.refresh();
         // Recover the boot-time reads a cold start may have fired before the daemon
         // existed (they'd have settled into error Remotes with nothing else to retry
@@ -110,6 +116,9 @@ export function App(): React.JSX.Element {
   return (
     <TooltipProvider>
       <EditMenu />
+      {/* The one failure surface, mounted with the chrome so a rejected write announces
+          itself from either side of the gate. */}
+      <FailureToast />
       {daemon === 'running' ? <Workbench /> : <DaemonGate />}
     </TooltipProvider>
   );

@@ -1,14 +1,14 @@
 import { basename, dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, type StdioOptions } from 'node:child_process';
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron';
 import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
 import { titleBarConfig, WINDOW_BACKGROUND } from './titlebar.js';
 import { appliedLevel, keyToZoomAction, nextLevel, BASE_ZOOM_LEVEL } from './zoom.js';
 import { type DaemonClient } from './daemon.js';
-import { createDaemonManager, type DaemonProcess } from './daemon-manager.js';
+import { createDaemonManager, failureLine, type DaemonProcess } from './daemon-manager.js';
 import { readJson, writeJson } from './persistence.js';
 import { codeInvocation, confineToWorktree, safeForWindowsShell } from './openPath.js';
 import { validateExternalUrl } from './openExternal.js';
@@ -157,6 +157,9 @@ class DaemonError extends Error {
 }
 
 /** Walk up from `start` for the pnpm workspace root (where the project's `.coa` lives). */
+/** How much of the daemon's stderr to keep for the failure line (a few lines' worth). */
+const DAEMON_STDERR_TAIL = 4000;
+
 function findRepoRoot(start: string): string {
   for (let dir = start; ; ) {
     if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
@@ -179,15 +182,30 @@ function daemonSpawn(): DaemonProcess {
   const binPath = join(root, 'apps', 'cli', 'dist', 'bin.js');
   const node = process.env['npm_node_execpath'] ?? 'node';
   const override = process.env['COA_CLI'];
+  // stderr is PIPED, not ignored: a daemon that dies on a missing binary or a broken
+  // native addon says so on stderr, and discarding it left the gate able to report only
+  // that something failed. stdin/stdout stay ignored — nothing reads them.
+  const stdio: StdioOptions = ['ignore', 'ignore', 'pipe'];
 
   const child = override
-    ? spawn(`${override} serve`, { cwd: root, stdio: 'ignore', shell: true, windowsHide: true })
+    ? spawn(`${override} serve`, { cwd: root, stdio, shell: true, windowsHide: true })
     : existsSync(binPath)
       ? // shell:false + args array → the space in the path is safe and the child is
         // directly killable (no shell wrapper to orphan the real process on stop/quit).
-        spawn(node, [binPath, 'serve'], { cwd: root, stdio: 'ignore', windowsHide: true })
-      : spawn('coa serve', { cwd: root, stdio: 'ignore', shell: true, windowsHide: true });
-  return { kill: () => child.kill() };
+        spawn(node, [binPath, 'serve'], { cwd: root, stdio, windowsHide: true })
+      : spawn('coa serve', { cwd: root, stdio, shell: true, windowsHide: true });
+
+  // Only the TAIL is kept: a crash explains itself in its last lines, and an unbounded
+  // buffer would grow for as long as the app runs.
+  let tail = '';
+  const remember = (text: string): void => {
+    tail = `${tail}${text}`.slice(-DAEMON_STDERR_TAIL);
+  };
+  child.stderr?.on('data', (chunk: Buffer) => remember(chunk.toString()));
+  // A spawn that never starts (no such binary, permission denied) reports on `error`
+  // rather than stderr — same failure to the user, so it lands in the same buffer.
+  child.on('error', (err: Error) => remember(`${err.message}\n`));
+  return { kill: () => child.kill(), failure: () => failureLine(tail) };
 }
 
 /**
@@ -234,7 +252,7 @@ async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
 }
 
 /** Result of a reveal-in-editor attempt (mirrors `OpenPathResultSchema`). Advisory: a
- *  failure surfaces to the renderer (which toasts it) but never blocks (SC-1). */
+ *  failure surfaces to the renderer (which toasts it) but never blocks. */
 type RevealResult = { ok: boolean; revealed?: 'editor' | 'folder'; reason?: string };
 
 /** Spawn `code -g <abs>:<line>`, resolving to whether it launched. `code`/`code.cmd`
@@ -283,7 +301,7 @@ function spawnCode(absPath: string, line: number | undefined): Promise<boolean> 
  * escapes the root is refused — never open an arbitrary file), then opens it in VS Code
  * at the line via `code -g`, falling back to `shell.showItemInFolder` when `code` is
  * unavailable. Always resolves a structured result (never throws to the renderer) — the
- * renderer toasts a failure; the reveal is advisory and never blocks (SC-1).
+ * renderer toasts a failure; the reveal is advisory and never blocks.
  */
 async function revealPath(params: {
   path: string;
@@ -312,7 +330,7 @@ async function revealPath(params: {
  * Open a web URL in the default browser (a tool card's WebSearch/WebFetch link). Validates
  * the URL to `http:`/`https:` first (any other scheme is refused — never hand the OS a
  * `file:`/`javascript:`/shell URL), then `shell.openExternal`. Always resolves a structured
- * result (never throws to the renderer); the renderer toasts a failure. Advisory (SC-1).
+ * result (never throws to the renderer); the renderer toasts a failure. Advisory.
  */
 async function openExternalUrl(params: { url: string }): Promise<{ ok: boolean; reason?: string }> {
   const check = validateExternalUrl(params.url);
@@ -494,8 +512,9 @@ for (const name of Object.keys(METHODS) as MethodName[]) {
 // The title-bar daemon control (Start/Stop/Restart) + a status read. These are
 // main-local transport actions, not daemon RPC reads, so they sit on their own channels.
 const daemonActions: Record<DaemonControlName, () => unknown | Promise<unknown>> = {
-  status: () => daemon.status(),
+  status: () => daemon.report(),
   start: () => daemon.start(),
+  adopt: () => daemon.adopt(),
   stop: () => daemon.stop(),
   restart: () => daemon.restart(),
 };
@@ -537,9 +556,9 @@ if (!app.requestSingleInstanceLock()) {
   bootstrap();
 }
 
-/** Push the current daemon status to the renderer (used on status change + on window load). */
+/** Push the current daemon report to the renderer (used on status change + on window load). */
 function pushDaemonStatus(): void {
-  mainWindow?.webContents.send(DAEMON_STATUS_CHANNEL, daemon.status());
+  mainWindow?.webContents.send(DAEMON_STATUS_CHANNEL, daemon.report());
 }
 
 function bootstrap(): void {
@@ -559,8 +578,15 @@ function bootstrap(): void {
     });
     createWindow();
     // Mirror daemon status to the renderer; re-push on each (re)load so a reload or a
-    // status change that happened before the window was ready still lands.
-    daemon.onStatus(() => pushDaemonStatus());
+    // status change that happened before the window was ready still lands. A failure is
+    // ALSO logged here: the gate shows one line, and the terminal keeps a record for a
+    // user who is looking at the app rather than at the window.
+    daemon.onStatus((report) => {
+      if (report.status === 'error') {
+        console.error(`[coa] daemon error: ${report.reason ?? 'no reason reported'}`);
+      }
+      pushDaemonStatus();
+    });
     mainWindow?.webContents.on('did-finish-load', () => pushDaemonStatus());
     // Auto-start the daemon on launch (the pill shows `running` once connected).
     void daemon.start();

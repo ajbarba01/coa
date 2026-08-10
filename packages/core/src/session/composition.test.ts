@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NeutralConfig } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-} from '@coa/spi';
+import type { BackendConfig, RuntimeAdapter } from '@coa/spi';
 import { Governance } from '../governance/governance.js';
 import { FlagPipeline } from '../flags/pipeline.js';
 import { compile } from '../compiler/compile.js';
@@ -14,9 +9,9 @@ import { createSession } from './session.js';
 import { composeSessionDeps, type DaemonCore, type SessionWiring } from './composition.js';
 import type { SessionAdapterInit } from './session.js';
 
-/** A real M3/M5/M6/M7 core (only M1.checkpoint stubbed — its FS construction is the daemon host's job). */
-function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } {
-  const governance = new Governance(ceilingUsd !== undefined ? { ceilingUsd } : {});
+/** A real flags/compiler/catalogue/governance core (only the spine checkpoint stubbed — its FS construction is the daemon host's job). */
+function realCore(): DaemonCore & { governance: Governance } {
+  const governance = new Governance();
   const flags = new FlagPipeline();
   return {
     governance,
@@ -45,22 +40,6 @@ class FakeAdapter implements RuntimeAdapter {
   async runLoop(): Promise<void> {
     this.init.onSettle(this.init.sessionId, { tokensIn: 0, tokensOut: 0, costUsd: 1 });
   }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
-  }
 }
 
 const wiring = (over: Partial<SessionWiring> = {}): SessionWiring => ({
@@ -70,11 +49,15 @@ const wiring = (over: Partial<SessionWiring> = {}): SessionWiring => ({
 });
 
 describe('composeSessionDeps', () => {
-  it('adapts the settlement usage into the real cost cap (charge takes costUsd)', () => {
-    const core = realCore(1);
-    const deps = composeSessionDeps(core, wiring());
+  it('adapts the settlement usage into the cost charge (charge takes costUsd)', () => {
+    const charges: { sessionId: string; costUsd: number }[] = [];
+    const core = realCore();
+    const deps = composeSessionDeps(
+      { ...core, charge: (sessionId, costUsd) => charges.push({ sessionId, costUsd }) },
+      wiring(),
+    );
     deps.charge('s', { tokensIn: 0, tokensOut: 0, costUsd: 1 });
-    expect(core.governance.capState().capHit).toBe(true);
+    expect(charges).toEqual([{ sessionId: 's', costUsd: 1 }]);
   });
 
   it('defaults assemblePieces to the empty frame that compiles to the vanilla config', () => {
@@ -91,11 +74,16 @@ describe('composeSessionDeps', () => {
     expect(deps.gate()).toEqual({ allow: true });
   });
 
-  it('drives createSession over the real core and charges the real cap at settlement', async () => {
-    const core = realCore(1);
-    const deps = composeSessionDeps(core, wiring());
+  it('drives createSession over the real core and charges the spend counter at settlement', async () => {
+    const charges: { sessionId: string; costUsd: number }[] = [];
+    const core = realCore();
+    const deps = composeSessionDeps(
+      { ...core, charge: (sessionId, costUsd) => charges.push({ sessionId, costUsd }) },
+      wiring(),
+    );
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, deps);
-    expect(core.governance.capState().capHit).toBe(true);
+    expect(charges).toHaveLength(1);
+    expect(charges[0]?.costUsd).toBe(1);
   });
 
   it('passes resolveSpawn through from wiring, unmodified', () => {
@@ -107,7 +95,7 @@ describe('composeSessionDeps', () => {
     expect(deps.resolveSpawn).toBe(resolveSpawn);
   });
 
-  it('omits resolveSpawn/catalogueFor/baseCatalogueFor when neither core nor wiring supplies them (D85)', () => {
+  it('omits resolveSpawn/catalogueFor/baseCatalogueFor when neither core nor wiring supplies them', () => {
     const deps = composeSessionDeps(realCore(), wiring());
     expect(deps.resolveSpawn).toBeUndefined();
     expect(deps.catalogueFor).toBeUndefined();

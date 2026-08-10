@@ -46,7 +46,7 @@ describe('COA_MARK', () => {
     expect(COA_MARK.paths).toBeUndefined();
   });
 
-  it('wears a token, not a raw hex — this is coa’s own mark, not a vendor’s (ADR-0015 is about the outside world)', () => {
+  it('wears a token, not a raw hex — this is coa’s own mark, not a vendor’s (only the outside world’s brand colours stay raw hexes)', () => {
     expect(COA_MARK.color).toMatch(/^var\(--color-/);
   });
 });

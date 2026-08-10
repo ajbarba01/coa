@@ -18,8 +18,10 @@ import type { FeedView } from '@coa/console-viewmodel';
 import { useMemo, useRef, useState } from 'react';
 import { useStartRelogin } from '../panels/LoginFlow.js';
 import { activeNeedsRelogin, totalAttention } from '../panels/loginStore.js';
-import { useMockAuth } from '../panels/mockAuth.js';
-import { accountUsage, hudChoices, hudRows, usd, useUsageHud } from '../panels/mockUsage.js';
+import { useAuthStore } from '../panels/authStore.js';
+import { usd } from '../panels/format.js';
+import { accountUsage } from '../panels/mockUsage.js';
+import { hudChoices, hudRows, useUsageHud } from '../panels/usageHud.js';
 import { providerById } from '../panels/providers.js';
 import type { ConsoleState, Remote } from '../panels/state.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
@@ -68,7 +70,7 @@ export function Nav(): React.JSX.Element {
   const crit = critCount(flags);
   // The generic attention channel on the auth tab: logins the probe flagged (badge
   // surface #1). Amber — the everyday needs-you, one severity below the flags red.
-  const credentials = useMockAuth((s) => s.credentials);
+  const credentials = useAuthStore((s) => s.credentials);
   const authAttention = totalAttention(credentials);
 
   return (
@@ -436,7 +438,7 @@ function Unresolved({ text }: { text: string }): React.JSX.Element {
  *  It is a PROJECTION of the same reads the usage surface renders — never a second source.
  *  A meter the backend didn't give us draws nothing at all; there is no fake zero here. */
 function UsageHud(): React.JSX.Element {
-  const credentials = useMockAuth((s) => s.credentials);
+  const credentials = useAuthStore((s) => s.credentials);
   const meters = useUsageHud((s) => s.meters);
   const showSpend = useUsageHud((s) => s.showSpend);
   const onlyAboveHalf = useUsageHud((s) => s.onlyAboveHalf);
@@ -558,8 +560,8 @@ function Tick({ on }: { on: boolean }): React.JSX.Element {
 }
 
 function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
-  const activeByProvider = useMockAuth((s) => s.activeByProvider);
-  const credentials = useMockAuth((s) => s.credentials);
+  const activeByProvider = useAuthStore((s) => s.activeByProvider);
+  const credentials = useAuthStore((s) => s.credentials);
   const startRelogin = useStartRelogin();
   const accounts = state?.data.accounts;
   if (accounts === undefined || accounts.status === 'loading')
@@ -571,7 +573,7 @@ function AccountHud({ state }: { state: ConsoleState | undefined }): React.JSX.E
     <>
       {active.map(([provider, label]) => {
         // A broken ACTIVE login is FLAGGED here too, its re-login one click away — never
-        // swapped out from under you (badge surface #3, SC-1).
+        // swapped out from under you (the console flags, it never auto-switches).
         const broken = activeNeedsRelogin(activeByProvider, provider, credentials);
         const name = providerById(provider)?.label ?? provider;
         if (!broken) return <Kv key={provider} k={name} v={label} />;

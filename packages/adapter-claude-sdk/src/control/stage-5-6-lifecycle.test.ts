@@ -183,7 +183,7 @@ describe('stage 5 — is there a mid-session system channel? (re-verifying rende
 
   it('lets a streamed message land in the transcript without provoking a turn', () => {
     // A second, less obvious injection lever on the same channel: `shouldQuery: false` appends
-    // to the transcript and merges into the next real turn. Relevant to M4 because it is a way
+    // to the transcript and merges into the next real turn. Relevant to the context engine because it is a way
     // to place content in context out-of-band with the user's turns.
     const typings = readSdkTypings();
     expect(typings).toContain('shouldQuery?: boolean;');

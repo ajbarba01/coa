@@ -1,8 +1,8 @@
 import { changeEventSchema, SCHEMA_VERSION, type ChangeEvent } from '@coa/shared';
 
 /**
- * The NDJSON frame codec + the torn-tail-tolerant, schema-version-guarding reader
- * (D94/D126). The WAL is one Zod-validated change-event per line. M1's reader
+ * The NDJSON frame codec + the torn-tail-tolerant, schema-version-guarding reader.
+ * The WAL is one Zod-validated change-event per line. The kernel's reader
  * owns the frame-schema-migration chain: a *higher* unknown `schema_version`
  * makes the reader refuse and quarantine the segment (never a silent
  * skip/downgrade); a torn trailing line (a crash mid-append, no `\n`) is

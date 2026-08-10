@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BackendMessage } from '@coa/shared';
-import { planMemory, resumeEligible } from './memory-plan.js';
+import { planMemory, resumeEligible, unreadableMemoryNotice } from './memory-plan.js';
 
 const transcript: BackendMessage[] = [
   { role: 'user', content: 'hi' },
@@ -65,5 +65,40 @@ describe('planMemory', () => {
       history: transcript,
       deliverHistoryAsPreamble: false,
     });
+  });
+});
+
+describe('planMemory — a transcript the store could not fully read', () => {
+  it('tells the model its memory is a fragment, without touching what was read', () => {
+    // The silence this replaces: the store counted the events it could not read, but the
+    // resume path took only the messages — so a model was handed a truncated transcript
+    // that looked exactly like a whole one and carried on as if nothing were missing.
+    const plan = planMemory({ provider: 'deepseek', model: 'chat', transcript, skippedEvents: 2 });
+    expect(plan.history.slice(0, 2)).toEqual(transcript); // read turns, in order, untouched
+    expect(plan.history).toHaveLength(3);
+    expect(plan.history[2]).toEqual({
+      role: 'user',
+      content: unreadableMemoryNotice(2),
+    });
+    expect(unreadableMemoryNotice(2)).toContain('2 earlier events');
+    expect(unreadableMemoryNotice(1)).toContain('1 earlier event');
+  });
+
+  it('marks the Claude preamble the same way — the branch taken must not decide honesty', () => {
+    const plan = planMemory({ provider: 'claude', model: 'opus', transcript, skippedEvents: 1 });
+    expect(plan.deliverHistoryAsPreamble).toBe(true);
+    expect(plan.history[plan.history.length - 1]).toEqual({
+      role: 'user',
+      content: unreadableMemoryNotice(1),
+    });
+  });
+
+  it('says nothing when the record read cleanly', () => {
+    // A clean read is the normal case and must be byte-identical to before: no note, and
+    // the very same array (nothing copied, nothing appended).
+    expect(planMemory({ provider: 'deepseek', transcript, skippedEvents: 0 }).history).toBe(
+      transcript,
+    );
+    expect(planMemory({ provider: 'deepseek', transcript }).history).toBe(transcript);
   });
 });

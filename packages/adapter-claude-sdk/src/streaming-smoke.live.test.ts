@@ -20,16 +20,16 @@ import {
 } from './live-smoke-helpers.js';
 
 /**
- * The P-β de-risk gate (Task 4): a real `@anthropic-ai/claude-agent-sdk` `query()`
+ * The streaming-input de-risk gate: a real `@anthropic-ai/claude-agent-sdk` `query()`
  * in streaming-input mode, driven directly through {@link ClaudeSdkAdapter}, proving
  * the assumption Tasks 1-3 built on top of but could only fake-test — that ONE
- * held-open query fed a coa-owned input iterable (docs/adr/0012) (a) stays alive
+ * held-open query fed a coa-owned input iterable (a) stays alive
  * across turns instead of tearing down after the first, (b) shares memory across
  * those turns on the SAME server session, (c) lets a message pushed mid-turn reach
  * the running turn (steering), (d) aborts promptly on interrupt, and (e) terminates
  * cleanly (no hang, no leak) once the input iterable closes.
  *
- * Gated exactly like `packages/core/src/workbench/web/web-tools.smoke.test.ts`:
+ * Gated exactly like `packages/core/src/workbench/web/web-tools.live.test.ts`:
  * `COA_LIVE` unset ⇒ the whole describe is skipped, so the default
  * `pnpm vitest run packages/adapter-claude-sdk` stays green with no account and CI
  * never runs it. Spends real subscription tokens — keep every live prompt tiny.
@@ -95,9 +95,10 @@ describe.skipIf(!process.env['COA_LIVE'])(
       // as the NEXT turn on the same held-open query — it is NOT injected into the
       // running turn. The Claude Agent SDK has no mid-turn inject primitive (a
       // pushed SDKUserMessage waits for the current turn's boundary, then runs —
-      // verified live; see docs/adr/0012). This measured ceiling still stands.
+      // verified live). This measured ceiling still stands.
       // Barge-in (interrupt()+push, a separate mid-turn-redirect capability) was
-      // removed (docs/adr/0031); mid-turn text now travels only as a delivery,
+      // removed (a steer is recorded when the model receives it); mid-turn text now
+      // travels only as a delivery,
       // drained at each backend's own next legal boundary, never injected here. ------
       const beforeTurn3 = frames.length;
       queue.push('Reply with exactly one word: ALPHA. Nothing else.');

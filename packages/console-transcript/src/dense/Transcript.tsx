@@ -26,7 +26,7 @@ export type OpenUrlFn = (url: string) => void;
 export type { TranscriptFrame, TranscriptRole } from './frames.js';
 import type { TranscriptFrame } from './frames.js';
 
-/** The approval-decision callback the composer's docked gate uses (SC-1 — surfacing only;
+/** The approval-decision callback the composer's docked gate uses (surfacing only;
  *  the daemon owns the real decision). Lives here as the shared type for `ChatVm`; the
  *  transcript itself no longer actions approvals (a pending gate docks to the composer). */
 export type RespondFn = (requestId: string, decision: 'approve' | 'deny') => void;
@@ -141,7 +141,7 @@ function ThinkingCard({
 
   const tokens = estimateTokens(text);
   const tokenSuffix = tokens > 0 ? ` · ${tokens} toks` : '';
-  // The duration is read from the PERSISTED frame (M8 stamps it from the delta→settle timing),
+  // The duration is read from the PERSISTED frame (the daemon stamps it from the delta→settle timing),
   // never measured live here — a reloaded block never streamed, so a live wall-clock could not
   // reproduce it, which was the "reverts to Thinking on reload" mismatch. A settled block is
   // past-tense regardless ("thought"), with the seconds only when the duration is known.
@@ -359,7 +359,7 @@ export function TranscriptRow({
   }
 
   if (frame.kind === 'raw') {
-    // D85 — the mask comes off: plain mono, no chrome, no reveal, no interpretation.
+    // The mask comes off — raw is the verbatim loop: plain mono, no chrome, no reveal, no interpretation.
     // Never animated (see `revealSuppressed`), so no entrance/reveal class lands here.
     return (
       <RowShell>
@@ -532,7 +532,8 @@ export function TranscriptRow({
           'min-w-0',
           isUser &&
             'ml-auto w-fit max-w-[70%] self-end rounded-[6px_6px_2px_6px] bg-s3 px-3 py-2 text-s11',
-          // Not yet in the record (docs/adr/0031) — reads as provisional, not as history,
+          // Not yet in the record (a steer is recorded only when the model receives it) —
+          // reads as provisional, not as history,
           // the same way a streaming block never wears the settled row's full weight.
           isPending && 'opacity-60',
         )}
@@ -665,7 +666,7 @@ export function foldToolFrames(frames: TranscriptFrame[]): TranscriptFrame[] {
 }
 
 /** Pure: seconds elapsed since `sinceMs`, formatted for the working footer's counter.
- *  Mirrors `ChatPanel`'s `formatElapsed` (kept local — console-ui does not depend on
+ *  Mirrors `ChatPanel`'s `formatElapsed` (kept local — this package does not depend on
  *  the desktop app). */
 function formatWorkingElapsed(sinceMs: number, nowMs: number): string {
   return `${Math.floor((nowMs - sinceMs) / 1000)}s`;
@@ -713,7 +714,7 @@ export function WorkingFooter({
 
 /** The block entrance is skipped for the channels that reveal per-word (agent/subagent
  *  text + thinking — they animate as words arrive, so a block-level entrance would double
- *  up) and for `raw` frames (D85 — raw is the verbatim loop, never animated). Every other
+ *  up) and for `raw` frames (raw is the verbatim loop, never animated). Every other
  *  newly-arrived block (tool card, result, plan, error, approval, subagent, user turn,
  *  note) gets the entrance. Exported for unit testing. */
 export function revealSuppressed(frame: TranscriptFrame): boolean {

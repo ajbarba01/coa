@@ -10,7 +10,7 @@ export interface BrandPath {
 
 /** A third party's identity, as data. The hex is the OUTSIDE world's brand colour — it is not a
  *  token and never will be, which is exactly why it arrives as a value on a spec rather than as
- *  a class inside a component (see docs/adr/0015). */
+ *  a class inside a component — outside brand colours stay data, never design tokens. */
 export interface BrandMarkSpec {
   /** Accessible name — the provider as a human says it ("Claude", "Tavily"). */
   name: string;

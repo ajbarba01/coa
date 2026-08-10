@@ -4,13 +4,13 @@ import { parse } from './parser.js';
 import { walk, type SerializedNode } from './cst.js';
 
 /**
- * The G0 shared primitive: reduce an artifact to a canonical form so "equal
+ * The shared canonical-form primitive: reduce an artifact to a canonical form so "equal
  * modulo formatting?" is a byte-compare of two {@link CanonicalForm}s. The v1
  * floor is a token stream (a sound reduction): where a grammar exists, the
  * artifact's leaf tokens are emitted in document order joined by single spaces,
  * so spacing/indentation/line-break differences vanish while tokens and comments
  * are preserved (`a+b` and `a + b` collapse; `x` and `y` do not). Where no
- * grammar exists it degrades to collapsing whitespace runs (D85).
+ * grammar exists it degrades to collapsing whitespace runs.
  *
  * `ignoreRegions` blanks byte ranges (length-preserving, so later ranges stay
  * valid) before tokenizing; `stripBanner` drops a leading comment. `sortKeys` is

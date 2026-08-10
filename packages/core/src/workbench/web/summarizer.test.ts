@@ -4,7 +4,7 @@ import { makeSummarizer } from './summarizer.js';
 
 const USAGE = { tokensIn: 10, tokensOut: 5, costUsd: 0.001 } satisfies RuntimeUsage;
 
-// A non-streaming fake (D85 degrade): yields nothing, returns the settled result.
+// A non-streaming fake (degraded mode): yields nothing, returns the settled result.
 const completeReturning = (text: string) =>
   // eslint-disable-next-line require-yield
   vi.fn(async function* () {

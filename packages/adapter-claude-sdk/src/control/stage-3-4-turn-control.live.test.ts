@@ -35,8 +35,8 @@ import {
  * ClaudeSdkAdapter: the adapter only wires the two hooks coa actually uses today
  * (canUseTool → its own predicate, Stop → the close-gate), and this file needs to
  * register hooks and MCP servers coa's adapter does not yet expose a seam for.
- * That is itself consistent with this task's scope — findings feed P1, no adapter
- * behaviour changes here (AGENTS.md / the plan's global constraints).
+ * That is itself consistent with this task's scope — findings feed the determinism-first
+ * principle, no adapter behaviour changes here.
  *
  * SDK 0.3.196 / CLI 2.1.196 (a4ca500).
  *
@@ -135,7 +135,7 @@ describe.skipIf(!process.env['COA_LIVE'])('stage 3-4 — live turn control', () 
     // This isolates the cause by changing ONE thing: dropping `allowedTools`. If the callback
     // now fires for the same calls, then coa's allow-intent silently disables coa's own
     // per-call gate — a governance hole in shipped code, since `resolveToolTransport` maps
-    // coa's allow set onto `allowedTools` and M3/M7 decisions ride `canUseTool`.
+    // coa's allow set onto `allowedTools` and the governance decisions ride `canUseTool`.
     const worktree = probeWorktree('coa-live-canusetool-noallow-');
     writeFileSync(join(worktree, 'marker.txt'), 'COA_PROBE_MARKER_7f3a', 'utf8');
 

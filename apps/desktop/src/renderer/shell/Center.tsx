@@ -70,8 +70,8 @@ function SurfaceHost({
       return <FlagsSurface state={state} />;
     case 'timeline':
       return <TimelineSurface state={state} />;
-    // Auth and Usage are mock-fed today (the renderer owns their data until the four
-    // missing RPC verbs land — see mockAuth.ts), so they take no ConsoleState.
+    // Auth renders from the live daemon-fed store (authStore.ts); Usage is still
+    // deliberately mock-fed (roadmap-tracked). Both own their data, so no ConsoleState.
     case 'auth':
       return <AuthSurface />;
     case 'usage':
@@ -461,7 +461,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
         </button>
       </Tooltip>
       <div className="min-w-6 flex-1" />
-      {/* D85 indicator: appears only while raw mode is ON (toggled from the palette, or by
+      {/* Raw-mode indicator: appears only while raw mode is ON (toggled from the palette, or by
           the `toggle-raw` chord — alt+r by default) */}
       {rawMode && (
         <span className="self-center px-1 font-mono text-meta tracking-[0.06em] text-warn">

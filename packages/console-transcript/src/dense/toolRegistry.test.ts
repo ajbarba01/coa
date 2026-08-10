@@ -1,4 +1,3 @@
-// packages/console-ui/src/dense/toolRegistry.test.ts
 import { Braces, FileText, Pencil, ShieldCheck, Terminal, Wrench } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import { describeTool, toolPath, toolTarget } from './toolRegistry.js';

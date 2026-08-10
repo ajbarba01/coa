@@ -2,10 +2,11 @@ import { Button, Icon, ModalShell, StatusDot, cx } from '@coa/console-kit';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import type { LoginSnapshot } from '@coa/console-viewmodel';
+import { surfaceWrite } from '../shell/failures.js';
 import { useShell } from '../shell/store.js';
 import { TextInput } from './fields.js';
 import { useLogin } from './loginStore.js';
-import { useMockAuth, type Credential } from './mockAuth.js';
+import { useAuthStore, type Credential } from './authStore.js';
 import { RISE, SLIP_SWIFT } from './motion.js';
 import type { ProviderDescriptor } from './providers.js';
 
@@ -14,12 +15,12 @@ import type { ProviderDescriptor } from './providers.js';
  * --email <email>` against a managed dir (~/.coa/logins/<slug>/, via CLAUDE_CONFIG_DIR),
  * watches the CLI's output for the OAuth URL, polls `claude auth status --json` for the
  * login to land, and registers the account under its email. coa never reads the token —
- * credential-blindness holds (the ADR shipped with this feature).
+ * credential-blindness holds.
  *
  * An account is DEFINED by its email here: the flow opens on an email-first pre-step
  * (renderer-local — the daemon only hears about a flow once the email is known), the
  * browser opens pre-filled with it, and the probe's landed email is the truth — a
- * mismatch is FLAGGED with keep/retry, never blocked (SC-1). Everything after the
+ * mismatch is FLAGGED with keep/retry, never blocked (advisory). Everything after the
  * pre-step is a projection of the daemon's `LoginSnapshot`; phases advance only from
  * polling, never from clicks.
  */
@@ -57,15 +58,15 @@ export function useStartRelogin(): (credential: Credential) => void {
     const email = credential.email ?? credential.identity?.split(' · ')[0];
     if (email !== undefined && looksLikeEmail(email)) {
       useShell.getState().setLoginEmailFor(undefined);
-      void useLogin
-        .getState()
-        .startLogin({
+      void surfaceWrite(
+        'start that login',
+        useLogin.getState().startLogin({
           providerId: credential.providerId,
           mode: 'relogin',
           email,
           credentialId: credential.id,
-        })
-        .catch(() => {});
+        }),
+      );
     } else {
       setLoginEmailFor({ providerId: credential.providerId, credentialId: credential.id });
     }
@@ -100,11 +101,9 @@ export function LoginDialog(): React.JSX.Element | null {
   // Escape/backdrop is safe at every phase: a pre-step just closes; a live flow cancels —
   // the CLI is killed and nothing registers (the daemon clears to idle).
   const close = (): void => {
-    if (flow !== undefined)
-      void useLogin
-        .getState()
-        .cancelLogin()
-        .catch(() => {});
+    if (flow !== undefined) {
+      void surfaceWrite('cancel that login', useLogin.getState().cancelLogin());
+    }
     if (pre !== undefined) setLoginEmailFor(undefined);
   };
 
@@ -129,22 +128,22 @@ function EmailStep({
   credentialId?: string | undefined;
 }): React.JSX.Element {
   const setLoginEmailFor = useShell((s) => s.setLoginEmailFor);
-  const isolated = useMockAuth((s) => s.browserSession.enabled && s.browserSession.available);
+  const isolated = useAuthStore((s) => s.browserSession.enabled && s.browserSession.available);
   const [email, setEmail] = useState('');
   const valid = looksLikeEmail(email);
 
   const commit = (): void => {
     if (!valid) return;
     setLoginEmailFor(undefined);
-    void useLogin
-      .getState()
-      .startLogin({
+    void surfaceWrite(
+      'start that login',
+      useLogin.getState().startLogin({
         providerId,
         mode: credentialId === undefined ? 'new' : 'relogin',
         email: email.trim(),
         ...(credentialId !== undefined ? { credentialId } : {}),
-      })
-      .catch(() => {});
+      }),
+    );
   };
 
   return (
@@ -166,7 +165,7 @@ function EmailStep({
             aria-label="Email"
           />
         </label>
-        {/* Isolation is real now (ADR-0018) — the copy names the dedicated profile only
+        {/* Isolation is real now — the copy names the dedicated profile only
             when it's actually live, never as an aspiration. */}
         <span className="text-meta leading-relaxed text-s7">
           {isolated
@@ -218,15 +217,15 @@ function FlowBody({
 
   const retry = (): void => {
     if (flow.email === undefined) return;
-    void useLogin
-      .getState()
-      .startLogin({
+    void surfaceWrite(
+      'start that login',
+      useLogin.getState().startLogin({
         providerId: 'claude',
         mode: flow.credentialId === undefined ? 'new' : 'relogin',
         email: flow.email,
         ...(flow.credentialId !== undefined ? { credentialId: flow.credentialId } : {}),
-      })
-      .catch(() => {});
+      }),
+    );
   };
 
   return (
@@ -282,7 +281,9 @@ function FlowBody({
                     value={code}
                     onChange={setCode}
                     onCommit={() => {
-                      if (code.trim() !== '') void submitCode(code.trim()).catch(() => {});
+                      if (code.trim() !== '') {
+                        void surfaceWrite('submit that code', submitCode(code.trim()));
+                      }
                     }}
                     placeholder="Paste the code here, if the browser gives you one."
                     aria-label="Authorization code"
@@ -291,7 +292,7 @@ function FlowBody({
                   <Button
                     variant="quiet"
                     disabled={code.trim() === ''}
-                    onClick={() => void submitCode(code.trim()).catch(() => {})}
+                    onClick={() => void surfaceWrite('submit that code', submitCode(code.trim()))}
                   >
                     Submit
                   </Button>
@@ -363,10 +364,16 @@ function FlowBody({
           // Flagged, never blocked: keeping the landed account is a plain quiet act,
           // not a warning to bully past.
           <>
-            <Button variant="outline" onClick={() => void resolveMismatch('retry').catch(() => {})}>
+            <Button
+              variant="outline"
+              onClick={() => void surfaceWrite('retry that login', resolveMismatch('retry'))}
+            >
               Try Again
             </Button>
-            <Button variant="quiet" onClick={() => void resolveMismatch('keep').catch(() => {})}>
+            <Button
+              variant="quiet"
+              onClick={() => void surfaceWrite('keep that login', resolveMismatch('keep'))}
+            >
               Keep {flow.landedEmail ?? 'this account'}
             </Button>
           </>
@@ -377,7 +384,10 @@ function FlowBody({
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="quiet" onClick={() => void resolveMismatch('keep').catch(() => {})}>
+            <Button
+              variant="quiet"
+              onClick={() => void surfaceWrite('keep that login', resolveMismatch('keep'))}
+            >
               Use {flow.landedEmail ?? 'this login'}
             </Button>
           </>

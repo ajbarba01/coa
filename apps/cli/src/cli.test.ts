@@ -2,14 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  buildDaemonConsoleHandlers,
-  createDaemonCore,
-  listen,
-  ModelCache,
-  ModelCatalogStore,
-  type RpcServer,
-} from '@coa/core';
+import { createDaemonCore, listen, ModelCache, ModelCatalogStore, type RpcServer } from '@coa/core';
+import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { runCli, startDaemon, listMergedModels, listEffectiveModels } from './cli.js';
 
 let n = 0;
@@ -27,7 +21,7 @@ describe('runCli — client read commands over a live daemon', () => {
     dir = mkdtempSync(join(tmpdir(), 'coa-cli-'));
     const handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
     path = testPath();
-    server = await listen(path, buildDaemonConsoleHandlers(handle));
+    server = await listen(path, buildDaemonConsoleHandlers(handle, { home: dir }));
   });
   afterEach(async () => {
     await server.close();
@@ -63,9 +57,13 @@ describe('startDaemon — the serve path', () => {
   it('serves the inspector reads over the bound endpoint', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-serve-'));
     const path = testPath();
+    // Root the daemon at the temp dir, not the default working directory: the reconciler
+    // walks and hashes its root at startup, so leaving the default would have this test
+    // scan the entire checkout and get slower every time the repo grows.
     const server = await startDaemon({
       walPath: join(dir, 'log.ndjson'),
       path,
+      root: dir,
       out: () => {},
       err: () => {},
     });

@@ -3,16 +3,15 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AccountsRegistry } from '@coa/core';
 import { AMBIENT, providerSchema, type Locator, type Provider } from '@coa/shared';
-import type { CliIo } from './cli.js';
+import type { CliIo } from './io.js';
 
 /**
  * `coa auth …` — local file ops over the credential-blind account registry (no
  * daemon). Selects which login the governed loop runs under; stores POINTERS only.
- * A Claude account points at a subscription config dir; a DeepSeek or LongCat
- * account points at either an env var (`--env-var`/`--longcat-env-var NAME`) or a
- * coa-written 0600 key file (`--deepseek-key`/`--longcat-key KEY`, so the secret
- * stays out of `accounts.yaml`). `home` is a test seam (defaults to the user's
- * home).
+ * A Claude account points at a subscription config dir; an API-key provider's
+ * account points at either an env var (`--<provider>-env-var NAME`) or a
+ * coa-written 0600 key file (`--<provider>-key KEY`, so the secret stays out of
+ * `accounts.yaml`). `home` is a test seam (defaults to the user's home).
  */
 export function runAuthCommand(args: string[], io: CliIo, home: string = homedir()): number {
   const [sub, ...rest] = args;
@@ -73,8 +72,13 @@ export function runAuthCommand(args: string[], io: CliIo, home: string = homedir
   }
 }
 
+/** The API-key backends: each gets an add-time `--<provider>-key` / `--<provider>-env-var` flag pair. */
+const KEYED_PROVIDERS: readonly Provider[] = ['deepseek', 'longcat', 'openai', 'openrouter'];
+
 const ADD_USAGE =
-  'usage: coa auth add <label> --config-dir <dir> | --env-var <NAME> | --deepseek-key <KEY> | --longcat-env-var <NAME> | --longcat-key <KEY>';
+  'usage: coa auth add <label> --config-dir <dir> | --env-var <NAME> | ' +
+  '--<provider>-key <KEY> | --<provider>-env-var <NAME>' +
+  ` (providers: ${KEYED_PROVIDERS.join(', ')})`;
 
 /** A valid POSIX/Windows environment-variable name (rejects a pasted API key). */
 const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -87,37 +91,36 @@ function runAdd(reg: AccountsRegistry, rest: string[], io: CliIo, home: string):
     reg.add(label, { type: 'config-dir', dir: value }, 'claude');
     return 0;
   }
-  if (flag === '--env-var') {
-    if (!ENV_VAR_NAME.test(value)) {
-      return fail(
-        io,
-        `'${value}' looks like a key, not a variable name. To store the key itself: coa auth add ${label} --deepseek-key <KEY>. To point at an env var, pass its NAME (e.g. DEEPSEEK_API_KEY).`,
-      );
+  // The original un-prefixed env-var flag, kept pointing at DeepSeek so existing
+  // invocations keep working; every provider has its prefixed form below.
+  if (flag === '--env-var') return addEnvVarAccount(reg, io, label, value, 'deepseek');
+  for (const provider of KEYED_PROVIDERS) {
+    if (flag === `--${provider}-key`) {
+      const path = writeKeyFile(home, label, value);
+      reg.add(label, { type: 'key-file', path }, provider);
+      return 0;
     }
-    reg.add(label, { type: 'env-var', name: value }, 'deepseek');
-    return 0;
-  }
-  if (flag === '--deepseek-key') {
-    const path = writeKeyFile(home, label, value);
-    reg.add(label, { type: 'key-file', path }, 'deepseek');
-    return 0;
-  }
-  if (flag === '--longcat-env-var') {
-    if (!ENV_VAR_NAME.test(value)) {
-      return fail(
-        io,
-        `'${value}' looks like a key, not a variable name. To store the key itself: coa auth add ${label} --longcat-key <KEY>. To point at an env var, pass its NAME (e.g. LONGCAT_API_KEY).`,
-      );
-    }
-    reg.add(label, { type: 'env-var', name: value }, 'longcat');
-    return 0;
-  }
-  if (flag === '--longcat-key') {
-    const path = writeKeyFile(home, label, value);
-    reg.add(label, { type: 'key-file', path }, 'longcat');
-    return 0;
+    if (flag === `--${provider}-env-var`) return addEnvVarAccount(reg, io, label, value, provider);
   }
   return fail(io, ADD_USAGE);
+}
+
+/** Register an env-var POINTER account, rejecting a value that looks like a pasted key. */
+function addEnvVarAccount(
+  reg: AccountsRegistry,
+  io: CliIo,
+  label: string,
+  value: string,
+  provider: Provider,
+): number {
+  if (!ENV_VAR_NAME.test(value)) {
+    return fail(
+      io,
+      `'${value}' looks like a key, not a variable name. To store the key itself: coa auth add ${label} --${provider}-key <KEY>. To point at an env var, pass its NAME (e.g. ${provider.toUpperCase()}_API_KEY).`,
+    );
+  }
+  reg.add(label, { type: 'env-var', name: value }, provider);
+  return 0;
 }
 
 /** Write the key to `~/.coa/keys/<label>` (0600) and return its absolute path (stored in the locator). */

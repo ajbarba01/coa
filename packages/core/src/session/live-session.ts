@@ -1,5 +1,6 @@
 import type { ModelSelection, Push } from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
+import type { TurnLifecycle } from './turn-lifecycle.js';
 
 /**
  * A `LiveSession`'s run state — whether the backend loop is actively driving a
@@ -15,6 +16,10 @@ export type RunState = 'idle' | 'running';
  */
 export interface TurnRequest {
   input: string;
+  /** The legacy singular role — superseded by `roles`, but still what `assemblePieces`
+   *  and the config hash read. It rides the turn (rather than the sender's own
+   *  bookkeeping) because the daemon, not the sender, is what drives the turn. */
+  role?: string;
   model?: ModelSelection;
   roles?: string[];
   scope?: string;
@@ -25,21 +30,56 @@ export interface TurnRequest {
 /** A subscriber callback that receives every push fanned out by a session. */
 export type Sink = (push: Push) => void;
 
+/** Where a turn is running, as the backend reports it at `onStart`. */
+export interface StartedHandle {
+  id: string;
+  worktree: string;
+}
+
+/**
+ * A caller's request to join this session's fan-out AT THE TURN'S TRUE FIRST STATUS
+ * rather than right now — hydrating on arrival would push a spurious leading `idle`
+ * ahead of the run it is meant to describe. `onAttached` hands the unsubscribe back so
+ * the caller can release the sink when it goes away (a dropped console must not leave a
+ * sink fanned out to forever).
+ */
+export interface TurnSubscription {
+  sink: Sink;
+  onAttached: (off: () => void) => void;
+}
+
+/**
+ * What actually rides a session's queue: the request, plus the one-shot callbacks the
+ * SENDER attached to this particular turn. They travel WITH the turn because a live
+ * session is driven by the daemon, not by whichever caller founded it — anything the
+ * founder kept privately would be invisible to every later sender's turn.
+ */
+export interface QueuedTurn extends TurnRequest {
+  /** Set only the first time a given caller sends against this session — consumed
+   *  (once) inside the driver's `onStart`. */
+  subscribe?: TurnSubscription;
+  /** Set only for the FOUNDING turn (a brand-new session) — resolves the caller's
+   *  pending answer with the worktree as soon as the turn starts. */
+  onReady?: (started: StartedHandle) => void;
+}
+
 /**
  * The CURRENTLY in-flight turn's control state (CHAT-10): one
- * {@link AbortController} whose signal M8 forwards to the adapter as the
- * neutral user-stop. `interrupted` distinguishes a user-initiated stop from a
- * genuine loop failure in `session-handlers.ts`'s settlement — SC-1: an
- * interrupt must never surface as an error. Lives on the {@link LiveSession}
- * (not a per-connection map) so ANY connection sharing the daemon's registry —
- * not just the one that started the turn — can resolve and act on it (see
- * docs/adr/0011, the G4 reattach contract).
+ * {@link AbortController} whose signal the session layer forwards to the adapter as the
+ * neutral user-stop, plus the turn's {@link TurnLifecycle} — the one owned state that
+ * says where the turn stands, and so whether a settlement is looking at a user stop or a
+ * genuine loop failure (an interrupt must never surface as an error). The driver that
+ * started the run owns the same lifecycle instance, so the service and the driver read
+ * one state rather than two flags they have to keep in agreement. Lives on the
+ * {@link LiveSession} (not a per-connection map) so ANY connection sharing the daemon's
+ * registry — not just the one that started the turn — can resolve and act on it (see
+ * the daemon-authoritative reattach contract).
  */
 export interface TurnControl {
   controller: AbortController;
-  interrupted: boolean;
+  lifecycle: TurnLifecycle;
   /**
-   * Which drive strategy owns this turn (see docs/adr/0012). `held-open` ⇒ a steer
+   * Which drive strategy owns this turn (the held-open streaming-input strategy). `held-open` ⇒ a steer
    * is routed into the live query's derived input feed via {@link LiveSession.pushSteer};
    * absent/`per-turn` ⇒ the caller pushes onto `session.deliveries` directly, for the
    * backend to drain at its next round trip. Set when the turn starts.
@@ -71,8 +111,8 @@ export class LiveSession {
   readonly deliveries = new DeliveryQueue();
 
   #sinks = new Set<Sink>();
-  #queue: TurnRequest[] = [];
-  #waiter: ((turn: TurnRequest | undefined) => void) | undefined;
+  #queue: QueuedTurn[] = [];
+  #waiter: ((turn: QueuedTurn | undefined) => void) | undefined;
   #closed = false;
   #steerSink: ((text: string) => void) | undefined = undefined;
   #interruptClosure: (() => boolean) | undefined = undefined;
@@ -86,7 +126,7 @@ export class LiveSession {
 
   /**
    * Point the held-open steer route at the live query's derived input feed (the SDK
-   * streaming-input strategy — see docs/adr/0012). Set by the held-open driver when
+   * streaming-input strategy). Set by the held-open driver when
    * a query is established, cleared (`undefined`) when it terminates; a `per-turn`
    * session leaves it unset, so {@link pushSteer} reports it has nowhere to route.
    */
@@ -108,7 +148,7 @@ export class LiveSession {
    * cleared when it ends). The closure settles the turn's streamed-but-unsettled blocks, records
    * the interrupt marker, and stops the backend the way THAT drive strategy must (a held-open
    * query takes a turn-level interrupt and stays alive; a per-turn loop aborts). Keeping it here
-   * lets `interruptSession` stay strategy-agnostic (ADR 0002/0004).
+   * lets `interruptSession` stay strategy-agnostic (the backend-blind-core rule).
    */
   setInterruptClosure(fn: (() => boolean) | undefined): void {
     this.#interruptClosure = fn;
@@ -122,7 +162,7 @@ export class LiveSession {
 
   /** Register a finalizer run once from {@link close} — where the held-open driver
    *  ends its derived input feed so the long-lived backend query terminates after
-   *  the last turn's result (docs/adr/0012). */
+   *  the last turn's result. */
   onClose(fn: () => void): void {
     this.#onClose.push(fn);
   }
@@ -133,7 +173,7 @@ export class LiveSession {
     this.#sinks.add(sink);
     // The hydration call is subject to the same crash-safety as `emit` below — a
     // sink that throws on its very first push is dropped rather than propagating
-    // into the caller (e.g. `onStart` in session-handlers.ts).
+    // into the caller (e.g. a driver's `onStart`).
     try {
       sink(this.#statusPush());
     } catch {
@@ -157,7 +197,7 @@ export class LiveSession {
 
   /** Queue `turn` for the loop to drain, resolving a pending `nextTurn()` waiter
    *  immediately if one is parked. */
-  enqueue(turn: TurnRequest): void {
+  enqueue(turn: QueuedTurn): void {
     if (this.#waiter) {
       const waiter = this.#waiter;
       this.#waiter = undefined;
@@ -169,10 +209,10 @@ export class LiveSession {
 
   /** Resolve with the next queued turn, or wait for one to be enqueued. Once
    *  `close()` has been called and the queue is drained, resolves `undefined`. */
-  async nextTurn(): Promise<TurnRequest | undefined> {
+  async nextTurn(): Promise<QueuedTurn | undefined> {
     if (this.#queue.length > 0) return this.#queue.shift();
     if (this.#closed) return undefined;
-    return new Promise<TurnRequest | undefined>((resolve) => {
+    return new Promise<QueuedTurn | undefined>((resolve) => {
       this.#waiter = resolve;
     });
   }

@@ -9,7 +9,7 @@ import { posix } from 'node:path';
  * indexed yet (so resolution is order-independent), or the actually-indexed
  * candidate when one exists. A bare specifier stays an external node — `tsconfig`
  * path aliases / `package.json` exports / workspace resolution are the deferred
- * precise (D144) layer, not the floor.
+ * precise layer, not the floor.
  */
 const JS_TO_TS: Readonly<Record<string, string[]>> = {
   '.js': ['.ts', '.tsx', '.d.ts'],

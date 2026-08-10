@@ -3,14 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pushSchema, type Push, type RpcNotification, type TurnFrame } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type CanUseTool,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-  type StopPredicate,
-} from '@coa/spi';
+import type { BackendConfig, CanUseTool, RuntimeAdapter, StopPredicate } from '@coa/spi';
 import {
   buildSessionHandlers,
   composeSessionDeps,
@@ -18,6 +11,7 @@ import {
   createDaemonCore,
   listen,
   LiveSessionRegistry,
+  SessionService,
   type RpcServer,
   type SessionAdapterInit,
 } from '@coa/core';
@@ -25,7 +19,7 @@ import { runSession } from './cli.js';
 
 /**
  * End-to-end proof of the `coa run` path over a real OS pipe with a FAKE backend:
- * client → daemon → session lifecycle → R-12 push → terminal render. The live-SDK
+ * client → daemon → session lifecycle → live push → terminal render. The live-SDK
  * smoke test (a real `query()`) is the v0-spike gate and runs behind auth, not here.
  */
 
@@ -50,14 +44,6 @@ function echoAdapter(init: SessionAdapterInit): RuntimeAdapter {
       for (const frame of frames) init.onTurn?.(frame);
       init.onSettle(init.sessionId, { tokensIn: 3, tokensOut: 4, costUsd: 0.02 });
     },
-    deliverReminder: () => {},
-    render_context: () => {},
-    inject_runtime: () => {},
-    cache_control: () => {},
-    usageTelemetry: (): RuntimeUsage => ({ tokensIn: 0, tokensOut: 0, costUsd: 0 }),
-    capabilityProfile: () => barebonesProfile,
-    refs: () => null,
-    runEval: () => Promise.reject(new Error('no eval')),
   };
 }
 
@@ -81,13 +67,13 @@ describe('coa run — over a live daemon with a fake backend', () => {
       bindWorktree: () => dir,
     });
     path = testPath();
-    // One shared, daemon-wide registry (mirrors cli.ts) — constructed once, OUTSIDE
-    // the per-connection factory, so two connections sharing a conversation id share
-    // the one live session. No `idleMs`: an unset idle timer avoids real timers here.
+    // One shared, daemon-wide registry + session service (mirrors cli.ts) — constructed
+    // once, OUTSIDE the per-connection factory, so two connections sharing a conversation
+    // id share the one live session AND the one drive loop. No `idleMs`: an unset idle
+    // timer avoids real timers here.
     registry = new LiveSessionRegistry();
-    server = await listen(path, (connection) =>
-      buildSessionHandlers(deps, connection, undefined, registry),
-    );
+    const sessions = new SessionService({ deps, registry });
+    server = await listen(path, (connection) => buildSessionHandlers(sessions, connection));
   });
   afterEach(async () => {
     await server.close();

@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { makeState } from '../panels/fixtures.js';
-import { useMockAuth } from '../panels/mockAuth.js';
+import { makeState } from '../testing/fixtures.js';
+import { useAuthStore } from '../panels/authStore.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
 import { CENTER, clampNav, clampWork, NAV, WORK, Workbench } from './Workbench.js';
 
 const initialShell = useShell.getState();
-const initialAuth = useMockAuth.getState();
+const initialAuth = useAuthStore.getState();
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
   useConsoleState.setState(undefined, true);
-  useMockAuth.setState(initialAuth, true);
+  useAuthStore.setState(initialAuth, true);
   (window as unknown as { coa: unknown }).coa = { platform: 'win32' };
 });
 
@@ -68,12 +68,12 @@ describe('Workbench', () => {
   it('routes the auth surface to its pane — credentials outgrew the ◐ foot popover', async () => {
     publishConsoleState(makeState());
     useShell.getState().setSurface('auth');
-    // The auth store is empty until its mount-time `hydrate()` resolves (Task 10 — live
-    // daemon reads); this file's `window.coa` stub carries no `authView`, so that read
-    // rejects (swallowed, SC-1) and never populates the store. Seed directly instead —
+    // The auth store is empty until its mount-time `hydrate()` resolves (the live
+    // daemon reads land later); this file's `window.coa` stub carries no `authView`, so that read
+    // rejects (swallowed — surfacing failures never block) and never populates the store. Seed directly instead —
     // this test is only routing, not auth's own render coverage (AuthPanel.test.tsx owns
     // that).
-    useMockAuth.setState({ added: ['claude', 'tavily'], enabled: { claude: true, tavily: true } });
+    useAuthStore.setState({ added: ['claude', 'tavily'], enabled: { claude: true, tavily: true } });
     render(<Workbench />);
     await waitFor(() => expect(screen.getByText(/^agent backends$/i)).toBeTruthy());
     expect(screen.getByText(/^tool services$/i)).toBeTruthy();

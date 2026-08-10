@@ -2,18 +2,18 @@ import type { FlagRecord, Producer, ProducerInput } from '@coa/shared';
 import type { DegradedRelation, GenerationRelation } from './ssot-constraint.js';
 
 /**
- * M4 / L-DET (PD-6) — the `origin_anchor` mechanical notice, the sound floor of the
+ * L-DET (PD-6) — the `origin_anchor` mechanical notice, the sound floor of the
  * detection sub-layer. It is the home for generation relations L-GEN **refused** a
  * Type-1 constraint (binary / non-canonicalizable output, or a non-reproducible
  * generator): coa cannot byte-compare them, so it asserts no staleness — it records
  * the source→artifact anchor and, when the source or the artifact changes, raises a
  * **Type-2, never-blocking** "this generated artifact may be stale — coa cannot
- * verify it; eyeball it" notice. It is purely mechanical (no model call, P1): the
+ * verify it; eyeball it" notice. It is purely mechanical (no model call): the
  * one model spend on L-DET's fast path is the G5 confirm, which is not built here.
  *
  * It is `deterministic` in mechanism (a change to an anchored path is a fact) but
  * stamps **Type-2** flags because it cannot prove the artifact is actually stale —
- * so it never gate-blocks (SC-1 / PD-7), and its `low` confidence keeps it on the
+ * so it never gate-blocks (PD-7), and its `low` confidence keeps it on the
  * human "eyeball it" path (CF-1) rather than injected into the agent.
  */
 

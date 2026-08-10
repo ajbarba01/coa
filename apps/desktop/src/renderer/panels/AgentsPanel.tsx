@@ -413,7 +413,7 @@ function InlineEditName({
 const DESCRIPTION_FACE =
   'w-full min-w-0 rounded-r2 border px-1.5 py-0.5 text-sec leading-5 text-s9';
 
-/** What a parent agent reads to choose between agents (SPEC CON-1) — the one field
+/** What a parent agent reads to choose between agents — the one field
  *  this whole change exists to add a UI for. Click-to-edit like `InlineEditName`,
  *  styled as secondary prose. The schema requires it non-empty (`min(1)`); an
  *  emptied draft reverts to the last good value on commit rather than sending a
@@ -875,7 +875,7 @@ const MEMBERSHIP_RANK: Record<Membership, number> = {
  *  never opted in) has no home here; it lives behind the `AddPicker`. An
  *  "excluded" package is the one deliberate exception: a past default or
  *  role-supplied package the user turned off stays visible in the agent's own
- *  list (SC-1's "help, never cage" for the agent's own history), ordered last so
+ *  list (the "help, never cage" rule for the agent's own history), ordered last so
  *  what is running still reads first. */
 function ContextSection({
   agent,
@@ -963,7 +963,7 @@ function ContextSection({
  *
  *  With no roles selected, `createRegistryAssemblePieces`
  *  (packages/core/src/session/assemble-agent.ts) never reaches the package union at
- *  all — it returns the permissive floor, `{allow: [], deny: []}` (D85 pass-through:
+ *  all — it returns the permissive floor, `{allow: [], deny: []}` (pass-through floor:
  *  every backend tool stays available). Enumerating the default packages' toolRefs
  *  in that state would understate reach and imply a restriction that isn't real, so
  *  the band branches on role selection rather than on the union alone: with no roles

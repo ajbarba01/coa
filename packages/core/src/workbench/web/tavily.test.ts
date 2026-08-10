@@ -92,7 +92,7 @@ describe('makeTavilyFetch', () => {
     ).toMatchObject({ status: 'error' });
   });
 
-  it('SC-1: a fetch throw becomes an error outcome', async () => {
+  it('a fetch throw becomes an error outcome', async () => {
     const fetchImpl = (async () => {
       throw new Error('dns');
     }) as unknown as typeof fetch;
@@ -164,7 +164,7 @@ describe('makeTavilySearch', () => {
     ).toMatchObject({ status: 'error' });
   });
 
-  it('SC-1: a throw becomes an error outcome', async () => {
+  it('a throw becomes an error outcome', async () => {
     const fetchImpl = (async () => {
       throw new Error('dns');
     }) as unknown as typeof fetch;

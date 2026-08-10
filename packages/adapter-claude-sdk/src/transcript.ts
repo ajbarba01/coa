@@ -1,7 +1,7 @@
 /**
  * The full tool-result text the model saw (lossless — unlike the render stream's short
  * pointer). Exported for `enriched-frames.ts`, which attaches it as the append-only event
- * log's `full` companion to the lossy pointer frame (docs/adr/0010) — the canonical
+ * log's `full` companion to the lossy pointer frame — the canonical
  * transcript is the read-time fold over `events.ndjson`, not a separately maintained record.
  */
 export function resultText(content: unknown): string {

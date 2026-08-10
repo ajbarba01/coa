@@ -16,8 +16,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('ChangeKernel GRF views', () => {
-  it('builds the inferred import graph and detects a cycle (GRF-1)', () => {
+describe('ChangeKernel graph views', () => {
+  it('builds the inferred import graph and detects a cycle', () => {
     kernel.indexFile('a.ts', 'typescript', "import './b';");
     kernel.indexFile('b.ts', 'typescript', "import './a';");
     const cycles = kernel.graph.cycles();
@@ -25,7 +25,7 @@ describe('ChangeKernel GRF views', () => {
     expect(cycles[0]?.backEdges).toHaveLength(1);
   });
 
-  it('serves the coupling fan over weighted calls edges (GRF-4)', () => {
+  it('serves the coupling fan over weighted calls edges', () => {
     // weight is a derived health-only signal (it has no WAL edge-frame field), so
     // it rides a convention extractor, not a declared assertEdge.
     kernel.registerExtractor({
@@ -42,13 +42,13 @@ describe('ChangeKernel GRF views', () => {
     expect(fan.outgoing[0]?.weight).toBe(4);
   });
 
-  it('reports churn over the WAL (GRF-5)', () => {
+  it('reports churn over the WAL', () => {
     kernel.emit(fileDraft('x.ts', 'h1'));
     kernel.emit({ ...fileDraft('x.ts', 'h2'), kind: 'modify', pre_hash: 'h1' });
     expect(kernel.temporal('x.ts').churn).toBe(2);
   });
 
-  it('reports honest per-provenance coverage (GRF-3)', () => {
+  it('reports honest per-provenance coverage', () => {
     kernel.indexFile('a.ts', 'typescript', "import './b';\n// @generated\n");
     kernel.assertEdge({ from: 'a.ts', to: 'spec', type: 'documents', provenance: 'declared' });
     const coverage = kernel.coverage();
@@ -69,16 +69,6 @@ describe('ChangeKernel GRF views', () => {
     kernel.registerExtractor(watches);
     kernel.indexFile('w.ts', 'typescript', 'const x = 1;');
     expect(kernel.graph.outEdges('w.ts').some((e) => e.to === 'observed')).toBe(true);
-  });
-
-  it('exports a SCIP index of the indexed symbols (GRF-6)', () => {
-    kernel.indexFile('a.ts', 'typescript', 'export function foo() {}');
-    const parsed = JSON.parse(
-      Buffer.from(kernel.exportScip({ projectRoot: dir, toolVersion: '0' })).toString('utf8'),
-    ) as {
-      documents: { symbols: { descriptor: string }[] }[];
-    };
-    expect(parsed.documents[0]?.symbols.some((s) => s.descriptor === 'foo')).toBe(true);
   });
 
   it('connects NodeNext .js import specifiers to their .ts source (real-repo resolution)', () => {

@@ -11,7 +11,7 @@ function sdk(message: unknown): SDKMessage {
   return message as SDKMessage;
 }
 
-describe('messageToFrames — SDK message → neutral M0 TurnFrame', () => {
+describe('messageToFrames — SDK message → neutral TurnFrame', () => {
   it('maps assistant text blocks to text frames', () => {
     const frames = messageToFrames(
       sdk({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }),
@@ -174,7 +174,7 @@ describe('messageToFrames — terminal reasons', () => {
   });
 
   it('renders a close-gate block as a deny, not an error', () => {
-    // SC-1: M3's close-gate is one of the system's only two blocks. Reporting it as an
+    // The close-gate is the system's one block. Reporting it as an
     // error frame shows a crash where a deliberate stop belongs.
     expect(
       messageToFrames(

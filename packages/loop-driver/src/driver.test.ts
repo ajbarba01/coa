@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TurnFrame } from '@coa/shared';
-import type { Delivery, RegisteredTool, ToolCatalogue } from '@coa/spi';
-import type { CompletionDelta, CompletionResult } from './complete.js';
-import type { DriverMessage } from './complete.js';
+import type {
+  CompletionDelta,
+  CompletionResult,
+  Delivery,
+  DriverMessage,
+  RegisteredTool,
+  ToolCatalogue,
+} from '@coa/spi';
 import {
   runGovernedLoop,
   toToolDefs,
@@ -41,7 +46,7 @@ function scriptedComplete(rounds: CompletionResult[]): {
 } {
   const seen: unknown[] = [];
   let i = 0;
-  // A non-streaming fake (D85 degrade): yields nothing, returns the settled round.
+  // A non-streaming fake (degrades to yielding nothing and returning the settled round).
   // eslint-disable-next-line require-yield
   const fn = vi.fn(async function* (messages: unknown) {
     seen.push(structuredClone(messages));
@@ -60,7 +65,7 @@ const text = (t: string): CompletionResult => ({ text: t, toolCalls: [], usage: 
  */
 function completions(rounds: ReadonlyArray<Pick<CompletionResult, 'text' | 'toolCalls'>>) {
   let i = 0;
-  // A non-streaming fake (D85 degrade): yields nothing, returns the settled round. Typed
+  // A non-streaming fake (degrades to yielding nothing, returning the settled round). Typed
   // explicitly (not inferred) so the wrapping vi.fn keeps the real `messages` parameter on
   // `mock.calls`, unlike `scriptedComplete`'s snapshot-only `seen`.
   // eslint-disable-next-line require-yield
@@ -76,7 +81,7 @@ function completions(rounds: ReadonlyArray<Pick<CompletionResult, 'text' | 'tool
 function deps(over: Partial<GovernedLoopDeps>): GovernedLoopDeps {
   return {
     sessionId: 's1',
-    // A non-streaming default fake (D85 degrade): yields nothing, returns the result.
+    // A non-streaming default fake: yields nothing, returns the result.
     // eslint-disable-next-line require-yield
     complete: async function* () {
       return text('');
@@ -192,7 +197,7 @@ describe('runGovernedLoop', () => {
     ]);
   });
 
-  it('on interrupt mid-stream, streams the partial as deltas and settles NOTHING (M8 owns the closure)', async () => {
+  it('on interrupt mid-stream, streams the partial as deltas and settles NOTHING (the session host owns the interrupt closure)', async () => {
     const controller = new AbortController();
     const frames: TurnFrame[] = [];
     async function* streamThenAbort(): AsyncGenerator<CompletionDelta, CompletionResult> {
@@ -215,7 +220,7 @@ describe('runGovernedLoop', () => {
     });
     expect(frames).toContainEqual({ t: 'text-delta', text: 'Par' });
     expect(frames).toContainEqual({ t: 'text-delta', text: 'tial' });
-    // The driver re-emits NOTHING on abort: M8's interrupt closure settles the partial from these
+    // The driver re-emits NOTHING on abort: the session host's interrupt closure settles the partial from these
     // same deltas and records the marker. Re-emitting it here duplicated the block (once live,
     // once settled) — the reported doubled-output bug.
     expect(frames.filter((f) => f.t === 'text')).toHaveLength(0);
@@ -409,7 +414,7 @@ describe('runGovernedLoop', () => {
       deps({
         catalogue: [tool('apply_patch', invoke)],
         complete: complete.fn,
-        canUseTool: async () => ({ behavior: 'deny', message: 'cost cap reached' }),
+        canUseTool: async () => ({ behavior: 'deny', message: 'blocked by a deny rule' }),
         onTurn: (f) => frames.push(f),
       }),
     );
@@ -419,10 +424,10 @@ describe('runGovernedLoop', () => {
       t: 'tool_result',
       handle: 's1:c1',
       ok: false,
-      pointer: 'cost cap reached',
+      pointer: 'blocked by a deny rule',
     });
     expect(JSON.stringify(complete.seen[1])).toContain(
-      'denied by coa governance: cost cap reached',
+      'denied by coa governance: blocked by a deny rule',
     );
   });
 
@@ -655,7 +660,7 @@ describe('runGovernedLoop', () => {
     expect(observeChanges).toHaveBeenCalledTimes(1);
   });
 
-  it('is byte-identical when no observeChanges port is supplied (D85)', async () => {
+  it('is byte-identical when no observeChanges port is supplied (degrades to a pass-through)', async () => {
     const complete = scriptedComplete([
       {
         text: '',

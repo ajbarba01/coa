@@ -8,10 +8,10 @@ import {
   rpcStartLogin,
   rpcSubmitLoginCode,
 } from '../console.js';
-import { useMockAuth } from './mockAuth.js';
+import { useAuthStore } from './authStore.js';
 
 /**
- * The driven-login flow's data, LIVE from the daemon (the mockAuth/modelsStore pattern):
+ * The driven-login flow's data, LIVE from the daemon (the authStore/modelsStore pattern):
  * `poll` reads `loginState`; every write action calls its matching RPC verb and reprojects
  * the daemon's returned `LoginSnapshot` — the store never invents flow state itself, it only
  * ever mirrors what the daemon last said. `idle` reprojects to `undefined` (a flow-less
@@ -51,7 +51,7 @@ export const useLogin = create<LoginState>((set, get) => {
     const wasRegistered = get().flow?.phase === 'registered';
     set({ flow: snapshot.phase === 'idle' ? undefined : snapshot });
     if (snapshot.phase === 'registered' && !wasRegistered) {
-      void useMockAuth.getState().hydrate();
+      void useAuthStore.getState().hydrate();
     }
   };
 
@@ -80,9 +80,9 @@ export const useLogin = create<LoginState>((set, get) => {
  *  import cycle the dependency ruleset forbids. */
 export function reportActiveClaudeAuthFailure(): void {
   const report = (id: string): Promise<void> =>
-    rpcReportAuthFailure(id).then(() => useMockAuth.getState().hydrate());
+    rpcReportAuthFailure(id).then(() => useAuthStore.getState().hydrate());
 
-  const activeId = useMockAuth.getState().activeByProvider['claude'];
+  const activeId = useAuthStore.getState().activeByProvider['claude'];
   if (activeId !== undefined) {
     void report(activeId).catch(() => {});
     return;
@@ -91,11 +91,11 @@ export function reportActiveClaudeAuthFailure(): void {
   // failure can land before any auth surface mounted `hydrate()`), which would otherwise
   // drop the signal on the floor forever — hydrate once, then re-check. Still a silent
   // no-op if the id is genuinely absent (no claude login configured at all).
-  void useMockAuth
+  void useAuthStore
     .getState()
     .hydrate()
     .then(() => {
-      const rehydratedId = useMockAuth.getState().activeByProvider['claude'];
+      const rehydratedId = useAuthStore.getState().activeByProvider['claude'];
       return rehydratedId === undefined ? undefined : report(rehydratedId);
     })
     .catch(() => {});

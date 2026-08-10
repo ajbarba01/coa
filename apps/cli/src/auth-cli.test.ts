@@ -118,4 +118,36 @@ describe('runAuthCommand', () => {
     runAuthCommand(['list'], io(), home);
     expect(out.join('\n')).toMatch(/lc\tlongcat\tenv-var LONGCAT_API_KEY/);
   });
+
+  it('current lists openai and openrouter as ambient too', () => {
+    expect(runAuthCommand(['current'], io(), home)).toBe(0);
+    expect(out).toContain('openai\tambient');
+    expect(out).toContain('openrouter\tambient');
+  });
+
+  it('add --openai-key / --openrouter-key store key-file pointers (never the secret)', () => {
+    expect(runAuthCommand(['add', 'oa', '--openai-key', 'sk-secret'], io(), home)).toBe(0);
+    expect(runAuthCommand(['add', 'or', '--openrouter-key', 'sk-or-secret'], io(), home)).toBe(0);
+    out = [];
+    runAuthCommand(['list'], io(), home);
+    expect(out.join('\n')).toMatch(/oa\topenai\tkey-file/);
+    expect(out.join('\n')).toMatch(/or\topenrouter\tkey-file/);
+    expect(out.join('\n')).not.toContain('sk-secret');
+    expect(readFileSync(join(home, '.coa', 'keys', 'oa'), 'utf8')).toBe('sk-secret');
+    expect(readFileSync(join(home, '.coa', 'keys', 'or'), 'utf8')).toBe('sk-or-secret');
+  });
+
+  it('add --openrouter-env-var rejects a key-looking value and accepts a real var name', () => {
+    expect(runAuthCommand(['add', 'or', '--openrouter-env-var', 'sk-or-v1-77'], io(), home)).toBe(
+      1,
+    );
+    expect(err.join('')).toMatch(/looks like a key/);
+    err = [];
+    expect(
+      runAuthCommand(['add', 'or', '--openrouter-env-var', 'OPENROUTER_API_KEY'], io(), home),
+    ).toBe(0);
+    out = [];
+    runAuthCommand(['list'], io(), home);
+    expect(out.join('\n')).toMatch(/or\topenrouter\tenv-var OPENROUTER_API_KEY/);
+  });
 });

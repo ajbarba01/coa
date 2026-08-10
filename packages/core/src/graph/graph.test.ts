@@ -31,7 +31,7 @@ describe('TypedGraph', () => {
     expect(g.dependencies('c')).toEqual([]);
   });
 
-  it('does not cycle-reject inferred structural edges (GRF-1 retention is a later batch)', () => {
+  it('does not cycle-reject inferred structural edges (cycle retention is a later batch)', () => {
     const g = new TypedGraph();
     g.applyEdge(edge('a', 'b', { provenance: 'inferred' }));
     g.applyEdge(edge('b', 'a', { provenance: 'inferred' }));

@@ -11,7 +11,7 @@ const history: FileTouch[] = [
   touch(4, 'a.ts', 't3'),
 ];
 
-describe('temporal (GRF-5 WAL⨝structure)', () => {
+describe('temporal (WAL⨝structure)', () => {
   it('counts churn — how often a node changed', () => {
     expect(temporal('a.ts', history).churn).toBe(3);
     expect(temporal('b.ts', history).churn).toBe(1);

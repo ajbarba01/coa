@@ -7,7 +7,8 @@ config compiler, workbench, governance/audit, daemon orchestration) and the cred
   [`spec/M1.md`](../../docs/design/handoff/spec/M1.md); the per-module specs `M3.md`–`M8.md` sit alongside it.
   The intra-`core` ring layout is in [`REPO_LAYOUT.md`](../../docs/REPO_LAYOUT.md).
 - **Public interface:** `src/index.ts`.
-- **Rationale:** [`0009`](../../docs/adr/0009-single-deny-channel.md) (the only two blocks),
+- **Rationale:** [`0009`](../../docs/adr/0009-single-deny-channel.md) (the single deny channel;
+  [`0035`](../../docs/adr/0035-the-close-gate-is-the-only-block.md) narrows its two blocks to one),
   [`0010`](../../docs/adr/0010-append-only-conversation-log.md),
   [`0011`](../../docs/adr/0011-daemon-authoritative-live-session.md),
   [`0012`](../../docs/adr/0012-sdk-streaming-input-steering.md),

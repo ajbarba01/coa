@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LiveSessionRegistry } from './live-registry.js';
+import { TurnLifecycle } from './turn-lifecycle.js';
 
 function fakeTimers() {
   const timers = new Map<number, () => void>();
@@ -109,16 +110,24 @@ describe('LiveSessionRegistry', () => {
     expect(closed.sort()).toEqual(['c1', 'c2']);
   });
 
-  it('close(id) aborts an in-flight turn and marks it interrupted first (SC-1-safe abort)', () => {
+  it('close(id) aborts an in-flight turn and marks it interrupted first (user-stop-safe abort)', () => {
     const r = new LiveSessionRegistry();
     const { session } = r.getOrCreate('c1');
     const controller = new AbortController();
-    session.control = { controller, interrupted: false };
+    const lifecycle = new TurnLifecycle();
+    session.control = { controller, lifecycle };
 
     r.close('c1');
 
     expect(controller.signal.aborted).toBe(true);
-    expect(session.control?.interrupted).toBe(true);
+    // The cascade never runs a driver's close-out closure (no settled partial, no interrupt
+    // marker — a hard teardown), but it closes the stop itself before aborting, so the turn
+    // reaches `stopped` — inert — rather than sticking at the request, where frames are still
+    // meant to flow. A straggler the abort provokes must not be recorded for a session this
+    // call already decided to end.
+    expect(lifecycle.phase).toBe('stopped');
+    expect(lifecycle.inert).toBe(true);
+    expect(lifecycle.stoppedByUser).toBe(true);
   });
 
   // Three levels, two branches: root-1 -> kid-a -> grandkid, root-1 -> kid-b (leaf).

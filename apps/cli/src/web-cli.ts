@@ -9,7 +9,7 @@ import {
   type WebChain,
 } from '@coa/core';
 import type { Locator } from '@coa/shared';
-import type { CliIo } from './cli.js';
+import type { CliIo } from './io.js';
 
 /**
  * `coa websearch …` / `coa webfetch …` — local file ops over the credential-blind

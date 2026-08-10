@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { CapabilitySet, NeutralConfig } from '@coa/shared';
-import {
-  barebonesProfile,
-  type BackendConfig,
-  type CanUseTool,
-  type RegisteredTool,
-  type RuntimeAdapter,
-  type RuntimeUsage,
-  type StopPredicate,
+import type {
+  BackendConfig,
+  CanUseTool,
+  RegisteredTool,
+  RuntimeAdapter,
+  RuntimeUsage,
+  StopPredicate,
 } from '@coa/spi';
 import {
   createSession,
@@ -62,22 +61,6 @@ class FakeAdapter implements RuntimeAdapter {
     // Simulate the SDK settling a result so the onSettle → charge wire is exercised.
     this.init.onSettle(this.init.sessionId, { tokensIn: 1, tokensOut: 2, costUsd: 0.5 });
   }
-  deliverReminder(): void {}
-  render_context(): void {}
-  inject_runtime(): void {}
-  cache_control(): void {}
-  usageTelemetry(): RuntimeUsage {
-    return { tokensIn: 0, tokensOut: 0, costUsd: 0 };
-  }
-  capabilityProfile() {
-    return barebonesProfile;
-  }
-  refs() {
-    return null;
-  }
-  runEval() {
-    return Promise.reject(new Error('no eval'));
-  }
 }
 
 interface Stats {
@@ -100,7 +83,6 @@ function harness(over: Partial<SessionDeps> = {}): {
     assemblePieces: () => ({ pieces: [], frame: { allow: [], deny: [] } }),
     compile: () => NEUTRAL,
     sandboxPolicy: () => SANDBOX,
-    capState: () => ({ capHit: false, remaining: null }),
     charge: (sessionId, usage) => stats.charged.push({ sessionId, usage }),
     perToolDeny: () => undefined,
     gate: () => ({ allow: true }),
@@ -160,19 +142,13 @@ describe('createSession', () => {
     ]);
   });
 
-  it('wires a cost-cap-aware canUseTool predicate onto the tool hook', async () => {
-    const h = harness({ capState: () => ({ capHit: true, remaining: null }) });
+  it('wires the per-tool deny rules into the canUseTool predicate on the tool hook', async () => {
+    const h = harness({ perToolDeny: () => ({ behavior: 'deny', message: 'no secrets' }) });
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
     const decision = await h
       .adapter()
       ?.canUseTool?.({ tool: 'apply_patch', args: {}, sessionId: 'sess-1' });
     expect(decision?.behavior).toBe('deny');
-  });
-
-  it('passes the computed per-session budget to the adapter init', async () => {
-    const h = harness({ perSessionCeiling: 4, capState: () => ({ capHit: false, remaining: 9 }) });
-    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
-    expect(h.adapter()?.init.maxBudgetUsd).toBe(4);
   });
 
   it('threads the active account locator into the adapter init and stamps the session label', async () => {
@@ -220,7 +196,7 @@ describe('createSession', () => {
     ]);
   });
 
-  it('omits root from settled spend for a session with no lineage — byte-identical to before root existed (D85)', async () => {
+  it('omits root from settled spend for a session with no lineage — byte-identical to before root existed', async () => {
     const spend: unknown[] = [];
     const h = harness({
       activeAccount: () => ({ label: 'work' }),
@@ -309,7 +285,7 @@ describe('createSession', () => {
     expect(baseCatalogueForCalls[0]?.sessionId).toBe('sess-1');
   });
 
-  it('falls back to the shared catalogue/baseCatalogue unchanged when catalogueFor/resolveSpawn are absent (D85)', async () => {
+  it('falls back to the shared catalogue/baseCatalogue unchanged when catalogueFor/resolveSpawn are absent', async () => {
     const registered: Record<string, string[]> = {};
     const makeAdapter =
       (label: string) =>

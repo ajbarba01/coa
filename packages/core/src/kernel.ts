@@ -1,18 +1,9 @@
 import { ulid } from 'ulid';
-import type {
-  ChangeEvent,
-  EdgeType,
-  GraphEdge,
-  Piece,
-  PieceRef,
-  RankedCandidate,
-  SymbolRecord,
-} from '@coa/shared';
+import type { ChangeEvent, EdgeType, GraphEdge, Piece, PieceRef, SymbolRecord } from '@coa/shared';
 import { type ChangeEventDraft, stampFrame } from './event.js';
 import { Wal } from './wal/wal.js';
 import { TypedGraph } from './graph/graph.js';
 import { SymbolTable } from './graph/symbol-table.js';
-import { FuzzyIndex } from './graph/fuzzy-index.js';
 import { PieceStore, resolvePiece } from './graph/resolve-piece.js';
 import { reparseFile } from './graph/reparse.js';
 import { extractImports } from './graph/extract-imports.js';
@@ -28,7 +19,6 @@ import {
   type TemporalOptions,
   type TemporalView,
 } from './graph/temporal.js';
-import { exportScip, type ScipOptions } from './graph/scip.js';
 import { resolveScope, type ScopeContext } from './scope/scope-resolver.js';
 import { lintScopes, type ScopeLintFinding } from './scope/scope-linter.js';
 import { loadScopesFile, type ScopesConfig } from './scope/scopes-config.js';
@@ -44,24 +34,23 @@ export interface ChangeKernelOptions {
 }
 
 /**
- * M1 — the Change Kernel: the single source of truth for "what changed", and the
+ * The Change Kernel: the single source of truth for "what changed", and the
  * narrow waist every producer writes to and every consumer reads from. `emit` is
- * the one append path (P7); the typed write methods construct a frame and funnel
+ * the one append path; the typed write methods construct a frame and funnel
  * through it. On a change-event it appends synchronously to the WAL, updates the
  * in-memory hot graph synchronously, then the SQLite projection — exactly the
- * D120 event-sourced order. On startup it replays the WAL to rebuild every
+ * event-sourced order. On startup it replays the WAL to rebuild every
  * projection (the log is the source of truth; everything else is derived).
  *
- * The graph carries the GRF-* hardening (cycle/coupling/temporal views,
- * convention extractors, the inferred import graph, SCIP export) and the SCO-*
- * scope tier (composable membership resolution, the scope linter).
+ * The graph carries the graph hardening (cycle/coupling/temporal views,
+ * convention extractors, the inferred import graph) and the SCO-* scope tier
+ * (composable membership resolution, the scope linter).
  */
 export class ChangeKernel {
   readonly graph = new TypedGraph();
   private readonly wal: Wal;
   private readonly worktree: string;
   private readonly symbols = new SymbolTable();
-  private readonly fuzzy = new FuzzyIndex();
   private readonly pieces = new PieceStore();
   private readonly projection: ProjectionDb;
   private readonly idle = new IdleScheduler();
@@ -76,7 +65,6 @@ export class ChangeKernel {
   private readonly scopeCache = new Map<string, { version: number; resolution: ScopeResolution }>();
   private materialVersion = 0;
   private nextSeq = 0;
-  private fuzzyDirty = false;
 
   constructor(options: ChangeKernelOptions) {
     this.worktree = options.worktree ?? 'main';
@@ -93,7 +81,7 @@ export class ChangeKernel {
 
   // --- the one append path + the typed writers ---------------------------------
 
-  /** The single append path (P7). Returns the authoritative `seq`. */
+  /** The single append path. Returns the authoritative `seq`. */
   emit(draft: ChangeEventDraft): number {
     if (draft.kind === 'assert-edge' && this.graph.wouldCreateCycle(edgeOf(draft))) {
       throw new Error(
@@ -164,9 +152,9 @@ export class ChangeKernel {
   // --- index / resolve reads ---------------------------------------------------
 
   /**
-   * Drive M2 to (re)index a file: its symbols into the resident table, and its
+   * Drive the parser module to (re)index a file: its symbols into the resident table, and its
    * derived (inferred import + convention) edges into the graph (local/rebuilt,
-   * not WAL'd — D49). A reparse first clears the file's stale derived edges.
+   * not WAL'd). A reparse first clears the file's stale derived edges.
    */
   indexFile(path: string, lang: string, bytes: string): void {
     const { symbols, cst } = reparseFile({ path, lang, bytes });
@@ -174,8 +162,6 @@ export class ChangeKernel {
     this.indexedFiles.add(path);
     this.knownPaths.add(path);
     this.materialVersion++;
-    this.fuzzyDirty = true;
-    this.idle.scheduleIdle(() => this.rebuildFuzzy(), { priority: 1, preemptible: true });
 
     this.graph.removeDerivedEdgesFrom(path);
     clearPrefix(this.unresolvedSites, `${path}:`);
@@ -191,12 +177,12 @@ export class ChangeKernel {
     for (const site of conventions.unresolved) this.unresolvedSites.add(`${path}:${site}`);
   }
 
-  /** GRF-3 — admit a deterministic per-ecosystem convention extractor (runs on reparse). */
+  /** Admit a deterministic per-ecosystem convention extractor (runs on reparse). */
   registerExtractor(extractor: ConventionExtractor): void {
     this.extractors.register(extractor);
   }
 
-  /** GRF-5 — the WAL⨝structure temporal view for a node. */
+  /** The WAL⨝structure temporal view for a node. */
   temporal(node: string, options?: TemporalOptions): TemporalView {
     const touches: FileTouch[] = this.frames
       .filter((f): f is Extract<ChangeEvent, { path: string }> => 'path' in f)
@@ -204,14 +190,9 @@ export class ChangeKernel {
     return temporal(node, touches, options ?? {});
   }
 
-  /** GRF-3 — the anti-false-graph honesty read: per-provenance counts + unresolved sites. */
+  /** The anti-false-graph honesty read: per-provenance counts + unresolved sites. */
   coverage(): Record<EdgeProvenance, number> & { unresolved: number } {
     return { ...this.graph.provenanceCounts(), unresolved: this.unresolvedSites.size };
-  }
-
-  /** GRF-6 — the one-way SCIP export of the indexed symbol layer. */
-  exportScip(options: ScipOptions): Uint8Array {
-    return exportScip(this.symbols.all(), options);
   }
 
   // --- scope tier (SCO-*) ------------------------------------------------------
@@ -265,11 +246,6 @@ export class ChangeKernel {
     return this.nextSeq;
   }
 
-  fuzzyMatch(name: string, limit?: number): RankedCandidate[] {
-    if (this.fuzzyDirty) this.rebuildFuzzy();
-    return this.fuzzy.match(name, limit);
-  }
-
   registerPiece(piece: Piece): void {
     this.pieces.register(piece);
     this.graph.setNode(piece.name, 'piece');
@@ -319,7 +295,6 @@ export class ChangeKernel {
         break;
       case 'declare-symbols':
         this.symbols.indexFile(frame.payload.from, frame.payload.symbols);
-        this.fuzzyDirty = true;
         break;
       default:
         this.graph.setNode(frame.path, 'file');
@@ -329,11 +304,6 @@ export class ChangeKernel {
         this.materialVersion++;
         break;
     }
-  }
-
-  private rebuildFuzzy(): void {
-    this.fuzzy.build(this.symbols.all());
-    this.fuzzyDirty = false;
   }
 
   /** Build the live evaluation context the pure scope resolver reads. */

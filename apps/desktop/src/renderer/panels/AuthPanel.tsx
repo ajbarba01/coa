@@ -15,6 +15,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { NO_DRAG } from '../shell/appRegion.js';
+import { surfaceWrite } from '../shell/failures.js';
 import { useShell } from '../shell/store.js';
 import { RISE, SLIP_ENTER } from './motion.js';
 import {
@@ -23,10 +24,10 @@ import {
   credentialStatus,
   credentialsOf,
   poolHealth,
-  useMockAuth,
+  useAuthStore,
   type Credential,
   type CredentialStatus,
-} from './mockAuth.js';
+} from './authStore.js';
 import {
   LOCATOR_LABEL,
   PROVIDERS,
@@ -89,8 +90,8 @@ export function statusText(c: Credential, status: CredentialStatus): string {
  *  drill-down's way back (the same place usage keeps its). The add control lives at the
  *  top of the provider list — with the things it adds to, not up in the frame. */
 export function AuthStrip(): React.JSX.Element {
-  const added = useMockAuth((s) => s.added);
-  const refresh = useMockAuth((s) => s.refresh);
+  const added = useAuthStore((s) => s.added);
+  const refresh = useAuthStore((s) => s.refresh);
   const narrow = useAuthUi((s) => s.narrow);
   const selected = useAuthUi((s) => s.selected);
   const select = useAuthUi((s) => s.select);
@@ -129,9 +130,10 @@ export function AuthStrip(): React.JSX.Element {
           type="button"
           aria-label="Re-read logins"
           onClick={() =>
-            void refresh()
-              .then(() => useMockAuth.getState().probeHealth())
-              .catch(() => {})
+            void surfaceWrite(
+              're-read your logins',
+              refresh().then(() => useAuthStore.getState().probeHealth()),
+            )
           }
           className="slip flex cursor-pointer items-center px-3.5 text-s7 hover:text-s10"
           style={NO_DRAG}
@@ -146,7 +148,7 @@ export function AuthStrip(): React.JSX.Element {
 /* ---------------------------------- the surface ---------------------------------- */
 
 export function AuthSurface(): React.JSX.Element {
-  const added = useMockAuth((s) => s.added);
+  const added = useAuthStore((s) => s.added);
   const selected = useAuthUi((s) => s.selected);
   const select = useAuthUi((s) => s.select);
   const setNarrow = useAuthUi((s) => s.setNarrow);
@@ -156,15 +158,15 @@ export function AuthSurface(): React.JSX.Element {
   const narrow = useNarrow(hostRef, NARROW_PX);
 
   // Live daemon read on every mount (idempotent) — mirrors how the account selector
-  // triggers `listAccounts`. The surface starts empty and hydrates in. Advisory (SC-1):
+  // triggers `listAccounts`. The surface starts empty and hydrates in. Advisory by design:
   // a failed read degrades to the empty state, never an unhandled rejection. The health
   // probe follows the hydrate (sequenced — both reprojects the full view): surfacing the
   // logins without their probe-judged health would show yesterday's verdict as today's.
   useEffect(() => {
-    void useMockAuth
+    void useAuthStore
       .getState()
       .hydrate()
-      .then(() => useMockAuth.getState().probeHealth())
+      .then(() => useAuthStore.getState().probeHealth())
       .catch(() => {});
   }, []);
 
@@ -254,11 +256,13 @@ export function AuthSurface(): React.JSX.Element {
 function RemoveProviderDialog(): React.JSX.Element {
   const providerId = useShell((s) => s.confirmRemoveProvider);
   const setConfirm = useShell((s) => s.setConfirmRemoveProvider);
-  const removeProvider = useMockAuth((s) => s.removeProvider);
-  const count = useMockAuth((s) => s.credentials.filter((c) => c.providerId === providerId).length);
+  const removeProvider = useAuthStore((s) => s.removeProvider);
+  const count = useAuthStore(
+    (s) => s.credentials.filter((c) => c.providerId === providerId).length,
+  );
   // How many of the provider's logins carry a dedicated browser profile — zero renders no
-  // opt-in at all (D85: a provider that never used isolation removes exactly as it does today).
-  const profiles = useMockAuth(
+  // opt-in at all (a provider that never used isolation removes exactly as it does today).
+  const profiles = useAuthStore(
     (s) => s.credentials.filter((c) => c.providerId === providerId && c.hasProfile === true).length,
   );
   const provider = providerId === undefined ? undefined : providerById(providerId);
@@ -328,12 +332,12 @@ function RemoveProviderDialog(): React.JSX.Element {
 /** Removing a login that has a dedicated browser profile asks about the profile too: it is
  *  tens of MB of cookie jar on disk, and deleting it is a filesystem act the user should
  *  see rather than inherit. Keeping it is the default — the cautious half of a destructive
- *  choice (docs/adr/0018). */
+ *  choice (profile cleanup only ever happens at the user's explicit request). */
 function RemoveCredentialDialog(): React.JSX.Element {
   const id = useShell((s) => s.confirmRemoveCredential);
   const setConfirm = useShell((s) => s.setConfirmRemoveCredential);
-  const removeCredential = useMockAuth((s) => s.removeCredential);
-  const credential = useMockAuth((s) => s.credentials.find((c) => c.id === id));
+  const removeCredential = useAuthStore((s) => s.removeCredential);
+  const credential = useAuthStore((s) => s.credentials.find((c) => c.id === id));
   const [alsoProfile, setAlsoProfile] = useState(false);
   const close = (): void => {
     setConfirm(undefined);
@@ -359,7 +363,7 @@ function RemoveCredentialDialog(): React.JSX.Element {
             </span>
             {credential.profileShared === true ? (
               // The jar belongs to an identity, not to this row, and another login still
-              // signs in with it — deleting it would sign that one out too (docs/adr/0021).
+              // signs in with it — deleting it would sign that one out too (profiles are keyed by identity, which several accounts can share).
               <span className="text-s8">
                 Its browser profile stays: another login signs in as the same person and still uses
                 it.
@@ -382,7 +386,10 @@ function RemoveCredentialDialog(): React.JSX.Element {
             <Button
               variant="quiet"
               onClick={() => {
-                void removeCredential(credential.id, alsoProfile).catch(() => {});
+                void surfaceWrite(
+                  'remove that login',
+                  removeCredential(credential.id, alsoProfile),
+                );
                 close();
               }}
             >
@@ -406,7 +413,7 @@ function ProviderList({
   narrow: boolean;
   onSelect: (id: string) => void;
 }): React.JSX.Element {
-  const added = useMockAuth((s) => s.added);
+  const added = useAuthStore((s) => s.added);
   const setAdding = useShell((s) => s.setAddProviderOpen);
   const backends = addedProviders(added, 'backend');
   const services = addedProviders(added, 'service');
@@ -469,10 +476,10 @@ function ProviderRow({
   narrow: boolean;
   onSelect: (id: string) => void;
 }): React.JSX.Element {
-  const all = useMockAuth((s) => s.credentials);
-  const enabled = useMockAuth((s) => s.enabled[provider.id] ?? true);
-  const activeByProvider = useMockAuth((s) => s.activeByProvider);
-  const setProviderEnabled = useMockAuth((s) => s.setProviderEnabled);
+  const all = useAuthStore((s) => s.credentials);
+  const enabled = useAuthStore((s) => s.enabled[provider.id] ?? true);
+  const activeByProvider = useAuthStore((s) => s.activeByProvider);
+  const setProviderEnabled = useAuthStore((s) => s.setProviderEnabled);
   const credentials = credentialsOf(all, provider.id);
   const health = poolHealth(credentials);
   // The generic attention channel: logins on this provider the probe flagged (badge
@@ -527,7 +534,9 @@ function ProviderRow({
         >
           <Toggle
             on={enabled}
-            onChange={(on) => void setProviderEnabled(provider.id, on).catch(() => {})}
+            onChange={(on) =>
+              void surfaceWrite('change that provider', setProviderEnabled(provider.id, on))
+            }
             aria-label={`${provider.label} enabled`}
           />
         </span>
@@ -541,11 +550,11 @@ function ProviderRow({
 
 function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Element {
   const provider = providerById(providerId);
-  const all = useMockAuth((s) => s.credentials);
-  const activeByProvider = useMockAuth((s) => s.activeByProvider);
-  const enabled = useMockAuth((s) => s.enabled[providerId] ?? true);
-  const chains = useMockAuth((s) => s.chains);
-  const setProviderEnabled = useMockAuth((s) => s.setProviderEnabled);
+  const all = useAuthStore((s) => s.credentials);
+  const activeByProvider = useAuthStore((s) => s.activeByProvider);
+  const enabled = useAuthStore((s) => s.enabled[providerId] ?? true);
+  const chains = useAuthStore((s) => s.chains);
+  const setProviderEnabled = useAuthStore((s) => s.setProviderEnabled);
   const confirmRemove = useShell((s) => s.setConfirmRemoveProvider);
   const [adding, setAdding] = useState(false);
   const credentials = credentialsOf(all, providerId);
@@ -571,7 +580,9 @@ function ProviderDetail({ providerId }: { providerId: string }): React.JSX.Eleme
             <Tooltip label={enabled ? 'Bench this provider' : 'Un-bench this provider'} side="top">
               <Toggle
                 on={enabled}
-                onChange={(on) => void setProviderEnabled(providerId, on).catch(() => {})}
+                onChange={(on) =>
+                  void surfaceWrite('change that provider', setProviderEnabled(providerId, on))
+                }
                 aria-label={`${provider.label} enabled`}
               />
             </Tooltip>
@@ -684,13 +695,13 @@ function CredentialRow({
   provider: ProviderDescriptor;
   status: CredentialStatus;
 }): React.JSX.Element {
-  const makeActive = useMockAuth((s) => s.makeActive);
-  const setCredentialDisabled = useMockAuth((s) => s.setCredentialDisabled);
-  const removeCredential = useMockAuth((s) => s.removeCredential);
-  const clearCooldown = useMockAuth((s) => s.clearCooldown);
+  const makeActive = useAuthStore((s) => s.makeActive);
+  const setCredentialDisabled = useAuthStore((s) => s.setCredentialDisabled);
+  const removeCredential = useAuthStore((s) => s.removeCredential);
+  const clearCooldown = useAuthStore((s) => s.clearCooldown);
   const startRelogin = useStartRelogin();
   // Probe-derived: the login behind this pointer no longer answers. Flagged, never
-  // auto-switched (SC-1) — the row keeps its place and gains the one act that heals it.
+  // auto-switched (advisory) — the row keeps its place and gains the one act that heals it.
   const needsRelogin = credential.health === 'needs-relogin';
   const [replacing, setReplacing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -753,7 +764,7 @@ function CredentialRow({
         <button
           type="button"
           aria-label={`Use ${credential.label}`}
-          onClick={() => void makeActive(credential.id).catch(() => {})}
+          onClick={() => void surfaceWrite('switch to that login', makeActive(credential.id))}
           className="absolute inset-0 cursor-pointer rounded-r3"
         />
       )}
@@ -859,14 +870,17 @@ function CredentialRow({
           {provider.group === 'backend' && (
             <MenuItem
               disabled={status === 'active' || status === 'disabled' || status === 'expired'}
-              onClick={() => void makeActive(credential.id).catch(() => {})}
+              onClick={() => void surfaceWrite('switch to that login', makeActive(credential.id))}
             >
               Make Active
             </MenuItem>
           )}
           <MenuItem
             onClick={() =>
-              void setCredentialDisabled(credential.id, !credential.disabled).catch(() => {})
+              void surfaceWrite(
+                credential.disabled ? 'un-bench that login' : 'bench that login',
+                setCredentialDisabled(credential.id, !credential.disabled),
+              )
             }
           >
             {credential.disabled ? 'Un-bench' : 'Bench'}
@@ -891,19 +905,21 @@ function CredentialRow({
             <MenuItem onClick={() => setReplacing(true)}>Replace {provider.noun}…</MenuItem>
           )}
           {status === 'cooling' && (
-            <MenuItem onClick={() => void clearCooldown(credential.id).catch(() => {})}>
+            <MenuItem
+              onClick={() => void surfaceWrite('clear that cooldown', clearCooldown(credential.id))}
+            >
               Clear Cooldown
             </MenuItem>
           )}
           <MenuItem
             onClick={() => {
-              // D85: a login that never used isolation has nothing to ask about — one click,
-              // exactly as it did before ADR-0018. `hasProfile` is the only thing that
+              // a login that never used isolation has nothing to ask about — one click,
+              // exactly as it did before isolated login profiles existed. `hasProfile` is the only thing that
               // routes this through a prompt instead.
               if (credential.hasProfile === true) {
                 useShell.getState().setConfirmRemoveCredential(credential.id);
               } else {
-                void removeCredential(credential.id, undefined).catch(() => {});
+                void surfaceWrite('remove that login', removeCredential(credential.id, undefined));
               }
             }}
           >
@@ -925,8 +941,8 @@ function AddCredentialRow({
   provider: ProviderDescriptor;
   onDone: () => void;
 }): React.JSX.Element {
-  const addCredential = useMockAuth((s) => s.addCredential);
-  const existing = useMockAuth(
+  const addCredential = useAuthStore((s) => s.addCredential);
+  const existing = useAuthStore(
     (s) => s.credentials.filter((c) => c.providerId === provider.id).length,
   );
   // Seeded from the ID, not the display label: this string is a VALUE the user keeps
@@ -940,11 +956,14 @@ function AddCredentialRow({
 
   const commit = (): void => {
     if (secret.trim() === '') return;
-    void addCredential(
-      provider.id,
-      label.trim() === '' ? `${provider.id}-${existing + 1}` : label,
-      secret,
-    ).catch(() => {});
+    void surfaceWrite(
+      `save that ${provider.noun}`,
+      addCredential(
+        provider.id,
+        label.trim() === '' ? `${provider.id}-${existing + 1}` : label,
+        secret,
+      ),
+    );
     onDone();
   };
 
@@ -999,8 +1018,8 @@ function EditCredentialRow({
   provider: ProviderDescriptor;
   onDone: () => void;
 }): React.JSX.Element {
-  const renameCredential = useMockAuth((s) => s.renameCredential);
-  const replaceSecret = useMockAuth((s) => s.replaceSecret);
+  const renameCredential = useAuthStore((s) => s.renameCredential);
+  const replaceSecret = useAuthStore((s) => s.replaceSecret);
   const pointer = isPointerLocator(provider.locator);
   const [label, setLabel] = useState(credential.label);
   // The pointer is visible state (it IS what a read returns), so it prefills — the one
@@ -1018,10 +1037,13 @@ function EditCredentialRow({
     // Sequenced (not fired concurrently): each RPC reprojects the FULL view it returns, so
     // two in-flight calls would race on which one's response lands last and gets applied.
     if (renamed || repointed) {
-      void (async () => {
-        if (renamed) await renameCredential(credential.id, label);
-        if (repointed) await replaceSecret(credential.id, target);
-      })().catch(() => {});
+      void surfaceWrite(
+        'save that change',
+        (async () => {
+          if (renamed) await renameCredential(credential.id, label);
+          if (repointed) await replaceSecret(credential.id, target);
+        })(),
+      );
     }
     onDone();
   };
@@ -1075,7 +1097,7 @@ function ReplaceSecretRow({
   provider: ProviderDescriptor;
   onDone: () => void;
 }): React.JSX.Element {
-  const replaceSecret = useMockAuth((s) => s.replaceSecret);
+  const replaceSecret = useAuthStore((s) => s.replaceSecret);
   const [secret, setSecret] = useState('');
 
   // Escape abandons the replace from anywhere in the row, not just from inside a field.
@@ -1083,7 +1105,7 @@ function ReplaceSecretRow({
 
   const commit = (): void => {
     if (secret.trim() === '') return;
-    void replaceSecret(credential.id, secret).catch(() => {});
+    void surfaceWrite(`save that ${provider.noun}`, replaceSecret(credential.id, secret));
     onDone();
   };
   return (
@@ -1177,9 +1199,9 @@ function AddProviderDialog({
   onClose: () => void;
   onAdded: (providerId: string) => void;
 }): React.JSX.Element {
-  const added = useMockAuth((s) => s.added);
-  const addProvider = useMockAuth((s) => s.addProvider);
-  const addCredential = useMockAuth((s) => s.addCredential);
+  const added = useAuthStore((s) => s.added);
+  const addProvider = useAuthStore((s) => s.addProvider);
+  const addCredential = useAuthStore((s) => s.addCredential);
   const [picked, setPicked] = useState<ProviderDescriptor>();
   const [label, setLabel] = useState('');
   const [secret, setSecret] = useState('');
@@ -1205,10 +1227,13 @@ function AddProviderDialog({
     const chosenLabel = label.trim() === '' ? picked.id : label;
     // The provider must exist server-side before its first credential can attach to it —
     // sequenced, not fired concurrently.
-    void (async () => {
-      await addProvider(providerId);
-      await addCredential(providerId, chosenLabel, secret);
-    })().catch(() => {});
+    void surfaceWrite(
+      'add that provider',
+      (async () => {
+        await addProvider(providerId);
+        await addCredential(providerId, chosenLabel, secret);
+      })(),
+    );
     onAdded(providerId);
     close();
   };

@@ -68,8 +68,8 @@ describe('listReclaimable', () => {
     expect(listReclaimable(deps, [ALICE, BOB])).toEqual([]);
   });
 
-  /** One jar can back several account rows — two providers signed in as the same person
-   *  (docs/adr/0021). Reclaim reaches the same directories as the removal prompt, so it
+  /** One jar can back several account rows — two providers signed in as the same person.
+   *  Reclaim reaches the same directories as the removal prompt, so it
    *  applies the same guard: a shared jar never enters the list, so it cannot be offered. */
   it('never offers a jar shared by two accounts under different providers', () => {
     const { deps } = harness([ALICE_KEY]);
@@ -143,7 +143,7 @@ describe('reclaimProfile', () => {
     expect(removed).toContain(courierPath(HOME, BOB_KEY));
   });
 
-  /** SC-1: no error channel. A jar that could not be moved is simply still there, so it
+  /** no error channel. A jar that could not be moved is simply still there, so it
    *  appears in the list again and the user can close the browser and click once more. */
   it('leaves the whole triple alone when the jar cannot be moved', () => {
     const { deps, removed } = harness([BOB_KEY], { renameThrows: true });

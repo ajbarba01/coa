@@ -1,5 +1,4 @@
-import type { CompleteFn, DriverMessage } from '@coa/loop-driver';
-import type { RuntimeUsage } from '@coa/spi';
+import type { CompleteFn, DriverMessage, RuntimeUsage } from '@coa/spi';
 import type { Summarizer } from '../web-tools.js';
 
 const DEFAULT_SYSTEM =
@@ -8,7 +7,7 @@ const DEFAULT_SYSTEM =
 /**
  * A minimal summarizer agent over the shared `complete()` primitive. Bound at the
  * wiring layer to a cheap model (e.g. DeepSeek V4 flash); its cost is recorded to
- * the M7 ledger via `recordCost`. It offers no tools — one round-trip, text out.
+ * the governance ledger via `recordCost`. It offers no tools — one round-trip, text out.
  */
 export function makeSummarizer(config: {
   complete: CompleteFn;
@@ -22,7 +21,7 @@ export function makeSummarizer(config: {
         { role: 'user', content: `Prompt: ${req.prompt}\n\nPage:\n${req.markdown}` },
       ];
       // The summarizer has no UI to stream to, so it drains the generator without
-      // surfacing deltas — a non-streaming complete() (D85 degrade) yields nothing and
+      // surfacing deltas — a non-streaming complete() (degraded mode) yields nothing and
       // this loop settles on the first `next()`.
       const it = config.complete(messages, []);
       let step = await it.next();

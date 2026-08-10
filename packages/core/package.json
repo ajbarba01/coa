@@ -5,10 +5,12 @@
   "type": "module",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./rpc": {
+      "development": "./src/rpc/index.ts",
       "types": "./dist/rpc/index.d.ts",
       "import": "./dist/rpc/index.js"
     }
@@ -23,10 +25,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@coa/adapter-claude-sdk": "workspace:*",
-    "@coa/adapter-deepseek": "workspace:*",
     "@coa/code-intel": "workspace:*",
-    "@coa/loop-driver": "workspace:*",
     "@coa/shared": "workspace:*",
     "@coa/spi": "workspace:*",
     "@vscode/ripgrep": "^1.18.0",

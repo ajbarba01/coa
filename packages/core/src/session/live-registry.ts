@@ -20,7 +20,7 @@ export interface LiveRegistryOptions {
    * `close` below) right before the session is torn down and removed: idle-evict,
    * the `closeSession` verb, and `closeAll()` (daemon shutdown) all route through
    * it exactly once per session. This is where a caller (e.g. `apps/cli`) hangs
-   * the M1 checkpoint + worktree release so cleanup happens in exactly one place.
+   * the change-event-spine checkpoint + worktree release so cleanup happens in exactly one place.
    */
   onClose?: (session: LiveSession) => void;
 }
@@ -84,7 +84,7 @@ export class LiveSessionRegistry {
    * With idle-eviction now running-aware (see `#onIdleFire`), this only ever
    * aborts a turn on the explicit `closeSession` verb or on shutdown — never on
    * a silent idle-timeout race against a genuinely active adapter (v1-acceptable
-   * per docs/adr/0011).
+   * per the daemon-authoritative live session).
    */
   close(id: string): void {
     const entry = this.#entries.get(id);
@@ -113,7 +113,7 @@ export class LiveSessionRegistry {
     this.#closeOne(id);
   }
 
-  /** The actual per-session teardown: idle-timer clear, SC-1-safe abort,
+  /** The actual per-session teardown: idle-timer clear, user-stop-safe abort,
    *  `onClose`, channel close, and map removal. Cascading only decides WHICH
    *  ids this runs for and seals every queue first — this logic itself is
    *  unchanged from before cascading existed. */
@@ -123,11 +123,23 @@ export class LiveSessionRegistry {
     entry.timer?.clear();
     const { session } = entry;
     if (session.control !== undefined) {
-      // SC-1: a close-triggered abort is a user-style stop, never a governance
-      // block — mark it interrupted BEFORE aborting so `session-handlers.ts`'s
-      // settlement (the same guard `interruptSession` relies on) suppresses the
-      // resulting throw/settle instead of rendering it as an error.
-      session.control.interrupted = true;
+      // a close-triggered abort is a user-style stop, never a governance
+      // block — request the stop BEFORE aborting so the drive strategy's
+      // settlement (the same state `interruptSession` relies on) suppresses the
+      // resulting throw/settle instead of rendering it as an error. This cascade
+      // never runs the driver's close-out closure (no settled partial, no interrupt
+      // marker — a hard teardown, not a graceful one), so it closes the stop itself,
+      // synchronously, before the abort: `requestStop()` alone leaves the phase at
+      // stop-requested, where frames are still meant to flow, and the abort's own
+      // straggler would be recorded before this session's later settle() ever runs.
+      // closeStop() makes `inert` true immediately, so nothing the abort provokes —
+      // synchronously or later — gets recorded for a session this call already decided
+      // to end. Both returns are intentionally unchecked: whichever phase this session
+      // was already in (a concurrent user stop can have moved it), the pair together
+      // always leaves the machine in stopped or settled — both already inert — so there
+      // is no phase this can reach where the abort's straggler would still be recorded.
+      session.control.lifecycle.requestStop();
+      session.control.lifecycle.closeStop();
       session.control.controller.abort();
     }
     this.#onClose?.(session);

@@ -2,6 +2,9 @@
 
 - Status: accepted
 - Date: 2026-07-06
+- **Narrowed by [ADR-0035](0035-the-close-gate-is-the-only-block.md) (2026-08-07):** the cost-cap
+  deny path is archived, so the count is now exactly one block — the close-gate. The
+  single-deny-channel rule itself, and everything else decided here, stands.
 
 ## Context and problem
 

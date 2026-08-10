@@ -10,7 +10,7 @@ import { z } from 'zod';
  * cache warm (the cache hits only on an identical leading prefix, so nothing may be
  * dropped or reordered).
  *
- * M0 owns the record; the loop driver produces it and the R-7 conversation store
+ * This package owns the record; the loop driver produces it and the conversation store
  * persists it (separately from the lossy UI `TurnFrame` stream, which keeps only a
  * tool-result pointer — not the full output the model saw).
  */

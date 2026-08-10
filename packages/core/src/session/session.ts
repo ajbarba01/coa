@@ -18,59 +18,57 @@ import type {
   TurnInterrupt,
 } from '@coa/spi';
 import type { SpawnDeps } from '../workbench/spawn.js';
-import { buildCanUseTool, buildStopGate, sessionBudget } from './permission.js';
+import { buildCanUseTool, buildStopGate } from './permission.js';
 
 /**
- * M8 — the per-session lifecycle (D121): create → attach-worktree → compile →
- * render → wire → run → close. M8 is the orchestration hub: it calls M5.compile,
- * hands the neutral config to M9 to render, consults M7 for the sandbox + cap,
- * and wires the per-session dependency-injection closures (the two SC-1
- * predicates onto M9's two hooks). M9 stays a swappable leaf — it is reached only
+ * The per-session lifecycle: create → attach-worktree → compile →
+ * render → wire → run → close. The session layer is the orchestration hub: it calls the prompt compile step,
+ * hands the neutral config to the backend adapter to render, consults governance for the sandbox,
+ * and wires the per-session dependency-injection closures (the close-gate and per-tool deny
+ * predicates onto the backend adapter's two hooks). The backend adapter stays a swappable leaf — it is reached only
  * through the injected {@link SessionDeps.createAdapter} factory and the
- * {@link RuntimeAdapter} port; M8 never imports a backend.
+ * {@link RuntimeAdapter} port; the session layer never imports a backend.
  */
 
-/** The session-construction inputs M8 computes and hands to the backend factory (the neutral half of D121's seam). */
+/** The session-construction inputs the session layer computes and hands to the backend factory (the neutral half of the session-lifecycle seam). */
 export interface SessionAdapterInit {
   sessionId: string;
-  /** The per-session capability set from M7.sandboxPolicy. */
+  /** The per-session capability set from the sandbox policy. */
   sandbox: CapabilitySet;
   /** The session's prompt input — a one-shot string or a stream of user-turn strings (neutral, no backend type). */
   input: string | AsyncIterable<string>;
   /** The agent's model selection; `model`/`reasoning` are the backend's (provider drives adapter routing upstream). */
   model?: ModelSelection;
-  /** The native mid-loop hard stop, when bounded. */
-  maxBudgetUsd?: number;
-  /** M9's settlement step → M7.charge, called once per settled result. */
+  /** The backend's settlement step → the cost charge step, called once per settled result. */
   onSettle: (sessionId: string, usage: RuntimeUsage) => void;
   /**
-   * M1 producer ② — record on-disk changes no governed tool made. Every backend fires it
+   * spine producer ② — record on-disk changes no governed tool made. Every backend fires it
    * at its own tool boundary (the SDK's PostToolUse hook; the pure-API loop's per-call
    * block), which is what keeps the change spine identical across backends. Optional so
-   * a backend or test that omits it behaves exactly as before (D85).
+   * a backend or test that omits it behaves exactly as before.
    */
   observeChanges?: () => void;
   /**
-   * Per-frame session output: the backend maps its stream to neutral M0 frames; M8
+   * Per-frame session output: the backend maps its stream to neutral wire frames; the session layer
    * sequences + pushes them. `full`, when present (a `tool_result`), is the complete
    * body the model saw — the append-only log's fidelity companion to the lossy
-   * pointer frame (docs/adr/0010); M8 persists it alongside the frame, never on the wire.
+   * pointer frame; the session layer persists it alongside the frame, never on the wire.
    */
   onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
   locator?: Locator;
-  /** A prior backend session id to resume (R-7 continuity); absent ⇒ a fresh conversation. */
+  /** A prior backend session id to resume (conversation continuity); absent ⇒ a fresh conversation. */
   resume?: string;
-  /** Report the backend's own session id (for the next resume); M8 persists it against the conversation. */
+  /** Report the backend's own session id (for the next resume); the session layer persists it against the conversation. */
   onBackendSession?: (backendSessionId: string) => void;
-  /** The prior conversation transcript (R-7, system omitted). A pure-API backend resends it for memory; the Claude backend carries it for bookkeeping (and, when `deliverHistoryAsPreamble`, as a first-turn preamble). */
+  /** The prior conversation transcript (system omitted). A pure-API backend resends it for memory; the Claude backend carries it for bookkeeping (and, when `deliverHistoryAsPreamble`, as a first-turn preamble). */
   history?: readonly BackendMessage[];
   /** Claude cross-provider switch: deliver `history` as a first-turn preamble (no resumable server session exists for this transcript). Pure-API backends ignore it. */
   deliverHistoryAsPreamble?: boolean;
   /**
-   * A neutral user-stop (interrupt) from M8, forwarded to the backend so an
-   * in-flight round-trip aborts at its next safe boundary; SC-1 — a user stop,
-   * not a governance block. Absent ⇒ current behavior byte-identical (D85).
+   * A neutral user-stop (interrupt) from the session layer, forwarded to the backend so an
+   * in-flight round-trip aborts at its next safe boundary; a user stop,
+   * not a governance block. Absent ⇒ current behavior byte-identical.
    */
   signal?: AbortSignal;
   /**
@@ -78,41 +76,41 @@ export interface SessionAdapterInit {
    * reach the model INSIDE the turn already running (a user steer, a system notice).
    * Not a turn: every backend realizes it at the soonest point its own turn model
    * allows (the pure-API loop's next round trip, the SDK's post-tool hook), so no
-   * plane above M9 branches on backend. Absent ⇒ nothing is ever delivered,
-   * byte-identical to today (D85).
+   * plane above the backend port branches on backend. Absent ⇒ nothing is ever delivered,
+   * byte-identical to today.
    */
   drainDeliveries?: DrainDeliveries;
   /**
    * A backend that can stop its current turn while keeping the session alive reports
-   * its turn-interrupt handle here (the Claude SDK's held-open `query.interrupt`). M8
+   * its turn-interrupt handle here (the Claude SDK's held-open `query.interrupt`). The session layer
    * routes a user Stop (`interruptSession` → `setInterruptClosure`) through it — distinct
    * from the whole-session abort `signal`, which ends the loop rather than just the turn.
    * Absent ⇒ the backend has no mid-turn interrupt (per-turn backends); byte-identical to
-   * today (D85). See docs/adr/0012.
+   * today. See the held-open streaming-input strategy.
    */
   onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
 }
 
-/** The active-account resolution M8 supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
+/** The active-account resolution the session layer supplies per session (for the model's provider): a label (incl. `'ambient'`) + the optional login pointer. */
 export interface ActiveAccountResolution {
   label: string;
   locator?: Locator;
 }
 
 /**
- * How M8 drives the live session's turns for a given backend (see docs/adr/0012):
+ * How the session layer drives the live session's turns for a given backend (the held-open streaming-input strategy):
  * `per-turn` runs a fresh {@link createSession} per turn (the pure-API strategy,
  * unchanged); `held-open` keeps ONE `createSession` open across turns, feeding it
  * the streamed user turns as an {@link SessionAdapterInit.input} async iterable
- * (the SDK streaming-input strategy). This is an ABSTRACT verdict — M8 branches on
+ * (the SDK streaming-input strategy). This is an ABSTRACT verdict — the session layer branches on
  * the returned string, never on which backend is active. The provider→strategy
  * mapping lives with the {@link SessionDeps.createAdapter} factory in the
  * composition root (the one place that knows the backend), so the two stay a
- * single source of truth (ADR 0002/0004).
+ * single source of truth (the backend-blind-core rule).
  */
 export type SessionStrategy = 'per-turn' | 'held-open';
 
-/** The per-session facts M8 hands `assemblePieces` so it can author the standing scaffold (incl. the env block). */
+/** The per-session facts the session layer hands `assemblePieces` so it can author the standing scaffold (incl. the env block). */
 export interface AssemblePiecesContext {
   role: string;
   /** The chosen roles (assembly selection); preferred over `role` when present. */
@@ -136,28 +134,26 @@ export interface AssemblePiecesContext {
   skills?: Piece[];
 }
 
-/** The live core references M8 holds and wires per session (all injected; M8 sorts last). */
+/** The live core references the session layer holds and wires per session (all injected; the session layer sorts last). */
 export interface SessionDeps {
   newSessionId: () => string;
-  /** Bind a git worktree for the session (D90/D96); returns its path. */
+  /** Bind a git worktree for the session; returns its path. */
   bindWorktree: (sessionId: string, scope: string) => string;
   /** Release the session's worktree at close. */
   releaseWorktree: (worktree: string) => void;
-  /** Gather the session's pieces + capability frame (baseline scaffold + M4 context → M5 input). */
+  /** Gather the session's pieces + capability frame (baseline scaffold + assembled context → compiler input). */
   assemblePieces: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
-  /** M5.compile — pieces → backend-neutral config. */
+  /** Compile pieces → backend-neutral config. */
   compile: (pieces: Piece[], frame: CapabilityFrame) => NeutralConfig;
-  /** M7.sandboxPolicy — the per-session capability set. */
+  /** The per-session capability set. */
   sandboxPolicy: (ctx: {
     sessionId: string;
     trust: 'local' | 'imported';
     worktree: string;
   }) => CapabilitySet;
-  /** M7.capState — the non-mutating cost read. */
-  capState: () => { capHit: boolean; remaining: number | null };
-  /** M7.charge — settle cost exactly once per result. */
+  /** Settle cost exactly once per result. */
   charge: (sessionId: string, usage: RuntimeUsage) => void;
-  /** M7 audit-ledger append, attributed to the active account; absent ⇒ spend recording not wired. */
+  /** Audit-ledger append, attributed to the active account; absent ⇒ spend recording not wired. */
   recordSpend?: (record: {
     costUsd: number;
     tokensIn: number;
@@ -165,14 +161,14 @@ export interface SessionDeps {
     account?: string;
     /** The family-tree root this spend belongs to — what makes a whole run's cost
      *  answerable, not just an account's; absent for a session with no lineage
-     *  (D85 — byte-identical to before this field existed). */
+     *  (byte-identical to before this field existed). */
     root?: string;
   }) => void;
-  /** M3.perToolDeny — the per-tool deny-rule check. */
+  /** The per-tool deny-rule check. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
-  /** M3.gate — the close-gate verdict. */
+  /** The close-gate verdict. */
   gate: () => StopDecision;
-  /** M6's governed tool catalogue (names; the rich surface is registered by M9). */
+  /** The governed tool catalogue (names; the rich surface is registered by the backend port). */
   catalogue: ToolCatalogue;
   /** The pure-API tool catalogue (governance + base tools); used for non-claude providers. */
   baseCatalogue: ToolCatalogue;
@@ -180,32 +176,30 @@ export interface SessionDeps {
    * Build THIS session's own copy of `catalogue`, with `spawn_agent` bound to the given
    * session id as parent. Preferred over the shared `catalogue` when present (`createSession`
    * calls it with `resolveSpawn`'s result); absent ⇒ falls back to `catalogue` unchanged —
-   * a session that never spawns behaves byte-identically to before this seam existed (D85).
+   * a session that never spawns behaves byte-identically to before this seam existed.
    */
   catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers). */
   baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
-  /** M1 checkpoint at the session boundary. */
+  /** change-event-spine checkpoint at the session boundary. */
   checkpoint: () => void;
   /**
-   * M1 producer ② — record on-disk changes no governed tool made. Handed to every
+   * spine producer ② — record on-disk changes no governed tool made. Handed to every
    * adapter, which fires it at its own tool boundary, so the same facts reach the spine
    * whichever backend runs the loop.
    */
   observeChanges: () => void;
-  /** Construct the per-session backend adapter (M9, injected — M8 holds no backend type). */
+  /** Construct the per-session backend adapter (injected — the session layer holds no backend type). */
   createAdapter: (init: SessionAdapterInit) => RuntimeAdapter;
-  /** Optional API-route per-session ceiling; absent ⇒ subscription model. */
-  perSessionCeiling?: number;
-  /** Session trust (D148); defaults to local. */
+  /** Session trust level; defaults to local. */
   trust?: 'local' | 'imported';
   /** Resolve the active account for a provider (login pointer + label) at session start; absent ⇒ account selection not wired. */
   activeAccount?: (provider: string) => ActiveAccountResolution;
   /**
    * The turn-driving strategy for a provider — see {@link SessionStrategy}. Absent
-   * (or returning `per-turn`) ⇒ today's per-turn drive, byte-identical (D85). Only
+   * (or returning `per-turn`) ⇒ today's per-turn drive, byte-identical. Only
    * a backend the composition root maps to `held-open` gets the SDK streaming-input
-   * drive; M8 consumes the abstract verdict and never learns the backend.
+   * drive; the session layer consumes the abstract verdict and never learns the backend.
    */
   sessionStrategy?: (provider: string) => SessionStrategy;
   /**
@@ -213,12 +207,12 @@ export interface SessionDeps {
    * spawn writes into the child's lineage) — read once, right before `registerTools`, so
    * the binding is never an ambient "current session" guess that could race across
    * concurrently-live sessions (a parent and its already-running child, this feature's
-   * own central case). Absent ⇒ spawning stays unavailable (D85).
+   * own central case). Absent ⇒ spawning stays unavailable.
    */
   resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
 }
 
-/** Start a session: bind, compile, render, wire both SC-1 hooks, and run the loop. */
+/** Start a session: bind, compile, render, wire both governance hooks, and run the loop. */
 export async function createSession(
   req: {
     role: string;
@@ -227,7 +221,7 @@ export async function createSession(
     scope: string;
     /** This session's family-tree root (a spawned child's top-of-tree ancestor id); the
      *  caller — the one place that knows a session's lineage — supplies it, absent for a
-     *  session with no lineage, the overwhelming common case (D85). Reaches the settled
+     *  session with no lineage, the overwhelming common case. Reaches the settled
      *  ledger record alongside `account` so a whole spawned run's cost is answerable, not
      *  just an account's. */
     root?: string;
@@ -240,7 +234,7 @@ export async function createSession(
     onTurn?: (frame: TurnFrame, full?: string) => void;
     /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
     onStart?: (started: { id: string; worktree: string }) => void;
-    /** The persistent conversation id to run within (R-7); absent ⇒ an ephemeral session (a fresh generated id). */
+    /** The persistent conversation id to run within; absent ⇒ an ephemeral session (a fresh generated id). */
     sessionId?: string;
     /** A prior backend session id to resume this conversation's memory. */
     resume?: string;
@@ -250,17 +244,17 @@ export async function createSession(
     history?: readonly BackendMessage[];
     /** Claude cross-provider switch: deliver `history` as a first-turn preamble. */
     deliverHistoryAsPreamble?: boolean;
-    /** M8's per-session user-stop, forwarded to the adapter (see {@link SessionAdapterInit.signal}). */
+    /** The session layer's per-session user-stop, forwarded to the adapter (see {@link SessionAdapterInit.signal}). */
     signal?: AbortSignal;
-    /** M8's per-session delivery drain, forwarded to the adapter (see {@link SessionAdapterInit.drainDeliveries}). */
+    /** The session layer's per-session delivery drain, forwarded to the adapter (see {@link SessionAdapterInit.drainDeliveries}). */
     drainDeliveries?: DrainDeliveries;
-    /** M8's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
+    /** The session layer's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
     onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
     /** The session's frozen compilation (neutral config + frame). When present the
      *  prompt is NOT recompiled — the byte-stable frozen prompt is reused (cache
      *  warmth + "static unless raised"); absent ⇒ compile fresh (the first turn). */
     frozen?: { neutral: NeutralConfig; frame: CapabilityFrame };
-    /** Report the fresh compilation (first turn only) so M8 can freeze it. */
+    /** Report the fresh compilation (first turn only) so the session layer can freeze it. */
     onCompile?: (compiled: { neutral: NeutralConfig; frame: CapabilityFrame }) => void;
   },
   deps: SessionDeps,
@@ -290,7 +284,6 @@ export async function createSession(
     req.onCompile?.({ neutral, frame });
   }
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
-  const maxBudgetUsd = sessionBudget(deps.perSessionCeiling, deps.capState().remaining);
   // The chosen model names its provider (from the merged model list); that provider's
   // active account supplies the auth pointer. So a DeepSeek model authenticates with the
   // DeepSeek account regardless of which Claude account is active, and vice versa.
@@ -298,7 +291,7 @@ export async function createSession(
   const account = deps.activeAccount?.(provider);
 
   // Settle once per result: charge the cap, then append the account-attributed
-  // spend to the audit ledger (when wired). M9 calls this exactly once per result.
+  // spend to the audit ledger (when wired). The backend adapter calls this exactly once per result.
   const onSettle = (sid: string, usage: RuntimeUsage): void => {
     deps.charge(sid, usage);
     deps.recordSpend?.({
@@ -317,7 +310,6 @@ export async function createSession(
     onSettle,
     ...(req.model ? { model: req.model } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
-    ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
     observeChanges: deps.observeChanges,
     ...(account?.locator ? { locator: account.locator } : {}),
     ...(req.resume !== undefined ? { resume: req.resume } : {}),
@@ -339,7 +331,7 @@ export async function createSession(
   // across concurrently-live sessions (a parent and its already-running child — this
   // feature's own central case). `resolveSpawn` reads the real `sessionId` right here,
   // not from anywhere it could go stale. Neither seam present ⇒ the original static
-  // catalogue, byte-identical to before this existed (D85).
+  // catalogue, byte-identical to before this existed.
   const spawn = deps.resolveSpawn?.(sessionId);
   const catalogueFor = provider === 'claude' ? deps.catalogueFor : deps.baseCatalogueFor;
   const catalogue =
@@ -349,9 +341,7 @@ export async function createSession(
         ? deps.catalogue
         : deps.baseCatalogue;
   adapter.registerTools(catalogue);
-  adapter.interceptTool(
-    buildCanUseTool({ capState: deps.capState, perToolDeny: deps.perToolDeny }),
-  );
+  adapter.interceptTool(buildCanUseTool({ perToolDeny: deps.perToolDeny }));
   adapter.interceptStop(buildStopGate({ gate: deps.gate }));
 
   const config = { role: req.role, scope: req.scope, worktree, capabilityFrame: frame };
@@ -359,7 +349,7 @@ export async function createSession(
   return { id: sessionId, config, worktree, ...(account ? { account: account.label } : {}) };
 }
 
-/** Tear a session down: checkpoint at the boundary (M1), then release the worktree. */
+/** Tear a session down: checkpoint at the boundary (the change-event spine), then release the worktree. */
 export function closeSession(session: Session, deps: SessionDeps): void {
   deps.checkpoint();
   deps.releaseWorktree(session.worktree);

@@ -1,5 +1,5 @@
 /**
- * The generic, deterministic web-provider routing core (P1). A chain walks an
+ * The generic, deterministic web-provider routing core. A chain walks an
  * ordered list of keyed entries, skips any key still cooling down in a persisted
  * circuit-breaker, marks a cooldown on a `limit`, and returns the first `ok`
  * value. Value-generic, so the fetch side (this increment) and the search side
@@ -7,7 +7,7 @@
  * own responses to a {@link ProviderOutcome}.
  */
 
-/** An adapter's classified result — never a throw (SC-1). `clean` = already extracted/summarized. */
+/** An adapter's classified result — never a throw. `clean` = already extracted/summarized. */
 export type ProviderOutcome<T> =
   | { status: 'ok'; value: T; clean: boolean }
   | { status: 'limit'; kind: 'rate-limit' | 'quota'; retryAfterMs?: number }
@@ -43,7 +43,7 @@ export function nextLocalMidnight(now: number): number {
  * one; on `limit` compute a cooldown (`rate-limit` + `retryAfterMs` → `now +
  * retryAfterMs`; `quota` or an ambiguous rate-limit → `quotaCooldownUntil(now)`)
  * and continue; on `error` continue with no cooldown; on `ok` clear that key's
- * cooldown and return. All exhausted ⇒ a miss with the last reason (SC-1). Pure
+ * cooldown and return. All exhausted ⇒ a miss with the last reason. Pure
  * but for the injected store's side effects and the entries' own runs.
  */
 export async function runChain<T>(

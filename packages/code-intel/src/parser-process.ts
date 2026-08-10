@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { parse } from './parser.js';
 
 /**
- * The D112 isolation seam, as a separate runnable entry. In v1 `parse` runs
+ * The parser isolation seam, as a separate runnable entry. In v1 `parse` runs
  * in-process and this child is kept-not-wired: the bundler emits it (a second
  * tsdown entry) so that running the tree-sitter parser as an isolated child
  * process becomes a build/runtime flag, never a re-tooling. The protocol is

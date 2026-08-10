@@ -3,8 +3,8 @@ import type { SerializedNode } from './cst.js';
 
 /**
  * Walk a parsed CST and emit byte-local per-file {@link SymbolRecord}s — the
- * byte-local half of the symbol story. M2 holds no resident table: `definedIn`
- * is an *in-file* `line:column` location (1-based), and M1 qualifies it with the
+ * byte-local half of the symbol story. This layer holds no resident table: `definedIn`
+ * is an *in-file* `line:column` location (1-based), and the change-event spine qualifies it with the
  * file path when it builds the resident table on reparse. A Tier-0 floor CST
  * (no grammar) has no named declarations, so this returns `[]` by construction.
  */

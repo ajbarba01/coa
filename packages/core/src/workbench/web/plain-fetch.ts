@@ -3,10 +3,10 @@ import type { FetchProvider } from '../web-tools.js';
 import type { ProviderOutcome } from './routing.js';
 
 /**
- * The free plain-fetch floor (D85): global `fetch` + turndown, repackaged as a
+ * The free plain-fetch floor: global `fetch` + turndown, repackaged as a
  * {@link FetchProvider}. This is the always-last hop, so WebFetch can never fully
  * fail. It returns `clean: false` (the summarizer runs over it) and NEVER a
- * `limit` — an unkeyed public fetch has no quota to trip. Never throws (SC-1).
+ * `limit` — an unkeyed public fetch has no quota to trip. Never throws.
  */
 const turndownService = new TurndownService();
 

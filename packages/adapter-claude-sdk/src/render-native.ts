@@ -20,12 +20,12 @@ export const PRESET_COVERED_PIECES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The neutral→native renderer (M9). Turns M5's backend-NEUTRAL `NeutralConfig`
- * into the Claude-SDK-native {@link BackendConfig}. Pure and deterministic (P1) —
- * the only place backend binding happens, so swapping the backend edits this
- * function, never M5/M8.
+ * The neutral→native renderer. Turns the config compiler's backend-NEUTRAL
+ * `NeutralConfig` into the Claude-SDK-native {@link BackendConfig}. Pure and
+ * deterministic (no model call) — the only place backend binding happens, so
+ * swapping the backend edits this function, never the compiler or the daemon.
  *
- * Cache invariant (honored): the most-stable-first prefix M5 produced is kept
+ * Cache invariant (honored): the most-stable-first prefix the compiler produced is kept
  * byte-stable; the same input renders byte-identically, so the renderer never
  * self-busts the prompt cache.
  */
@@ -36,12 +36,12 @@ export function renderNative(neutralConfig: NeutralConfig): BackendConfig {
     .filter((piece) => !PRESET_COVERED_PIECES.has(piece.name));
   const sections = renderSections(pieces);
 
-  // Standing authority (the salient systemReminders) lands in the systemPrompt (head/tail,
-  // D108). A mid-session channel DOES exist — a `shouldQuery:false` user message lands its
+  // Standing authority (the salient systemReminders) lands in the systemPrompt (the
+  // head/tail split). A mid-session channel DOES exist — a `shouldQuery:false` user message lands its
   // content in context — but it costs its own turn, so using it is a policy decision and
   // waits for a caller that wants to pay. A streamed `role:system` message is transmitted
   // and NOT obeyed, so it is not that channel. Pull-only + scope-pushed content is deferred
-  // (TAX-1) and never folded into the static prompt.
+  // to its own delivery channel and never folded into the static prompt.
   const authority = neutralConfig.systemReminders.map(renderReminder);
   const inner = [sections, authority.join('\n')].filter((s) => s !== '').join('\n\n');
   const systemPrompt = inner === '' ? '' : `# coa governance layer\n\n${inner}`;

@@ -3,16 +3,16 @@ import { hasGrammar } from './languages.js';
 import { walk, type SerializedNode } from './cst.js';
 
 /**
- * Walk a parsed CST and emit byte-local per-function AST health metrics — the
- * HLT-6 `ast` basis: cognitive complexity (the one well-validated local metric)
- * plus `size-loc` (the HLT-3 confound control, always reported alongside).
+ * Walk a parsed CST and emit byte-local per-function AST health metrics:
+ * cognitive complexity (the one well-validated local metric)
+ * plus `size-loc` (the size confound control, always reported alongside).
  *
  * Where a grammar affords it (Tier-2) this yields a `cognitive-complexity` and a
  * `size-loc` sample per function. Where it does not, it degrades to the size-only
- * floor: a single file-level `size-loc` sample (D85 — coa never asserts a
+ * floor: a single file-level `size-loc` sample (coa never asserts a
  * complexity it cannot soundly compute). `walPosition` is a byte-local placeholder
- * (`0`); M1 stamps the real position when it indexes the samples onto the symbol
- * tier (GRF-2). M2 holds no resident state and computes no graph/temporal metric.
+ * (`0`); the change-event spine stamps the real position when it indexes the samples onto the symbol
+ * tier. This layer holds no resident state and computes no graph/temporal metric.
  */
 export function extractMetrics(cst: CST): MetricSample[] {
   const root = cst.tree as SerializedNode;

@@ -5,8 +5,8 @@ import { Markdown } from './Markdown.js';
 
 describe('Markdown', () => {
   it('renders inline code and links as kit elements', () => {
-    render(<Markdown source={'Use `M1.emit()` per [the docs](https://x.test).'} />);
-    const code = screen.getByText('M1.emit()');
+    render(<Markdown source={'Use `spine.emit()` per [the docs](https://x.test).'} />);
+    const code = screen.getByText('spine.emit()');
     expect(code.tagName).toBe('CODE');
     expect(code.className).toMatch(/bg-s3/);
     expect(code.className).toMatch(/text-code/);

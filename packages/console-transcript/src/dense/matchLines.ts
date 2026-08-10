@@ -1,5 +1,5 @@
 /** One parsed search-result line: a path, an optional 1-based line number, and the
- *  optional trailing match text (verbatim — bytes preserved for D128 fidelity). */
+ *  optional trailing match text (verbatim — bytes preserved for byte-faithful rendering). */
 export interface MatchLine {
   path: string;
   line?: number;

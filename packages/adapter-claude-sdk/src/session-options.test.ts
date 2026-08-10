@@ -80,11 +80,6 @@ describe('assembleSessionOptions — the per-session query() options', () => {
     expect(out).toEqual({ decision: 'block', reason: 'open invariant' });
   });
 
-  it('passes maxBudgetUsd through only when provided', () => {
-    expect(assemble({ maxBudgetUsd: 5 }).maxBudgetUsd).toBe(5);
-    expect(assemble().maxBudgetUsd).toBeUndefined();
-  });
-
   it('passes the auth env through only when provided', () => {
     const env = { CLAUDE_CONFIG_DIR: '/d', ANTHROPIC_API_KEY: undefined };
     expect(assemble({ env }).env).toEqual(env);
@@ -137,7 +132,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
     // live run, so a set matching one spelling misses the other.
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
-      canUseTool: () => ({ behavior: 'deny', message: 'cost cap reached' }),
+      canUseTool: () => ({ behavior: 'deny', message: 'blocked by a deny rule' }),
       sessionId: 's1',
       observeChanges: () => {},
     });
@@ -146,7 +141,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          permissionDecisionReason: 'cost cap reached',
+          permissionDecisionReason: 'blocked by a deny rule',
         },
       });
     }
@@ -155,7 +150,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
   it('lets a permitted spawn through by abstaining, never by granting', async () => {
     // This previously asserted an explicit `allow`. An explicit allow at PreToolUse is an
     // AUTO-APPROVE — the same class of mistake as routing allow-intent onto `allowedTools`
-    // — so coa now abstains and lets the harness's own flow proceed (docs/adr/0029).
+    // — so coa now abstains and lets the harness's own flow proceed.
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
       canUseTool: () => ({ behavior: 'allow' }),
@@ -166,7 +161,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
   });
 
   it('consults the predicate for every tool, not just delegation', async () => {
-    // This asserted the opposite until docs/adr/0029: the de-dup rule of docs/adr/0028
+    // This asserted the opposite under the earlier two-seam design, whose de-dup rule
     // kept canUseTool primary and had PreToolUse abstain on everything but a spawn. The
     // gate run of 2026-08-03 measured canUseTool not firing for an ordinary in-cwd Read,
     // so abstaining here left the call ungoverned by BOTH seams rather than one.
@@ -218,7 +213,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
   });
 
   it('abstains rather than asserting allow, so coa only ever blocks', async () => {
-    // SC-1 gives coa two blocks and zero grants. An explicit `allow` here is an
+    // coa blocks deliberately and grants nothing (help, never cage). An explicit `allow` here is an
     // auto-approve that would suppress any prompt the harness would otherwise raise.
     const hooks = buildHooks({
       stopPredicate: () => ({ allow: true }),
@@ -321,7 +316,7 @@ describe('buildHooks — the multi-event hook assembly', () => {
     expect(await stopHook(hooks)).toEqual({ continue: true });
   });
 
-  it('lets an allowed close-gate continue with no delivery port wired at all (D85)', async () => {
+  it('lets an allowed close-gate continue with no delivery port wired at all (pass-through degrade)', async () => {
     // The absent-option path: a caller that never supplies `drainDeliveries` must behave
     // byte-identically to the pre-delivery product.
     const hooks = buildHooks({
@@ -334,7 +329,8 @@ describe('buildHooks — the multi-event hook assembly', () => {
   });
 
   it('leaves a blocked close-gate decision untouched, never draining', async () => {
-    // Draining is destructive: a blocked stop's decision is final (SC-1), so calling
+    // Draining is destructive: a blocked stop's decision is final (it is the
+    // system's one sanctioned block), so calling
     // drainDeliveries at all here would silently swallow the pending text on a path
     // that discards the result.
     const drained: number[] = [];

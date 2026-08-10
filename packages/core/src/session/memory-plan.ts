@@ -1,8 +1,8 @@
 import type { BackendMessage } from '@coa/shared';
 
 /**
- * M8 — the per-turn memory strategy (SPEC R-7). The canonical transcript is the
- * read-time fold over the conversation's append-only `events.ndjson` (docs/adr/0010)
+ * The per-turn memory strategy . The canonical transcript is the
+ * read-time fold over the conversation's append-only `events.ndjson`
  * — the single source of truth for a conversation's memory; this decides HOW to hand
  * it to the turn's backend so the agent's memory always matches what the user sees,
  * across restarts and provider switches, while keeping the provider's cache as warm
@@ -25,6 +25,13 @@ import type { BackendMessage } from '@coa/shared';
  * The transcript is ALWAYS carried to the adapter (for bookkeeping — the server
  * session or a preamble carries it forward), independent of whether the model is
  * fed `resume`, `history`, or a preamble.
+ *
+ * When the store could not read part of the stored record, the transcript that reaches
+ * the model is a FRAGMENT, and nothing about it looks different from a whole one —
+ * missing events leave no gap to notice. So the count travels with the transcript and
+ * the plan marks the history with one plain-language note (see
+ * {@link unreadableMemoryNotice}). It is a statement about this transcript, not a
+ * governance action: the turn runs either way.
  */
 
 /** The minimal slice of stored session metadata the plan reads (structural — no store coupling). */
@@ -47,6 +54,9 @@ export interface MemoryPlanInput {
   meta?: MemoryMetaView | undefined;
   /** The canonical neutral transcript loaded from the store (system omitted). */
   transcript: readonly BackendMessage[];
+  /** How many stored events that transcript's own read could not parse. 0 (or absent) ⇒
+   *  the record read cleanly and the history is handed over exactly as it was folded. */
+  skippedEvents?: number | undefined;
 }
 
 export interface MemoryPlan {
@@ -79,23 +89,51 @@ export function resumeEligible(input: {
   return true;
 }
 
+/**
+ * The note appended to a transcript whose read lost events. Phrased as a fact about the
+ * transcript (which is always true, wherever it is delivered) rather than about the
+ * model's memory, and in plain language the model can act on: it can ask instead of
+ * assuming the record above is everything that happened. Rides the `user` lane like the
+ * other coa-authored notices — a chat API has no other slot for mid-conversation input.
+ */
+export function unreadableMemoryNotice(skipped: number): string {
+  const events = skipped === 1 ? '1 earlier event' : `${skipped} earlier events`;
+  return `[coa: ${events} in this conversation could not be read from the stored record and ${skipped === 1 ? 'is' : 'are'} missing from the transcript above — it is a fragment, not the whole conversation. Ask rather than assume when something seems to be missing.]`;
+}
+
+/** Append the fragment notice when events were lost. The transcript itself is untouched
+ *  — nothing is dropped, rewritten, or reordered — so a clean read (the normal case)
+ *  hands back the exact same array. */
+function withUnreadableNotice(
+  transcript: readonly BackendMessage[],
+  skipped: number,
+): readonly BackendMessage[] {
+  if (skipped <= 0) return transcript;
+  return [...transcript, { role: 'user', content: unreadableMemoryNotice(skipped) }];
+}
+
 export function planMemory(input: MemoryPlanInput): MemoryPlan {
   const isClaude = input.provider === 'claude';
   const eligible = resumeEligible(input);
+  // Marked once, ahead of the branch: every path carries the same transcript, and which
+  // path the turn takes must not decide whether the loss is admitted. On the native
+  // resume path the note rides along without reaching the model — the server session
+  // holds its own copy of the memory, which coa's unreadable line did not damage.
+  const transcript = withUnreadableNotice(input.transcript, input.skippedEvents ?? 0);
 
   if (isClaude && eligible) {
     // Fast path: the server session already holds the memory (and the frozen prompt).
     return {
       resume: input.meta!.backendSessionId!,
-      history: input.transcript,
+      history: transcript,
       deliverHistoryAsPreamble: false,
     };
   }
   if (isClaude) {
     // No resumable server session for this transcript (fresh, or switched in from
     // another provider): carry memory across as a first-turn preamble when there is any.
-    return { history: input.transcript, deliverHistoryAsPreamble: input.transcript.length > 0 };
+    return { history: transcript, deliverHistoryAsPreamble: transcript.length > 0 };
   }
   // Pure-API backend: always replay the neutral transcript as history messages.
-  return { history: input.transcript, deliverHistoryAsPreamble: false };
+  return { history: transcript, deliverHistoryAsPreamble: false };
 }

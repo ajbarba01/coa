@@ -1,17 +1,17 @@
 import type { CapabilitySet } from '@coa/shared';
 
 /**
- * D148 / D141 — sandboxing as the first-class adversarial control. `sandboxPolicy`
- * returns the per-session capability set the M9 adapter enforces (allowed tools,
+ * Sandboxing as the first-class adversarial control. `sandboxPolicy`
+ * returns the per-session capability set the backend adapter enforces (allowed tools,
  * deny-rules, permission mode, denyRead globs). Deterministic, no model.
  *
  * Honest scope (DT-1): the SDK OS sandbox bounds bash subprocesses + children only.
  * The `denyRead` set is the **bash/built-in** read control (applied to built-in
- * Read/Write/Edit + bash, NOT to in-process MCP tools — those are covered by M6's
+ * Read/Write/Edit + bash, NOT to in-process MCP tools — those are covered by the workbench's
  * S-1 path-confinement). Two distinct controls, each named for what it covers.
  */
 
-/** The single secrets-confinement glob (D129) — used three ways (do-not-sync, denyRead, ledger-clean tree). */
+/** The single secrets-confinement glob — used three ways (do-not-sync, denyRead, ledger-clean tree). */
 export const SECRETS_GLOB = '~/.coa/secrets/**';
 
 /**
@@ -48,7 +48,7 @@ export function sandboxPolicy(ctx: SessionTrustCtx, options: SandboxOptions = {}
     // Defense-in-depth (S-3): the coa binary is denied to bash so an agent-spawned
     // `coa` cannot reach a human-only verb via agent-bash → same-uid socket.
     denyRules: ['Bash(coa *)'],
-    // Untrusted (imported/cloned) sessions run sandboxed until promoted (D148/D31).
+    // Untrusted (imported/cloned) sessions run sandboxed until promoted.
     permissionMode: ctx.trust === 'local' ? 'default' : 'sandboxed',
     denyRead: [...DENY_READ_GLOBS],
   };

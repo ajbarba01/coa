@@ -9,41 +9,41 @@ import type {
 } from '@coa/shared';
 
 /**
- * M5 — the Pieces → config translation. `compile` is a pure, deterministic
- * front-end over the `NeutralConfig` slots (P1): a **TAX-4 normalization pre-pass**
+ * The Pieces → config translation. `compile` is a pure, deterministic
+ * front-end over the `NeutralConfig` slots: a **normalization pre-pass**
  * coerces/validates incoherent axis combinations (returning a surfaced finding per
- * coercion — never silent), then **TAX-3 routing** sends each (normalized) Piece to
+ * coercion — never silent), then **axis→slot routing** sends each (normalized) Piece to
  * a delivery slot by the static function of its axes. The output is backend-NEUTRAL
- * — M9's `renderNative` turns it into backend-native form; M5 never imports M9.
+ * — the backend adapter's `renderNative` turns it into backend-native form; the config compiler never imports the backend adapter.
  *
  * Purity is preserved by the **return-tuple**: the findings are returned alongside
  * the config rather than emitted through a side channel, so `compile` stays a pure
- * function of its inputs. The daemon ingests the findings into M3's one feed.
+ * function of its inputs. The daemon ingests the findings into the flag pipeline's one feed.
  *
  * Cache-stability holds by construction: slot membership is fixed here from the
  * (normalized) static axes, and the only runtime variability (`scopePushed`) lives
  * entirely in the post-prefix append region, so per-turn state never moves content
- * into or out of the byte-stable prefix (D105).
+ * into or out of the byte-stable prefix.
  *
- * The two cross-module checks are injected as narrow ports (the M3 constraint
- * registry, M1 `generated-from` edges); absent them, those rows are skipped (the
- * floor stays silent rather than guessing). Deferred TAX-4 rows: the
+ * The two cross-module checks are injected as narrow ports (the flag-pipeline constraint
+ * registry, the kernel `generated-from` edges); absent them, those rows are skipped (the
+ * floor stays silent rather than guessing). Deferred normalization rows: the
  * Piece-as-SSOT-authority drop (needs authority-relationship graph context),
  * volatile-content-in-prefix (needs a volatility marker), and the enforced-but-
  * invisible note (needs the constraint's Type-1/Type-2 from the registry).
  */
 
-/** The injected cross-module checks the TAX-4 pre-pass needs (absent ⇒ that row is skipped). */
+/** The injected cross-module checks the normalization pre-pass needs (absent ⇒ that row is skipped). */
 export interface CompileDeps {
-  /** TAX-4 row 1 — is a `governed-by` target a registered constraint (an M3 producer)? */
+  /** Normalization row 1 — is a `governed-by` target a registered constraint (a registered flag producer)? */
   isRegistered?: (constraintId: string) => boolean;
-  /** TAX-4 row 2 — does this Piece carry a `generated-from` edge (M1)? */
+  /** Normalization row 2 — does this Piece carry a `generated-from` edge (recorded in the kernel)? */
   hasGeneratedFrom?: (pieceName: string) => boolean;
 }
 
 export interface CompileResult {
   config: NeutralConfig;
-  /** One Type-2 advisory finding per TAX-4 coercion/warning — surfaced, never silent. */
+  /** One Type-2 advisory finding per coercion/warning — surfaced, never silent. */
   findings: FlagRecord[];
 }
 
@@ -70,9 +70,9 @@ export function compile(
     }
   }
 
-  // D105 clause 1 — most-stable-first: order the byte-stable prefix head by content
+  // Most-stable-first: order the byte-stable prefix head by content
   // volatility so the least-likely-to-change Pieces lead. `provenance` is the trust/
-  // volatility axis (TAX-1): `authored` content is human-stable, `derived-from-code`
+  // volatility axis: `authored` content is human-stable, `derived-from-code`
   // changes whenever the code does. A STABLE sort keeps equal-stability Pieces in input
   // order, so the prefix never reorders without a real change (clause 2, byte-stability).
   const ordered = prefixCandidates
@@ -91,12 +91,12 @@ export function compile(
   };
 }
 
-/** D105 — lower rank leads the prefix. Authored content is the most stable; derived-from-code is volatile. */
+/** Lower rank leads the prefix. Authored content is the most stable; derived-from-code is volatile. */
 function stabilityRank(piece: Piece): number {
   return piece.axes.provenance === 'authored' ? 0 : 1;
 }
 
-/** TAX-4 — coerce one Piece's incoherent axis combinations, pushing a finding per coercion. */
+/** Coerce one Piece's incoherent axis combinations, pushing a finding per coercion. */
 function normalize(piece: Piece, deps: CompileDeps, findings: FlagRecord[]): Piece {
   let axes: ContentAxes = piece.axes;
   let governedBy = piece.governedBy;

@@ -29,9 +29,9 @@ const TONE: Record<Status, string> = {
  * from the state which produced the message. That is also why this does not use Base UI's
  * toast, which is manager-driven (`useToastManager().add()`) — the console's only toast is
  * a controlled error surface, and syncing controlled state into an imperative manager buys
- * stacking and swipe it never uses while inviting duplicate-add bugs. ADR-0014 takes Base
+ * stacking and swipe it never uses while inviting duplicate-add bugs. The kit takes Base
  * UI for mechanics we would otherwise hand-roll badly, namely focus traps and anchored
- * positioning; a toast has neither. See docs/adr/0025.
+ * positioning; a toast has neither.
  */
 export function Toast({
   open,

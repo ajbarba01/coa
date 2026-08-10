@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { CapabilityFrame, ModelSelection, NeutralConfig } from '@coa/shared';
 
 /**
- * M8 — prompt freezing (SPEC: caching is a prefix match; any byte change in the
+ * Prompt freezing (provider caching is a prefix match; any byte change in the
  * prefix invalidates everything after it). A session compiles its system prompt
  * ONCE, at the first turn, and every later turn reuses that frozen compilation
  * verbatim — so the provider's prompt cache stays warm and the prompt never drifts

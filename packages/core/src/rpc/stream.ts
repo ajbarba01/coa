@@ -3,7 +3,7 @@ import { encodeLine, FrameDecoder } from './codec.js';
 import { dispatch, type RpcHandlers } from './router.js';
 
 /**
- * M8 — serve the JSON-RPC dispatch router over a byte stream. This is the
+ * Serve the JSON-RPC dispatch router over a byte stream. This is the
  * transport-neutral glue: it frames the stream into NDJSON lines (the
  * {@link FrameDecoder}), JSON-parses each (a malformed line → a `-32700` parse
  * error, the one error the router cannot see because it is handed already-parsed
@@ -17,7 +17,7 @@ import { dispatch, type RpcHandlers } from './router.js';
  * when the currently-queued work has settled (the test/await seam).
  *
  * The server→client direction is `push`: an id-less JSON-RPC notification written
- * to the same stream (the R-12 push channel — turn/cost/flag notifications). It is
+ * to the same stream (the daemon's push-notification channel — turn/cost/flag notifications). It is
  * exposed on the returned {@link StreamServer} and, so a handler can push to *its
  * own* connection, handed to the optional per-connection handler factory.
  */

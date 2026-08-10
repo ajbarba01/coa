@@ -34,7 +34,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0006](0006-multi-account-auth.md) — Credential-blind multi-account (subscription) auth
 - [0007](0007-console-design-system.md) — Console design system + reversals
 - [0008](0008-strict-superset.md) — Strict-superset: feature-off ≤ the raw loop
-- [0009](0009-single-deny-channel.md) — Exactly two blocks through one deny channel (SC-1)
+- [0009](0009-single-deny-channel.md) — Exactly two blocks through one deny channel (SC-1) (narrowed by 0035)
 - [0010](0010-append-only-conversation-log.md) — Converge conversation persistence onto a single append-only log (deferred)
 - [0011](0011-daemon-authoritative-live-session.md) — The daemon is the authoritative owner of a live session across turns
 - [0012](0012-sdk-streaming-input-steering.md) — Hold the Claude SDK query open for streaming-input steering
@@ -55,7 +55,13 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0027](0027-one-tool-surface-alias-or-own.md) — A tool is aliased or owned, never both
 - [0028](0028-per-tool-governance-rides-two-seams.md) — Per-tool governance rides two seams (superseded by 0029)
 - [0029](0029-one-bounded-tool-surface-governed-at-one-seam.md) — One bounded tool surface, governed at one seam
+- [0030](0030-delivery-one-intent-realized-per-backend.md) — Delivery is one intent, realized per backend
+- [0031](0031-a-steer-is-recorded-when-the-model-receives-it.md) — A steer is recorded when the model receives it
+- [0032](0032-the-cost-cap-bounds-fan-out.md) — The cost cap bounds fan-out, not a depth counter (superseded by 0035)
+- [0033](0033-a-notice-is-not-a-message.md) — A notice is not a message
+- [0034](0034-a-subagent-is-a-session-with-a-parent-link.md) — A subagent is a session with a parent link
+- [0035](0035-the-close-gate-is-the-only-block.md) — The close gate is the only block; the cost ceiling is archived
 
 ---
 
-_Last reviewed: 2026-08-03_
+_Last reviewed: 2026-08-07_

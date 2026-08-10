@@ -77,7 +77,7 @@ export function appendStreamingFrame(turns: readonly TurnFrame[], frame: TurnFra
   }
   // A settled thinking frame whose live block was already closed early (settleOpenThinking)
   // replaces that block rather than duplicating it. Other settled frames with no open block
-  // append (D85 / reloaded log — non-streaming backends and reload never carry deltas).
+  // append (pass-through floor / reloaded log — non-streaming backends and reload never carry deltas).
   if (frame.kind === 'thinking') {
     const lastIdx = lastBlockIndex(base, 'thinking', frame.role);
     if (lastIdx !== -1) {

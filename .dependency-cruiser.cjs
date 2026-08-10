@@ -25,9 +25,11 @@ module.exports = {
       name: 'backend-isolation',
       severity: 'error',
       comment:
-        'Only adapter-claude-sdk may import a backend SDK. The core calls capability ports and takes the null-fallback (D109) — no which-backend branch anywhere else.',
+        'Only adapter-claude-sdk may import a backend SDK. The core calls capability ports — no which-backend branch anywhere else.',
       from: { pathNot: '^packages/adapter-claude-sdk/' },
-      to: { path: 'node_modules/(@anthropic-ai|@ai-sdk)/|^node_modules/ai/' },
+      // (^|/) rather than ^: pnpm resolves externals through node_modules/.pnpm/<pkg>@<v>/node_modules/<pkg>,
+      // so an anchored ^node_modules/ never matches a real resolved path.
+      to: { path: 'node_modules/(@anthropic-ai|@ai-sdk)/|(^|/)node_modules/ai/' },
     },
     {
       name: 'packages-not-to-apps',
@@ -37,14 +39,56 @@ module.exports = {
       to: { path: '^apps/' },
     },
     {
+      name: 'backend-fan-in-is-injected',
+      severity: 'error',
+      comment:
+        'Concrete backends stay behind the one backend seam: only the app composition root (apps/cli) and the adapter packages may import an adapter package or the shared loop driver (adapters compose the driver; the driver itself is exempted from `from` only so its own internal imports pass — the rule below keeps it out of the adapters). Everything else receives a constructed backend through the port types in spi. The bare-specifier alternative catches an import that no longer resolves (the offending package.json dependency is gone) but would still break the build.',
+      from: {
+        path: '^(?:packages|apps)/',
+        pathNot: '^apps/cli/|^packages/adapter-[^/]+/|^packages/loop-driver/',
+      },
+      to: { path: '^packages/(?:adapter-[^/]+|loop-driver)/|^@coa/(?:adapter-[^/]+|loop-driver)' },
+    },
+    {
+      name: 'loop-driver-composes-no-backend',
+      severity: 'error',
+      comment:
+        'The shared loop driver is the neutral engine the adapters build ON; if it ever imports an adapter back, the one-way composition inverts into a cycle of backend knowledge.',
+      from: { path: '^packages/loop-driver/src' },
+      to: { path: '^packages/adapter-|^@coa/adapter-' },
+    },
+    {
       name: 'core-consumer-rings-no-sideways',
       severity: 'error',
       comment:
-        'Inside core, only the spine is shared mutable substrate. Consumer rings (flags = M3, governance = M7, …) import the spine + shared, never sideways from each other. The workbench (M6) is a producer that MAY read flags/context/governance per its SPEC deps, but no consumer ring imports it back (REPO_LAYOUT intra-core rule).',
-      from: { path: '^packages/core/src/(flags|governance|compiler|context)/' },
+        'Inside core, only the spine (the root-level kernel/event/projection/checkpoint/idle files plus graph/, reconcile/, scope/ and wal/) is shared mutable substrate. Every other ring imports the spine + shared, never a sibling ring sideways (REPO_LAYOUT intra-core rule). Two deliberate exemptions, not listed in `from`: session/ (M8 composition — it wires the rings into a daemon) and rpc/ (M8 transport — it exposes them over JSON-RPC) are hubs that legitimately reach into many rings. workbench/ has its own narrower rule below. A genuinely new sanctioned edge changes the SPEC map AND an explicit allowance here in the same commit.',
+      from: {
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|graph|models|reconcile|scope|wal)/',
+      },
       to: {
-        path: '^packages/core/src/(flags|governance|compiler|context|workbench)/',
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|models|rpc|session|workbench)/',
         pathNot: '^packages/core/src/$1/',
+      },
+    },
+    {
+      name: 'core-workbench-only-sanctioned-reads',
+      severity: 'error',
+      comment:
+        'The workbench (M6) is a producer: it writes via the spine and MAY read flags/context/governance — the reads its SPEC dependencies sanction (REPO_LAYOUT intra-core rule). Everything else in core is off limits to it, and no consumer ring imports the workbench back (covered by core-consumer-rings-no-sideways).',
+      from: { path: '^packages/core/src/workbench/' },
+      to: { path: '^packages/core/src/(auth|compiler|console|models|rpc|session)/' },
+    },
+    {
+      name: 'core-spine-imports-no-rings',
+      severity: 'error',
+      comment:
+        'The spine files at the root of core/src (kernel, event, projection, checkpoint, idle) are the substrate everything else points AT — they must not know any ring above them, or producers→spine←consumers collapses into a tangle. index.ts is the package barrel and re-exports everything by design.',
+      from: {
+        path: '^packages/core/src/[^/]+\\.ts$',
+        pathNot: '^packages/core/src/index\\.ts$',
+      },
+      to: {
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|models|rpc|session|workbench)/',
       },
     },
     {
@@ -88,13 +132,22 @@ module.exports = {
     },
   ],
   options: {
+    // node_modules is doNotFollow (NOT exclude): external modules stay in the graph as
+    // endpoints so rules like backend-isolation can match edges into them, without the
+    // cruiser descending into dependency internals.
     doNotFollow: { path: 'node_modules' },
     tsConfig: { fileName: 'tsconfig.json' },
     tsPreCompilationDeps: true,
-    exclude: { path: '(\\.test\\.ts$|/dist/|node_modules)' },
+    // archive/ holds parked feature code — never compiled, linted, or imported.
+    exclude: { path: '(\\.test\\.tsx?$|/dist/|(^|/)archive/)' },
     enhancedResolveOptions: {
       exportsFields: ['exports'],
-      conditionNames: ['import', 'types', 'node'],
+      // 'development' first: every workspace package's exports map carries a
+      // `development` condition pointing at its TypeScript source, so cross-package
+      // `@coa/*` edges resolve to `packages/*/src/**` — the paths the rules above are
+      // written against. Without it they resolve to dist and every cross-package rule
+      // silently goes inert (test/depcruise-canary.test.ts guards this mechanism).
+      conditionNames: ['development', 'import', 'types', 'node'],
     },
   },
 };

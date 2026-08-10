@@ -48,11 +48,12 @@ export function withHistoryPreamble(input: string, history: readonly BackendMess
 /**
  * The streaming-input counterpart to {@link withHistoryPreamble}: wraps a stream of
  * user-turn strings so the preamble is prepended to the FIRST yielded turn only —
- * every later turn (a steer M8 injects into the same feed) passes through unchanged.
- * With no history this is a pure pass-through (D85 strict-superset).
+ * every later turn (a steer the daemon injects into the same feed) passes through
+ * unchanged. With no history this is a pure pass-through (the feature is never worse
+ * than the raw loop).
  *
  * This wrapper is model-delivery only — it augments what the model sees, never the
- * canonical record (the append-only event log, docs/adr/0010).
+ * canonical record (the append-only event log).
  */
 export function withHistoryPreambleStreaming(
   input: AsyncIterable<string>,

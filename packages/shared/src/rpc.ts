@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * The JSON-RPC 2.0 envelope schemas for the daemon protocol (D124). M0 owns the
- * generic request/response/notification envelopes; **M8 owns the transport +
+ * The JSON-RPC 2.0 envelope schemas for the daemon protocol. This package owns the
+ * generic request/response/notification envelopes; **the daemon owns the transport +
  * lifecycle** (OS socket, peer-cred, framing) and defines each method's `params`/
  * `result` shape inline in its CON-CAT catalogue — those are NOT duplicated here.
  * Server→client push rides a {@link rpcNotificationSchema} whose `params` is a
@@ -20,7 +20,7 @@ export type RpcId = z.infer<typeof rpcIdSchema>;
 export const rpcParamsSchema = z.union([z.array(z.unknown()), z.record(z.string(), z.unknown())]);
 export type RpcParams = z.infer<typeof rpcParamsSchema>;
 
-/** The five standard JSON-RPC 2.0 error codes; method-specific codes live in M8's −32000..−32099 range. */
+/** The five standard JSON-RPC 2.0 error codes; method-specific codes live in the daemon's −32000..−32099 range. */
 export const RPC_ERROR = {
   parseError: -32700,
   invalidRequest: -32600,

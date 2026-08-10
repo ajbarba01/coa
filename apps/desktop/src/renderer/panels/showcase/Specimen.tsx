@@ -3,7 +3,7 @@ import { cx } from '@coa/console-kit';
 
 /** A component family: a labelled section with a hairline-underlined header.
  *  Families are real groups, so the heading is meaning-bearing structure, not
- *  decoration (spec §5.1 #14). */
+ *  decoration. */
 export function Family({
   name,
   children,

@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LoginDriverPort } from '@coa/spi';
 import { AccountsRegistry } from './registry.js';
-import { isManagedLoginDir, LoginManager, type LoginDriverPort } from './login-manager.js';
+import { isManagedLoginDir, LoginManager } from './login-manager.js';
 
 /** A hand-cranked driver: tests fire url/exit and script the probe queue. */
 function fakeDriver(
@@ -281,7 +282,7 @@ describe('isolated browser sessions', () => {
 
   /** The jar is keyed by the identity signing in, not by the row that will be written for it
    *  — which is what lets a login that has not registered yet still reuse a jar, and what
-   *  stops a removed row from stranding one (docs/adr/0021). */
+   *  stops a removed row from stranding one. */
   it('keys the profile by the declared identity, not by the account row', async () => {
     const driver = fakeDriver(home);
     const registry = new AccountsRegistry(home);
@@ -305,9 +306,8 @@ describe('isolated browser sessions', () => {
     expect(registry.list()[0]?.id).toBeDefined();
   });
 
-  /** The identity is the ONLY thing that names a jar (docs/adr/0021). The account's old id
-   *  no longer travels: pre-shared-root directories are not adopted, they are reclaimed
-   *  (docs/adr/0024). */
+  /** The identity is the ONLY thing that names a jar. The account's old id
+   *  no longer travels: pre-shared-root directories are not adopted, they are reclaimed. */
   it('identifies the jar by email alone, never by the account id', () => {
     const driver = fakeDriver(home);
     const registry = new AccountsRegistry(home);
@@ -353,7 +353,7 @@ describe('isolated browser sessions', () => {
 
 describe('isManagedLoginDir', () => {
   /** coa may delete what it created. An account added by pointing at an existing config dir
-   *  is the user's own data and must survive the row being removed (docs/adr/0023). */
+   *  is the user's own data and must survive the row being removed. */
   it('claims only the dirs coa made under its own logins root', () => {
     expect(isManagedLoginDir('/home/z', '/home/z/.coa/logins/a-b-org'.replaceAll('/', sep))).toBe(
       true,

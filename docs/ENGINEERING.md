@@ -75,7 +75,7 @@ own cursor on restart; projections are rebuildable, the WAL is the source of tru
 
 - **Why:** the hot read path (graph/symbol lookup) must be cheap and synchronous; everything heavier is deferred
   without blocking it. The single-threaded daemon makes the ordering contract cheap to honor.
-- **Example:** `lookup(name)` is an O(1) map read; the fuzzy index is built on idle time and queried only on a miss.
+- **Example:** `lookup(name)` is an O(1) map read; the SQLite projections are rebuilt off the WAL, never consulted on the hot path.
 
 ---
 
@@ -139,9 +139,9 @@ temporary, say why and where it is tracked.
 ### 13. Performance discipline (coa-specific)
 
 - **No model call on any critical path** (P1) — the single most important performance _and_ correctness rule.
-- **The hot read path is synchronous and O(1) where it can be** — symbol `lookup` is a map read; fuzzy search runs
-  only on a miss and is bounded.
-- **Idle precompute** — GENERATION regen, the fuzzy-index build, ASSEMBLY pre-build, and the detection sweep all
+- **The hot read path is synchronous and O(1) where it can be** — symbol `lookup` is a map read; anything heavier
+  is bounded or deferred.
+- **Idle precompute** — GENERATION regen, ASSEMBLY pre-build, and the detection sweep all
   register on the shared idle scheduler. That is why the daemon stays resident.
 - **SQLite projections are reconstructible-not-durable** (`synchronous=NORMAL`); durability rides the change-event
   WAL (one `fsync` per coalesced batch). Keep the `-wal` file co-located with its DB.

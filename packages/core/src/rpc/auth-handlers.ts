@@ -35,7 +35,7 @@ import { rpcMethod, type RpcHandlers } from './router.js';
  * account is tracked **per provider**, so each response reports the active label
  * for every provider (absent ⇒ ambient) and the flat account list (each carrying
  * its provider). Selecting `ambient` for a provider needs the provider named;
- * selecting an account infers it. Params are M0-validated.
+ * selecting an account infers it. Params are schema-validated.
  */
 const PROVIDERS: readonly Provider[] = providerSchema.options;
 
@@ -86,10 +86,10 @@ const SERVICE_SET = new Set<string>([...SEARCH_KINDS, ...FETCH_KINDS]);
 type ProviderGroup = 'backend' | 'service' | 'unsupported';
 
 /**
- * Route a provider id to the store that governs it. `backend` = an M0 `Provider`
+ * Route a provider id to the store that governs it. `backend` = a shared-schema `Provider`
  * (accounts.yaml); `service` = a SEARCH/FETCH web kind (web.yaml). Anything else
  * (exa, codex, gemini) is `unsupported` — not runnable, like codex/gemini — so
- * every write verb below no-ops rather than touching a store for it (SC-1: help,
+ * every write verb below no-ops rather than touching a store for it (help,
  * never crash).
  */
 function providerGroup(id: string): ProviderGroup {
@@ -117,7 +117,7 @@ function splitId(id: string): { providerId: string; label: string } {
  * Delete the sign-in coa created for an account, when it created one.
  *
  * Removal has to mean removal at both layers, or a re-added account silently resurrects a
- * session the user believed they had removed (docs/adr/0023). The boundary is ownership, not
+ * session the user believed they had removed. The boundary is ownership, not
  * convenience: a config dir the USER pointed at is their data and is never touched — coa
  * forgets the row and leaves the directory exactly where it found it.
  */
@@ -272,7 +272,7 @@ function accountsView(registry: AccountsRegistry): {
 }
 
 /** The `buildAuthHandlers` deps — the four-store shape `assembleAuthView` reads, plus the
- * optional driven-login manager (absent ⇒ every login verb degrades to idle/plain view, SC-1). */
+ * optional driven-login manager (absent ⇒ every login verb degrades to idle/plain view rather than throwing). */
 export type AuthHandlerDeps = AuthViewDeps & {
   loginManager?: LoginManager;
   browser?: BrowserSessionView;
@@ -324,10 +324,10 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       return assembleAuthView(viewDeps);
     }),
 
-    /** Delete jars no account resolves to. ADR-0018 still binds — coa never sweeps on its
+    /** Delete jars no account resolves to. browser profiles stay isolated per account — coa never sweeps on its
      *  own initiative, so this only ever runs because a user clicked. Each name is deleted
      *  independently: one that is locked must not abandon the rest, and it simply appears in
-     *  the returned view again (docs/adr/0024). */
+     *  the returned view again. */
     reclaimBrowserProfiles: rpcMethod(reclaimParams, (p) => {
       const offered = new Set(
         deps.browser?.listReclaimable(deps.accounts.list().map((a) => a.email)) ?? [],
@@ -350,7 +350,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           deps.accounts.remove(account.label);
           // Read AFTER the removal, so the row going away is not counted as sharing its own
           // jar — but an account under a DIFFERENT provider signing in as the same identity
-          // still is, and its session must survive this (docs/adr/0021).
+          // still is, and its session must survive this.
           if (
             p.removeProfiles === true &&
             account.email !== undefined &&
@@ -433,7 +433,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           deps.accounts.remove(label);
           // The email has to be read BEFORE the removal — afterwards there is no row to ask.
           // The jar is only this row's to delete if no surviving account shares the identity
-          // (docs/adr/0021); the view flags that case so the prompt never offers it.
+          //; the view flags that case so the prompt never offers it.
           if (
             p.removeProfile === true &&
             account.email !== undefined &&
@@ -480,7 +480,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
           deps.accounts.setDisabled(label, p.disabled);
           if (p.disabled) applyHeirIfWasActive(deps.accounts, provider, label, wasActive);
         }
-        // no account at this label — graceful no-op (SC-1: help, never crash)
+        // no account at this label — graceful no-op (help, never crash)
       } else if (group === 'service') {
         for (const chain of chainOf(providerId))
           deps.web.setCredentialDisabled(chain, label, p.disabled);
@@ -510,7 +510,7 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
 
     refresh: rpcMethod(noParams, () => assembleAuthView(viewDeps)),
 
-    // --- the driven-login verbs (SC-1: absent manager ⇒ idle, never a throw) --------
+    // --- the driven-login verbs (absent manager ⇒ idle, never a throw) --------
     startLogin: rpcMethod(startLoginParams, (p) =>
       deps.loginManager === undefined
         ? IDLE

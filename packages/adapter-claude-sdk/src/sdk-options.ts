@@ -11,7 +11,7 @@ import { reasoningToOptions } from './reasoning.js';
 /**
  * The pure mapping seams between coa's backend-neutral decisions and the Claude
  * Agent SDK's native option/callback shapes. Keeping these pure (no `query()`
- * call) is what lets the loop stay behind the M9 port and stay testable.
+ * call) is what lets the loop stay behind the backend port and stay testable.
  *
  * Verified against the installed SDK types (`@anthropic-ai/claude-agent-sdk`
  * 0.3.196), per the "verify against the live SDK callback contract at build"
@@ -35,7 +35,8 @@ function asPermissionMode(value: string): PermissionMode {
 }
 
 /**
- * Map M3/M7's per-tool decision (assembled by M8) onto the SDK `canUseTool` result.
+ * Map the governance per-tool decision (assembled by the daemon from the constraint
+ * system's deny rules) onto the SDK `canUseTool` result.
  *
  * The allow branch MUST echo `input` back as `updatedInput`. It is optional on
  * `PermissionResult`, so a bare `{behavior:'allow'}` typechecks — but the real CLI
@@ -52,11 +53,11 @@ export function toSdkPermission(
 }
 
 /**
- * Map M3's close-gate decision onto the SDK `Stop`-hook output.
+ * Map the close-gate decision onto the SDK `Stop`-hook output.
  *
  * SPEC-fold-in correction: the SPEC draft says return `{continue:false,
  * systemMessage}`, but on the live SDK `continue:false` *ends the turn* — the
- * opposite of the gate's intent. To **block the close and feed M3's message back
+ * opposite of the gate's intent. To **block the close and feed the gate's message back
  * so the agent keeps working**, the correct shape is `{decision:'block',
  * reason}`. The design (the gate blocks the close) is unchanged; only the SDK
  * field names differ from the draft.
@@ -66,9 +67,9 @@ export function toStopHookOutput(decision: StopDecision): SyncHookJSONOutput {
 }
 
 /**
- * Build the static `query()` options from the rendered backend config + the M7
- * sandbox set. The dynamic parts (`canUseTool`, the `Stop` hook, `mcpServers`,
- * `maxBudgetUsd`) are layered on by the adapter/M8 at session construction.
+ * Build the static `query()` options from the rendered backend config + the governance
+ * sandbox set. The dynamic parts (`canUseTool`, the `Stop` hook, `mcpServers`)
+ * are layered on by the adapter/daemon at session construction.
  */
 export function buildBaseOptions(args: {
   backend: BackendConfig;
@@ -103,7 +104,7 @@ export function buildBaseOptions(args: {
     allowedTools: backend.allowedTools,
     disallowedTools,
     permissionMode: asPermissionMode(sandbox.permissionMode),
-    // B1 — isolate the session from on-disk config (D108). Omitting `settingSources` lets
+    // Isolate the session from on-disk config. Omitting `settingSources` lets
     // the SDK load ALL setting sources (the target repo's CLAUDE.md + .claude/settings +
     // ~/.claude) as authority coa did NOT author. This is a SEPARATE mechanism from the
     // preset above: the preset supplies Anthropic-authored baseline behavior, while this

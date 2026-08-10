@@ -2,9 +2,9 @@
 
 A **local-first, single-user governance/audit layer over a rented Claude Agent SDK loop.** coa does not
 replace the coding agent — it **governs** it: deterministic checks, keeping the agent working against the
-project's real symbols/specs/tests, a hard cost cap, and an honest record. v1 is **attended** (a human is
+project's real symbols/specs/tests, honest spend accounting, and an honest record. v1 is **attended** (a human is
 present) and **Claude-primary** — Claude is the default backend, with the rented loop swappable
-behind the one M9 port (DeepSeek and LongCat adapters ship today).
+behind the one M9 port (DeepSeek, LongCat, OpenAI, and OpenRouter adapters ship today).
 
 **All product specifics — what each module is, its public interface, its owned decisions — live in the three
 handoff docs under [docs/design/handoff/](docs/design/handoff/).** Those are the authoritative source of
@@ -61,8 +61,9 @@ session.
   calls are off the critical path (the user-invoked validator, Type-2 confirm, the F4 grounding confirm).
 - **The change-event spine (M1) is the only shared mutable substrate.** Producers and consumers point **only at
   M1**, never sideways at each other. Two non-kernel modules must not call each other directly.
-- **SC-1 — help, never cage.** The ONLY two blocks in the whole system are **M3's Type-1 close-gate** and
-  **M7's cost-cap**, both issued through **M9's single deny channel**. Everything else is advisory or surfacing.
+- **SC-1 — help, never cage.** The ONLY block in the whole system is **M3's Type-1 close-gate**, issued
+  through **M9's single deny channel** (ADR 0035 archived the cost-cap deny path — spend is accounted,
+  never capped). Everything else is advisory or surfacing.
 - **Strict-superset (D85).** Every feature adds value or degrades to a literal pass-through; coa with a feature
   off is never worse than the raw loop, and **`coa raw` always shows the unfiltered loop.**
 - **No-lock-in.** The neutral floor always works; the bounded high-fidelity layer auto-engages where a

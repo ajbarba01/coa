@@ -7,14 +7,14 @@ import {
 import { createOriginAnchorProducer, type UnverifiableRelation } from './origin-anchor.js';
 
 /**
- * M4 — the producer-assembly entry point: turn the declared generation relations
- * plus a {@link GenerationRunner} into the M3 producers M4 registers. It assembles
+ * The producer-assembly entry point: turn the declared generation relations
+ * plus a {@link GenerationRunner} into the flag producers the context layer registers. It assembles
  * the Type-1 SSOT-constraint producer (L-GEN / GEN-3) over the verifiable relations
  * and, for the relations the GEN-8 self-test refused a Type-1 constraint (binary /
  * non-canonicalizable / non-reproducible), the Type-2 `origin_anchor` notice
  * producer (L-DET / PD-6) so an unverifiable artifact still gets an "eyeball it"
  * notice instead of being dropped. With no relations the result is empty — the
- * daemon stays the D85 inert floor, never worse than the raw loop.
+ * daemon stays the inert floor, never worse than the raw loop.
  */
 export function assembleProducers(
   relations: readonly GenerationRelation[],

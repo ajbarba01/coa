@@ -10,14 +10,14 @@ import {
 import type { ZodType } from 'zod';
 
 /**
- * M8 — the transport-agnostic JSON-RPC dispatch router. It validates an incoming
- * message against the M0 envelope (Zod-validate-before-touch, D124), routes it to
+ * The transport-agnostic JSON-RPC dispatch router. It validates an incoming
+ * message against the shared wire envelope (Zod-validate-before-touch), routes it to
  * a registered handler, and shapes the reply per JSON-RPC 2.0: a **request** (has
  * `id`) always yields exactly one response (success or a coded error); a
  * **notification** (no `id`) runs best-effort and is NEVER answered, even on a
- * miss or a throw (§4.1). This is the substrate every CON-CAT verb plugs into; it
- * holds no transport (sockets, framing, peer-cred are M8's transport layer) and
- * imports only the M0 schemas, so it stays a pure, fully testable unit.
+ * miss or a throw (JSON-RPC §4.1). This is the substrate every CON-CAT verb plugs into; it
+ * holds no transport (sockets, framing, peer-cred are the transport layer) and
+ * imports only the shared wire schemas, so it stays a pure, fully testable unit.
  */
 
 /** A registered method: an optional params schema (failure ⇒ invalidParams) + the handler. */

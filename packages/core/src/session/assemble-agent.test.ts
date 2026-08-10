@@ -263,7 +263,7 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
 
   it('an unknown/unset role is the permissive floor: baseline scaffold, empty frame (all tools)', () => {
     const { frame, pieces } = assemble({ role: 'nope', scope: '', worktree: '/w' });
-    expect(frame.allow).toEqual([]); // empty ⇒ D85 pass-through, no restriction
+    expect(frame.allow).toEqual([]); // empty ⇒ pass-through, no restriction
     expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(true);
     expect(pieces.some((p) => p.name === 'pkg-coding')).toBe(false);
   });

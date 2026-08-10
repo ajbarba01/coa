@@ -58,7 +58,7 @@ describe('makePlainFetch', () => {
     expect(await provider.fetch('https://x.test')).toMatchObject({ status: 'error' });
   });
 
-  it('SC-1: a fetch throw becomes an error outcome', async () => {
+  it('a fetch throw becomes an error outcome', async () => {
     const fetchImpl = (async () => {
       throw new Error('dns');
     }) as unknown as typeof fetch;

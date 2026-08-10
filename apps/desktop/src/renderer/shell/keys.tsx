@@ -114,7 +114,7 @@ export const COMMANDS: Record<string, () => void> = {
   },
   'next-tab': () => cycleTab(1),
   'prev-tab': () => cycleTab(-1),
-  // D85 — the mask comes off: the same toggle the title bar and the palette drive, so the
+  // the mask comes off: the same toggle the title bar and the palette drive, so the
   // three can never disagree about what raw mode is.
   'toggle-raw': () => useConsoleState.getState()?.actions.toggleRaw(),
   'filter-agents': () => useAgentsUi.getState().focusFilter(),
@@ -166,7 +166,7 @@ export function useGlobalKeys(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // Escape's authority is the dismiss stack; only when the stack is EMPTY does Escape
-      // fall through to "stop the running turn" (SC-1: a user stop, advisory,
+      // fall through to "stop the running turn" (a user stop, advisory,
       // fire-and-forget — the pill clears from the daemon's own status push). The
       // composer's focused-Esc stop still fires first for typing users; this covers Esc
       // from anywhere else in the frame. Bare Escape only: an IME-composition cancel, a

@@ -12,8 +12,9 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { TextInput } from '../panels/fields.js';
-import { useMockAuth } from '../panels/mockAuth.js';
+import { useAuthStore } from '../panels/authStore.js';
 import { useConsoleState } from './consoleStore.js';
+import { surfaceWrite } from './failures.js';
 import { useKeybinds } from './keys.js';
 import { useShell } from './store.js';
 
@@ -42,19 +43,19 @@ interface SectionSpec {
 /** The isolation toggle. Daemon-owned (the login spawn reads it, not the renderer), so it
  *  renders from the auth view rather than from `ConsoleSettings` — and it is never
  *  disabled: with no browser found it still says what it found and stays flippable, and
- *  the login just takes the copy-link path (SC-1, docs/adr/0018). The hydrate that fills
+ *  the login just takes the copy-link path (advisory; profile cleanup is user-initiated only). The hydrate that fills
  *  `browserSession` lives on {@link SettingsDialog}, not here — a search query can filter
  *  this row out of the mounted tree while `BrowserPathRow` survives, and that row must not
  *  be left reading an unhydrated store. */
 export function IsolatedBrowserRow(): React.JSX.Element {
-  const session = useMockAuth((s) => s.browserSession);
-  const setOn = useMockAuth((s) => s.setIsolatedBrowserLogins);
+  const session = useAuthStore((s) => s.browserSession);
+  const setOn = useAuthStore((s) => s.setIsolatedBrowserLogins);
   return (
     <span className="flex flex-none items-center gap-2.5">
       {!session.available && <span className="font-mono text-meta text-s7">No browser found</span>}
       <Toggle
         on={session.enabled}
-        onChange={(on) => void setOn(on).catch(() => {})}
+        onChange={(on) => void surfaceWrite('change that setting', setOn(on))}
         aria-label="Dedicated browser profile"
       />
     </span>
@@ -64,8 +65,8 @@ export function IsolatedBrowserRow(): React.JSX.Element {
 /** The binary override, prefilled from detection — an override is a correction, never a
  *  required setup step. Blank clears it back to auto-detection. */
 export function BrowserPathRow(): React.JSX.Element {
-  const session = useMockAuth((s) => s.browserSession);
-  const setPath = useMockAuth((s) => s.setBrowserPath);
+  const session = useAuthStore((s) => s.browserSession);
+  const setPath = useAuthStore((s) => s.setBrowserPath);
   const resolved = session.path ?? session.detectedPath ?? '';
   const [value, setValue] = useState(resolved);
   // Re-seed when detection or the stored override changes underneath the field.
@@ -76,10 +77,10 @@ export function BrowserPathRow(): React.JSX.Element {
     // (detection, or blank when the store hasn't hydrated yet) is not an edit — committing
     // it anyway would either pin auto-detection as an explicit override that goes stale
     // the moment the browser moves, or — for a row that mounted alone against an
-    // unhydrated store (docs/adr/0018) — silently clear a real override the daemon still
+    // unhydrated store (profile cleanup only ever happens at the user's explicit request) — silently clear a real override the daemon still
     // has that this render never got to see.
     if (session.path === undefined && trimmed === resolved) return;
-    void setPath(trimmed).catch(() => {});
+    void surfaceWrite('save that browser path', setPath(trimmed));
   };
   return (
     <TextInput
@@ -96,19 +97,19 @@ export function BrowserPathRow(): React.JSX.Element {
 /**
  * Browser profiles no account resolves to, and the one door that deletes them.
  *
- * ADR-0018 still binds: coa never deletes a profile on its own initiative, so nothing here
+ * The standing rule still binds: coa never deletes a profile on its own initiative, so nothing here
  * happens without a click. Names only — no sizes, no dates — because under identity keying
  * this list is normally empty, and when it is not, the name already says whose jar it is
- * (docs/adr/0024).
+ * (profiles share one user-data-dir; orphaned jars are reclaimed only on request).
  *
  * Lives here rather than on the auth surface because an orphan has no account row to hang
  * off, and the auth panel is organized by account row (AUTH-1).
  */
 export function ReclaimProfilesRow(): React.JSX.Element {
-  const reclaimable = useMockAuth((s) => s.browserSession.reclaimable);
-  const reclaim = useMockAuth((s) => s.reclaimBrowserProfiles);
+  const reclaimable = useAuthStore((s) => s.browserSession.reclaimable);
+  const reclaim = useAuthStore((s) => s.reclaimBrowserProfiles);
   const [open, setOpen] = useState(false);
-  const run = (names: string[]): void => void reclaim(names).catch(() => {});
+  const run = (names: string[]): void => void surfaceWrite('delete those profiles', reclaim(names));
 
   if (reclaimable.length === 0) {
     return <span className="flex-none font-mono text-code text-s7">None</span>;
@@ -220,7 +221,7 @@ export function SettingsDialog(): React.JSX.Element {
   // present whenever a row could be — the read must not depend on which row survives.
   useEffect(() => {
     if (!open) return;
-    void useMockAuth
+    void useAuthStore
       .getState()
       .hydrate()
       .catch(() => {});

@@ -13,7 +13,7 @@ import { isProfileShared, type BrowserSessionView } from '../auth/browser-sessio
  * locator kinds are a readable pointer) live in a small local table below: the
  * renderer's providers.ts owns presentation (icons/copy), so core need not import it.
  */
-const BACKENDS: readonly Provider[] = ['claude', 'deepseek', 'longcat'];
+const BACKENDS: readonly Provider[] = ['claude', 'deepseek', 'longcat', 'openai', 'openrouter'];
 /** Locator kinds that are a readable pointer, never a secret. Only `claude` (config-dir) today. */
 const POINTER_PROVIDERS = new Set<string>(['claude']);
 const CHAINS: readonly WebChain[] = ['search', 'fetch'];
@@ -33,7 +33,7 @@ export interface CredentialView {
    *  needs. Absent/false ⇒ nothing extra to delete. */
   hasProfile?: boolean;
   /** Another account signs in as the same identity, so the profile is not this row's alone
-   *  to delete (docs/adr/0021). The removal prompt says so instead of offering the delete. */
+   *  to delete. The removal prompt says so instead of offering the delete. */
   profileShared?: boolean;
 }
 
@@ -52,8 +52,8 @@ export interface AuthView {
     detectedPath?: string;
     path?: string;
     /** Jars in the shared root no account resolves to — normally empty, because under
-     *  identity keying the only way to mint one is renaming an account's email
-     *  (docs/adr/0024). Names only: no sizes, which is what keeps this cheap enough to
+     *  identity keying the only way to mint one is renaming an account's email.
+     *  Names only: no sizes, which is what keeps this cheap enough to
      *  ride every read of the view. */
     reclaimable: string[];
   };
@@ -231,7 +231,7 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
     ...(detectedPath !== undefined ? { detectedPath } : {}),
     ...(overridePath !== undefined ? { path: overridePath } : {}),
     // Every account's email, including other providers': one jar can back several rows, and
-    // a jar any of them resolves to must never be offered for deletion (docs/adr/0021).
+    // a jar any of them resolves to must never be offered for deletion.
     reclaimable: deps.browser?.listReclaimable(deps.accounts.list().map((a) => a.email)) ?? [],
   };
 

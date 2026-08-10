@@ -56,7 +56,7 @@ describe('extractSymbols', () => {
     expect(by('add')?.signature).toContain('number');
   });
 
-  it('records an in-file definition location (no path — M1 qualifies it)', () => {
+  it('records an in-file definition location (no path — the spine qualifies it)', () => {
     expect(by('add')?.definedIn).toMatch(/^\d+:\d+$/);
     // `add` is declared on line 1.
     expect(by('add')?.definedIn?.startsWith('1:')).toBe(true);

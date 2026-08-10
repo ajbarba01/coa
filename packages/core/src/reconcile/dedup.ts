@@ -8,7 +8,7 @@ export interface Observation {
   postHash: string | null;
 }
 
-/** A recent precise (M6 Mutate) event for this path awaiting disk confirmation. */
+/** A recent precise (Mutate) event for this path awaiting disk confirmation. */
 export interface PreciseOp {
   opId: string;
   preHash: string | null;
@@ -16,15 +16,15 @@ export interface PreciseOp {
   provenance: 'declared' | 'gated';
 }
 
-/** What M1 already knows about a path at the moment of an observation. */
+/** What the kernel already knows about a path at the moment of an observation. */
 export interface PathState {
-  /** The last post_hash M1 recorded for this path (`null` ⇒ absent). */
+  /** The last post_hash the kernel recorded for this path (`null` ⇒ absent). */
   priorHash: string | null;
   pendingPrecise?: PreciseOp;
 }
 
 /**
- * The causal-dedup decision (D120), keyed on the transition
+ * The causal-dedup decision, keyed on the transition
  * `(worktree, path, pre_hash, post_hash)`. Content-hash dedup drops a no-op; an
  * observation that matches a recent precise event is a **confirmation** (not a
  * duplicate change); any other real transition is an **inferred** event the

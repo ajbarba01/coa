@@ -15,7 +15,7 @@ import {
   TimelineSchema,
   modelSelectionSchema,
   modelDescriptorSchema,
-  persistedTurnsSchema,
+  reloadedConversationSchema,
 } from '@coa/console-viewmodel';
 import { z } from 'zod';
 import { ConsoleSettingsSchema } from './settings.js';
@@ -23,7 +23,7 @@ import { ConsoleSettingsSchema } from './settings.js';
 /** Params/result for starting a governed session from the console (proxies the daemon `createSession`). */
 export const StartSessionParamsSchema = z.object({
   input: z.string(),
-  /** The persistent conversation this send belongs to (R-7); absent ⇒ an ephemeral one-shot. */
+  /** The persistent conversation this send belongs to (persisted by the daemon); absent ⇒ an ephemeral one-shot. */
   conversationId: z.string().optional(),
   roles: z.array(z.string()).optional(),
   scope: z.string().optional(),
@@ -34,7 +34,7 @@ export const StartSessionParamsSchema = z.object({
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
-/** Params for creating a persistent session record (R-7) — proxies the daemon `newSession`. */
+/** Params for creating a persistent session record — proxies the daemon `newSession`. */
 export const NewSessionParamsSchema = z.object({
   agentRef: z.string(),
   scope: z.string().optional(),
@@ -58,7 +58,7 @@ export const DeleteAgentResultSchema = z.object({ removed: z.boolean() });
 
 /** Reveal-in-editor (a tool card's path/match click). `sessionId` names whose worktree
  *  root the (worktree-relative) path resolves against; `line` jumps VS Code to the line.
- *  The result is advisory (SC-1 — surface, never block): `revealed` says how it opened
+ *  The result is advisory (surface, never block): `revealed` says how it opened
  *  (`editor` via `code -g`, or the `folder` fallback when `code` is absent/failed), and
  *  `reason` carries a message the renderer toasts on failure. */
 export const OpenPathParamsSchema = z.object({
@@ -73,7 +73,7 @@ export const OpenPathResultSchema = z.object({
 });
 
 /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser. Validated
- *  to `http:`/`https:` only — any other scheme is refused. Advisory (SC-1 — surface, never
+ *  to `http:`/`https:` only — any other scheme is refused. Advisory (surface, never
  *  block): the result's `ok` says whether it opened, and `reason` carries a message the
  *  renderer toasts on failure. */
 export const OpenExternalParamsSchema = z.object({ url: z.string() });
@@ -108,12 +108,29 @@ export const PUSH_CHANNEL = 'coa:push';
  */
 export type DaemonStatus = 'stopped' | 'starting' | 'running' | 'error';
 export const DaemonStatusSchema = z.enum(['stopped', 'starting', 'running', 'error']);
-/** One-way main→renderer channel carrying {@link DaemonStatus} changes. */
+/**
+ * What main tells the renderer about the daemon: the state AND, when the state is a
+ * failure, why. The status alone can only ever say "something went wrong" — which
+ * leaves the gate telling the user a fact they cannot act on. `reason` is a plain
+ * human-readable line (the daemon's own stderr where it said anything, otherwise the
+ * error that ended the connect), absent whenever there is nothing to explain.
+ */
+export interface DaemonReport {
+  status: DaemonStatus;
+  reason?: string;
+}
+export const DaemonReportSchema = z.object({
+  status: DaemonStatusSchema,
+  reason: z.string().optional(),
+});
+/** One-way main→renderer channel carrying {@link DaemonReport} changes. */
 export const DAEMON_STATUS_CHANNEL = 'coa:daemon-status';
 /** Renderer→main invoke channels for the control actions. */
 export const DAEMON_CONTROL = {
   status: 'coa:daemon:status',
   start: 'coa:daemon:start',
+  /** Attach to a daemon that is already serving, never spawn one (see `DaemonManager.adopt`). */
+  adopt: 'coa:daemon:adopt',
   stop: 'coa:daemon:stop',
   restart: 'coa:daemon:restart',
 } as const;
@@ -259,26 +276,26 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
-  reloadConversation: { params: z.object({ id: z.string() }), result: persistedTurnsSchema },
+  reloadConversation: { params: z.object({ id: z.string() }), result: reloadedConversationSchema },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   recompilePrompt: {
     params: z.object({ sessionId: z.string() }),
     result: z.object({ recompiled: z.boolean() }),
   },
   /** The Stop control / Esc affordance — proxies the daemon's cooperative
-   *  `interruptSession` (CHAT-10, H1). SC-1: a user stop, never a governance block. */
+   *  `interruptSession`. A user stop, never a governance block. */
   interruptSession: {
     params: z.object({ id: z.string() }),
     result: z.object({ interrupted: z.boolean() }),
   },
   /** Send a message to a running turn — proxies the daemon's `steerSession`. Delivered at the
-   *  turn's next round trip, discarding nothing. SC-1: steering is a user redirect, never a
+   *  turn's next round trip, discarding nothing. steering is a user redirect, never a
    *  governance block. */
   steerSession: {
     params: z.object({ id: z.string(), text: z.string() }),
     result: z.object({ steered: z.boolean() }),
   },
-  /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
+  /** Console reattach — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes the active one; the daemon immediately hydrates this
    *  connection with the session's CURRENT run-status, so a reload mid-run reads
    *  `running` from the daemon snapshot, not from this renderer's own send-tracking. */
@@ -340,7 +357,9 @@ export const METHODS: Record<MethodName, MethodSpec> = {
    *  `saveAgent`. A `builtin` scope is refused by the daemon's own params schema. */
   saveAgent: { params: SaveAgentParamsSchema, result: OkResultSchema },
   /** Remove one agent definition — proxies the daemon `deleteAgent`. `removed` is
-   *  `false` when there was nothing to remove (a double delete is not an error). */
+   *  `false` ONLY when there was nothing there to remove (a double delete is not an
+   *  error); a remove that actually failed comes back as an RPC error, not as a
+   *  successful `removed: false`. */
   deleteAgent: { params: DeleteAgentParamsSchema, result: DeleteAgentResultSchema },
   startLogin: {
     params: z.object({ email: z.string(), credentialId: z.string().optional() }),

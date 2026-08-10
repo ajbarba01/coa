@@ -29,9 +29,10 @@ function stubCoa(daemonStatus: 'running' | 'stopped'): void {
     getWorkspace: () => Promise.resolve({ name: 'coa', root: 'C:/dev/coa' }),
     onPush: () => () => {},
     daemon: {
-      status: () => Promise.resolve(daemonStatus),
+      status: () => Promise.resolve({ status: daemonStatus }),
       onStatus: () => () => {},
       start: () => Promise.resolve(),
+      adopt: () => Promise.resolve(),
       stop: () => Promise.resolve(),
       restart: () => Promise.resolve(),
     },

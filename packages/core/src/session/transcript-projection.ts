@@ -1,7 +1,7 @@
 import type { BackendMessage, LoopToolCall, TurnFrame } from '@coa/shared';
 
 /**
- * The append-only conversation log's entry (docs/adr/0010): the UNCHANGED M0 wire
+ * The append-only conversation log's entry: the UNCHANGED the shared schema layer wire
  * frame plus, for a `tool_result`, the FULL body the model saw (the only thing the
  * lossy UI frame drops). `full` is persistence-only — never on the wire.
  */
@@ -19,8 +19,8 @@ const INTERRUPTED = '[Tool execution was interrupted]';
 export const INTERRUPTED_BY_USER = '[Request interrupted by user]';
 
 /** The notice a governed stop folds into, so a resumed conversation reads why the previous
- *  run ended rather than appearing to have stopped for no reason. coa has exactly two blocks
- *  (docs/adr/0028); both surface here. */
+ *  run ended rather than appearing to have stopped for no reason. Every governed deny
+ *  surfaces here. */
 export const deniedNotice = (denyKind: string, reason: string): string =>
   `[Stopped by coa: ${denyKind} — ${reason}]`;
 
@@ -41,7 +41,7 @@ const newFoldState = (): FoldState => ({ issued: new Set<string>(), assistant: u
 
 /** Push `state`'s open assistant turn (if any) to `push`, skipping a wholly-empty one
  *  (no text, no tool calls) — matching the retired `messageToBackendMessages`, so the
- *  fold stays byte-parity with the old path (D85) and never emits a stray
+ *  fold stays byte-parity with the old path and never emits a stray
  *  `{ role:'assistant', content:'' }`. */
 function closeAssistant(state: FoldState, push: (message: BackendMessage) => void): void {
   if (state.assistant !== undefined) {
@@ -68,7 +68,7 @@ function foldFrame(
       if (frame.role === 'user' || frame.role === 'system') {
         // A `system` delivery rides the `user` role live (the Messages API has no
         // other slot for mid-conversation input) — replay must reproduce exactly
-        // that, not fold it into the assistant's own text (docs/adr/0010).
+        // that, not fold it into the assistant's own text.
         closeAssistant(state, push);
         push({ role: 'user', content: frame.text });
       } else {
@@ -99,12 +99,12 @@ function foldFrame(
       break;
     case 'interrupted':
       // A user stop: close whatever partial the model got out, then record the notice so the
-      // next turn's context shows it was interrupted (SC-1 — a user action, never an error).
+      // next turn's context shows it was interrupted (a user action, never an error).
       closeAssistant(state, push);
       push({ role: 'user', content: INTERRUPTED_BY_USER });
       break;
     case 'deny':
-      // A governed stop (SC-1's only two blocks): close whatever partial the model got
+      // A governed stop (a deliberate block, not a fault): close whatever partial the model got
       // out, then record why — same shape as `interrupted`, since this projection also
       // rebuilds context on resume. A close-gate reason is instructional ("resolve or
       // baseline before finishing") and would otherwise be lost entirely.
@@ -120,7 +120,7 @@ function foldFrame(
       break;
     case 'text-delta':
     case 'thinking-delta':
-      // Delivery-only (docs/adr/0013): the E-seam never appends these to the
+      // Delivery-only: the E-seam never appends these to the
       // durable log, so they should never reach the fold — dropped defensively.
       break;
     default: {
@@ -134,8 +134,8 @@ function foldFrame(
 
 /**
  * Fold the append-only event log into the provider-neutral transcript (system omitted)
- * — the read-time projection that replaces the whole-rewrite `messages.json`
- * (docs/adr/0010). Assistant `text`/`tool_use` frames group into one assistant message
+ * — the read-time projection that replaces the whole-rewrite `messages.json`.
+ * Assistant `text`/`tool_use` frames group into one assistant message
  * until a `tool_result` (or a user turn / boundary) closes it; `tool_result` frames
  * become `tool` messages (full body from `full`, else the frame pointer). Thinking/
  * error/reconcile/permission/subagent frames carry no transcript memory and are
@@ -159,21 +159,21 @@ export function foldEventsToTranscript(events: readonly PersistedEvent[]): Backe
 /**
  * Project a whole session TREE (a root plus its descendants — any depth, since
  * `descendantsOf` already returns the flat set) as one read. This is a READ-TIME JOIN
- * only (docs/adr/0010): each session keeps its own append-only `events.ndjson`; there
+ * only: each session keeps its own append-only `events.ndjson`; there
  * is no merged log and no second writer. A root with no descendants degrades to
- * `foldEventsToTranscript` verbatim (D85 — strict superset, byte-identical).
+ * `foldEventsToTranscript` verbatim (strict superset, byte-identical).
  *
  * NO PRODUCTION CALLER YET — deliberately kept, not scaffolding to delete. A parent
- * reads a child's `events.ndjson` directly (docs/adr/0033) and the console groups by
+ * reads a child's `events.ndjson` directly and the console groups by
  * lineage instead (`console-viewmodel`'s `groupSessionTree`), so nothing reaches this
  * today. Note that the obvious-looking wiring is the wrong one: folding a tree into
  * `conversation-store`'s `loadBackendMessages` would push a child's output into the
- * PARENT'S MODEL CONTEXT, which docs/adr/0033 explicitly decided against. A consumer
+ * PARENT'S MODEL CONTEXT, which a notice is not a message explicitly decided against. A consumer
  * needs its own decision about who is allowed to see a merged tree.
  *
  * Ordering merges every session's events into one stream sorted by `seq` (ascending),
  * tying on session id. `seq` is a per-session monotonic counter — each session's log
- * starts it at 0 independently (`session-handlers.ts`'s `seqBox`), not a shared
+ * starts it at 0 independently (frame-recorder.ts's `seqBox`), not a shared
  * clock — so this does not reconstruct true cross-session wall-clock order. It IS a
  * TOTAL, deterministic order (session ids are unique, so ties never remain unresolved),
  * which is what repeatability actually requires: two runs over the same data always

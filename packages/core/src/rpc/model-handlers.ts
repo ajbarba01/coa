@@ -13,7 +13,7 @@ import { rpcMethod, type RpcHandlers } from './router.js';
  */
 
 /** The backends whose model lists are editable. */
-export const MODEL_PROVIDERS = ['claude', 'deepseek', 'longcat'] as const;
+export const MODEL_PROVIDERS = ['claude', 'deepseek', 'longcat', 'openai', 'openrouter'] as const;
 
 export interface ModelCatalogView {
   /** provider → the user's list (materialised or catalog-fallback). */

@@ -16,7 +16,7 @@ import {
   type ModelDescriptor,
   type ModelSelection,
   type PackageSummary,
-  type PersistedTurnWire,
+  type ReloadedConversationWire,
   type ReasoningProfile,
   type RoleSummary,
   type SessionSummary,
@@ -28,6 +28,7 @@ import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
 import { cacheKey, configKey } from './panels/banners.js';
 import { initialState, type ConsoleState, type Remote } from './panels/state.js';
+import { reportFailure, reportNotice, surfaceWrite } from './shell/failures.js';
 import { applySettings } from './theme.js';
 
 /** Builds the "switched model" note text from an applied override, e.g.
@@ -76,38 +77,40 @@ export interface ConsoleBridge {
   saveAgent(params: { ref: string; scope: 'personal' | 'project'; file: AgentFile }): Promise<{
     ok: boolean;
   }>;
+  /** `removed: false` means there was nothing there to remove — the benign case. A
+   *  remove that actually failed REJECTS instead, so the two are never confused. */
   deleteAgent(params: { ref: string; scope: 'personal' | 'project' }): Promise<{
     removed: boolean;
   }>;
-  // Persistent sessions (R-7): the rail list + per-session transcript reload.
+  // Persistent sessions: the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
-  reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
+  reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
   /** Drop a session's frozen prompt + resume token so the next send recompiles (the drift banner's recompile). */
   recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
   /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
-   *  Advisory (SC-1 — a user stop, never a governance block): the pill clears via the
+   *  Advisory (advisory — a user stop, never a governance block): the pill clears via the
    *  daemon's own `'interrupted'` status Push, not this call's result. */
   interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
   /** Steer a running turn — proxies the daemon's `steerSession`. Delivered at the turn's next
-   *  round trip, discarding nothing (SC-1 — a user redirect, never a block). Queue-mode
+   *  round trip, discarding nothing (advisory — a user redirect, never a block). Queue-mode
    *  follow-ups never reach this call; they stay held console-side until the turn ends. */
   steerSession(params: { id: string; text: string }): Promise<{ steered: boolean }>;
-  /** Console reattach (G4) — proxies the daemon's `subscribeSession`. Called when a
+  /** Console reattach — proxies the daemon's `subscribeSession`. Called when a
    *  conversation becomes active; the daemon immediately hydrates this connection with
    *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
-   *  daemon snapshot rather than from this renderer's own send-tracking (docs/adr/0011). */
+   *  daemon snapshot rather than from this renderer's own send-tracking (the daemon, not the renderer, owns the live session). */
   subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
   /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
-   *  worktree by main). Advisory — resolves a result; never blocks (SC-1). */
+   *  worktree by main). Advisory — resolves a result; never blocks. */
   openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
     ok: boolean;
     revealed?: 'editor' | 'folder';
     reason?: string;
   }>;
   /** Open a web URL in the default browser (validated to http(s) by main). Advisory —
-   *  resolves a result; never blocks (SC-1). */
+   *  resolves a result; never blocks. */
   openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
   /** Subscribe to the daemon push stream; returns an unsubscribe. */
   onPush(listener: (payload: unknown) => void): () => void;
@@ -117,7 +120,7 @@ export interface ConsoleBridge {
 
 /**
  * The auth surface's RPC callers. Unlike the rest of this module, these don't flow through
- * `startConsole`'s injected `ConsoleBridge` — the auth store (`panels/mockAuth.ts`) is a
+ * `startConsole`'s injected `ConsoleBridge` — the auth store (`panels/authStore.ts`) is a
  * standalone zustand store (shared by the auth surface, the usage surface, and the nav HUD),
  * not part of the single `ConsoleState` pipeline, so it reaches the preload bridge directly.
  * Exported (rather than inlined in the store) so a test can `vi.mock` this module and hand
@@ -206,7 +209,7 @@ export const rpcSetModelHidden = (p: {
   hidden: boolean;
 }): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
 
-/** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose (SC-1):
+/** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose:
  *  a false hit costs an amber dot the next probe clears, never a block — so the net is
  *  wide (401s, OAuth, login wording) but only ever reads ERROR frames, never chat. */
 const AUTH_FAILURE = /auth|401|unauthorized|oauth|logged? ?in|login/i;
@@ -239,6 +242,10 @@ export interface ConsoleController {
    *  when `startConsole` fired them (they settled into error Remotes and nothing else
    *  ever retries them) — call this when the daemon transitions to `running`. */
   hydrate(): Promise<void>;
+  /** Forget every session this renderer believes is running — call it on the same daemon
+   *  transition as `hydrate`, and before it. A fresh daemon connection cannot be running a
+   *  turn this renderer started, so anything still in the map is a leftover claim. */
+  clearRunState(): void;
   toggleRaw(): void;
   dispose(): void;
 }
@@ -259,6 +266,18 @@ async function settle<T>(read: () => Promise<T>): Promise<Remote<T>> {
  *  every `(s) => s` subscriber — when a tick returns exactly what the last one did. */
 function remoteEqual<T>(a: Remote<T>, b: Remote<T>): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** What a failed agent write puts back. Every agent mutation renders its edit
+ *  optimistically before the daemon has written anything, so a rejected write has to
+ *  restore the list — otherwise the row stays on screen claiming a save that never
+ *  landed. `selection` is carried only by the mutations that moved the editor
+ *  selection: `claimed` is what they set it to, and the undo fires only while that is
+ *  still the selection, so a user who clicked another agent mid-write isn't yanked
+ *  back to this one. */
+interface AgentUndo {
+  agents: AgentSummary[];
+  selection?: { claimed: string | undefined; previous: string | undefined };
 }
 
 export async function startConsole(
@@ -297,7 +316,7 @@ export async function startConsole(
   // Agents are daemon-owned (built-in ∪ personal ∪ project). On bootstrap the
   // in-memory copy is hydrated from `listAgents`; a failed/malformed read degrades
   // to the "No agents yet" empty state — never to a mock. Sessions + their turns are
-  // REAL: loaded from the daemon's R-7 store below (`initSessions`). The mutable
+  // REAL: loaded from the daemon's conversation store below (`initSessions`). The mutable
   // copy backs the now-durable agent edits (rename, recolor, pin, description) that
   // persist per-agent via `saveAgent`/`deleteAgent`.
   let agents: AgentSummary[] = [];
@@ -350,7 +369,13 @@ export async function startConsole(
 
   const switchAccount = (label: string, provider?: string): void =>
     void (async () => {
-      await bridge.useAccount({ label, ...(provider !== undefined ? { provider } : {}) });
+      const switched = await surfaceWrite(
+        'switch accounts',
+        bridge.useAccount({ label, ...(provider !== undefined ? { provider } : {}) }),
+      );
+      // The switch was refused and said so — the daemon is still on the old account, so
+      // there is nothing new to read.
+      if (switched === undefined) return;
       await loadAccounts();
       // The merged model list is per-account (that provider's models change) — refetch.
       await loadModels();
@@ -365,7 +390,7 @@ export async function startConsole(
     // persisting is bookkeeping, never on the interaction path.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        void bridge.saveSettings(next);
+        void surfaceWrite('save that setting', bridge.saveSettings(next));
       }),
     );
   };
@@ -427,6 +452,33 @@ export async function startConsole(
     pushAgents();
   }
 
+  /** Drive an agent write whose edit is already on screen: reconcile on SETTLE — not
+   *  only on success — and restore the pre-edit list when the write failed, so what is
+   *  rendered matches what is on disk. Without the restore a rejected write leaves the
+   *  row looking saved, which is the console lying about durable state. Advisory
+   *  throughout: the failure ALSO surfaces as the list snapping back, never as a throw and
+   *  never as a block. The reconcile runs either way and wins whenever the daemon read
+   *  succeeds, since disk is the authority over both the optimistic edit and the undo.
+   *
+   *  `action` names what the user asked for, because the rollback alone is a poor signal:
+   *  a row quietly reverting looks a lot like a row that was never edited. */
+  function commitAgentWrite(write: Promise<unknown>, undo: AgentUndo, action: string): void {
+    void write
+      .catch((error: unknown) => {
+        reportFailure(action, error);
+        agents = undo.agents;
+        const selection = undo.selection;
+        if (selection !== undefined && state.ui.selectedAgentRef === selection.claimed) {
+          const ui = { ...state.ui };
+          if (selection.previous === undefined) delete ui.selectedAgentRef;
+          else ui.selectedAgentRef = selection.previous;
+          state = { ...state, ui };
+        }
+        pushAgents();
+      })
+      .then(() => refreshAgents());
+  }
+
   const selectAgent = (ref: string): void => {
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     push();
@@ -440,10 +492,14 @@ export async function startConsole(
       icon: 'bot',
       color: 'slate',
     };
+    const undo: AgentUndo = {
+      agents,
+      selection: { claimed: ref, previous: state.ui.selectedAgentRef },
+    };
     agents = [...agents, { ...file, ref, scope }];
     state = { ...state, ui: { ...state.ui, selectedAgentRef: ref } };
     pushAgents();
-    void bridge.saveAgent({ ref, scope, file }).then(() => refreshAgents());
+    commitAgentWrite(bridge.saveAgent({ ref, scope, file }), undo, 'create that agent');
   };
 
   const updateAgent = (ref: string, patch: Partial<Omit<AgentSummary, 'ref'>>): void => {
@@ -455,30 +511,68 @@ export async function startConsole(
     // action) — anything else (or none) keeps the agent where it already lives.
     const nextScope: 'personal' | 'project' =
       next.scope === 'personal' || next.scope === 'project' ? next.scope : prevScope;
+    const undo: AgentUndo = { agents };
     agents = agents.map((a) => (a.ref === ref ? { ...next, scope: nextScope } : a));
     pushAgents();
     const file = toAgentFile({ ...next, scope: nextScope });
-    // A scope move leaves a file behind at the old location unless the old one is
-    // removed first — otherwise the agent exists twice (a stale duplicate the next
-    // `listAgents` would show).
-    const written =
-      nextScope === prevScope
-        ? bridge.saveAgent({ ref, scope: nextScope, file })
-        : bridge
-            .deleteAgent({ ref, scope: prevScope })
-            .then(() => bridge.saveAgent({ ref, scope: nextScope, file }));
-    void written.then(() => refreshAgents());
+    // A scope move WRITES THE NEW COPY FIRST and removes the old one only once that
+    // save resolved. Removing first is what turns a half-finished move into data loss:
+    // if the save then fails the agent's file is gone from both scopes and there is
+    // nothing left to recover it from. In this order the worst outcome is a copy left
+    // behind in the old scope — the file still exists, and the reconcile below re-reads
+    // the daemon so the list shows where the agent actually resolves from. Be honest
+    // about the cost: the daemon treats the same ref in two scopes as an intentional
+    // override, not a diagnostic, so that leftover is silent. Silent and recoverable is
+    // still strictly better than gone.
+    const saved = bridge.saveAgent({ ref, scope: nextScope, file });
+    if (nextScope === prevScope) {
+      commitAgentWrite(saved, undo, 'save that agent');
+      return;
+    }
+    // A move is TWO writes, so it needs its own report: the generic "couldn't save that
+    // agent" names the wrong operation when the copy landed and only the removal of the
+    // old file failed (its YAML open in an editor is the everyday cause). Say which half
+    // broke — the user is looking at an agent that really is in the new scope, with a
+    // stale twin left behind in the old one. Reported and swallowed, not rethrown: the
+    // reconcile below re-reads the daemon, so the list still ends up showing the truth,
+    // and rolling the edit back would claim the copy never happened. A `removed: false`
+    // here stays silent — the old file being gone already IS the finished move.
+    const written = saved.then(async () => {
+      try {
+        await bridge.deleteAgent({ ref, scope: prevScope });
+      } catch (error: unknown) {
+        const cause = error instanceof Error ? error.message : String(error);
+        reportFailure(
+          'finish moving that agent',
+          `it was copied to ${nextScope}, but the old ${prevScope} copy could not be removed — ${cause}`,
+        );
+      }
+    });
+    commitAgentWrite(written, undo, 'save that agent');
   };
 
   const deleteAgent = (ref: string): void => {
     const current = agents.find((a) => a.ref === ref);
     if (current === undefined || current.scope === 'builtin') return;
+    const undo: AgentUndo = {
+      agents,
+      selection: { claimed: undefined, previous: state.ui.selectedAgentRef },
+    };
     agents = agents.filter((a) => a.ref !== ref);
     const ui = { ...state.ui };
     if (ui.selectedAgentRef === ref) delete ui.selectedAgentRef;
     state = { ...state, ui };
     pushAgents();
-    void bridge.deleteAgent({ ref, scope: current.scope }).then(() => refreshAgents());
+    // `removed: false` is the answer that used to disappear: the daemon found no file
+    // for this agent, so the delete was a no-op. The row goes either way, but the user
+    // asked for a removal and nothing was removed — usually because the file had already
+    // gone from under the console — and that is worth a word rather than silence.
+    const removal = bridge.deleteAgent({ ref, scope: current.scope }).then((result) => {
+      if (!result.removed) {
+        reportNotice('Nothing to delete', 'that agent had no file left to remove.');
+      }
+    });
+    commitAgentWrite(removal, undo, 'delete that agent');
   };
 
   const togglePinAgent = (ref: string): void => {
@@ -488,7 +582,7 @@ export async function startConsole(
     });
   };
 
-  // ---- Persistent sessions (R-7): list + per-session transcript, all daemon-backed ----
+  // ---- Persistent sessions: list + per-session transcript, all daemon-backed ----
 
   /** Refresh the rail's session list (title/recency) without touching the transcript. */
   async function refreshSessionList(): Promise<void> {
@@ -498,15 +592,26 @@ export async function startConsole(
     push();
   }
 
+  /** Drop a session's run entry — it is not running, whatever this renderer last thought.
+   *  The pill, the steer-mode composer and the queued-message release all hang off this
+   *  map, so a stale entry does not merely look wrong: it holds queued follow-ups forever. */
+  function clearRunStatus(sessionId: string): void {
+    if (state.ui.runStatus[sessionId] === undefined) return;
+    const runStatus = { ...state.ui.runStatus };
+    delete runStatus[sessionId];
+    state = { ...state, ui: { ...state.ui, runStatus } };
+    push();
+  }
+
   /** Open a session cache-first: the active id flips SYNCHRONOUSLY — a warm
    *  `turnsBySession` entry renders this same frame; a cold one shows the loading
    *  state — and the persisted-transcript reload reconciles in the background,
    *  ignored if the user has already moved on (stale response). Also
-   *  (re)subscribes to the daemon's live session (G4 reattach) so a fresh mount —
+   *  (re)subscribes to the daemon's live session (reattach — the session exists independent of any viewer) so a fresh mount —
    *  e.g. a reload mid-run — hydrates `runStatus` from the daemon's own snapshot
-   *  instead of reconstructing it from this renderer's send-tracking (docs/adr/0011).
-   *  Fire-and-forget like `interruptSession`: the pill is driven by the resulting
-   *  status Push (the existing `onPush` handler below), not by this call's result. */
+   *  instead of reconstructing it from this renderer's send-tracking (the daemon, not the renderer, owns the live session).
+   *  The pill is driven by the resulting status Push (the existing `onPush` handler
+   *  below) — with ONE exception, below: a refused subscribe pushes nothing at all. */
   async function openSession(id: string): Promise<void> {
     const cached = turnsBySession.get(id);
     state = {
@@ -518,7 +623,27 @@ export async function startConsole(
       ui: { ...state.ui, activeSessionId: id },
     };
     push();
-    void bridge.subscribeSession({ id }).catch(() => {});
+    // A reattach the daemon REFUSES is the reattach that matters: `subscribed: false`
+    // means it holds no live session for this conversation, so nothing can be running and
+    // no hydrating status push is coming. Ignoring that answer is what left a session
+    // spinning forever after the daemon died mid-turn — the renderer's own map was the
+    // only thing still claiming a turn. The daemon is the authority on liveness in both
+    // directions, not just when it says yes.
+    //
+    // Read the send counter first and only act if it hasn't moved: a send issued while
+    // this round trip was in flight is newer news than the answer coming back.
+    const sendsAtSubscribe = state.ui.sendNonce[id];
+    void bridge
+      .subscribeSession({ id })
+      .then((result) => {
+        if (result.subscribed) return;
+        if (state.ui.sendNonce[id] !== sendsAtSubscribe) return;
+        clearRunStatus(id);
+      })
+      .catch(() => {
+        // A failed reattach says nothing about liveness — the daemon being unreachable is
+        // already the gate's story, and guessing here would be the same lie inverted.
+      });
 
     const loaded = await settle(() => bridge.reloadConversation({ id }));
     if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
@@ -547,15 +672,20 @@ export async function startConsole(
 
   const newSession = (agentRef: string): void =>
     void (async () => {
-      const created = await settle(() => bridge.newSession({ agentRef }));
-      if (created.status !== 'ok') return;
+      const created = await surfaceWrite(
+        'start that conversation',
+        bridge.newSession({ agentRef }),
+      );
+      if (created === undefined) return;
       await refreshSessionList();
-      await openSession(created.value.id);
+      await openSession(created.id);
     })();
 
   const deleteSession = (id: string): void =>
     void (async () => {
-      await bridge.deleteSession({ id });
+      const deleted = await surfaceWrite('delete that conversation', bridge.deleteSession({ id }));
+      // Nothing was removed and the user has been told — the rail still shows the truth.
+      if (deleted === undefined) return;
       const wasActive = state.ui.activeSessionId === id;
       await refreshSessionList();
       if (wasActive) {
@@ -593,7 +723,7 @@ export async function startConsole(
     for (const [sessionId, frames] of pendingTurns) {
       const prev = turnsBySession.get(sessionId) ?? [];
       // A `text-delta`/`thinking-delta` accumulates into the live block, then the settled
-      // frame replaces it — no double-render (docs/adr/0013).
+      // frame replaces it — no double-render (delta frames are delivery-only; the final complete frame is authoritative).
       const next = reconcileStreaming(prev, frames);
       turnsBySession.set(sessionId, next);
       if (sessionId === state.ui.activeSessionId) activeValue = next;
@@ -646,11 +776,29 @@ export async function startConsole(
     if (bannerId === 'drift' && actionId === 'recompile') {
       // Drop the frozen prompt server-side, then refresh so the session's promptConfig
       // clears — the drift derivation then reads "no running prompt" ⇒ no banner.
-      void bridge.recompilePrompt({ sessionId }).then(() => refreshSessionList());
-      const dismissedDrift = { ...state.ui.dismissedDrift };
-      delete dismissedDrift[sessionId];
-      state = { ...state, ui: { ...state.ui, dismissedDrift } };
-      push();
+      //
+      // The suppression is dropped only AFTER the daemon confirms. Clearing it up front
+      // made a failed recompile invisible in the worst way: the frozen prompt was still
+      // there, so the derivation re-raised the same banner, and the button read as a
+      // control that did nothing at all. Now a refusal says so and the banner is honestly
+      // still describing a prompt that never recompiled.
+      void surfaceWrite('recompile that prompt', bridge.recompilePrompt({ sessionId })).then(
+        async (result) => {
+          if (result === undefined) return;
+          if (!result.recompiled) {
+            reportNotice(
+              'Nothing to recompile',
+              'this conversation has no compiled prompt to drop.',
+            );
+            return;
+          }
+          const dismissedDrift = { ...state.ui.dismissedDrift };
+          delete dismissedDrift[sessionId];
+          state = { ...state, ui: { ...state.ui, dismissedDrift } };
+          push();
+          await refreshSessionList();
+        },
+      );
       return;
     }
     if (bannerId === 'drift' && actionId === 'dismiss') {
@@ -705,22 +853,44 @@ export async function startConsole(
   // so their React keys never collide.
   let youSeq = 0;
 
-  /** The Stop/Esc affordance — a user-initiated stop (SC-1: never a governance block).
-   *  Fire-and-forget: the running pill clears from the daemon's own `'interrupted'`
-   *  status Push (the existing `onPush` handler above), not from this call's result. */
+  /** The Stop/Esc affordance — a user-initiated stop (never a governance block).
+   *  On a real stop the running pill clears from the daemon's own `'interrupted'` status
+   *  Push (the existing `onPush` handler above), not from this call's result.
+   *
+   *  `interrupted: false` is the case that used to disappear: the daemon has no running
+   *  turn to stop, so no push is coming and Stop reads as a dead button. That answer is
+   *  authoritative — nothing is running — so the pill clears here and the console says
+   *  what happened rather than leaving the user pressing a control that does nothing. */
   const interruptSession = (sessionId: string): void => {
-    void bridge.interruptSession({ id: sessionId }).catch(() => {});
+    void surfaceWrite('stop that turn', bridge.interruptSession({ id: sessionId })).then(
+      (result) => {
+        if (result === undefined || result.interrupted) return;
+        clearRunStatus(sessionId);
+        reportNotice('Nothing to stop', 'that turn had already finished.');
+      },
+    );
   };
 
-  /** Steer: reach the running turn at its next step, discarding nothing (SC-1: a user
+  /** Steer: reach the running turn at its next step, discarding nothing (a user
    *  redirect, never a block). The daemon writes the transcript line when the model actually
-   *  RECEIVES the text (docs/adr/0031), which is seconds later — so `ChatPanel` shows the
+   *  RECEIVES the text (a steer is recorded only when the model receives it), which is seconds later — so `ChatPanel` shows the
    *  message pinned at the bottom of the transcript meanwhile and drops the pin when the real
-   *  frame arrives. Queue-mode follow-ups stay held console-side until the turn ends. */
+   *  frame arrives. Queue-mode follow-ups stay held console-side until the turn ends.
+   *
+   *  `steered: false` is the case that used to disappear: the daemon has no live turn to
+   *  reach, so the text was DROPPED and no frame is ever coming for it. Left unsaid, the
+   *  pin just gets swept a moment later and the user watches what they typed vanish with
+   *  no account of where it went. Advisory, as ever — nothing is blocked and nothing is
+   *  retried, the console simply says the message did not land. */
   const steerSession = (sessionId: string, text: string): void => {
     const body = text.trim();
     if (body === '') return;
-    void bridge.steerSession({ id: sessionId, text: body }).catch(() => {});
+    void surfaceWrite('send that steer', bridge.steerSession({ id: sessionId, text: body })).then(
+      (result) => {
+        if (result === undefined || result.steered) return;
+        reportNotice('Nothing to steer', 'that turn is no longer running, so nothing received it.');
+      },
+    );
   };
 
   /** Set a session's in-chat model override; the next send routes there (and the
@@ -819,7 +989,7 @@ export async function startConsole(
     // A model/effort override applied on this send drops a console-local "switched
     // model" note into the transcript — BEFORE the user turn, so it reads as the
     // context the send ran under. Never sent to the agent (a synthetic UI frame, not a
-    // wire TurnFrame) and omitted in `coa raw` (D85: raw is the verbatim loop only).
+    // wire TurnFrame) and omitted in `coa raw` (raw is the verbatim loop only).
     if (override !== undefined) {
       const models = state.data.models.status === 'ok' ? state.data.models.value : [];
       const afterCount = turnsBySession.get(id)?.length ?? 0;
@@ -974,6 +1144,24 @@ export async function startConsole(
    *  second, concurrent `initSessions()`. Settled boot loads make the guard's read honest:
    *  normal launch ⇒ ok+active ⇒ no re-run; cold boot ⇒ settled failures ⇒ recover.
    */
+  /**
+   * Forget every session this renderer believes is running. Called when a daemon
+   * connection comes up: a turn is owned by the daemon process that is driving it, so a
+   * connection that has only just been established cannot be running a turn this renderer
+   * started. Whatever is genuinely live re-announces itself through the reattach in
+   * `openSession` and the daemon's own pushes.
+   *
+   * This is the blanket half of the reconcile — `openSession` only ever speaks for the
+   * session it opens, and the map can hold background sessions the user never returns to.
+   * Only run state is cleared: the active conversation, its transcript and the rail are
+   * untouched, so a mid-use restart never moves the user somewhere else.
+   */
+  function clearRunState(): void {
+    if (Object.keys(state.ui.runStatus).length === 0) return;
+    state = { ...state, ui: { ...state.ui, runStatus: {} } };
+    push();
+  }
+
   async function hydrate(): Promise<void> {
     await bootLoads;
     await Promise.all([loadAccounts(), loadModels(), loadCatalogue(), initAgents()]);
@@ -985,6 +1173,7 @@ export async function startConsole(
   return {
     refresh,
     hydrate,
+    clearRunState,
     toggleRaw,
     dispose: () => {
       unsubscribePush();

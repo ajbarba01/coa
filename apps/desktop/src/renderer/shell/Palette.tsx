@@ -13,7 +13,7 @@ function Chord({ id }: { id: string }): React.JSX.Element | null {
 }
 
 /** ⌘K — the palette is the spine: every action reachable, nothing advertised.
- *  Raw mode lives ONLY here (D85: always reachable, never chrome). The summon itself is
+ *  Raw mode lives ONLY here (always reachable, never chrome). The summon itself is
  *  a registry command (`palette`), dispatched with the rest — so it can be rebound. */
 export function Palette(): React.JSX.Element | null {
   const open = useShell((s) => s.paletteOpen);

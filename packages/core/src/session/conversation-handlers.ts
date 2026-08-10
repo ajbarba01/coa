@@ -4,7 +4,7 @@ import { rpcMethod, type RpcHandlers } from '../rpc/router.js';
 import type { ConversationStore } from './conversation-store.js';
 
 /**
- * M8 — the session-record RPC surface over the R-7 conversation store: the CON-CAT
+ * The session-record RPC surface over the persistent conversation store: the CON-CAT
  * `reloadConversation` read plus the console's session-list verbs (create / list /
  * delete). These are thin, synchronous wrappers — the durable behavior
  * lives in the {@link ConversationStore}; here we only Zod-validate params and

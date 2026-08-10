@@ -19,7 +19,7 @@ describe('resolvePiece', () => {
     expect(resolvePiece('guide', { store, graph }).body).toBe('hello');
   });
 
-  it('merges governed-by authority edges from the graph (TAX-2)', () => {
+  it('merges governed-by authority edges from the graph', () => {
     const store = new PieceStore();
     store.register(piece('guide'));
     const graph = new TypedGraph();

@@ -13,7 +13,7 @@ const base = {
 };
 
 describe('flagRecordSchema', () => {
-  it('accepts a single ruleId and an array of ruleIds (CF-7 merge)', () => {
+  it('accepts a single ruleId and an array of ruleIds (cross-producer merge)', () => {
     expect(flagRecordSchema.parse(base).ruleId).toBe('no-explicit-any');
     expect(flagRecordSchema.parse({ ...base, ruleId: ['tsc', 'grounding'] }).ruleId).toEqual([
       'tsc',

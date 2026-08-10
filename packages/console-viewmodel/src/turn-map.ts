@@ -7,32 +7,74 @@ import {
 } from '@coa/shared';
 import type { TurnFrame } from './reads.js';
 
-/** A persisted turn as `reloadConversation` returns it (R-7): the M0 frame + its seq. */
+/** A persisted turn as `reloadConversation` returns it from the turn store: the wire frame + its seq. */
 export const persistedTurnSchema = z.object({ seq: z.number(), frame: turnFrameSchema });
 export const persistedTurnsSchema = z.array(persistedTurnSchema);
 export type PersistedTurnWire = z.infer<typeof persistedTurnSchema>;
 
+/** A reloaded conversation as the turn store returns it today: the readable turns plus
+ *  the count of stored events too corrupt to read. */
+const reloadedObjectSchema = z.object({
+  turns: persistedTurnsSchema,
+  skipped: z.number().default(0),
+});
+
 /**
- * Map a reloaded R-7 conversation (persisted M0 frames) to the view `TurnFrame`s the
+ * The reply shape, accepting BOTH the object above and the bare turns ARRAY a daemon
+ * that predates the count answers with — normalized to a conversation that lost nothing.
+ *
+ * The tolerance has to be a real alternative, not a default: a default only fills a
+ * missing key INSIDE an object, and an object schema rejects an array outright. The
+ * console strictly parses every reply, so without this an older daemon behind a newer
+ * console fails every conversation open with a load error — which is a version skew a
+ * stale build reaches in practice, not a hypothetical.
+ */
+export const reloadedConversationSchema = z.union([
+  reloadedObjectSchema,
+  persistedTurnsSchema.transform((turns) => ({ turns, skipped: 0 })),
+]);
+export type ReloadedConversationWire = z.infer<typeof reloadedObjectSchema>;
+
+/**
+ * Map a reloaded conversation (persisted wire frames from the turn store) to the view `TurnFrame`s the
  * transcript renders — the durable analog of {@link pushToViewFrames}. Reuses the same
  * per-frame translation, so a reopened session reads identically to the live stream.
+ *
+ * When the store could not read part of the log, the transcript ends with a system
+ * notice saying so. Rendering the readable remainder on its own would present a
+ * fragment as the complete record — the reader has no other way to tell the difference,
+ * since missing turns leave no gap to see.
  */
-export function reloadToViewFrames(turns: PersistedTurnWire[]): TurnFrame[] {
-  return turns.flatMap((t) => {
+export function reloadToViewFrames(reloaded: ReloadedConversationWire): TurnFrame[] {
+  const frames = reloaded.turns.flatMap((t) => {
     const frame = mapFrame(t.frame, `t${t.seq}`);
     return frame === undefined ? [] : [frame];
   });
+  if (reloaded.skipped > 0) frames.push(skippedNotice(reloaded.skipped));
+  return frames;
+}
+
+/** The transcript's own admission that it is incomplete — a system notice, the lane
+ *  coa's own statements use, never something attributed to the model. */
+function skippedNotice(skipped: number): TurnFrame {
+  const events = skipped === 1 ? '1 unreadable event' : `${skipped} unreadable events`;
+  return {
+    id: 'reload:skipped',
+    role: 'system',
+    kind: 'text',
+    text: `${events} skipped — part of this session's record could not be read, so what is shown above is incomplete.`,
+  };
 }
 
 /**
- * The daemon→console turn mapping: one CON-PUSH record → the console `TurnFrame`s
- * the transcript renders. The wire vocabulary (M0 `push.ts`) is richer than the
+ * The daemon→console turn mapping: one pushed turn record → the console `TurnFrame`s
+ * the transcript renders. The wire vocabulary (the shared `push.ts`) is richer than the
  * view's, so lifecycle-only frames (turn-boundary/reconcile) and the
  * bare `permission` frame are dropped here; `cost`/`status` pushes are not turns
  * and the shell handles them separately. This is the console edge — the sole place
- * the M0 shape is translated — so the renderer works only in view types.
+ * the wire shape is translated — so the renderer works only in view types.
  *
- * Floor notes (deferred with the R-7 store): a `tool_result` frame carries only a
+ * Floor notes (deferred with the turn store): a `tool_result` frame carries only a
  * `handle`, so its `tool` label is empty until handle→tool correlation lands;
  * live approvals ride the deferred deny/approval push channel. Now maps `thinking`,
  * `error`, `subagent`, and `plan` (TodoWrite) frames to their dedicated kinds.
@@ -48,7 +90,7 @@ export function pushToViewFrames(push: Push): TurnFrame[] {
 /**
  * The push→banner edge: a `banner` push yields its descriptor; any other push yields
  * undefined. A banner is a SYSTEM-only chat notice (never a transcript turn), so it is
- * routed here rather than through {@link pushToViewFrames}. The M0 {@link Banner} shape
+ * routed here rather than through {@link pushToViewFrames}. The wire {@link Banner} shape
  * is already view-ready, so this is the single validated seam, not a reshape.
  */
 export function pushToBanner(push: Push): Banner | undefined {
@@ -74,7 +116,7 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
     }
     case 'text-delta':
       // A streaming chunk (Piece B): the shell accumulates it into the live agent block,
-      // then the settled `text` frame replaces it (docs/adr/0013).
+      // then the settled `text` frame replaces it (deltas are delivery-only, never persisted).
       return { id, role: 'agent', kind: 'text', text: frame.text, streaming: true, ...d };
     case 'thinking-delta':
       return { id, role: 'agent', kind: 'thinking', text: frame.text, streaming: true, ...d };
@@ -102,7 +144,7 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
       };
     case 'deny':
       // A governed stop, not a fault — the transcript draws it as a DenyNotice rather
-      // than an error bubble (SC-1). Carries no `depth`: a block is the session's, not
+      // than an error bubble (a firm stop with a reason, not an alarm). Carries no `depth`: a block is the session's, not
       // a nested turn's.
       return { id, kind: 'deny', denyKind: frame.denyKind, reason: frame.reason };
     case 'tool_use':

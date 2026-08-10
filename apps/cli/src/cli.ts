@@ -8,7 +8,6 @@ import {
   bindDaemon,
   buildAgentRegistryHandlers,
   buildConversationHandlers,
-  buildDaemonConsoleHandlers,
   buildModelHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
@@ -21,15 +20,18 @@ import {
   ModelCatalogStore,
   packageSummaries,
   roleSummaries,
+  SessionService,
   type ModelCache,
   type ModelCacheAccount,
   type RpcServer,
-  type StartChildFn,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
+import { buildDaemonConsoleHandlers } from './console-handlers.js';
+import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
 import { parseRunArgs, renderPush } from './run-render.js';
+import type { CliIo } from './io.js';
 
 /**
  * The `coa` CLI entrypoint logic. `runCli` serves the read commands a human runs
@@ -43,12 +45,7 @@ import { parseRunArgs, renderPush } from './run-render.js';
  * `coa cap` / `coa flags` / `coa timeline` from another invocation.
  */
 
-export interface CliIo {
-  out: (line: string) => void;
-  err: (line: string) => void;
-  /** Endpoint override (tests); defaults to {@link defaultDaemonPath}. */
-  path?: string;
-}
+export type { CliIo } from './io.js';
 
 /** Map a read command to the JSON-RPC method + params it issues. */
 const READS: Record<string, (args: string[]) => { method: string; params?: RpcParams }> = {
@@ -63,7 +60,7 @@ const READS: Record<string, (args: string[]) => { method: string; params?: RpcPa
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   const [command, ...args] = argv;
   if (command === undefined) {
-    io.err('usage: coa <run|auth|websearch|webfetch|cap|flags|timeline> [args]');
+    io.err('usage: coa <serve|run|auth|websearch|webfetch|cap|flags|timeline> [args]');
     return 1;
   }
   if (command === 'auth') return runAuthCommand(args, io);
@@ -93,7 +90,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
 
 /**
  * `coa run` — start a governed session on the daemon and stream its turns to the
- * terminal. A thin client (D112/D113): it opens the pipe, subscribes to the R-12
+ * terminal. A thin client: it opens the pipe, subscribes to the daemon's
  * push stream, calls `createSession`, and renders each turn/status/cost record as
  * it arrives, resolving when the session reaches its terminal status. The session
  * itself lives in the daemon; this process only renders. Exit code follows the
@@ -151,15 +148,22 @@ export interface DaemonOptions {
   walPath?: string;
   /** Endpoint override; defaults to {@link defaultDaemonPath}. */
   path?: string;
+  /**
+   * The worktree the daemon governs; defaults to the process's working directory, which
+   * is what a user running `coa serve` means. Overridable because the reconciler walks
+   * and hashes this root at startup: a test that leaves it at the default boots a daemon
+   * over the whole checkout, so its cost grows with the repo rather than with the test.
+   */
+  root?: string;
   /** How the `shutdown` verb tears the process down (injected for tests); defaults to close-then-exit. */
   onShutdown?: (server: RpcServer) => void;
 }
 
 /**
- * Start the daemon: construct the full session closure (M1–M7 + the M9 adapter
- * factory), then serve both the inspector reads and the session-lifecycle verbs.
- * Handlers are built per connection so each `createSession` streams its turns over
- * the connection that opened it (the R-12 push seam).
+ * Start the daemon: construct the full session closure (the daemon core plus the
+ * backend adapter factory), then serve both the inspector reads and the
+ * session-lifecycle verbs. Handlers are built per connection so each
+ * `createSession` streams its turns over the connection that opened it.
  */
 /**
  * Fetch every provider's models and flatten them into one list. A provider whose
@@ -221,36 +225,24 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
 
-  // The agent registry AND `startChild` (session-handlers.ts) both need to exist to
-  // resolve a session's spawn port, but neither does until AFTER `buildSessionDeps`
-  // returns (`registry` below needs `deps.checkpoint`/`releaseWorktree`, so it can't be
-  // built first either — an ordinary composition-root cycle). Broken by a holder:
-  // `startChild` is captured into it once, synchronously, inside the per-connection
-  // handler map below — before any connection can process an RPC call, and therefore
-  // before anything could ever reach a `spawn_agent` dispatch. `agentRegistry` itself
-  // is read directly (a `const` in this same scope; `resolveSpawn` only reads it once
-  // actually invoked, well after the `const` below has initialized).
-  const spawnHolder: { startChild?: StartChildFn } = {};
-
+  // The session service resolves a session's spawn port, but it can't exist until
+  // AFTER `buildSessionDeps` returns — and `buildSessionDeps` wants `resolveSpawn`
+  // (`registry` below needs `deps.checkpoint`/`releaseWorktree`, so it can't be built
+  // first either — an ordinary composition-root cycle). `resolveSpawn` reads the
+  // `const`s in this same scope DIRECTLY rather than through a holder: it fires only
+  // once a session is actually running a turn, long after every `const` below has
+  // initialized, since no session can exist before `bindDaemon` at the end of this
+  // function even accepts a connection.
   const { deps, handle, models, modelAccounts } = buildSessionDeps({
     walPath,
-    root: process.cwd(),
-    resolveSpawn: (sessionId) => {
-      const startChild = spawnHolder.startChild;
-      if (startChild === undefined) {
-        // Should be unreachable: `startChild` is bound before any connection can
-        // process an RPC call, and no session can exist before that. Loud, never
-        // silent — SC-1 forbids a throw, so this degrades to "spawning unavailable".
-        options.err('coa: spawn requested before startChild was wired — spawning unavailable');
-        return undefined;
-      }
-      return {
-        listAgents: () => agentRegistry.list().agents,
-        startChild: (req) => startChild(sessionId, req),
-      };
-    },
+    root: options.root ?? process.cwd(),
+    resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
   });
-  const consoleHandlers = buildDaemonConsoleHandlers(handle);
+  // The driven-login plumbing imports the backend package, so it is built here (the
+  // composition root) and injected into the login manager the handler map constructs.
+  const consoleHandlers = buildDaemonConsoleHandlers(handle, {
+    loginDriver: buildClaudeLoginDriver(homedir()),
+  });
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
   const modelCatalog = new ModelCatalogStore(homedir());
   // The agent-assembly catalogue the console picker reads (starter registry today).
@@ -265,18 +257,30 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     saveAgent: (ref, file, scope) => agentRegistry.save(ref, file, scope),
     deleteAgent: (ref, scope) => agentRegistry.remove(ref, scope),
   });
-  // The R-7 conversation store lives beside the WAL under the gitignored `.coa/local/`.
-  const store = createConversationStore(join(process.cwd(), '.coa', 'local', 'conversation'));
+  // The persistent conversation store lives beside the WAL under the gitignored `.coa/local/`.
+  // Reads there never throw — they return what they could read — so anything they had to
+  // drop is logged here. Otherwise a conversation that lost part of its record comes back
+  // looking whole, both to the console and to the model being handed its own memory.
+  const store = createConversationStore(
+    join(process.cwd(), '.coa', 'local', 'conversation'),
+    undefined,
+    {
+      reportUnreadable: ({ sessionId, file, count }) =>
+        console.error(
+          `conversation store: session ${sessionId} — ${count} unreadable record(s) in ${file}, skipped`,
+        ),
+    },
+  );
   const conversationHandlers = buildConversationHandlers(store);
-  // The daemon-authoritative home for every conversation's live session (docs/adr/0011),
+  // The daemon-authoritative home for every conversation's live session (the daemon,
+  // not any client, owns a live session across turns),
   // constructed once — same lifetime as `store` — so two connections sharing a
   // conversation id share the one live session rather than each getting their own.
-  // `onClose` is the SINGLE teardown path (live-registry.ts#close): the M1
+  // `onClose` is the SINGLE teardown path (live-registry.ts#close): the change-event-spine
   // checkpoint + worktree release happen exactly once here, on whichever of
   // idle-eviction / the `closeSession` verb / shutdown (`closeAll`) tears a
   // session down — never in `session-handlers.ts` directly (no double-release).
-  // Idle-eviction never fires on a still-`running` session (see FIX #1's
-  // running-aware re-arm), so this only actually releases a live adapter's
+  // Idle-eviction never fires on a still-`running` session (see the  // running-aware re-arm), so this only actually releases a live adapter's
   // worktree on the explicit `closeSession` verb or shutdown — attended-v1-acceptable.
   const registry = new LiveSessionRegistry({
     idleMs: DEFAULT_LIVE_IDLE_MS,
@@ -284,6 +288,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       deps.checkpoint();
       if (s.worktree !== undefined) deps.releaseWorktree(s.worktree);
     },
+  });
+  // The daemon's ONE owner of live-session lifetime: the drive loop, the spawn dispatch,
+  // and the conversation store all hang off this single instance. A connection never owns
+  // any of it — it only translates RPC into calls against this service, so a turn sent
+  // over a second console reaches exactly the same machinery as the first console's.
+  const sessions = new SessionService({
+    deps,
+    registry,
+    store,
+    listAgents: () => agentRegistry.list().agents,
   });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
@@ -311,12 +325,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...agentHandlers,
     ...conversationHandlers,
     ...shutdownHandlers,
-    ...buildSessionHandlers(deps, connection, store, registry, {
-      listAgents: () => agentRegistry.list().agents,
-      onStartChild: (fn) => {
-        spawnHolder.startChild = fn;
-      },
-    }),
+    ...buildSessionHandlers(sessions, connection),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.

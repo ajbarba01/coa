@@ -27,7 +27,7 @@ const KEY_HASH_LENGTH = 6;
  * Pure: the profile key for an identity — a readable slug plus a short digest of the
  * normalized address, e.g. `wormsegment1000-gmail-com-4f9a2c`.
  *
- * Keyed by IDENTITY rather than by account row (docs/adr/0021). The consequences are the
+ * Keyed by IDENTITY rather than by account row. The consequences are the
  * point: a relogin reuses the jar it already signed into, two providers signed in as the
  * same person share one jar, and removing an account row no longer strands a directory
  * nothing can name again.
@@ -49,7 +49,7 @@ export function profileKey(email: string): string | undefined {
 }
 
 /** Pure: the root coa owns for browser sessions — the shims and relayed urls live directly
- *  here, the jars one level down (docs/adr/0024). */
+ *  here, the jars one level down. */
 export function browserSessionRoot(home: string): string {
   return join(home, '.coa', 'browser-session');
 }
@@ -60,7 +60,7 @@ export function browserSessionRoot(home: string): string {
  * Measured 2026-07-31: ~90% of a profile is not the login. The model store, the Safe
  * Browsing database and the component cache live at the user-data-dir root, while the
  * actual sign-in — 44 KB of cookies — lives in the profile directory. Sharing the root pays
- * the large half once for all identities instead of once per identity (docs/adr/0024).
+ * the large half once for all identities instead of once per identity.
  *
  * Nested under {@link browserSessionRoot} rather than being it, so Chrome's ~30 root
  * directories stay contained and the root coa owns is still readable by eye.
@@ -71,7 +71,7 @@ export function browserUserDataDir(home: string): string {
 
 /** Pure: an identity's browser profile (its own cookie jar), keyed by {@link profileKey}.
  *  A `--profile-directory` inside the shared root — verified 2026-07-31 to carry its own
- *  `Network/Cookies`, `Login Data` and `Preferences`, which is the isolation ADR-0018
+ *  `Network/Cookies`, `Login Data` and `Preferences`, which is the per-profile isolation the login design
  *  requires and how multi-person Chrome has always worked. */
 export function browserProfileDir(home: string, key: string): string {
   return join(browserUserDataDir(home), key);

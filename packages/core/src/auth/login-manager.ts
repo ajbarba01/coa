@@ -1,14 +1,15 @@
 import { isAbsolute, join, relative } from 'node:path';
+import type { LoginDriverHandle, LoginDriverPort } from '@coa/spi';
 import type { AccountsRegistry } from './registry.js';
 import { mintAccountId } from './registry.js';
 
 /**
  * The driven-login orchestrating state machine (core). Watches a rented CLI's
  * OAuth handshake via an injected `LoginDriverPort` (the adapter's pty driver +
- * managed-login-dir semantics — core never imports the adapter directly, keeping
- * the adapter import surface at the composition root) and folds the result into
+ * managed-login-dir semantics — core never imports the adapter; the composition
+ * root builds the driver and injects it) and folds the result into
  * the credential-blind `AccountsRegistry`. Also owns the generic health/identity
- * channel: SC-1 means a broken account is flagged (`needs-relogin`), never
+ * channel: a broken account is flagged (`needs-relogin`), never
  * auto-switched or blocked.
  */
 
@@ -16,7 +17,7 @@ import { mintAccountId } from './registry.js';
  * Pure: whether `dir` is a login directory coa itself created — inside its own
  * `~/.coa/logins` root, and not the root itself.
  *
- * The boundary that makes deleting-on-removal safe (docs/adr/0023). An account added by
+ * The boundary that makes deleting-on-removal safe. An account added by
  * pointing at an existing config dir is the user's own data; coa may forget the row, but it
  * has no business deleting the directory. Anything it cannot positively claim it created is
  * left alone, so the failure mode is always "kept", never "destroyed".
@@ -50,32 +51,11 @@ export interface LoginSnapshot {
   error?: string; // set on failed
 }
 
-export interface LoginDriverHandle {
-  onUrl(fn: (url: string) => void): void;
-  onExit(fn: (code: number | undefined) => void): void;
-  writeCode(code: string): void;
-  kill(): void;
-  readonly ptyCaptured: boolean;
-}
-
-export interface LoginDriverPort {
-  /** `browserLauncher`, when present, is the courier shim: it displaces the rented CLI's own
-   *  default-browser open and writes down the authorize url the CLI would have opened, which
-   *  is the one that completes without a pasted code (docs/adr/0020). Absent ⇒ the spawn is
-   *  exactly today's. */
-  start(opts: { dir: string; email: string; browserLauncher?: string }): LoginDriverHandle;
-  probe(
-    dir: string,
-  ): Promise<{ loggedIn: boolean; email?: string; subscriptionType?: string } | undefined>;
-  home: string;
-  dirFor(email: string): string; // managedLoginDir(home, email)
-}
-
 /** The isolation seam. Core asks; the composition root decides (setting, provider
  *  capability, detected browser) and never explains itself here. `openUrl` performs the real
  *  open; the url core hands it is the one it captured off the CLI's output, which the
  *  implementation treats as a FALLBACK — it prefers the url the `BROWSER` shim relayed,
- *  which completes without a pasted code (docs/adr/0020). Fire-and-forget by contract. */
+ *  which completes without a pasted code. Fire-and-forget by contract. */
 export interface BrowserSessionPort {
   launcherFor(email: string): string | undefined;
   openUrl(email: string, url: string): void;
@@ -192,7 +172,7 @@ export class LoginManager {
       flow.snapshot = { ...flow.snapshot, phase: 'awaiting', oauthUrl: url };
       if (flow.isolated && !flow.opened) {
         // Set before the call, not after: the "at most once" guarantee has to hold even
-        // if the port itself throws (SC-1 — see the catch below).
+        // if the port itself throws (see the catch below).
         flow.opened = true;
         try {
           this.#browser?.openUrl(flow.email, url);
@@ -228,16 +208,16 @@ export class LoginManager {
     const landedEmail = flow.snapshot.landedEmail;
     // Retrying a dir that is already signed in would land the same credentials again — the
     // way out is to keep it or cancel, not to loop. Signing that dir out is the user's own
-    // action, deliberately not coa's (docs/adr/0017).
+    // action, deliberately not coa's.
     if (action === 'retry' && phase === 'preexisting') return this.snapshot();
     if (action === 'retry') {
       // The jar now holds the session that landed the WRONG account, so a retry that reused
       // it would land the same one again. Keying by identity means the retry gets the same
-      // directory back, so it has to be emptied rather than abandoned (docs/adr/0021).
+      // directory back, so it has to be emptied rather than abandoned.
       try {
         this.#browser?.removeProfile(flow.email);
       } catch {
-        // A jar we cannot clear costs a repeat mismatch, never the login (SC-1).
+        // A jar we cannot clear costs a repeat mismatch, never the login.
       }
       // #clearFlow (called by startLogin below) does the one kill — don't double-kill here.
       return this.startLogin({
@@ -350,7 +330,7 @@ export class LoginManager {
         try {
           flow.handle.kill();
         } catch {
-          // A CLI we cannot kill is a stray process, never a failed flow (SC-1).
+          // A CLI we cannot kill is a stray process, never a failed flow.
         }
         flow.mismatchStatus = status;
         flow.snapshot = {
@@ -361,7 +341,7 @@ export class LoginManager {
       })
       .catch(() => {
         // A baseline we cannot establish must not strand the flow: treat the dir as clean
-        // and let the poll behave exactly as it did before (SC-1).
+        // and let the poll behave exactly as it did before.
         if (flow.baseline === 'unknown') flow.baseline = 'clean';
       });
   }
@@ -451,7 +431,7 @@ export class LoginManager {
    * The single funnel every probe-driven completion passes through — the poll, and the grace
    * probe the CLI's exit schedules. The baseline verdict is enforced HERE rather than at each
    * caller: guarding only the poll left the exit path free to register a session that predated
-   * the flow, which is the bug this shape exists to prevent (docs/adr/0022). The user's
+   * the flow, which is the bug this shape exists to prevent. The user's
    * explicit "use it" goes to {@link #complete} directly and is deliberately unaffected.
    */
   #finalize(

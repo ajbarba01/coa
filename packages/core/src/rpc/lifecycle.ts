@@ -4,7 +4,7 @@ import { listen, type RpcServer } from './transport.js';
 import type { StreamHandlers } from './stream.js';
 
 /**
- * M8 — the crash-safe daemon bind lifecycle (D140 clause 6). The rule: NEVER
+ * The crash-safe daemon bind lifecycle . The rule: NEVER
  * blind-unlink-then-bind (that is a TOCTOU socket-squat). Instead probe first —
  * connect-and-see whether a live daemon answers. If one does, refuse (the caller
  * should attach as a client). If the path only holds a STALE endpoint (a Unix

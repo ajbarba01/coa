@@ -1,17 +1,17 @@
 /**
- * D135 — the minimal, secret-clean audit ledger (the secret guard; a build requirement).
+ * The minimal, secret-clean audit ledger (the secret guard; a build requirement).
  * A local-only billing/audit record defined by a **strict allow-list (NOT a
  * deny-list)** over the event schema. A deterministic redaction station enforces
- * the allow-list (P1): a field outside it is dropped, never persisted. The ledger
+ * the allow-list: a field outside it is dropped, never persisted. The ledger
  * is local-only by construction (under `.coa/local/`, gitignored, never
  * network-exposed) — the ledger-sync tripwire stays un-tripped.
  *
- * **DT-5 (non-negotiable):** prose-bearing fields (flag messages, the D131
+ * **DT-5 (non-negotiable):** prose-bearing fields (flag messages, the typed
  * feedback reason) NEVER enter this ledger — they stay WAL-local. `record()`
  * structurally excludes them by keeping only the allow-listed keys.
  */
 
-/** The ONLY permitted attributes (D135 allow-list). Anything else is dropped. */
+/** The ONLY permitted attributes (the allow-list). Anything else is dropped. */
 export interface LedgerRecord {
   /** Numeric token counts. */
   tokensIn?: number;
@@ -35,7 +35,7 @@ export interface LedgerRecord {
 
 /**
  * The deterministic redaction station: project an arbitrary runtime event onto the
- * D135 allow-list. Keeps only allow-listed, well-typed fields; drops every other
+ * the allow-list. Keeps only allow-listed, well-typed fields; drops every other
  * field, drops any string that carries a full/absolute path, and flattens+caps
  * (never drops) an otherwise-allowed string that is over-length or carries a
  * hostile character (see {@link flattenPathSafe}).
@@ -67,7 +67,7 @@ export class Ledger {
     if (Object.keys(redacted).length > 0) this.records.push(redacted);
   }
 
-  /** Read the local audit ledger (billing/audit + the D143 A/B numeric record). */
+  /** Read the local audit ledger (billing/audit + the A/B numeric record). */
   entries(): LedgerRecord[] {
     return [...this.records];
   }
@@ -103,7 +103,7 @@ const MAX_PATH_SAFE_LENGTH = 256;
  * the escaping boundary here. Flattening (never dropping) is deliberate: unlike
  * an absolute path, a long or control-charactered value is not inherently a
  * privacy leak — silently discarding the field would just make the audit trail
- * incomplete, which is the one thing D135's ledger cannot be. This runs BEFORE
+ * incomplete, which is the one thing this ledger cannot be. This runs BEFORE
  * `looksAbsolute` is checked (below), so a value that only *looks* safe because a
  * leading control character hides its `/`-prefix (e.g. a NUL then a real
  * absolute path) still gets caught once flattening exposes it.

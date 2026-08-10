@@ -1,9 +1,9 @@
 /**
- * GRF-5 — the WAL⨝structure temporal projection: coa's measured differentiator.
+ * The WAL⨝structure temporal projection: coa's measured differentiator.
  * The WAL (every edit, finer than a git commit) joined with the structure graph
  * yields the temporal metrics pure-static tools cannot compute natively — churn,
  * hotspots (churn × complexity), and change/temporal coupling (co-change). This
- * is a deterministic projection (P4 — a *temporal* view), **not** a parallel
+ * is a deterministic projection (a *temporal* view), **not** a parallel
  * history store: the WAL is the only temporal substrate. The change-set boundary
  * (what counts as "changed together") is a grouping key — by `ts` by default.
  */
@@ -16,7 +16,7 @@ export interface FileTouch {
 export interface TemporalView {
   node: string;
   churn: number;
-  /** churn × complexity (degrades to churn when complexity is unknown — D85). */
+  /** churn × complexity (degrades to churn when complexity is unknown). */
   hotspot: number;
   /** Other nodes that co-changed in the same change set, by frequency then name. */
   changeCoupling: { node: string; count: number }[];

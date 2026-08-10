@@ -1,14 +1,14 @@
 import type { FlagRecord, Severity } from '@coa/shared';
 
 /**
- * M3's assignment logic for M0's `severity`/`confidence` slots (CF-2 two-axis +
- * D134 cheap structural projection). Pure and deterministic — no model on this
- * path (P1). M0 owns the fields; this owns the values.
+ * The flag pipeline's assignment logic for the shared schema's `severity`/`confidence`
+ * slots (CF-2 two-axis + a cheap structural projection). Pure and deterministic — no model on this
+ * path. The shared schema owns the fields; this owns the values.
  *
  * The two axes are independent: SEVERITY = how bad if real (drives the user's
  * prioritization and the gate); CONFIDENCE = how sure it is real (drives
  * agent-injection gating). The projection composes only cheap signals coa already
- * has — verdict-type, the D134 structural score, evidence-determinism,
+ * has — verdict-type, the structural score, evidence-determinism,
  * cross-producer corroboration, measured per-rule precision, and scope match. The
  * cut-points are conservative starting numbers calibratable by the v0 spike (the
  * spike gates magnitude, not soundness).
@@ -16,19 +16,19 @@ import type { FlagRecord, Severity } from '@coa/shared';
 
 /** The cheap signals the projection composes. Producer-supplied except `corroboration` (the pipeline counts it from the concernKey group). */
 export interface FlagSignals {
-  /** D134: lines changed in the flagged edit. */
+  /** Structural-score input: lines changed in the flagged edit. */
   linesChanged?: number;
-  /** D134: size (in lines) of the enclosing node. */
+  /** Structural-score input: size (in lines) of the enclosing node. */
   nodeSize?: number;
-  /** D134: a signature/arity/export change outranks a body-only edit. */
+  /** Structural-score input: a signature/arity/export change outranks a body-only edit. */
   structuralShake?: boolean;
   /** CF-7: how many distinct producers corroborate this concern (>= 1). */
   corroboration?: number;
   /** CF-2: the producer has a deterministic basis (e.g. rename-provenance from the WAL). */
   evidenceDeterminism?: boolean;
-  /** D135 ledger: measured per-rule precision in [0, 1], if known. */
+  /** Measured per-rule precision in [0, 1], if known. */
   measuredPrecision?: number;
-  /** D32: does the flag's location fall inside the active scope? */
+  /** Does the flag's location fall inside the active scope? */
   inScope?: boolean;
 }
 
@@ -73,7 +73,7 @@ export function assignSeverity(flag: FlagRecord, signals: FlagSignals): Severity
   return LADDER[index] ?? 'low';
 }
 
-/** D134: a structural shake, or a large change relative to node size, bumps severity. */
+/** A structural shake, or a large change relative to node size, bumps severity. */
 function structuralBump(signals: FlagSignals): boolean {
   if (signals.structuralShake === true) return true;
   if (

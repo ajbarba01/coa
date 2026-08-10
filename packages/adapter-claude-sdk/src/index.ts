@@ -1,35 +1,16 @@
 /**
- * @coa/adapter-claude-sdk (M9 impl) — the one backend implementation: the
+ * @coa/adapter-claude-sdk — the one backend implementation of the runtime port: the
  * neutral→native renderer, the TS-LSP backend, and the SDK loop with its two
  * hooks. The ONLY package permitted to import the Claude Agent SDK
- * (backend-isolation). The core never imports this package — M8 injects it at
- * session construction (D121), keeping M9 a swappable leaf.
+ * (backend-isolation). The core never imports this package — the daemon injects it at
+ * session construction, keeping the adapter a swappable leaf.
  *
- * This entry currently exports the pure renderer; the live SDK loop, the hook
- * wiring, and the TS-LSP `refs` backend are wired in a subsequent step.
+ * The barrel exports only the injection seams the daemon/CLI consume: the adapter
+ * itself, the model-catalog fetch, and the managed-login probe/driver. The renderer
+ * and hook wiring are internal to the adapter.
  */
 
-export * from './render-native.js';
-export * from './sdk-options.js';
-export * from './session-options.js';
-export * from './claude-sdk-adapter.js';
-export { messageToFrames } from './turn-frames.js';
-export { toSdkPrompt } from './session-input.js';
-export { reasoningToOptions } from './reasoning.js';
-export { modelInfoToDescriptor, fetchClaudeModels } from './models.js';
-export { DEFAULT_CLEAR_VARS, resolveAuthEnv } from './auth-env.js';
-export {
-  authStatusSchema,
-  parseAuthStatus,
-  probeAuthStatus,
-  type AuthStatus,
-  type RunCommand,
-} from './auth-status.js';
-export {
-  emailSlug,
-  extractOauthUrl,
-  loginEnv,
-  managedLoginDir,
-  spawnLogin,
-  type LoginProcess,
-} from './login-driver.js';
+export { ClaudeSdkAdapter } from './claude-sdk-adapter.js';
+export { fetchClaudeModels } from './models.js';
+export { probeAuthStatus } from './auth-status.js';
+export { extractOauthUrl, managedLoginDir, spawnLogin } from './login-driver.js';

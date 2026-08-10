@@ -121,7 +121,7 @@ export function loadAgentScope(
 /**
  * Fold scopes into one effective set. Pass them in precedence order — built-in,
  * personal, project — and the LAST occurrence of a ref wins (most specific), the
- * same posture as coa's built-in ∪ user merge (docs/adr/0003). Cross-scope
+ * same posture as coa's built-in ∪ user merge. Cross-scope
  * collisions are intentional overrides and are not diagnostics; within-scope
  * duplicates were already reported by the loader.
  */
@@ -168,14 +168,22 @@ export class AgentRegistry {
     writeFileSync(path, stringify(file), 'utf8');
   }
 
-  /** `false` when there was nothing to remove — a double delete is not an error. */
+  /**
+   * Delete one definition. `false` means there was nothing there to delete — a second
+   * delete of the same agent is a no-op, not a failure. Every OTHER filesystem error
+   * (the YAML file open in an editor, a read-only directory) is THROWN so the caller
+   * sees it: answering "removed nothing" to a delete that actually FAILED is
+   * indistinguishable from the benign case, and upstream that reads as success — a
+   * cross-scope move whose old copy is still on disk reports as a clean move.
+   */
   remove(ref: string, scope: 'personal' | 'project'): boolean {
     const path = this.#pathFor(ref, scope);
     try {
       rmSync(path);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (isMissing(error)) return false;
+      throw error;
     }
   }
 
@@ -183,4 +191,11 @@ export class AgentRegistry {
     if (!SAFE_REF.test(ref)) throw new Error(`invalid agent ref: ${ref}`);
     return join(agentScopeDir(this.#home, this.#root, scope), `${ref}.yaml`);
   }
+}
+
+/** True for the errno codes that mean "this path is not there" — including a parent
+ *  component that is missing or is itself a file (which surfaces as ENOTDIR). */
+function isMissing(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
 }

@@ -14,6 +14,7 @@
     { "path": "../../packages/shared" },
     { "path": "../../packages/core" },
     { "path": "../../packages/console-viewmodel" },
+    { "path": "../../packages/console-kit" },
     { "path": "../../packages/console-transcript" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"],

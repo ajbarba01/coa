@@ -94,7 +94,7 @@ function OutputBlocks({
 }
 
 /** Live-only renderer for a streaming agent-text / reasoning block. The caller mounts this ONLY
- *  while `streaming === true` and swaps to plain `<Markdown>` on settle (D85 — byte-identical, no
+ *  while `streaming === true` and swaps to plain `<Markdown>` on settle (byte-identical, no
  *  re-animate). Reasoning (`perWord`) types out per-word; agent output reveals a whole formatted
  *  markdown block at a time (its in-progress trailing block is held until it completes). */
 export function StreamingMarkdown({

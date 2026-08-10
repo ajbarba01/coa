@@ -1,5 +1,5 @@
 /**
- * M8 — the newline-delimited JSON (NDJSON) framing codec for the daemon protocol.
+ * The newline-delimited JSON (NDJSON) framing codec for the daemon protocol.
  * It turns a byte stream into discrete JSON-RPC message lines and back, the layer
  * between any stream transport (named pipe / socket / stdio) and the
  * transport-agnostic {@link dispatch} router. Pure and platform-neutral; it does

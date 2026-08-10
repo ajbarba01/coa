@@ -6,8 +6,8 @@ import type { ContextSlice, FlagRecord } from '@coa/shared';
  * **auto-groups by shared context** before running: flags whose `envelope()`
  * overlaps batch into ONE judge call with the union of their context; flags that
  * need different slices are NOT lumped, even at the cost of more calls (correctness
- * beats token-saving). The model judge itself is M9's (injected) — user-invoked,
- * off the critical path (P1).
+ * beats token-saving). The model judge itself is the backend adapter's (injected) — user-invoked,
+ * off the critical path.
  */
 
 export type Verdict = 'confirmed' | 'refuted' | 'uncertain';
@@ -25,7 +25,7 @@ export interface ValidatorGroup {
   context: ContextSlice[];
 }
 
-/** The injected judge port — M9 runs the cheap model call over the grouped context. */
+/** The injected judge port — the backend adapter runs the cheap model call over the grouped context. */
 export type ValidatorJudge = (group: ValidatorGroup) => Promise<ValidatorVerdict[]>;
 
 export interface ValidatorRun {

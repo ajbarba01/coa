@@ -92,7 +92,7 @@ function PaneOverlaySpecimen(): React.JSX.Element {
 }
 
 /** One kit member's living reference: a bordered block naming the registry id it
- *  answers to (`Task 2's` coverage test keys off `data-specimen`). */
+ *  answers to (the kit-coverage test keys off `data-specimen`). */
 function Specimen({ id, children }: { id: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <section data-specimen={id} className="flex flex-col gap-2 border-b border-s3 py-4">
@@ -614,7 +614,7 @@ function SettingsFrameSpecimens(): React.JSX.Element {
 }
 
 /** Every registered kit member, one `data-specimen` section each — the living
- *  reference Task 2's specimen step extends as new members ship. */
+ *  reference that grows a specimen as new members ship. */
 export function KitSpecimens(): React.JSX.Element {
   return (
     <TooltipProvider>

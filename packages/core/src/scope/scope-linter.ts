@@ -4,7 +4,7 @@ import type { Scope, ScopeExpr } from '@coa/shared';
  * SCO-5 — the scope linter (anti-silent-failure, anti-rot; load-bearing, not a
  * nicety). The universal failure of glob-scoped rule systems is silent
  * non-attachment (a leaf matches nothing, nothing tells you) and rot (leaves
- * reference moved/deleted paths). The linter surfaces these as findings — M3
+ * reference moved/deleted paths). The linter surfaces these as findings — the flag pipeline
  * later wraps them as ordinary Type-2 flags (surfaced, never blocking). Drift
  * detection (members no longer sharing their dependency cluster) is deferred.
  */

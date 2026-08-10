@@ -11,13 +11,13 @@ import type {
   ModelDescriptor,
   ModelSelection,
   PackageSummary,
-  PersistedTurnWire,
+  ReloadedConversationWire,
   ReasoningProfile,
   RoleSummary,
   SessionSummary,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-import type { DaemonStatus } from '../shared/methods.js';
+import type { DaemonReport } from '../shared/methods.js';
 
 export {};
 declare global {
@@ -58,7 +58,7 @@ declare global {
       /** The browser-binary override; an empty path clears it back to auto-detection. */
       setBrowserPath(params: { path: string }): Promise<AuthView>;
       /** Delete browser profiles no account resolves to. Only ever runs on a user's click —
-       *  coa never sweeps profiles on its own initiative (docs/adr/0018). */
+       *  coa never sweeps profiles on its own initiative (profile cleanup only ever happens at the user's explicit request). */
       reclaimBrowserProfiles(params: { names: string[] }): Promise<AuthView>;
       /** Re-read every pointer locator — identity, expiry, limits — on demand. */
       refresh(): Promise<AuthView>;
@@ -73,16 +73,16 @@ declare global {
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
-      reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
+      reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
       /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
-       *  Advisory (SC-1 — a user stop, never a governance block). */
+       *  Advisory (advisory — a user stop, never a governance block). */
       interruptSession(params: { id: string }): Promise<{ interrupted: boolean }>;
       /** Steer a running turn — proxies the daemon's `steerSession`. Delivered at the turn's
-       *  next round trip, discarding nothing (SC-1 — a user redirect, never a block). */
+       *  next round trip, discarding nothing (advisory — a user redirect, never a block). */
       steerSession(params: { id: string; text: string }): Promise<{ steered: boolean }>;
-      /** Console reattach (G4) — proxies the daemon's `subscribeSession`, which
+      /** Console reattach — proxies the daemon's `subscribeSession`, which
        *  immediately hydrates this connection with the session's CURRENT run-status. */
       subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
       listModels(): Promise<ModelDescriptor[]>;
@@ -109,14 +109,14 @@ declare global {
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;
       /** Reveal a touched file in the editor/OS at an optional line (a tool card's path
-       *  link). Confined to the named session's worktree; advisory (never blocks — SC-1). */
+       *  link). Confined to the named session's worktree; advisory (never blocks). */
       openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
         ok: boolean;
         revealed?: 'editor' | 'folder';
         reason?: string;
       }>;
       /** Open a web URL (a tool card's WebSearch/WebFetch link) in the default browser.
-       *  Validated to http(s) only; advisory (never blocks — SC-1). */
+       *  Validated to http(s) only; advisory (never blocks). */
       openExternal(params: { url: string }): Promise<{ ok: boolean; reason?: string }>;
       /** The native directory picker (a directory field's browse affordance). Cancelling
        *  returns no path — the caller keeps whatever the field already held. */
@@ -137,7 +137,8 @@ declare global {
         file: AgentFile;
       }): Promise<{ ok: boolean }>;
       /** Remove one agent definition — proxies the daemon `deleteAgent`. `removed` is
-       *  `false` when there was nothing to remove (a double delete is not an error). */
+       *  `false` ONLY when there was nothing there to remove (a double delete is not an
+       *  error); a remove that actually failed REJECTS, so the caller can say so. */
       deleteAgent(params: {
         ref: string;
         scope: 'personal' | 'project';
@@ -165,13 +166,16 @@ declare global {
       saveLayout(descriptor: unknown): Promise<void>;
       getSettings(): Promise<ConsoleSettings>;
       saveSettings(settings: ConsoleSettings): Promise<void>;
-      /** Title-bar daemon lifecycle control + a one-way status subscription. */
+      /** Title-bar daemon lifecycle control + a one-way status subscription. Every report
+       *  carries the reason behind a failure, so the gate can say why and not just that. */
       daemon: {
-        status(): Promise<DaemonStatus>;
+        status(): Promise<DaemonReport>;
         start(): Promise<void>;
+        /** Attach to an already-serving daemon; never spawns one. */
+        adopt(): Promise<void>;
         stop(): Promise<void>;
         restart(): Promise<void>;
-        onStatus(listener: (status: DaemonStatus) => void): () => void;
+        onStatus(listener: (report: DaemonReport) => void): () => void;
       };
       /** Custom (DOM) window controls + a one-way maximized-state subscription. */
       window: {

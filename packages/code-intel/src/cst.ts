@@ -1,8 +1,8 @@
 import type Parser from 'tree-sitter';
 
 /**
- * The serializable inner shape of an M0 {@link CST} `tree`. A plain object graph
- * — no native handles — so the parse tree crosses the D112 child-process
+ * The serializable inner shape of a {@link CST} `tree`. A plain object graph
+ * — no native handles — so the parse tree crosses the child-process
  * boundary as JSON and the byte-pure extractors walk it without the tree-sitter
  * addon. It mirrors the concrete syntax tree faithfully: every child (named and
  * anonymous) is retained, each carrying its own `text` so name/operator/token

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
@@ -27,7 +28,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@coa/adapter-deepseek": "workspace:*",
     "@types/node": "^26.0.1",
     "yaml": "^2.8.1"
   },

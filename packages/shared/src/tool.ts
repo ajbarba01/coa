@@ -3,8 +3,9 @@ import type { InjectionBundle } from './flag.js';
 import { diffSpecSchema } from './patch.js';
 
 /**
- * The tool-boundary wire types (D127 schema half). The wire *policy* over this
- * grammar is M8's and the human-facing verb grammar is M10's; M0 owns the types.
+ * The tool-boundary wire types (the schema half). The wire *policy* over this
+ * grammar is the session host's and the human-facing verb grammar is the console's;
+ * this package owns the types.
  */
 
 /** A reference to a symbol — by name, or by path (optionally a symbol within it). */
@@ -30,7 +31,7 @@ export const toolCallSchema = z.object({
 });
 export type ToolCall = z.infer<typeof toolCallSchema>;
 
-/** The governed tool surface the loop calls (the representative v1 set; the real catalogue is M6's). */
+/** The governed tool surface the loop calls (the representative v1 set; the real catalogue lives in the tool layer). */
 export const toolRequestSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('get_symbol'), ref: symbolRefSchema }),
   z.object({ tool: z.literal('edit_symbol'), ref: symbolRefSchema, diff: diffSpecSchema }),

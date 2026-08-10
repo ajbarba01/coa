@@ -22,7 +22,7 @@ describe('webSearch', () => {
     expect(res.pointer).toBe('find x');
   });
 
-  it('SC-1: an exhausted chain returns empty results with a reason (never throws)', async () => {
+  it('an exhausted chain returns empty results with a reason (never throws)', async () => {
     const res = await webSearch(
       { query: 'q' },
       { searchChain: async () => ({ status: 'exhausted', lastReason: 'all-down' }) },
@@ -70,7 +70,7 @@ describe('webFetch', () => {
     });
   });
 
-  it('D85: degrades to raw markdown when no summarizer is configured', async () => {
+  it('degrades to raw markdown when no summarizer is configured', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
       { fetchChain: okChain('hello', false) },
@@ -104,7 +104,7 @@ describe('webFetch', () => {
     expect(seen).toBe('abc');
   });
 
-  it('SC-1: an exhausted chain returns an unapplied result carrying the last reason', async () => {
+  it('an exhausted chain returns an unapplied result carrying the last reason', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
       { fetchChain: async () => ({ status: 'exhausted', lastReason: 'dead-url' }) },
@@ -112,7 +112,7 @@ describe('webFetch', () => {
     expect(res.result).toMatchObject({ fetched: false, reason: 'dead-url' });
   });
 
-  it('SC-1: a summarizer throw degrades to raw markdown (never throws)', async () => {
+  it('a summarizer throw degrades to raw markdown (never throws)', async () => {
     const res = await webFetch(
       { url: 'https://x.test', prompt: 'p' },
       {

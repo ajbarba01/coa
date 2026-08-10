@@ -21,17 +21,17 @@ import {
 } from './live-smoke-helpers.js';
 
 /**
- * The turn-level-interrupt de-risk gate (docs/adr/0012): a real
+ * The turn-level-interrupt de-risk gate for streaming-input steering: a real
  * `@anthropic-ai/claude-agent-sdk` `query()` in streaming-input mode, driven
  * directly through {@link ClaudeSdkAdapter}, proving the assumption the fake
  * suite could only model — that the SDK's TURN-LEVEL `query.interrupt()` (the
  * handle the adapter reports up via `onTurnInterrupt`, and the one the user-Stop
- * closure in session-handlers.ts calls) (a) stops the current turn while keeping
+ * closure in held-open-driver.ts calls) (a) stops the current turn while keeping
  * the query ALIVE, and (b) lets a message pushed right after run as an ordinary
  * next turn — exactly what happens when a user stops a running turn and then
  * sends a new message. It ALSO records the exact frame sequence the interrupted
  * turn emits — a `turn-boundary`? an `error` frame? nothing? — which is the
- * ground truth for why session-handlers.ts's `query.stopped` guard drops every
+ * ground truth for why held-open-driver.ts's `stopped` turn phase drops every
  * frame type unconditionally, not just `error`. The diagnostic lines below print
  * that sequence for reconciliation.
  *
@@ -119,7 +119,7 @@ describe.skipIf(!process.env['COA_LIVE'])(
       // the whole-query AbortController, which would have settled runLoop by now).
       expect(await isPending(runLoopPromise)).toBe(true);
 
-      // --- DIAGNOSTIC (grounds session-handlers.ts's `query.stopped` guard) -----
+      // --- DIAGNOSTIC (grounds the turn lifecycle's `stopped` phase) ------------
       // Everything the adapter emitted from the interrupt up to the next turn's answer.
       const window = frames.slice(cutIndex);
       const boundariesInWindow = boundaryCount(window);
@@ -134,15 +134,16 @@ describe.skipIf(!process.env['COA_LIVE'])(
 
       // The interrupted turn A emits its OWN terminal result too, so the window carries
       // at least two turn-boundaries (A's abandoned one, then the next turn's). A bare
-      // stop must not lose that fact: session-handlers.ts's `record()` drops every frame
-      // while `query.stopped` is set, so it never depends on counting these boundaries —
+      // stop must not lose that fact: the frame recorder drops every frame
+      // while the turn sits in its `stopped` phase, so it never depends on counting these —
       // but if interrupting a running turn ever stopped emitting A's boundary at all,
       // that would be a real SDK contract change worth knowing about.
       expect(boundariesInWindow).toBeGreaterThanOrEqual(2);
       // A live-established fact: interrupting a RUNNING turn yields a NON-success result
       // (`error_during_execution`) that maps to an error frame for the ABANDONED turn —
-      // exactly what `query.stopped` must (and does) drop, so a user Stop never renders
-      // as an error (SC-1). Locking it here flags any future SDK change to that shape.
+      // exactly what the `stopped` phase must (and does) drop, so a user Stop never renders
+      // as an error (a user stop is deliberate, not a crash). Locking it here flags any
+      // future SDK change to that shape.
       expect(window.some((f) => f.t === 'error' && f.message === 'error_during_execution')).toBe(
         true,
       );

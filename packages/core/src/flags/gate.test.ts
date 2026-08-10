@@ -48,7 +48,7 @@ describe('FlagPipeline.gate (the close-gate — the one legitimate block)', () =
     expect(pipe.gate()).toEqual({ allow: true });
   });
 
-  it('a baselined pre-existing violation does not block but stays visible to the user (D17)', () => {
+  it('a baselined pre-existing violation does not block but stays visible to the user', () => {
     const pipe = new FlagPipeline();
     pipe.ingest(flag());
     pipe.baseline('fp-1');

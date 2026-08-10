@@ -2,7 +2,7 @@
 import type { SessionSummary } from '@coa/console-viewmodel';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../panels/fixtures.js';
+import { makeState } from '../testing/fixtures.js';
 import { arrangeSessions, Browser } from './Browser.js';
 import { useShell } from './store.js';
 
@@ -252,7 +252,7 @@ describe('Browser', () => {
     expect(r.find((el) => el.dataset.sessionId === 'grandchild')?.dataset.depth).toBe('2');
   });
 
-  it('a session with no lineage renders exactly as before (D85)', () => {
+  it('a session with no lineage renders exactly as before', () => {
     mount();
     const r = rows();
     expect(r.every((el) => el.dataset.depth === '0')).toBe(true);
@@ -453,7 +453,7 @@ describe('Browser', () => {
     expect(r.map((el) => el.dataset.sessionId)).toEqual(['rootB', 'childB', 'rootA']);
   });
 
-  it('an already-sorted no-search render is untouched by the group re-sort (D85)', () => {
+  it('an already-sorted no-search render is untouched by the group re-sort', () => {
     const root = {
       id: 'root',
       title: 'root task',

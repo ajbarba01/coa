@@ -84,7 +84,7 @@ describe('renderNative — the capability frame (toolIntents → structural opti
 describe('renderNative — standing authority (systemReminders → prompt)', () => {
   const reminder: Reminder = { rule: 'no-raw-sql', reason: 'use the query builder', tier: 0 };
 
-  it('folds standing reminders into the systemPrompt after the prefix (D108 head/tail)', () => {
+  it('folds standing reminders into the systemPrompt after the prefix (head/tail split)', () => {
     const out = renderNative(
       config({ prefixHead: [ordered(piece('a', 'HEAD'), 0)], systemReminders: [reminder] }),
     );

@@ -19,8 +19,8 @@ vi.mock('../console.js', () => rpc);
 // `activeByProvider` the way the real store's `apply()` does on a real `authView` read.
 const authState = vi.hoisted(() => ({ activeByProvider: {} as Record<string, string> }));
 const hydrate = vi.hoisted(() => vi.fn(async () => undefined));
-vi.mock('./mockAuth.js', () => ({
-  useMockAuth: { getState: () => ({ activeByProvider: authState.activeByProvider, hydrate }) },
+vi.mock('./authStore.js', () => ({
+  useAuthStore: { getState: () => ({ activeByProvider: authState.activeByProvider, hydrate }) },
 }));
 
 import {

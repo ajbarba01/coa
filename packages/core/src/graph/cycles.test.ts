@@ -9,7 +9,7 @@ const edge = (from: string, to: string): GraphEdge => ({
   provenance: 'inferred',
 });
 
-describe('findCycles (GRF-1 retained-cycle model)', () => {
+describe('findCycles (retained-cycle model)', () => {
   it('finds no cycle in a DAG', () => {
     expect(findCycles([edge('a', 'b'), edge('b', 'c')])).toEqual([]);
   });

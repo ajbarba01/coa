@@ -13,8 +13,8 @@ import { spec, type ToolSpec } from './tool-spec.js';
  * executors coa supplies only on the pure-API path — Claude gets equivalents
  * free from the SDK built-ins. Read/Glob/Grep/Write/Edit are in-process MCP
  * tools, so each confines its path through the S-1 `confinePath` precondition
- * before touching disk; Write/Edit funnel through the M1 `emit` spine (P7). Every
- * handler obeys SC-1: it never throws and never denies — a bad path or a spawn
+ * before touching disk; Write/Edit funnel through the kernel's `emit` spine. Every
+ * handler never throws and never denies — a bad path or a spawn
  * failure comes back as an unapplied result the agent can retry.
  */
 export interface BaseToolDeps {
@@ -38,9 +38,9 @@ export interface BaseToolDeps {
   searchFiles: (req: SearchRequest) => readonly GrepHit[];
   /** Run a shell command; never throws (spawn errors come back as a non-zero exit). */
   exec: (command: string, opts: ExecOptions) => ExecResult;
-  /** The single M1 append path (P7); returns the authoritative seq. */
+  /** The single kernel append path; returns the authoritative seq. */
   emit: (draft: ChangeEventDraft) => number;
-  /** Refresh M1's derived projections from new bytes (local, not WAL'd). */
+  /** Refresh the kernel's derived projections from new bytes (local, not WAL'd). */
   reindex?: (relPath: string, bytes: string) => void;
   /** Register the precise write with producer ② so its disk observation dedups to a confirm. */
   expectPrecise?: (relPath: string) => void;
@@ -217,7 +217,7 @@ export type WriteResult =
 
 const sha256 = (bytes: string): string => createHash('sha256').update(bytes).digest('hex');
 
-/** `Write` — confined whole-file create/overwrite, emitted through the M1 spine (P7). */
+/** `Write` — confined whole-file create/overwrite, emitted through the change-event spine. */
 export function write(
   req: { path: string; content: string },
   deps: BaseToolDeps,
@@ -250,7 +250,7 @@ export function write(
   };
 }
 
-/** `Edit` — confined string-replacement edit, emitted through the M1 spine (P7). */
+/** `Edit` — confined string-replacement edit, emitted through the change-event spine. */
 export function edit(
   req: { path: string; old_string: string; new_string: string; replace_all?: boolean | undefined },
   deps: BaseToolDeps,

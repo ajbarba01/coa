@@ -17,7 +17,7 @@ const PS_TIMEOUT_MS = 5000;
  * BrowserSession.openUrl} does in production, in place of the old `BROWSER`-shim relay,
  * in place of ever building a browser command line inside a generated batch file. The shim
  * does relay the url now — via `%*`, which survives where `%1` truncates at the first `=`
- * (docs/adr/0020) — but it only writes it down; nothing but this argv spawn launches a
+ * — but it only writes it down; nothing but this argv spawn launches a
  * browser. An argv array has no shell in the path to lose the quoting to,
  * which is exactly what this test checks for — and only that. It does NOT exercise
  * {@link BrowserSession.openUrl} itself (that's unit-tested with an injected `launch`), does

@@ -20,7 +20,7 @@ import { KeyStateStore, locatorId } from './key-state-store.js';
 
 /**
  * The web-egress config: the routed search chain + the routed fetch chain. Every
- * credential is the shared account {@link Locator} (M0) — one credential-blind
+ * credential is the shared account {@link Locator} — one credential-blind
  * schema for the whole system. `.strip()` + Zod-validated at the edge.
  */
 /** A web credential: the shared account Locator + an operator bench flag. A per-element
@@ -163,7 +163,7 @@ function makeSearchAdapter(
  * Assemble the routed search chain: each resolvable credential becomes a keyed hop
  * in priority order. There is NO free floor for search (no free search backend), so
  * an empty or fully-exhausted chain resolves to `exhausted` and the handler returns
- * empty results (SC-1 / D85).
+ * empty results.
  */
 function buildSearchChain(
   searchCfg: WebSearchConfig | undefined,
@@ -197,8 +197,8 @@ function buildSearchChain(
 /**
  * Build the pure-API web-tool ports from config. Both chains share one
  * {@link KeyStateStore}, so a key used for both search and fetch shares one cooldown.
- * Absent `web.search` ⇒ the search chain is empty ⇒ WebSearch returns empty results
- * (D85). The summarizer is injected by the caller (composed at the daemon root).
+ * Absent `web.search` ⇒ the search chain is empty ⇒ WebSearch returns empty results.
+ * The summarizer is injected by the caller (composed at the daemon root).
  */
 export function buildWebToolDeps(
   config: WebConfig,
