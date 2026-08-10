@@ -6,12 +6,12 @@ import { useNotices } from '../shell/failures.js';
 import { useShell } from '../shell/store.js';
 import { consoleActions, resetActions } from './actions.js';
 import type { ConsoleBridge } from './bridge.js';
-import { startConsole, type ConsoleController } from './controller.js';
+import { startConsole, TRANSCRIPT_CAP, type ConsoleController } from './controller.js';
 import { detectAuthFailure, modelSwitchNoteText, onAuthFailure } from './notices.js';
 import { resetDaemonData, useDaemonData } from './data.js';
 import { resetProjectState } from './reset.js';
 import { resetSessions, useSessions } from './sessions.js';
-import { resetTranscripts, useTranscripts } from './transcripts.js';
+import { appendFrames, flushFrames, resetTranscripts, useTranscripts } from './transcripts.js';
 import { resetConsoleUi, useConsoleUi } from './ui.js';
 
 /** A daemon-backed session + its persisted transcript, fed through the fake bridge. */
@@ -690,21 +690,153 @@ describe('instant navigation (the store side of the always-instant contract)', (
       reloadConversation: vi.fn().mockResolvedValue(reloaded()),
     });
     await mount(bridge);
+    // Every per-session record the console holds, written the way the app writes it.
+    consoleActions.sendMessage('look at this', [{ kind: 'text', name: 'notes.md', text: '# n' }]);
     consoleActions.setSessionModel('c1', { model: 'opus' });
+    consoleActions.onBannerAction('c1', 'drift', 'dismiss');
+    consoleActions.onBannerAction('c1', 'cache', 'dismiss');
     emit({ kind: 'usage', sessionId: 'c1', tokensIn: 10, tokensOut: 2 });
     emit({ kind: 'mode', sessionId: 'c1', mode: 'edits', effectiveMode: 'edits' });
     emit({ kind: 'approval', requestId: 'r1', sessionId: 'c1', summary: 's', tool: 'Bash' });
+    // c1 is itself some parent's child, so it owns a dock row keyed by its own id.
+    emit({
+      kind: 'turn',
+      sessionId: 'parent',
+      worktree: 'w',
+      seq: 1,
+      frame: {
+        t: 'subagent-spawn',
+        childSessionId: 'c1',
+        childWorktree: '/wt/c1',
+        agentRef: 'roles/reviewer',
+        description: 'look at this',
+        isolate: false,
+      },
+    });
+    await tick();
+    expect(transcriptOf('c1')?.status).toBe('ok');
 
     consoleActions.deleteSession('c1');
     await tick();
 
     expect(transcriptOf('c1')).toBeUndefined();
-    expect(ui().modelOverride['c1']).toBeUndefined();
-    expect(sessions().runStatus['c1']).toBeUndefined();
-    expect(sessions().usageBySession['c1']).toBeUndefined();
-    expect(sessions().modeBySession['c1']).toBeUndefined();
-    expect(sessions().pendingApprovalsBySession['c1']).toBeUndefined();
-    expect(sessions().activeSessionId).toBe('c2');
+    const s = sessions();
+    expect(s.runStatus['c1']).toBeUndefined();
+    expect(s.sendNonce['c1']).toBeUndefined();
+    expect(s.usageBySession['c1']).toBeUndefined();
+    expect(s.modeBySession['c1']).toBeUndefined();
+    expect(s.pendingApprovalsBySession['c1']).toBeUndefined();
+    expect(s.subagentStatus['c1']).toBeUndefined();
+    const u = ui();
+    expect(u.modelOverride['c1']).toBeUndefined();
+    expect(u.dismissedDrift['c1']).toBeUndefined();
+    expect(u.dismissedCache['c1']).toBeUndefined();
+    expect(u.notesBySession['c1']).toBeUndefined();
+    expect(s.activeSessionId).toBe('c2');
+  });
+
+  it('leaves a surviving child its dock status when the parent is deleted', async () => {
+    const { bridge, emit } = pushable({
+      listSessions: vi
+        .fn()
+        .mockResolvedValueOnce(TWO_SESSIONS)
+        .mockResolvedValue(TWO_SESSIONS.filter((s) => s.id !== 'c1')),
+    });
+    await mount(bridge);
+    emit({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 1,
+      frame: {
+        t: 'subagent-spawn',
+        childSessionId: 'child-1',
+        childWorktree: '/wt/child-1',
+        agentRef: 'roles/reviewer',
+        description: 'review the diff',
+        isolate: false,
+      },
+    });
+    await tick();
+
+    consoleActions.deleteSession('c1');
+    await tick();
+
+    // Deleting a conversation removes that record alone — the child is still a real,
+    // still-running session, and its state was announced once and is never replayed.
+    expect(sessions().subagentStatus['child-1']).toEqual({ state: 'running' });
+  });
+});
+
+describe('tab memory — the cap over materialized transcripts', () => {
+  const TWO_SESSIONS = [
+    ...FAKE_SESSIONS,
+    { id: 'c2', agentRef: 'roles/reviewer', title: 'second', updatedAt: '2026-07-01T00:00:00Z' },
+  ];
+  const held = (): string[] => Object.keys(useTranscripts.getState().bySession);
+
+  /** Materialize `count` transcripts nothing has open — the residue a long stretch of
+   *  opening and closing conversations leaves behind. Each is warmer than the last. */
+  function seedClosedConversations(count: number): void {
+    for (let i = 0; i < count; i++) {
+      appendFrames(`old-${i}`, [{ id: `old-${i}:0`, role: 'agent', kind: 'text', text: 'x' }]);
+      flushFrames();
+    }
+  }
+
+  /** Drive the store one entry past the cap with c2 open, then closed — so c2 is the
+   *  coldest transcript in it and the next working-set change must reap exactly it. */
+  async function overflowWithC2Closed(bridge: ConsoleBridge): Promise<void> {
+    await mount(bridge);
+    useShell.getState().openTab('c2');
+    await tick();
+    useShell.getState().forgetTab('c2');
+    // A closed tab keeps its transcript: reopening it is free while there is room.
+    expect(transcriptOf('c2')?.status).toBe('ok');
+    seedClosedConversations(TRANSCRIPT_CAP - 1);
+    // Only a change in the working set re-checks the cap.
+    useShell.getState().openTab('c1');
+    await tick();
+  }
+
+  it('holds the store to the cap, reaping the coldest transcript no tab has open', async () => {
+    const bridge = fakeBridge({ listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS) });
+    await overflowWithC2Closed(bridge);
+    expect(transcriptOf('c2')).toBeUndefined();
+    expect(transcriptOf('c1')?.status).toBe('ok');
+    expect(held()).toHaveLength(TRANSCRIPT_CAP);
+  });
+
+  it('an evicted session opens again cleanly — the attachment went with it', async () => {
+    const bridge = fakeBridge({
+      listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS),
+      reloadConversation: vi
+        .fn()
+        .mockResolvedValue(reloaded([{ seq: 0, frame: { t: 'text', text: 'still here' } }])),
+    });
+    await overflowWithC2Closed(bridge);
+    const reloadsBefore = vi.mocked(bridge.reloadConversation).mock.calls.length;
+
+    consoleActions.selectSession('c2');
+    await tick();
+
+    // A session still counted as attached would never re-hydrate and would render empty
+    // forever; this is a genuine cold open instead.
+    expect(vi.mocked(bridge.reloadConversation).mock.calls.length).toBe(reloadsBefore + 1);
+    expect(JSON.stringify(transcriptOf('c2'))).toContain('still here');
+  });
+
+  it('never evicts an open tab, even with a working set larger than the cap', async () => {
+    const tabs = Array.from({ length: TRANSCRIPT_CAP + 5 }, (_, i) => `tab-${i}`);
+    await mount(fakeBridge({ listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS) }));
+
+    useShell.setState({ tabs });
+    await tick();
+
+    // Every one of them is a mounted host — dropping any would blank a visible tab, so
+    // the working set simply exceeds the cap (which bounds what is kept BEYOND it).
+    for (const id of tabs) expect(transcriptOf(id)?.status).toBe('ok');
+    expect(held()).toHaveLength(tabs.length + 1); // + the active session
   });
 });
 

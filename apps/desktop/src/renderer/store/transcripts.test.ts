@@ -5,10 +5,12 @@ import {
   appendFrames,
   applyReload,
   beginHydration,
+  evictColdest,
   evictTranscript,
   flushFrames,
   hydrationFailed,
   resetTranscripts,
+  touchTranscript,
   useTranscripts,
 } from './transcripts.js';
 
@@ -144,5 +146,68 @@ describe('the transcript slice owns per-session frames', () => {
     await flushRaf();
     evictTranscript('a');
     expect(entry('a')).toBeUndefined();
+  });
+
+  it('a deleted session stays gone even with frames still waiting on the flush', async () => {
+    appendFrames('a', [text('a:0', 'x')]);
+    // The delete lands mid-buffer (the ordinary case for a session deleted while its
+    // optimistic send frame is still queued).
+    evictTranscript('a');
+    await flushRaf();
+    flushFrames();
+    expect(entry('a')).toBeUndefined();
+  });
+});
+
+describe('the memory cap over materialized transcripts', () => {
+  /** Materialize `ids` in order, so each is warmer than the one before it. */
+  function materialize(...ids: string[]): void {
+    for (const id of ids) {
+      appendFrames(id, [text(`${id}:0`, 'x')]);
+      flushFrames();
+    }
+  }
+  const held = (): string[] => Object.keys(useTranscripts.getState().bySession).sort();
+
+  it('keeps the store at the cap by dropping the coldest entries first', () => {
+    materialize('a', 'b', 'c', 'd');
+    expect(evictColdest([], 2)).toEqual(['a', 'b']);
+    expect(held()).toEqual(['c', 'd']);
+  });
+
+  it('holds everything while the store is within the cap', () => {
+    materialize('a', 'b');
+    expect(evictColdest([], 2)).toEqual([]);
+    expect(held()).toEqual(['a', 'b']);
+  });
+
+  it('never evicts a mounted transcript, however far over the cap', () => {
+    materialize('a', 'b', 'c');
+    // Every entry is an open tab: the working set simply exceeds the cap. Blanking a
+    // visible tab to make room would be a worse answer than holding one more transcript.
+    expect(evictColdest(['a', 'b', 'c'], 1)).toEqual([]);
+    expect(held()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('evicts only as far as the unprotected entries reach', () => {
+    materialize('cold', 'a', 'b');
+    expect(evictColdest(['a', 'b'], 1)).toEqual(['cold']);
+    expect(held()).toEqual(['a', 'b']);
+  });
+
+  it('ranks a session the user opened above a noisier one it never read', () => {
+    materialize('read', 'streaming');
+    // `read` was materialized first, so stream traffic alone would make it the coldest.
+    touchTranscript('read');
+    expect(evictColdest([], 1)).toEqual(['streaming']);
+    expect(held()).toEqual(['read']);
+  });
+
+  it('an evicted session that comes back is the newest, not still the oldest', () => {
+    materialize('a', 'b');
+    evictColdest([], 1);
+    materialize('a');
+    expect(evictColdest([], 1)).toEqual(['b']);
+    expect(held()).toEqual(['a']);
   });
 });

@@ -184,9 +184,20 @@ export function setSubagentStatus(childSessionId: string, state: SubagentState):
   }));
 }
 
-/** Session-delete housekeeping for this slice: every per-session record the deleted id
- *  owns. Children a deleted parent spawned are NOT cascaded — that needs the session
- *  tree, and a wrong cascade would blank a dock row for a child still running. */
+/**
+ * Session-delete housekeeping for this slice: every per-session record the deleted id
+ * owns — including its own `subagentStatus` entry, since that map is keyed by CHILD id
+ * and a deleted session may itself be some parent's child.
+ *
+ * Children the deleted session spawned are deliberately NOT cascaded. Deleting a
+ * conversation removes exactly that one record on the daemon side; its children survive
+ * as real sessions — the lineage the session list carries (`parent`/`root`) re-homes them
+ * in the tree, they keep their own rows, and any of them may still be running. Dropping
+ * their status would blank a live dock row and nothing would ever restore it: a child's
+ * state is announced once, on the parent's stream, and never replayed. Nothing leaks
+ * either way, because a child that IS deleted drops its own key through this same
+ * function — the only way an entry can outlive what renders it.
+ */
 export function evictSessionState(sessionId: string): void {
   useSessions.setState((s) => {
     const runStatus = { ...s.runStatus };

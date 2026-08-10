@@ -450,31 +450,16 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
 ## Next up (committed, in order)
 
 The 2026-08 improvement arc closed with two finished-but-unlanded workstreams that predate the
-feature work now on `main`. Both are committed next steps, in this order:
+feature work now on `main`. The console store port has landed (see Completed arcs); one remains:
 
-1. **Console store port — push-fed slices + instant navigation.** A complete store rewrite exists
-   on branch `arc/c4-console` (tag `arc-close/c4-console`, draft PR #4): a push-fed slice store
-   (83 contract tests) with per-session materialized transcript hosts, replacing the whole-state
-   publish and the ~2s poll re-filed under Known issues below — measured on that branch at 15 tab
-   switches with zero crossing an animation-frame boundary and zero bridge calls per switch. It
-   was built against the pre-feature console and never merged; the feature work since (project
-   windows, permission chip, composer rework, orchestration docks, the library surface) landed on
-   the old store, so this is a **port, not a merge**: re-apply the store design against the
-   current renderer, carrying the invariants its contract tests pin. Acceptance is the standing
-   instant-navigation requirement: switching to any opened session paints its already-materialized
-   transcript within one frame; no navigation path awaits I/O; scrolling needs no loading.
-   **Folded in: the tab-memory charter** (maintainer-ruled 2026-08-09): open 20+ tabs, measure the
-   heap curve (the 8-tab/11-host baseline measured 12.3 MB used / 21.4 MB total), and settle an
-   LRU-style eviction policy over materialized transcript hosts past a tunable cap — not unbounded
-   keep-alive.
-2. **Docs consolidation re-run.** A complete, twice-verified doc consolidation exists on branch
+1. **Docs consolidation re-run.** A complete, twice-verified doc consolidation exists on branch
    `arc/docs` (tag `arc-close/docs`, draft PR #3): the design-era corpora retired (-32k lines
    across 141 files) in favor of a living doc set (`ARCHITECTURE.md` + the retained authorities)
    with AGENTS.md rewritten as the router over it. It describes the tree as of the architecture
    stage and was never merged — everything landed since (ADRs 0035–0039, module-spec updates,
    this file's growth) edits the doc world it deletes. Re-run the consolidation against current
    `main`, using the branch as the structural template and re-homing every fact recorded since.
-   Sequence AFTER the store port, so the docs describe the final console.
+   The store port has landed, so the docs can describe the final console.
 
 ## Deferred features (fully specified, unscheduled)
 
@@ -562,6 +547,29 @@ The remaining hardening items — role/capability enforcement, the P1 AGENTS.md-
 the P2 caveman-skill package, and P3 CC-behavior mirroring — are **deferred**; see "Someday / ideas".
 
 ## Completed arcs
+
+### The console store port — push-fed slices + instant navigation — ✅ closed 2026-08-10
+
+The whole-state console store is gone. Four zustand slices (daemon data · sessions · transcripts ·
+console ui) are written by module-level functions and read by narrow subscriptions, so a streamed
+frame touches exactly one session's transcript entry and nothing else in the app re-renders; a poll
+tick that returns unchanged data touches nothing at all. Every open tab is a mounted, live
+transcript host fed by the push stream — no frozen snapshots, no module-level frame caches — and a
+session entering the shell's working set is subscribed and hydrated **before** it is ever
+activated, so switching to it is a display swap with no I/O on the path. The design came from the
+unmerged `arc/c4-console` branch (tag `arc-close/c4-console`, draft PR #4) and was ported onto the
+2026-08 feature console rather than merged, widened to cover everything that landed meanwhile
+(project windows, permission modes and the pending-ask queue, per-turn usage, model metadata, the
+subagent and worktree docks, attachments and skill invocations).
+
+Two things the branch never had, added here: a **project-swap reset**, because module-singleton
+slices outlive the controller a window swap reboots (settings and the raw toggle survive — neither
+is the project's); and the **tab-memory policy** — an LRU cap over materialized transcripts, driven
+by the controller (the only place that knows both the mounted set and the attachments), where the
+shell's open tabs and the active session are never evictable at any cap. Session delete now drops
+every per-session record the console holds; a deleted parent's children keep theirs, since the
+daemon removes exactly one conversation and those children are still real, possibly-running
+sessions.
 
 ### The console workbench rebuild (Gate 4 plan of the 2026-07 UX overhaul) — ✅ closed 2026-08-02
 
@@ -759,8 +767,9 @@ Surfaced during this refactor; not fixed here — flagged for the later architec
     shipped markup renders — `cx.ts`/`Composer.tsx` only ever emit
     `focus-visible:outline-focus`/`focus-within:outline-focus`). Measured saving: 85.62 KB → 85.42
     KB — small, but free and correct, not claimed as a startup win.
-  - **The ~2s poll replaces state with no equality guard — the cheap guard added; the
-    architecture stays re-filed.** `console.ts`'s `refresh()` (driven by `App.tsx`'s
+  - **The ~2s poll replaces state with no equality guard — the cheap guard added (since
+    superseded: the store port removed both the guard and every file named below).**
+    `console.ts`'s `refresh()` (driven by `App.tsx`'s
     `setInterval(..., 2000)`) built a fresh `ConsoleState` and published it every tick regardless
     of whether `capState`/`flagsForUser`/`listTimeline` actually changed. `consoleStore.ts`
     publishes via `useConsoleState.setState(s, true)` (a full replace), and eight surfaces
@@ -799,13 +808,10 @@ Surfaced during this refactor; not fixed here — flagged for the later architec
     `useMemo` gap was already fixed before this pass. Note: the original audit predated the
     deliberate removal of transcript virtualization (full-text selection + Ctrl-F), so its
     windowing-related framings were already moot.
-- **Poll-and-replace console state (re-filed, architectural — not built here).** The cheap
-  equality guard above stops an *unchanged* poll from re-rendering the eight `(s) => s`
-  subscribers, but a poll that DOES change anything (cap/flags/timeline) still replaces and
-  republishes the entire `ConsoleState`, and the live turn-frame path (`appendTurns`/`flushTurns`)
-  still rebuilds+republishes the whole state object on every rAF-coalesced flush. The durable fix
-  is a push-based store (subscribers read slices, not the whole object) instead of the current
-  poll-and-replace one; that is its own phase of work, out of scope for this pass.
+- **Poll-and-replace console state — ✅ closed 2026-08-10.** The durable fix named here (a
+  push-based store whose subscribers read slices, not the whole object) shipped as the console
+  store port; the whole-state publish, its `(s) => s` subscribers and the poll's structural-equality
+  guard no longer exist. See Completed arcs.
 
 ## Do not build for v1
 

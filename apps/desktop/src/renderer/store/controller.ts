@@ -20,7 +20,7 @@ import {
   setSessionUsage,
   useSessions,
 } from './sessions.js';
-import { appendFrames, flushFrames } from './transcripts.js';
+import { appendFrames, evictColdest, flushFrames } from './transcripts.js';
 import {
   mergeModelOverride,
   setSelectedAgent,
@@ -28,6 +28,17 @@ import {
   toggleRawMode,
   useConsoleUi,
 } from './ui.js';
+
+/**
+ * How many session transcripts stay materialized at once.
+ *
+ * Not a setting: it is a memory bound, not a preference — there is nothing a person
+ * would want to say about it that this number doesn't already say, and a wrong value
+ * only ever costs a reload. Sized at twice the ~20-tab working set the instant-navigation
+ * acceptance targets, so eviction only ever reaches transcripts whose tabs have been
+ * closed for a while — a tab a user still has open is protected at any cap anyway.
+ */
+export const TRANSCRIPT_CAP = 40;
 
 export interface ConsoleController {
   refresh(): Promise<void>;
@@ -245,11 +256,22 @@ export async function startConsole(
   // (a click, a session restore at boot, a reopened tab) is subscribed + hydrated
   // immediately, so its activation later is a pure display swap. This is the ONE
   // materialization trigger besides activation itself.
-  const materializeTabs = (tabs: string[]): void => {
+  //
+  // The same pass is where the working set gets its memory bound: a closed tab keeps its
+  // transcript (reopening it is then free), so without a cap every conversation ever
+  // opened in this window would be held for the window's lifetime. Eviction is driven
+  // from HERE rather than from the slice because only the controller knows both halves —
+  // the shell's open tabs (never evictable: each is a mounted host) and the attached set,
+  // which an evicted session must leave or `ensureMaterialized` would early-return on it
+  // forever and the tab would render permanently empty.
+  const syncWorkingSet = (tabs: string[]): void => {
     for (const id of tabs) sessionOps.ensureMaterialized(ctx, id);
+    const active = useSessions.getState().activeSessionId;
+    const mounted = active === undefined ? tabs : [...tabs, active];
+    for (const evicted of evictColdest(mounted, TRANSCRIPT_CAP)) ctx.attached.delete(evicted);
   };
   const unsubscribeTabs = useShell.subscribe((s, prev) => {
-    if (s.tabs !== prev.tabs) materializeTabs(s.tabs);
+    if (s.tabs !== prev.tabs) syncWorkingSet(s.tabs);
   });
 
   /** On launch, load the project's sessions and open the most recent one. */
@@ -261,7 +283,7 @@ export async function startConsole(
     else sessionOps.clearActiveSession();
     // Tabs restored by layout persistence may already be sitting in the shell store
     // (the subscription above only fires on CHANGES) — materialize whatever is there.
-    materializeTabs(useShell.getState().tabs);
+    syncWorkingSet(useShell.getState().tabs);
   }
 
   installActions({
@@ -349,8 +371,8 @@ export async function startConsole(
     if (sessions.list.status !== 'ok' || sessions.activeSessionId === undefined) {
       await initSessions();
     } else if (freshConnection) {
-      materializeTabs(useShell.getState().tabs);
       sessionOps.ensureMaterialized(ctx, sessions.activeSessionId);
+      syncWorkingSet(useShell.getState().tabs);
     }
   }
 

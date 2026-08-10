@@ -15,6 +15,10 @@ import type { Remote } from '../panels/state.js';
  * read via `useTranscripts`. Frame arrays are append-stable: previously-seen frames
  * keep their object identity across appends, which is what lets the transcript's
  * memoized rows skip re-rendering settled history.
+ *
+ * Being the only owner also makes this the only place transcripts can accumulate, so it
+ * carries the recency signal the memory cap sorts on (`evictColdest`). The cap itself is
+ * the controller's — it is the one that knows which entries are mounted.
  */
 export type TranscriptEntry = Remote<TurnFrame[]>;
 
@@ -28,6 +32,25 @@ export const useTranscripts = create<TranscriptsState>(() => ({ bySession: {} })
 export function framesOf(sessionId: string): TurnFrame[] | undefined {
   const entry = useTranscripts.getState().bySession[sessionId];
   return entry?.status === 'ok' ? entry.value : undefined;
+}
+
+// Recency for the eviction cap, as a monotonic counter rather than a clock: several
+// transcripts routinely move inside the same millisecond (one flush lands every buffered
+// session at once), and a system clock that steps backwards must never make a
+// just-opened conversation look like the coldest one in the store.
+let touchClock = 0;
+const lastTouched = new Map<string, number>();
+
+function touch(sessionId: string): void {
+  touchClock += 1;
+  lastTouched.set(sessionId, touchClock);
+}
+
+/** Mark a transcript as USED — the console looked at it, not merely streamed into it.
+ *  Activation is the signal (see `sessionOps.activateSession`): a conversation the user
+ *  just read is the last one worth evicting once its tab closes, however quiet it was. */
+export function touchTranscript(sessionId: string): void {
+  touch(sessionId);
 }
 
 // Frames arriving between animation frames are coalesced: token streaming emits many
@@ -67,6 +90,7 @@ export function flushFrames(): void {
     flushHandle = undefined;
   }
   if (pendingBySession.size === 0) return;
+  for (const sessionId of pendingBySession.keys()) touch(sessionId);
   useTranscripts.setState((s) => {
     const bySession = { ...s.bySession };
     for (const [sessionId, frames] of pendingBySession) {
@@ -84,6 +108,7 @@ export function flushFrames(): void {
 /** Mark a cold session as loading. A warm entry is left alone — its frames keep showing
  *  while any background reconcile runs (cache-first open). */
 export function beginHydration(sessionId: string): void {
+  touch(sessionId);
   useTranscripts.setState((s) =>
     s.bySession[sessionId] !== undefined
       ? s
@@ -94,6 +119,7 @@ export function beginHydration(sessionId: string): void {
 /** A cold open that could not load shows its error; a warm entry keeps its frames (the
  *  reconcile was best-effort — stale-but-real beats an error card). */
 export function hydrationFailed(sessionId: string, message: string): void {
+  touch(sessionId);
   useTranscripts.setState((s) => {
     const prev = s.bySession[sessionId];
     if (prev?.status === 'ok') return s;
@@ -123,6 +149,7 @@ function seqOf(sessionId: string, frameId: string): number | undefined {
 export function applyReload(sessionId: string, reloadedFrames: TurnFrame[]): void {
   // Fold any buffered live frames first so the merge sees the full live state.
   flushFrames();
+  touch(sessionId);
   useTranscripts.setState((s) => {
     const prev = s.bySession[sessionId];
     if (prev?.status !== 'ok')
@@ -147,8 +174,13 @@ export function applyReload(sessionId: string, reloadedFrames: TurnFrame[]): voi
   });
 }
 
-/** Drop a deleted session's transcript (the one eviction point besides reset). */
+/** Drop a deleted session's transcript. */
 export function evictTranscript(sessionId: string): void {
+  // Frames still waiting on the animation frame go too, or the flush that follows would
+  // rebuild the entry a moment after it was dropped — a transcript for a conversation
+  // that no longer exists, which nothing would ever evict again.
+  pendingBySession.delete(sessionId);
+  lastTouched.delete(sessionId);
   useTranscripts.setState((s) => {
     if (s.bySession[sessionId] === undefined) return s;
     const bySession = { ...s.bySession };
@@ -157,9 +189,49 @@ export function evictTranscript(sessionId: string): void {
   });
 }
 
+/**
+ * Hold the store to `cap` materialized transcripts, dropping the least recently used
+ * ones first, and answer with what was dropped so the caller can forget them too (the
+ * controller's attached set — an evicted session that still counts as attached would
+ * never re-hydrate, and would render empty forever).
+ *
+ * `protectedIds` — the shell's open tabs plus the active session — are NEVER evicted at
+ * any cap: every one of them is a mounted transcript host, and dropping its entry would
+ * blank a tab the user is looking at. A working set larger than the cap therefore simply
+ * exceeds it; the cap bounds what is kept BEYOND the working set (a closed tab's
+ * transcript, kept warm so reopening it is free), never the working set itself.
+ *
+ * Evicting a session that is still streaming costs nothing durable: the daemon holds the
+ * log, and the next activation re-attaches and reload-merges it back to full fidelity.
+ */
+export function evictColdest(protectedIds: readonly string[], cap: number): string[] {
+  const ids = Object.keys(useTranscripts.getState().bySession);
+  const overflow = ids.length - cap;
+  if (overflow <= 0) return [];
+  const keep = new Set(protectedIds);
+  const doomed = ids
+    .filter((id) => !keep.has(id))
+    // Coldest first. An entry with no recorded touch (it cannot happen through the
+    // writers above, but the ordering must be total) sorts as the coldest of all.
+    .sort((a, b) => (lastTouched.get(a) ?? 0) - (lastTouched.get(b) ?? 0))
+    .slice(0, overflow);
+  if (doomed.length === 0) return [];
+  for (const id of doomed) {
+    pendingBySession.delete(id);
+    lastTouched.delete(id);
+  }
+  useTranscripts.setState((s) => {
+    const bySession = { ...s.bySession };
+    for (const id of doomed) delete bySession[id];
+    return { bySession };
+  });
+  return doomed;
+}
+
 /** Test seam: forget everything, including frames still waiting on a flush. */
 export function resetTranscripts(): void {
   pendingBySession.clear();
+  lastTouched.clear();
   if (flushHandle !== undefined) {
     unschedule(flushHandle);
     flushHandle = undefined;

@@ -41,6 +41,7 @@ import {
   evictTranscript,
   framesOf,
   hydrationFailed,
+  touchTranscript,
 } from './transcripts.js';
 import {
   appendSessionNote,
@@ -169,6 +170,9 @@ async function hydrateMode(ctx: SessionCtx, id: string): Promise<void> {
 /** Open a session: the active id flips SYNCHRONOUSLY — a warm entry renders this same
  *  frame; a cold one shows its loading state while `ensureMaterialized` hydrates it. */
 export function activateSession(ctx: SessionCtx, id: string): void {
+  // Being read is what makes a transcript recently used — a quiet conversation the user
+  // just had open outranks a noisy background one when the memory cap starts evicting.
+  touchTranscript(id);
   setActiveSession(id);
   ensureMaterialized(ctx, id);
 }
@@ -199,8 +203,10 @@ export function deleteSession(ctx: SessionCtx, id: string): void {
     // Nothing was removed and the user has been told — the rail still shows the truth.
     if (deleted === undefined) return;
     const wasActive = useSessions.getState().activeSessionId === id;
-    // The one transcript eviction point: the session is gone, so every per-session
-    // record goes with it (frames, run claims, mode, asks, usage, overrides, notes).
+    // The session is gone, so every per-session record goes with it: frames, the run
+    // claim, the send nonce, the permission mode, pending asks, usage, this session's own
+    // subagent-dock status, the model override, both banner dismissals, and its notes.
+    // Descendants are deliberately NOT cascaded — see `evictSessionState`.
     ctx.attached.delete(id);
     evictTranscript(id);
     evictSessionState(id);
