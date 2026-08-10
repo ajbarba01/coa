@@ -735,6 +735,20 @@ async function runMethod(
       return proxyDaemon(event, 'saveAgent', params);
     case 'deleteAgent':
       return proxyDaemon(event, 'deleteAgent', params);
+    case 'listLibrary':
+      return proxyDaemon(event, 'listLibrary');
+    case 'rescanLibrary':
+      return proxyDaemon(event, 'rescanLibrary');
+    case 'listSkills':
+      return proxyDaemon(event, 'listSkills');
+    case 'linkLibrary':
+      return proxyDaemon(event, 'linkLibrary', params);
+    case 'copyLibrary':
+      return proxyDaemon(event, 'copyLibrary', params);
+    case 'unlinkLibrary':
+      return proxyDaemon(event, 'unlinkLibrary', params);
+    case 'setLibraryEnabled':
+      return proxyDaemon(event, 'setLibraryEnabled', params);
     case 'startLogin':
       return proxyDaemon(event, 'startLogin', params);
     case 'loginState':

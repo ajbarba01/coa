@@ -2,12 +2,16 @@ import {
   AccountsSchema,
   ActiveAccountSchema,
   agentFileSchema,
+  agentSkillConfigSchema,
   approvalDecisionSchema,
   attachmentSchema,
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
+  librarySummarySchema,
+  LibraryViewResultSchema,
   ListAgentsResultSchema,
+  ListSkillsResultSchema,
   LoginSnapshotSchema,
   ModelCatalogViewSchema,
   ModelMetadataViewSchema,
@@ -18,6 +22,7 @@ import {
   RoleSummaryListSchema,
   SessionListSchema,
   TimelineSchema,
+  UnlinkLibraryResultSchema,
   WorktreeListSchema,
   modelSelectionSchema,
   modelDescriptorSchema,
@@ -41,6 +46,12 @@ export const StartSessionParamsSchema = z.object({
   /** Attachments on this send's user message (the one shared wire shape). The daemon
    *  refuses them for a backend whose adapter has no seam — never a silent drop. */
   attachments: z.array(attachmentSchema).optional(),
+  /** Explicit per-send library-skill selection ({name, delivery} each), overriding the
+   *  agent definition's `skills` list for this turn; absent ⇒ the agent's own. */
+  skills: z.array(agentSkillConfigSchema).optional(),
+  /** Library skills invoked explicitly on THIS turn (the composer's `/skill`). An
+   *  unknown name refuses the send with an error reply before anything mutates. */
+  invokeSkills: z.array(z.string().min(1)).optional(),
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
@@ -305,6 +316,13 @@ export type MethodName =
   | 'listAgents'
   | 'saveAgent'
   | 'deleteAgent'
+  | 'listLibrary'
+  | 'rescanLibrary'
+  | 'listSkills'
+  | 'linkLibrary'
+  | 'copyLibrary'
+  | 'unlinkLibrary'
+  | 'setLibraryEnabled'
   | 'startLogin'
   | 'loginState'
   | 'submitLoginCode'
@@ -482,6 +500,60 @@ export const METHODS: Record<MethodName, MethodSpec> = {
    *  error); a remove that actually failed comes back as an RPC error, not as a
    *  successful `removed: false`. */
   deleteAgent: { params: DeleteAgentParamsSchema, result: DeleteAgentResultSchema },
+  /** The skills/MCP library, the ONE read the Library surface renders (entries +
+   *  discovered + diagnostics, drift computed inside). Proxies the daemon `listLibrary`. */
+  listLibrary: { result: LibraryViewResultSchema },
+  /** The same fresh read as `listLibrary` — the surface's explicit refresh gesture
+   *  (drift is hash-on-demand, no watcher). Proxies the daemon `rescanLibrary`. */
+  rescanLibrary: { result: LibraryViewResultSchema },
+  /** The effective (enabled, resolvable, project-shadows-personal) skill rows the
+   *  composer's slash popover and the agent editor draw from. Proxies the daemon
+   *  `listSkills`. */
+  listSkills: { result: ListSkillsResultSchema },
+  /** Link a discovered skill/MCP server into a store as a live reference (the default
+   *  mode). Proxies the daemon `linkLibrary`; a bad source is an error reply, not a
+   *  half-written record. */
+  linkLibrary: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      scope: z.enum(['personal', 'project']),
+      source: z.object({ path: z.string(), serverName: z.string().optional() }),
+      name: z.string().optional(),
+    }),
+    result: librarySummarySchema,
+  },
+  /** Materialize a skill/MCP server into the PROJECT store (committable, with
+   *  provenance). Calling it again on an existing copy IS the one-click re-sync.
+   *  Proxies the daemon `copyLibrary`. */
+  copyLibrary: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      source: z.object({ path: z.string(), serverName: z.string().optional() }),
+      name: z.string().optional(),
+    }),
+    result: librarySummarySchema,
+  },
+  /** Remove a library record (and a skill copy's materialized files). `removed: false`
+   *  ⇒ nothing was there (a second unlink is a no-op). Proxies the daemon `unlinkLibrary`. */
+  unlinkLibrary: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      scope: z.enum(['personal', 'project']),
+      name: z.string(),
+    }),
+    result: UnlinkLibraryResultSchema,
+  },
+  /** Surfacing-only enable/disable: a disabled entry stays listed; consumers exclude
+   *  it (a pass-through, never a cage). Proxies the daemon `setLibraryEnabled`. */
+  setLibraryEnabled: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      scope: z.enum(['personal', 'project']),
+      name: z.string(),
+      enabled: z.boolean(),
+    }),
+    result: librarySummarySchema,
+  },
   startLogin: {
     params: z.object({ email: z.string(), credentialId: z.string().optional() }),
     result: LoginSnapshotSchema,

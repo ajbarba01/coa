@@ -5,6 +5,7 @@ import {
   agentFileSchema,
   agentIconSchema,
   agentScopeSchema,
+  agentSkillConfigSchema,
   agentSummarySchema,
   claudeReasoningSchema,
   packageSummarySchema,
@@ -109,6 +110,10 @@ export const SessionSummarySchema = z.object({
       roles: z.array(z.string()).optional(),
       packageIds: z.array(z.string()).optional(),
       exclude: z.array(z.string()).optional(),
+      /** The library-skill selection the prompt was compiled with ({name, delivery}
+       *  per resolved skill) — the drift key's skill slice. Absent ⇒ a pre-library
+       *  compilation, which must compare as an empty selection (never spurious drift). */
+      skills: z.array(agentSkillConfigSchema).optional(),
     })
     .optional(),
   /** The session that spawned this one (mirrors `SessionMeta.parent`); absent ⇒ a

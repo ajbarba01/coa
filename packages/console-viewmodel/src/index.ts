@@ -1,5 +1,6 @@
 export * from './agents.js';
 export * from './cap.js';
+export * from './library.js';
 export * from './model-info.js';
 export * from './reads.js';
 export * from './reasoning.js';

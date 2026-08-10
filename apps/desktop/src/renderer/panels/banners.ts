@@ -14,11 +14,44 @@ import type { Banner, ModelSelection } from '@coa/console-viewmodel';
  *    dismissable; it persists until dismissed or the config matches the prompt again.
  */
 
-/** The drift-relevant slice of a prompt config (role selection + package selection). */
+/** One skill in the drift key: the LIBRARY name + how it is delivered (flipping
+ *  auto↔disclosure compiles a different prompt, so it counts). */
+export interface SkillSelectionItem {
+  name: string;
+  delivery: 'auto' | 'disclosure';
+}
+
+/** The drift-relevant slice of a prompt config (role selection + package selection +
+ *  the library-skill selection). */
 export interface PromptConfigView {
   roles?: readonly string[] | undefined;
   packageIds?: readonly string[] | undefined;
   exclude?: readonly string[] | undefined;
+  skills?: readonly SkillSelectionItem[] | undefined;
+}
+
+/**
+ * The skill slice a send WOULD compile — the agent's configured skills narrowed to
+ * the ones that actually resolve in the effective library set, wearing the set's
+ * canonical (library-record) names. Mirrors the daemon's own per-turn resolution:
+ * a configured skill the library no longer serves is EXCLUDED from the frozen
+ * selection, so its disappearance IS drift. `invocable` still `undefined` (the
+ * library read hasn't settled) passes the configured list through unfiltered —
+ * predicting drift from a list that merely hasn't loaded yet would be a lie.
+ */
+export function resolvableSkillSelection(
+  configured: readonly SkillSelectionItem[] | undefined,
+  invocable: readonly { name: string }[] | undefined,
+): SkillSelectionItem[] {
+  const list = configured ?? [];
+  if (invocable === undefined) return list.map((s) => ({ name: s.name, delivery: s.delivery }));
+  const canonical = new Map(invocable.map((row) => [row.name.toLowerCase(), row.name]));
+  const out: SkillSelectionItem[] = [];
+  for (const s of list) {
+    const name = canonical.get(s.name.toLowerCase());
+    if (name !== undefined) out.push({ name, delivery: s.delivery });
+  }
+  return out;
 }
 
 /** Per-provider prompt-cache TTL (ms) — the idle window past which a session is cold.
@@ -30,10 +63,24 @@ const STALENESS_MS: Record<string, number> = { claude: 5 * 60_000 };
  *  Role selection order never spuriously trips drift. */
 export function configKey(config: PromptConfigView | undefined): string {
   const norm = (ids: readonly string[] | undefined): string[] => [...new Set(ids ?? [])].sort();
+  // Skills as a set keyed by case-folded name (first occurrence wins), sorted so
+  // selection order never trips drift — mirroring the daemon's `configHashOf`
+  // (packages/core prompt-freeze). The key joins the object ONLY when non-empty:
+  // absent must compare equal to empty, or every pre-library compilation would
+  // raise the banner once (and old dismissal keys would silently stop matching).
+  const byName = new Map<string, SkillSelectionItem>();
+  for (const s of config?.skills ?? []) {
+    const key = s.name.toLowerCase();
+    if (!byName.has(key)) byName.set(key, { name: s.name, delivery: s.delivery });
+  }
+  const skills = [...byName.values()].sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  );
   return JSON.stringify({
     roles: norm(config?.roles),
     packageIds: norm(config?.packageIds),
     exclude: norm(config?.exclude),
+    ...(skills.length > 0 ? { skills } : {}),
   });
 }
 
