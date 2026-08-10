@@ -74,4 +74,12 @@ describe('fetchOpenRouterCatalog', () => {
     });
     expect(rows).toBeUndefined();
   });
+
+  it('resolves to undefined (not []) when a 200 response parses to zero rows — OpenRouter is never genuinely empty', async () => {
+    const rows = await fetchOpenRouterCatalog({
+      fetchImpl: (async () =>
+        ({ ok: true, json: async () => ({ data: [] }) }) as unknown as Response) as typeof fetch,
+    });
+    expect(rows).toBeUndefined();
+  });
 });

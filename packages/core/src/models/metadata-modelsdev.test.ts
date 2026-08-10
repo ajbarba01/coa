@@ -82,4 +82,15 @@ describe('fetchModelsDevCatalog', () => {
     });
     expect(rows).toBeUndefined();
   });
+
+  it('resolves to undefined (not []) when a 200 response parses to zero rows — e.g. an error/notice body', async () => {
+    const rows = await fetchModelsDevCatalog({
+      fetchImpl: (async () =>
+        ({
+          ok: true,
+          json: async () => ({ error: 'rate limited' }),
+        }) as unknown as Response) as typeof fetch,
+    });
+    expect(rows).toBeUndefined();
+  });
 });

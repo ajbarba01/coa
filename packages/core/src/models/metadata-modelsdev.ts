@@ -111,11 +111,15 @@ export interface FetchModelsDevConfig {
 }
 
 /**
- * Fetch + parse the models.dev catalog. Never throws — a network failure or a
- * non-OK response resolves to `undefined` (distinct from a genuinely-empty parse,
- * `[]`), so a caching caller can tell "this attempt failed, keep what you had" from
- * "this attempt succeeded and found nothing" and never lets a transient failure wipe
- * a good cache.
+ * Fetch + parse the models.dev catalog. Never throws — a network failure, a non-OK
+ * response, OR a 200 response that parses to zero rows all resolve to `undefined`,
+ * never `[]`: `api.json` is never genuinely empty in practice, so a zero-row parse
+ * despite a 200 — whether the top-level shape is unparseable or the payload is an
+ * error/notice body that happens to pass the loose top-level check but matches none
+ * of {@link PROVIDER_TO_MODELS_DEV} — is always treated as a failed attempt, the same
+ * as a non-OK response or a thrown fetch. This lets a caching caller tell "this
+ * attempt failed, keep what you had" from "this attempt succeeded and found real
+ * rows", so a malformed-but-200 response can never wipe a good cache.
  */
 export async function fetchModelsDevCatalog(
   config: FetchModelsDevConfig = {},
@@ -125,7 +129,8 @@ export async function fetchModelsDevCatalog(
     const res = await doFetch(config.url ?? MODELS_DEV_URL);
     if (!res.ok) return undefined;
     const body: unknown = await res.json();
-    return parseModelsDevCatalog(body);
+    const rows = parseModelsDevCatalog(body);
+    return rows.length > 0 ? rows : undefined;
   } catch {
     return undefined;
   }
