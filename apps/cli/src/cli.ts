@@ -15,6 +15,7 @@ import {
   classifyTool,
   connectClient,
   createConversationStore,
+  createMessageLog,
   defaultDaemonPath,
   effectiveModels,
   LiveSessionRegistry,
@@ -290,6 +291,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     root,
     home,
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
+    resolveMessaging: (sessionId) => sessions.messagingFor(sessionId),
     // F2: same forward-reference-safe-closure trick as `resolveSpawn` above —
     // `registry` is declared further down this same scope, but this closure only
     // ever fires once a real tool call needs a permission decision, long after
@@ -347,6 +349,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       ),
   });
   const conversationHandlers = buildConversationHandlers(store);
+  // The durable inter-agent message log (docs/adr/0039) — one file per family-tree
+  // root, beside the conversation store under the same gitignored `.coa/local/` tree.
+  const messageLog = createMessageLog(join(root, '.coa', 'local', 'messages'));
   // The daemon-authoritative home for every conversation's live session (the daemon,
   // not any client, owns a live session across turns),
   // constructed once — same lifetime as `store` — so two connections sharing a
@@ -373,6 +378,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     registry,
     store,
     listAgents: () => agentRegistry.list().agents,
+    messageLog,
   });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The

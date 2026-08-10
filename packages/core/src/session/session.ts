@@ -18,6 +18,7 @@ import type {
   ToolCatalogue,
   TurnInterrupt,
 } from '@coa/spi';
+import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import { buildCanUseTool, buildStopGate, type ModeDeps } from './permission.js';
 
@@ -197,23 +198,27 @@ export interface SessionDeps {
   baseCatalogue: ToolCatalogue;
   /**
    * Build THIS session's own copy of `catalogue`, with `spawn_agent` bound to the given
-   * session id as parent. Preferred over the shared `catalogue` when present (`createSession`
-   * calls it with `resolveSpawn`'s result and the session's own bound worktree); absent
-   * ⇒ falls back to `catalogue` unchanged — a session that never spawns behaves
-   * byte-identically to before this seam existed. `worktreeRoot`, when given, confines
-   * this session's Retrieve/Mutate handlers to it instead of the daemon's static root
-   * (an isolated session's real worktree); absent ⇒ the daemon's static root.
+   * session id as parent and `send_message`/`list_agents` bound to it as sender/roster
+   * owner. Preferred over the shared `catalogue` when present (`createSession` calls it
+   * with `resolveSpawn`/`resolveMessaging`'s results and the session's own bound
+   * worktree); absent ⇒ falls back to `catalogue` unchanged — a session that never
+   * spawns or messages behaves byte-identically to before this seam existed.
+   * `worktreeRoot`, when given, confines this session's Retrieve/Mutate handlers to it
+   * instead of the daemon's static root (an isolated session's real worktree); absent ⇒
+   * the daemon's static root.
    */
   catalogueFor?: (
     sessionId: string,
     spawn: SpawnDeps | undefined,
     worktreeRoot?: string,
+    messaging?: MessagingDeps,
   ) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers). */
   baseCatalogueFor?: (
     sessionId: string,
     spawn: SpawnDeps | undefined,
     worktreeRoot?: string,
+    messaging?: MessagingDeps,
   ) => ToolCatalogue;
   /** change-event-spine checkpoint at the session boundary. */
   checkpoint: () => void;
@@ -244,6 +249,12 @@ export interface SessionDeps {
    * own central case). Absent ⇒ spawning stays unavailable.
    */
   resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
+  /**
+   * Resolve THIS session's messaging port (bound to `sessionId` as sender — docs/adr/0039),
+   * read at the same point as {@link resolveSpawn} and for the same reason: never an
+   * ambient "current session" guess. Absent ⇒ messaging stays unavailable.
+   */
+  resolveMessaging?: (sessionId: string) => MessagingDeps | undefined;
 }
 
 /** Start a session: bind, compile, render, wire both governance hooks, and run the loop. */
@@ -379,17 +390,19 @@ export async function createSession(
   adapter.renderNative(neutral);
   adapter.denyBuiltins();
   // The session-scoped catalogue is preferred whenever the composition root wired one:
-  // `spawn_agent` on the SHARED daemon-wide catalogue would have no way to learn which
-  // live session is calling it, and a naive shared "current session" ambient would race
-  // across concurrently-live sessions (a parent and its already-running child — this
-  // feature's own central case). `resolveSpawn` reads the real `sessionId` right here,
-  // not from anywhere it could go stale. Neither seam present ⇒ the original static
-  // catalogue, byte-identical to before this existed.
+  // `spawn_agent`/`send_message` on the SHARED daemon-wide catalogue would have no way
+  // to learn which live session is calling it, and a naive shared "current session"
+  // ambient would race across concurrently-live sessions (a parent and its
+  // already-running child — this feature's own central case). `resolveSpawn`/
+  // `resolveMessaging` read the real `sessionId` right here, not from anywhere it could
+  // go stale. Neither seam present ⇒ the original static catalogue, byte-identical to
+  // before this existed.
   const spawn = deps.resolveSpawn?.(sessionId);
+  const messaging = deps.resolveMessaging?.(sessionId);
   const catalogueFor = provider === 'claude' ? deps.catalogueFor : deps.baseCatalogueFor;
   const catalogue =
     catalogueFor !== undefined
-      ? catalogueFor(sessionId, spawn, worktree)
+      ? catalogueFor(sessionId, spawn, worktree, messaging)
       : provider === 'claude'
         ? deps.catalogue
         : deps.baseCatalogue;

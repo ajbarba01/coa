@@ -38,8 +38,10 @@ export const STARTER_PACKAGES: readonly AgentPackage[] = [
     pieces: baselineStablePieces(),
     // `find_agent` rides alongside `spawn_agent`: an agent that may dispatch a
     // subagent must also be able to learn what it may dispatch, rather than
-    // discovering the roster reactively off an unknown-ref retry.
-    toolRefs: ['Read', 'Glob', 'Grep', 'spawn_agent', 'find_agent'],
+    // discovering the roster reactively off an unknown-ref retry. `send_message`/
+    // `list_agents` ride alongside both: an agent that may spawn or be spawned is
+    // already part of a mesh, so it may also talk to it (docs/adr/0039).
+    toolRefs: ['Read', 'Glob', 'Grep', 'spawn_agent', 'find_agent', 'send_message', 'list_agents'],
   },
   {
     id: 'coa-orientation',

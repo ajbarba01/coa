@@ -56,6 +56,7 @@ export {
 export { buildConversationHandlers } from './session/conversation-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
 export { createConversationStore } from './session/conversation-store.js';
+export { createMessageLog, SYSTEM_SENDER, type MessageLog } from './session/message-log.js';
 export { createDaemonCore, type DaemonCoreHandle } from './session/daemon.js';
 export { AccountsRegistry } from './auth/registry.js';
 export { LoginManager } from './auth/login-manager.js';

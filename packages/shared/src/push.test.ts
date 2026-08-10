@@ -190,3 +190,81 @@ describe('turnFrameSchema — the deliberate-stop vocabulary', () => {
     });
   });
 });
+
+describe('turnFrameSchema — the three live subagent announcement kinds', () => {
+  it('round-trips a spawn announcement', () => {
+    const frame = {
+      t: 'subagent-spawn' as const,
+      childSessionId: 'kid-1',
+      childWorktree: '/repo',
+      agentRef: 'explorer',
+      description: 'go look',
+      isolate: false,
+    };
+    expect(turnFrameSchema.parse(frame)).toEqual(frame);
+  });
+
+  it('round-trips a completion announcement, with detail/result both optional', () => {
+    const bare = {
+      t: 'subagent-completion' as const,
+      childSessionId: 'kid-1',
+      childWorktree: '/repo',
+      agentRef: 'explorer',
+      reason: 'stopped' as const,
+    };
+    expect(turnFrameSchema.parse(bare)).toEqual(bare);
+
+    const completed = { ...bare, reason: 'completed' as const, result: 'the answer is 4' };
+    expect(turnFrameSchema.parse(completed)).toEqual(completed);
+
+    const errored = { ...bare, reason: 'errored' as const, detail: 'connection dropped' };
+    expect(turnFrameSchema.parse(errored)).toEqual(errored);
+  });
+
+  it('rejects a completion reason outside the enumerated three', () => {
+    expect(
+      turnFrameSchema.safeParse({
+        t: 'subagent-completion',
+        childSessionId: 'kid-1',
+        childWorktree: '/repo',
+        agentRef: 'explorer',
+        reason: 'went-quiet',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('round-trips a message announcement, replyTo optional, direction relative to the receiver', () => {
+    const fresh = {
+      t: 'subagent-message' as const,
+      messageId: 'msg-1',
+      threadId: 'msg-1',
+      from: 'sess-a',
+      to: 'sess-b',
+      direction: 'sent' as const,
+      body: 'are you done yet?',
+    };
+    expect(turnFrameSchema.parse(fresh)).toEqual(fresh);
+
+    const reply = {
+      ...fresh,
+      messageId: 'msg-2',
+      replyTo: 'msg-1',
+      direction: 'received' as const,
+    };
+    expect(turnFrameSchema.parse(reply)).toEqual(reply);
+  });
+
+  it('rejects a message direction outside sent/received', () => {
+    expect(
+      turnFrameSchema.safeParse({
+        t: 'subagent-message',
+        messageId: 'm',
+        threadId: 'm',
+        from: 'a',
+        to: 'b',
+        direction: 'queued',
+        body: 'x',
+      }).success,
+    ).toBe(false);
+  });
+});

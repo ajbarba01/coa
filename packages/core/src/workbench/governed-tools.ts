@@ -16,6 +16,7 @@ import { enrich, type EnrichDeps } from './enrich.js';
 import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
 import { applyPatch, editSymbol, type WorkbenchDeps } from './mutate.js';
 import { contextStatus, getSpec, runChecks, type InspectDeps } from './inspect.js';
+import { listRoster, sendMessage, type MessagingDeps } from './messaging.js';
 import { findAgent, sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
 
 // The dispatch primitives moved to their own leaf module; re-exported so
@@ -52,6 +53,9 @@ export interface GovernedToolDeps {
   web?: WebToolDeps;
   /** Subagent dispatch ports; absent ⇒ spawning is not wired for this session. */
   spawn?: SpawnDeps;
+  /** Inter-agent messaging ports (docs/adr/0039); absent ⇒ messaging is not wired for
+   *  this session. */
+  messaging?: MessagingDeps;
 }
 
 /** The buildable v1 catalogue's dispatch table, keyed by the manifest tool name. */
@@ -110,6 +114,41 @@ const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
       },
       handle: 'find_agent:unavailable',
       pointer: safeQuery,
+    };
+  }),
+  send_message: spec(
+    { to: z.string(), body: z.string().min(1), replyTo: z.string().optional() },
+    (a, d) => {
+      // `exactOptionalPropertyTypes`: zod's `.optional()` yields `replyTo: string |
+      // undefined` (a present-but-undefined key), not the absent-key `replyTo?: string`
+      // `sendMessage`'s args want — mirrors `conversation-store.ts`'s own note on the
+      // same zod/exactOptionalPropertyTypes gap.
+      const args = {
+        to: a.to,
+        body: a.body,
+        ...(a.replyTo !== undefined ? { replyTo: a.replyTo } : {}),
+      };
+      if (d.messaging !== undefined) return sendMessage(args, d.messaging);
+      const safeTo = sanitizeEchoedText(a.to);
+      return {
+        result: {
+          applied: false,
+          error: { code: 'unavailable', message: 'inter-agent messaging is not wired here' },
+        },
+        handle: 'send_message:unavailable',
+        pointer: safeTo,
+      };
+    },
+  ),
+  list_agents: spec({}, (_a, d) => {
+    if (d.messaging !== undefined) return listRoster(d.messaging);
+    return {
+      result: {
+        applied: false,
+        error: { code: 'unavailable', message: 'the live roster is not wired here' },
+      },
+      handle: 'list_agents:unavailable',
+      pointer: 'roster',
     };
   }),
 };

@@ -49,6 +49,10 @@ export interface DaemonSessionOptions {
    *  registry exist, which is after this function returns (see `cli.ts`'s late-bound
    *  holder). */
   resolveSpawn?: SessionWiring['resolveSpawn'];
+  /** Resolve a session's messaging port (sender = sessionId, docs/adr/0039); absent ⇒
+   *  messaging unavailable — the same forward-reference-safe-closure trick as
+   *  `resolveSpawn` (see `cli.ts`). */
+  resolveMessaging?: SessionWiring['resolveMessaging'];
   /** F2: resolve a session's mode-aware permission layer; absent ⇒ mode
    *  enforcement unavailable — the daemon host wires this once `registry` exists,
    *  the same forward-reference-safe-closure trick `resolveSpawn` uses (see
@@ -115,6 +119,9 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     }),
     activeAccount,
     ...(options.resolveSpawn !== undefined ? { resolveSpawn: options.resolveSpawn } : {}),
+    ...(options.resolveMessaging !== undefined
+      ? { resolveMessaging: options.resolveMessaging }
+      : {}),
     ...(options.resolveMode !== undefined ? { resolveMode: options.resolveMode } : {}),
   });
   const models = new ModelCache({ fetch: fetchModels });

@@ -7,6 +7,7 @@ import { Governance } from '../governance/governance.js';
 import { ChangeKernel } from '../kernel.js';
 import { Reconciler } from '../reconcile/reconciler.js';
 import { buildGovernedTools, type GovernedToolDeps } from '../workbench/governed-tools.js';
+import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { BaseToolDeps } from '../workbench/base-tools.js';
 import { listFilesFor } from '../workbench/file-listing.js';
@@ -144,7 +145,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
     },
     catalogue: buildGovernedTools(governedToolDeps(kernel, governance, flags, options.root ?? '.')),
     baseCatalogue: buildBaseCatalogue(kernel, governance, flags, options),
-    catalogueFor: (sessionId, spawn, worktreeRoot) =>
+    catalogueFor: (sessionId, spawn, worktreeRoot, messaging) =>
       buildGovernedTools(
         governedToolDeps(
           kernel,
@@ -153,10 +154,20 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
           worktreeRoot ?? options.root ?? '.',
           sessionId,
           spawn,
+          messaging,
         ),
       ),
-    baseCatalogueFor: (sessionId, spawn, worktreeRoot) =>
-      buildBaseCatalogue(kernel, governance, flags, options, sessionId, spawn, worktreeRoot),
+    baseCatalogueFor: (sessionId, spawn, worktreeRoot, messaging) =>
+      buildBaseCatalogue(
+        kernel,
+        governance,
+        flags,
+        options,
+        sessionId,
+        spawn,
+        worktreeRoot,
+        messaging,
+      ),
   };
 
   return { core, kernel, flags, governance };
@@ -267,10 +278,11 @@ function resolvePieceSafely(kernel: ChangeKernel, ref: PieceRef) {
  * worktree's edits diverge from the shared tree — an accepted floor, not solved
  * here).
  *
- * `sessionId`/`spawn` default to the pre-existing daemon-wide floor (a constant
- * `'daemon'` stamp, no spawn port) so the ONE shared catalogue built at daemon
- * startup is unchanged; `catalogueFor`/`baseCatalogueFor` (composition.ts) pass the
- * real per-session values when a session-scoped catalogue is being derived.
+ * `sessionId`/`spawn`/`messaging` default to the pre-existing daemon-wide floor (a
+ * constant `'daemon'` stamp, no spawn or messaging port) so the ONE shared catalogue
+ * built at daemon startup is unchanged; `catalogueFor`/`baseCatalogueFor`
+ * (composition.ts) pass the real per-session values when a session-scoped catalogue is
+ * being derived.
  */
 function governedToolDeps(
   kernel: ChangeKernel,
@@ -279,11 +291,13 @@ function governedToolDeps(
   root: string,
   sessionId = 'daemon',
   spawn?: SpawnDeps,
+  messaging?: MessagingDeps,
 ): GovernedToolDeps {
   const worktreeRoot = root.replace(/\\/g, '/');
   return {
     sessionId,
     ...(spawn !== undefined ? { spawn } : {}),
+    ...(messaging !== undefined ? { messaging } : {}),
     retrieve: {
       worktreeRoot,
       lookupSymbol: (name) => kernel.lookup(name),
@@ -327,6 +341,7 @@ function buildBaseCatalogue(
   sessionId = 'daemon',
   spawn?: SpawnDeps,
   worktreeRoot?: string,
+  messaging?: MessagingDeps,
 ) {
   const web = options.webTools?.({
     recordCost: (usage) => governance.record({ scope: 'web_fetch_summarizer', ...usage }),
@@ -334,7 +349,7 @@ function buildBaseCatalogue(
   const root = worktreeRoot ?? options.root ?? '.';
   return buildGovernedTools(
     {
-      ...governedToolDeps(kernel, governance, flags, root, sessionId, spawn),
+      ...governedToolDeps(kernel, governance, flags, root, sessionId, spawn, messaging),
       base: baseToolDeps(kernel, root),
       ...(web ? { web } : {}),
     },

@@ -6,6 +6,7 @@ import type {
 } from './retrieve.js';
 import type { MutateResult } from './mutate.js';
 import type { GetSpecResult } from './inspect.js';
+import type { ListAgentsResult, SendMessageResult } from './messaging.js';
 import type { FindAgentResult } from './spawn.js';
 import type { CoaError, FeedView, SymbolRecord } from '@coa/shared';
 
@@ -65,6 +66,8 @@ const RENDERERS: Record<string, Renderer> = {
   find_references: (r) => renderReferences(r as ReferencesResult),
   outline: (r) => renderOutline(r as OutlineResult),
   find_agent: (r) => renderFindAgent(r as FindAgentResult),
+  send_message: (r) => renderSendMessage(r as SendMessageResult),
+  list_agents: (r) => renderListAgents(r as ListAgentsResult),
 };
 
 /**
@@ -108,6 +111,8 @@ const OK_PREDICATES: Record<string, (result: unknown) => boolean> = {
   WebFetch: (r) => okBool(r, 'fetched'),
   // WebSearch: empty results is not an error (default true).
   find_agent: (r) => okBool(r, 'applied'),
+  send_message: (r) => okBool(r, 'applied'),
+  list_agents: (r) => okBool(r, 'applied'),
 };
 
 /**
@@ -254,4 +259,22 @@ function renderFindAgent(r: FindAgentResult): string {
 /** Join a list one-per-line, substituting a message when the list is empty. */
 function renderLines(items: readonly string[], empty: string): string {
   return items.length === 0 ? empty : items.join('\n');
+}
+
+function renderSendMessage(r: SendMessageResult): string {
+  if (!r.applied) return r.error.message;
+  const landed =
+    r.delivery === 'mid-turn'
+      ? 'queued — lands at its next turn boundary'
+      : 'queued — a fresh turn is being started for it';
+  return `sent to ${r.to} (thread ${r.threadId}) — ${landed}`;
+}
+
+/** Each row is already a sanitized-where-needed, bounded JSON object (`messaging.ts`'s
+ *  `listRoster`) — this only joins them, same reasoning as `renderFindAgent`. */
+function renderListAgents(r: ListAgentsResult): string {
+  if (!r.applied) return r.error.message;
+  const rows = [...r.agents];
+  if (r.omitted > 0) rows.push(`… ${r.omitted} more agent${r.omitted === 1 ? '' : 's'} not shown`);
+  return renderLines(rows, 'no other agents in this session’s tree');
 }

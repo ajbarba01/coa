@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 import type { CapabilityFrame, CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type { RuntimeAdapter, StopDecision, ToolCatalogue } from '@coa/spi';
+import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { ModeDeps } from './permission.js';
 import type {
@@ -74,13 +75,15 @@ export interface DaemonCore {
     sessionId: string,
     spawn: SpawnDeps | undefined,
     worktreeRoot?: string,
+    messaging?: MessagingDeps,
   ) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers) — see its doc:
-   *  BOTH catalogues carry `spawn_agent`, and both need this seam covered. */
+   *  BOTH catalogues carry `spawn_agent`/`send_message`, and both need this seam covered. */
   baseCatalogueFor?: (
     sessionId: string,
     spawn: SpawnDeps | undefined,
     worktreeRoot?: string,
+    messaging?: MessagingDeps,
   ) => ToolCatalogue;
 }
 
@@ -111,6 +114,12 @@ export interface SessionWiring {
    * session (byte-identical to before this seam existed).
    */
   resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
+  /**
+   * Resolve THIS session's messaging port, bound to `sessionId` as sender
+   * (docs/adr/0039). Absent ⇒ messaging unavailable for every session (byte-identical
+   * to before this seam existed).
+   */
+  resolveMessaging?: (sessionId: string) => MessagingDeps | undefined;
   /**
    * F2: resolve THIS session's mode-aware permission layer, bound to `sessionId`'s
    * live mode/approval-seam state (the daemon's `LiveSession`) and given the
@@ -146,6 +155,7 @@ export function composeSessionDeps(core: DaemonCore, wiring: SessionWiring): Ses
     ...(core.catalogueFor ? { catalogueFor: core.catalogueFor } : {}),
     ...(core.baseCatalogueFor ? { baseCatalogueFor: core.baseCatalogueFor } : {}),
     ...(wiring.resolveSpawn ? { resolveSpawn: wiring.resolveSpawn } : {}),
+    ...(wiring.resolveMessaging ? { resolveMessaging: wiring.resolveMessaging } : {}),
     ...(wiring.resolveMode ? { resolveMode: wiring.resolveMode } : {}),
   };
 }

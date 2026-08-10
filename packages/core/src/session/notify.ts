@@ -53,8 +53,12 @@ const MAX_RESULT_LENGTH = 2000;
  * the console transcript is a browser-rendered view, and those two separators are
  * mandatory line breaks there independent of any `white-space` handling, so they
  * need flattening for the same reason CR/LF do.
+ *
+ * Exported: `session/message-render.ts` reuses it verbatim for an inter-agent message
+ * body — free text with the same no-upstream-format-guarantee shape as `detail`/`result`
+ * here, sanitized the same way rather than growing a second copy.
  */
-function flattenControlChars(raw: string): string {
+export function flattenControlChars(raw: string): string {
   let flattened = '';
   let sawSpace = false;
   for (const ch of raw) {

@@ -93,7 +93,9 @@ describe('buildGovernedTools', () => {
         'find_agent',
         'get_piece',
         'get_spec',
+        'list_agents',
         'run_checks',
+        'send_message',
         'spawn_agent',
       ].sort(),
     );

@@ -116,7 +116,13 @@ function foldFrame(
     case 'reconcile':
     case 'permission':
     case 'subagent':
-      // No transcript memory — these frames are dropped.
+    case 'subagent-spawn':
+    case 'subagent-completion':
+    case 'subagent-message':
+      // No transcript memory — these frames are dropped. The three subagent-* kinds are
+      // live-only announcements (session-service.ts's `#announceSubagent`) that are never
+      // even persisted, so this case only exists to keep the exhaustiveness check below
+      // honest about every wire kind, not because one has ever reached this fold.
       break;
     case 'text-delta':
     case 'thinking-delta':
