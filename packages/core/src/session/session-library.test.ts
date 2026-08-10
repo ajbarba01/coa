@@ -241,6 +241,62 @@ describe('SessionService × the library port', () => {
     ).rejects.toThrow(/unknown skill "nope"/);
   });
 
+  it("delivers the skill-did-not-resolve advisory to the FOUNDING send's deferred subscriber", async () => {
+    // The console's normal flow: the caller's sink attaches only at the turn's
+    // first status (the deferred subscribe), AFTER the send-time resolution ran —
+    // the advisory must survive that gap, never be silently dropped.
+    store.create({ id: 'c7', agentRef: 'helper', title: 't', scope: '' });
+    const pushes: Push[] = [];
+    let settle!: () => void;
+    const done = new Promise<void>((r) => (settle = r));
+    const sink = (push: Push): void => {
+      pushes.push(push);
+      if (push.kind === 'status' && (push.state === 'done' || push.state === 'error')) settle();
+    };
+    await service(fakePort()).send({
+      conversationId: 'c7',
+      input: 'go',
+      role: 'swe',
+      scope: '',
+      skills: [
+        { name: 'commits', delivery: 'auto' },
+        { name: 'ghost', delivery: 'auto' },
+      ],
+      subscribe: { sink, onAttached: () => {} },
+    });
+    await done;
+    const advisory = pushes.find(
+      (p) =>
+        p.kind === 'turn' &&
+        p.frame.t === 'error' &&
+        p.frame.origin === 'daemon' &&
+        p.frame.message.includes('"ghost"'),
+    );
+    expect(advisory).toBeDefined();
+  });
+
+  it("delivers a spawned child's advisory to its first subscriber (nobody is attached at spawn)", () => {
+    store.create({ id: 'p1', agentRef: 'helper', title: 't', scope: '' });
+    const svc = new SessionService({
+      deps: sessionDeps(),
+      registry,
+      store,
+      // The child's agent carries a skill the library cannot resolve.
+      listAgents: () => [agent([{ name: 'ghost', delivery: 'auto' }])],
+      library: fakePort(),
+    });
+    const spawn = svc.spawnFor('p1');
+    if (spawn === undefined) throw new Error('spawn port unavailable');
+    const { sessionId } = spawn.startChild({ agentRef: 'helper', description: 'd', prompt: 'go' });
+
+    const pushes: Push[] = [];
+    svc.subscribe(sessionId, (p) => pushes.push(p));
+    const advisory = pushes.find(
+      (p) => p.kind === 'turn' && p.frame.t === 'error' && p.frame.message.includes('"ghost"'),
+    );
+    expect(advisory).toBeDefined();
+  });
+
   it('with no library port, everything stays floor-identical and invocation refuses honestly', async () => {
     store.create({ id: 'c6', agentRef: 'helper', title: 't', scope: '' });
     await sendAndSettle(service(), { conversationId: 'c6', input: 'go', role: 'swe', scope: '' });

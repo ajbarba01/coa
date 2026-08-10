@@ -204,6 +204,9 @@ export class LiveSession {
   approvalSeam = true;
 
   #sinks = new Set<Sink>();
+  /** Daemon advisories announced before anyone subscribed — held for the first
+   *  subscriber (see {@link announce}), because `emit` reaches CURRENT sinks only. */
+  #pendingAnnouncements: Push[] = [];
   #queue: QueuedTurn[] = [];
   #waiter: ((turn: QueuedTurn | undefined) => void) | undefined;
   #closed = false;
@@ -396,6 +399,7 @@ export class LiveSession {
   }
 
   /** Add `sink` to the fan-out set, hydrate it with the current status push,
+   *  then deliver any advisories held for the first subscriber ({@link announce}),
    *  and return an unsubscribe function. */
   subscribe(sink: Sink): () => void {
     this.#sinks.add(sink);
@@ -407,7 +411,33 @@ export class LiveSession {
     } catch {
       this.#sinks.delete(sink);
     }
+    // Held advisories flush AFTER hydration, so the subscriber still joins at the
+    // session's current status first. A sink dropped by its own hydration throw
+    // leaves the buffer intact for whoever attaches next.
+    if (this.#sinks.size > 0 && this.#pendingAnnouncements.length > 0) {
+      const pending = this.#pendingAnnouncements;
+      this.#pendingAnnouncements = [];
+      for (const push of pending) this.emit(push);
+    }
     return () => this.#sinks.delete(sink);
+  }
+
+  /**
+   * Emit a daemon advisory that must reach SOMEONE: delivered like any push when a
+   * subscriber is attached, otherwise held for the FIRST subscriber and flushed on
+   * attach (once — later subscribers see only live traffic, like every live-only
+   * frame). Plain `emit` fans out to current sinks only, which silently drops an
+   * advisory raised in the founding-turn / child-spawn window where the caller's
+   * subscription is still deferred to the turn's first status — exactly what an
+   * advisory's never-silently-dropped contract forbids.
+   */
+  announce(push: Push): void {
+    if (this.#sinks.size > 0) {
+      this.emit(push);
+      return;
+    }
+    if (this.#closed) return;
+    this.#pendingAnnouncements.push(push);
   }
 
   /** Fan `push` out to every subscribed sink. A sink that throws (e.g. a dropped
@@ -454,6 +484,8 @@ export class LiveSession {
   close(): void {
     this.#closed = true;
     this.deliveries.seal();
+    // Advisories still waiting for a first subscriber have no one left to reach.
+    this.#pendingAnnouncements = [];
     // A turn already queued but not yet drained must not outlive the session:
     // left in place, the NEXT `nextTurn()` call (once the loop's current turn
     // finishes) would still find it and hand it to `runTurn`, dispatching a

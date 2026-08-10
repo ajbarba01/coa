@@ -159,6 +159,10 @@ export class SessionService {
    *  own `seq` (these frames are never appended to it; see `push.ts`'s doc comment on
    *  the three `subagent-*` kinds). */
   readonly #liveSeq = new Map<string, number>();
+  /** Which missing-skill names each LIVE session already announced (`#announceMissingSkills`
+   *  — once per session instance, not per send). Weak so an evicted session's set goes
+   *  with it, and a revived session announces afresh. */
+  readonly #announcedMissing = new WeakMap<LiveSession, Set<string>>();
 
   constructor(options: SessionServiceOptions) {
     this.#deps = options.deps;
@@ -408,14 +412,40 @@ export class SessionService {
     };
   }
 
-  /** Surface configured-but-unresolved skills on the session's live stream (best-effort,
-   *  like every `#announceSubagent` annotation — never persisted, never a block). */
+  /**
+   * Surface configured-but-unresolved skills on the session's live stream (never
+   * persisted, never a block). Unlike the `#announceSubagent` annotations this rides
+   * `LiveSession.announce`, which HOLDS the frame for the first subscriber when none
+   * is attached yet — the founding send defers the caller's subscription to the
+   * turn's first status, and a spawned child has no subscriber at all at spawn, so a
+   * plain emit would silently drop the one advisory whose contract (injection.ts's
+   * `ResolvedSkillSet.missing`) forbids exactly that. Announced once per live
+   * session per skill: every later send re-resolves and would otherwise re-fire the
+   * same advisory as duplicate noise (keyed on the session INSTANCE, so a revived
+   * idle-evicted session honestly announces again to its fresh stream).
+   */
   #announceMissingSkills(sessionId: string, missing: readonly string[]): void {
+    if (missing.length === 0) return;
+    const session = this.#registry.get(sessionId);
+    if (session === undefined) return;
+    let announced = this.#announcedMissing.get(session);
+    if (announced === undefined) {
+      announced = new Set();
+      this.#announcedMissing.set(session, announced);
+    }
     for (const name of missing) {
-      this.#announceSubagent(sessionId, {
-        t: 'error',
-        origin: 'daemon',
-        message: `library skill "${name}" is configured for this agent but did not resolve (unknown, disabled, or broken source) — it was not injected`,
+      if (announced.has(name)) continue;
+      announced.add(name);
+      session.announce({
+        kind: 'turn',
+        sessionId,
+        worktree: session.worktree ?? '',
+        seq: this.#nextLiveSeq(sessionId),
+        frame: {
+          t: 'error',
+          origin: 'daemon',
+          message: `library skill "${name}" is configured for this agent but did not resolve (unknown, disabled, or broken source) — it was not injected`,
+        },
       });
     }
   }
