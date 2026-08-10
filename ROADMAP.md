@@ -292,9 +292,17 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   turn). MCP: enabled library entries are delivered per turn — the Claude SDK gets them on its
   native `mcpServers` option beside the in-process `coa` server (which wins a name collision;
   `strictMcpConfig` still blocks ambient config), pure-API backends surface a typed error-frame
-  degrade naming the unavailable servers. **Remaining:** the composer `/skill` UI + the Library
-  surface (renderer work), and Codex `config.toml` MCP parsing, still parked (TOML dependency;
-  skills dir is scanned, its MCP layer is not).
+  degrade naming the unavailable servers. **Console UI wired (2026-08-10):** a Library nav
+  surface (Skills/MCP tabs; Personal/Project/Discovered sections; link-to-scope/copy/unlink +
+  per-entry enable; drift marked on copies with one-click re-sync; scan diagnostics surfaced)
+  renders `listLibrary` through a daemon-fed renderer store, the seven library verbs ride the
+  desktop IPC bridge, the composer gained the `/` slash popover (invocable skills, keyboard
+  navigable; invocations ride `createSession.invokeSkills` with staged chips + a console-local
+  transcript note), the agent editor gained a per-agent Skills panel (add from the effective
+  set, auto vs on-demand delivery, honest "not in the library" mark), and the console's
+  predictive drift compare folds in the resolvable skill slice (absent == empty, so pre-library
+  sessions never spuriously drift). **Remaining:** Codex `config.toml` MCP parsing, still
+  parked (TOML dependency; skills dir is scanned, its MCP layer is not).
 
 ## Remaining work (keystones first)
 

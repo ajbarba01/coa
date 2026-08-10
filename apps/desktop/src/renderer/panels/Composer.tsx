@@ -1,9 +1,10 @@
-import { Button, Icon, StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { Button, Icon, StatusDot, Tooltip, cx, menuSurface } from '@coa/console-kit';
 import { estimateTokens } from '@coa/console-transcript';
 import { useEffect, useRef, useState } from 'react';
 import type {
   Attachment,
   AttachControlVm,
+  InvocableSkill,
   ModelDescriptor,
   ModelMetadata,
   PermissionMode,
@@ -87,6 +88,27 @@ export interface PendingApproval {
   diffStat?: string | undefined;
 }
 
+/** The slash state a draft is in: the query while the whole draft is `/`+partial
+ *  name (no whitespace yet — a space commits to it being prose), else nothing. */
+export function slashQueryOf(text: string): string | undefined {
+  const match = /^\/(\S*)$/.exec(text);
+  return match === undefined || match === null ? undefined : match[1];
+}
+
+/** Pure: the invocable rows a slash query names — name match, case-insensitive,
+ *  already-attached names excluded (invoking twice is one load). */
+export function filterSkills(
+  skills: readonly InvocableSkill[],
+  query: string,
+  attached: readonly string[],
+): InvocableSkill[] {
+  const q = query.trim().toLowerCase();
+  const taken = new Set(attached.map((n) => n.toLowerCase()));
+  return skills.filter(
+    (s) => !taken.has(s.name.toLowerCase()) && (q === '' || s.name.toLowerCase().includes(q)),
+  );
+}
+
 export interface ComposerProps {
   /** True while a governed turn is in flight — flips the action cluster to
    *  Stop + the Queue / Steer split, and lights the running edge. */
@@ -135,9 +157,14 @@ export interface ComposerProps {
   /** The attach control's capability matrix for the active model/backend. Absent ⇒
    *  attachments unavailable (the control explains itself, never vanishes). */
   attach?: AttachControlVm | undefined;
-  /** `attachments` rides only a direct send — a queue/steer/redirect keeps staged
-   *  attachments pinned in the composer rather than silently dropping them. */
-  onSend: (text: string, attachments?: Attachment[]) => void;
+  /** The invocable library skills the slash popover offers (`/name` — an explicit
+   *  one-turn load the daemon composes above the message). `undefined` ⇒ the library
+   *  read hasn't settled; the popover says so rather than claiming emptiness. */
+  skills?: InvocableSkill[] | undefined;
+  /** `attachments`/`invokeSkills` ride only a direct send — a queue/steer/redirect
+   *  keeps staged attachments and attached invocations pinned in the composer rather
+   *  than silently dropping them. */
+  onSend: (text: string, attachments?: Attachment[], invokeSkills?: string[]) => void;
   onQueue?: (text: string) => void;
   onSteer?: (text: string) => void;
   onStop?: () => void;
@@ -196,6 +223,7 @@ export function Composer({
   activeModelMetadata,
   ringUsage,
   attach,
+  skills,
   onSend,
   onQueue,
   onSteer,
@@ -215,6 +243,13 @@ export function Composer({
   // direct send (queue/steer/redirect leave them pinned — visible, never dropped).
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
 
+  // Attached skill invocations (`/name`): staged like attachments — removable chips,
+  // released only by a direct send. The slash popover below is how they get here.
+  const [invoked, setInvoked] = useState<string[]>([]);
+  // Escape closed the popover for THIS draft; any edit reopens the offer.
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashCursor, setSlashCursor] = useState(0);
+
   // A session switch must drop any staged-but-unsent draft rather than let it ride
   // out under the newly active session's `onSend` (or, worse, survive into a
   // session whose backend can't carry attachments at all). This is React's
@@ -229,6 +264,8 @@ export function Composer({
     setRenderedSessionId(activeSessionId);
     setText('');
     setAttachments([]);
+    setInvoked([]);
+    setSlashDismissed(false);
   }
   const attachIdRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -317,23 +354,40 @@ export function Composer({
     return t;
   };
 
+  // The slash popover: offered while the WHOLE draft is `/`+partial-name (a space
+  // commits the draft to being prose), never over the approval gate. `skills`
+  // undefined means the library read hasn't settled — the popover says that rather
+  // than claiming there are no skills.
+  const slashQuery = disabled || approval !== undefined ? undefined : slashQueryOf(text);
+  const slashOpen = slashQuery !== undefined && !slashDismissed;
+  const slashRows =
+    slashOpen && skills !== undefined ? filterSkills(skills, slashQuery, invoked) : [];
+  const slashAt = Math.min(slashCursor, Math.max(slashRows.length - 1, 0));
+
+  /** Attach one invocation and clear the query — the draft WAS the query. */
+  const invokeSkill = (name: string): void => {
+    setInvoked((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    setText('');
+    setSlashCursor(0);
+  };
+
   const send = (): void => {
     const t = take();
     if (t === undefined) return;
-    // A redirect answers the gate — staged attachments stay pinned for the next send.
+    // A redirect answers the gate — staged attachments/invocations stay pinned for
+    // the next send.
     if (approval !== undefined) {
       onRedirect?.(approval.id, t);
       return;
     }
-    if (attachments.length > 0) {
-      onSend(
-        t,
-        attachments.map((a) => a.attachment),
-      );
-      setAttachments([]);
-    } else {
-      onSend(t);
-    }
+    const files = attachments.length > 0 ? attachments.map((a) => a.attachment) : undefined;
+    const invokes = invoked.length > 0 ? [...invoked] : undefined;
+    // Arity mirrors what is staged, so a plain text send stays a one-argument call.
+    if (invokes !== undefined) onSend(t, files, invokes);
+    else if (files !== undefined) onSend(t, files);
+    else onSend(t);
+    if (files !== undefined) setAttachments([]);
+    if (invokes !== undefined) setInvoked([]);
   };
   const queueMessage = (): void => {
     const t = take();
@@ -416,6 +470,53 @@ export function Composer({
                     : 'border-s5 focus-within:border-s6',
         )}
       >
+        {/* The slash popover floats over the transcript above the shell — the HUD
+            picker's construction (absolute bottom-full on the relative shell). It is
+            derived from the draft, so there is no open/close state to desync: it shows
+            while the draft is a slash query and Escape has not waved THIS draft off. */}
+        {slashOpen && (
+          <div
+            data-slash-popover
+            className={cx(
+              'absolute right-0 bottom-full left-0 z-(--z-dropdown) mb-1.5',
+              menuSurface,
+              'slip-enter py-1',
+            )}
+          >
+            {skills === undefined ? (
+              <div className="px-3.5 py-1.5 text-code text-s7">Reading the library…</div>
+            ) : slashRows.length === 0 ? (
+              <div className="px-3.5 py-1.5 text-code text-s7">
+                {skills.length === 0 ? 'No skills in the library' : 'No matching skill'}
+              </div>
+            ) : (
+              <div role="listbox" aria-label="Invoke a skill" className="max-h-64 overflow-y-auto">
+                {slashRows.map((s, i) => (
+                  <button
+                    key={s.name}
+                    type="button"
+                    role="option"
+                    aria-selected={i === slashAt}
+                    onMouseEnter={() => setSlashCursor(i)}
+                    onClick={() => invokeSkill(s.name)}
+                    className={cx(
+                      'flex w-full cursor-pointer items-baseline gap-2 px-3.5 py-1.5 text-left',
+                      i === slashAt ? 'bg-s4 text-s12' : 'text-s10 hover:bg-s3',
+                    )}
+                  >
+                    <span className="flex-none font-mono text-code">/{s.name}</span>
+                    {s.description !== '' && (
+                      <span className="min-w-0 flex-1 truncate text-meta text-s7">
+                        {s.description}
+                      </span>
+                    )}
+                    <span className="ml-auto flex-none font-mono text-meta text-s6">{s.scope}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {edge !== undefined && (
           // The shimmer: two soft comets traveling the whole border path at
           // constant speed, in the status's own color (see .status-outline).
@@ -485,6 +586,28 @@ export function Composer({
             </div>
           </div>
         )}
+        {/* Attached invocations pin INSIDE the shell like attachments: removable
+            chips, released only by a direct send (their bodies ride above the message). */}
+        {invoked.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-s4 px-2.5 py-1.5">
+            {invoked.map((name) => (
+              <span
+                key={name}
+                className="slip-enter flex items-center gap-1.5 rounded-r2 border border-s4 bg-s2 py-0.5 pr-0.5 pl-1.5"
+              >
+                <span className="max-w-40 truncate font-mono text-meta text-s10">/{name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove invocation: ${name}`}
+                  onClick={() => setInvoked((prev) => prev.filter((n) => n !== name))}
+                  className="slip slip-press cursor-pointer rounded-r1 p-0.5 text-s7 hover:bg-s4 hover:text-s10 focus-visible:outline-focus active:scale-[0.97]"
+                >
+                  <Icon name="close" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {/* Staged attachments pin INSIDE the shell, above the field they will ride out
             with — removable chips, an image wearing its own thumbnail. */}
         {attachments.length > 0 && (
@@ -526,7 +649,13 @@ export function Composer({
           rows={1}
           value={text}
           disabled={disabled}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            // Any edit re-lands the cursor on the first hit and lifts an Escape
+            // dismissal — the wave-off was about the draft as it stood.
+            setSlashCursor(0);
+            setSlashDismissed(false);
+          }}
           onPaste={(e) => {
             const files = [...e.clipboardData.files];
             if (files.length === 0) return;
@@ -536,6 +665,39 @@ export function Composer({
             addFiles(files);
           }}
           onKeyDown={(e) => {
+            // The slash popover claims its keys first: arrows navigate, Enter/Tab
+            // attach the row under the cursor, Escape waves this draft's offer off
+            // (stopPropagation: the popover's Escape must not double as the
+            // chat-level stop). Enter with NO matching row falls through — a message
+            // that merely starts with `/` is still a message, never caged.
+            if (slashOpen) {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const max = Math.max(slashRows.length - 1, 0);
+                setSlashCursor(
+                  e.key === 'ArrowDown' ? Math.min(slashAt + 1, max) : Math.max(slashAt - 1, 0),
+                );
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                setSlashDismissed(true);
+                return;
+              }
+              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                const row = slashRows[slashAt];
+                if (row !== undefined) {
+                  e.preventDefault();
+                  invokeSkill(row.name);
+                  return;
+                }
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  return;
+                }
+              }
+            }
             // ⌫ on an empty field denies the merged gate (mirrors its label).
             if (approval !== undefined && e.key === 'Backspace' && text === '') {
               e.preventDefault();
@@ -599,6 +761,45 @@ export function Composer({
             }}
           />
           <MicButton disabled={disabled} />
+          {/* The slash affordance — the discoverable way into the same popover typing
+              `/` opens. It can only act on an empty draft (inserting `/` mid-message
+              would corrupt what was typed), so with text present it rests disabled and
+              its hover says the typed path instead — the tooltip rides a wrapper, as a
+              disabled control dispatches no pointer events (the MicButton note). */}
+          <Tooltip
+            label={
+              disabled
+                ? 'Invoke a skill'
+                : hasText
+                  ? 'Type / at the start of a message to invoke a skill'
+                  : 'Invoke a skill'
+            }
+            side="top"
+          >
+            <span className="flex">
+              <button
+                type="button"
+                aria-label="Invoke a skill"
+                disabled={disabled || hasText}
+                aria-disabled={disabled || hasText}
+                onClick={() => {
+                  setText('/');
+                  setSlashCursor(0);
+                  setSlashDismissed(false);
+                  areaRef.current?.focus();
+                }}
+                className={cx(
+                  'flex h-7 w-7 items-center justify-center rounded-r2 border border-s4 bg-s3 font-mono text-code',
+                  !disabled && !hasText
+                    ? 'slip slip-press cursor-pointer text-s8 hover:bg-s4 hover:text-s10 focus-visible:outline-focus active:scale-[0.97]'
+                    : 'cursor-default text-s6',
+                  disabled && 'opacity-70',
+                )}
+              >
+                /
+              </button>
+            </span>
+          </Tooltip>
           <div className="flex-1" />
           {/* F2: how autonomous the session runs — leads the cluster, since it governs
               every other control here (a plan-mode session's model/effort picks still

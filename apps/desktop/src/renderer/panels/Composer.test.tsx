@@ -527,3 +527,113 @@ describe('Composer — attachments (capability-gated intake)', () => {
     });
   });
 });
+
+describe('Composer — the slash popover (skill invocation)', () => {
+  const SKILLS = [
+    { name: 'commits', description: 'Commit style', scope: 'project' as const },
+    { name: 'review', description: 'Review checklist', scope: 'personal' as const },
+  ];
+
+  it('opens on a leading slash, filtered as the query grows', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    const list = screen.getByRole('listbox', { name: 'Invoke a skill' });
+    expect(within(list).getAllByRole('option')).toHaveLength(2);
+    await userEvent.type(screen.getByRole('textbox'), 'com');
+    expect(
+      within(screen.getByRole('listbox', { name: 'Invoke a skill' })).getAllByRole('option'),
+    ).toHaveLength(1);
+    expect(screen.getByText('Commit style')).toBeInTheDocument();
+  });
+
+  it('closes once the draft stops being a slash query (a space commits to prose)', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/com then');
+    expect(screen.queryByRole('listbox', { name: 'Invoke a skill' })).toBeNull();
+  });
+
+  it('attaches the highlighted skill on Enter — arrow keys move the highlight, the field clears', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ skills: SKILLS, onSend })} />);
+    const box = screen.getByRole('textbox');
+    await userEvent.type(box, '/');
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    // The SECOND row was highlighted; nothing was sent — the Enter was the pick.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box).toHaveValue('');
+    expect(screen.getByText('/review')).toBeInTheDocument();
+    // The send then carries the invocation beside the text.
+    await userEvent.type(box, 'go{Enter}');
+    expect(onSend).toHaveBeenCalledWith('go', undefined, ['review']);
+    // Released by the send: the chip is gone.
+    expect(screen.queryByText('/review')).toBeNull();
+  });
+
+  it('attaches on click too, and an attached skill leaves the offer list', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.click(screen.getByRole('option', { name: /commits/ }));
+    expect(screen.getByText('/commits')).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    const list = screen.getByRole('listbox', { name: 'Invoke a skill' });
+    expect(within(list).queryByText('/commits')).toBeNull();
+    expect(within(list).getByText('/review')).toBeInTheDocument();
+  });
+
+  it('a removed chip does not ride the next send', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ skills: SKILLS, onSend })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.click(screen.getByRole('option', { name: /commits/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove invocation: commits' }));
+    await userEvent.type(screen.getByRole('textbox'), 'go{Enter}');
+    expect(onSend).toHaveBeenCalledWith('go');
+  });
+
+  it('Escape waves the popover off for this draft; an edit re-offers it', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox', { name: 'Invoke a skill' })).toBeNull();
+    await userEvent.type(screen.getByRole('textbox'), 'c');
+    expect(screen.getByRole('listbox', { name: 'Invoke a skill' })).toBeInTheDocument();
+  });
+
+  it('is honest when there is nothing to offer, and while the library has not loaded', async () => {
+    const { rerender } = render(<Composer {...baseProps({ skills: [] })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    expect(screen.getByText('No skills in the library')).toBeInTheDocument();
+    rerender(<Composer {...baseProps()} />);
+    expect(screen.getByText('Reading the library…')).toBeInTheDocument();
+  });
+
+  it('a no-match Enter falls through to a normal send — a message starting with / is never caged', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ skills: SKILLS, onSend })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/nomatch{Enter}');
+    expect(onSend).toHaveBeenCalledWith('/nomatch');
+  });
+
+  it('the shelf affordance seeds the slash on an empty draft, and rests disabled mid-message', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Invoke a skill' }));
+    expect(screen.getByRole('textbox')).toHaveValue('/');
+    expect(screen.getByRole('listbox', { name: 'Invoke a skill' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'x');
+    // `/x` is still a slash query; typed prose disables the button instead.
+    await userEvent.clear(screen.getByRole('textbox'));
+    await userEvent.type(screen.getByRole('textbox'), 'hello');
+    expect(screen.getByRole('button', { name: 'Invoke a skill' })).toBeDisabled();
+  });
+
+  it('a session switch drops staged invocations with the rest of the draft', async () => {
+    const { rerender } = render(
+      <Composer {...baseProps({ skills: SKILLS, activeSessionId: 'a' })} />,
+    );
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.click(screen.getByRole('option', { name: /commits/ }));
+    expect(screen.getByText('/commits')).toBeInTheDocument();
+    rerender(<Composer {...baseProps({ skills: SKILLS, activeSessionId: 'b' })} />);
+    expect(screen.queryByText('/commits')).toBeNull();
+  });
+});
