@@ -123,6 +123,9 @@ export type ChatVm =
        *  identity (from `state.actions`) so it threads into the memoized transcript rows;
        *  resolves an advisory result the view toasts on failure. */
       openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
+      /** Jump to another session's own tab/thread (a subagent card's affordance) —
+       *  `state.actions.selectSession`, stable identity for the memoized rows. */
+      onOpenSession: (sessionId: string) => void;
       toggleRaw: () => void;
       /** The active session id, if any — drives the composer's disabled/hint state
        *  (no session means nothing to send a message into). Session switching itself
@@ -229,6 +232,46 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
         depth: f.depth,
         rollup: f.rollup,
       };
+    // The three subagent announcement cards pass through field-for-field; the agent
+    // identity color + resolved display labels are ui-state overlays layered on in
+    // `selectChatVm` (they read the agents/sessions lists), same as `resolved` on
+    // approvals — never baked into the cached base frame.
+    case 'subagent-spawn':
+      return {
+        id: f.id,
+        kind: 'subagent-spawn',
+        childSessionId: f.childSessionId,
+        childWorktree: f.childWorktree,
+        agentRef: f.agentRef,
+        description: f.description,
+        isolate: f.isolate,
+        depth: f.depth,
+      };
+    case 'subagent-completion':
+      return {
+        id: f.id,
+        kind: 'subagent-completion',
+        childSessionId: f.childSessionId,
+        childWorktree: f.childWorktree,
+        agentRef: f.agentRef,
+        reason: f.reason,
+        detail: f.detail,
+        result: f.result,
+        depth: f.depth,
+      };
+    case 'subagent-message':
+      return {
+        id: f.id,
+        kind: 'subagent-message',
+        messageId: f.messageId,
+        threadId: f.threadId,
+        replyTo: f.replyTo,
+        from: f.from,
+        to: f.to,
+        direction: f.direction,
+        body: f.body,
+        depth: f.depth,
+      };
   }
 }
 
@@ -256,6 +299,12 @@ export function frameToRawLine(f: TurnFrame): string {
       return `> ${f.role}: plan ${f.items.map((i) => `[${i.status}] ${i.text}`).join('; ')}`;
     case 'subagent':
       return `> control: subagent ${f.event} ${f.childWorktree}`;
+    case 'subagent-spawn':
+      return `> control: subagent spawn ${f.agentRef} (${f.childSessionId}) ${f.description}`;
+    case 'subagent-completion':
+      return `> control: subagent ${f.reason} ${f.agentRef} (${f.childSessionId})${f.result !== undefined ? ` ${f.result}` : ''}`;
+    case 'subagent-message':
+      return `> control: message ${f.direction} ${f.from} -> ${f.to} ${f.body}`;
   }
 }
 
@@ -336,6 +385,15 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     rawMode || activeSessionId === undefined
       ? undefined
       : (pendingApprovalsBySession[activeSessionId] ?? [])[0];
+  // Identity/label lookups for the subagent-card overlays below: the agent's
+  // identity color keys off the frame's own agentRef; a message's from/to session
+  // ids resolve to their session titles (the raw id is the honest fallback).
+  const agentByRef = new Map(agents.map((a) => [a.ref, a] as const));
+  const sessionById = new Map(sessions.map((s) => [s.id, s] as const));
+  const messageColor = (sessionId: string): string | undefined => {
+    const ref = sessionById.get(sessionId)?.agentRef;
+    return ref !== undefined ? agentByRef.get(ref)?.color : undefined;
+  };
   const governedFrames = r.value.map((f) => {
     let base = governedFrameCache.get(f);
     if (base === undefined) {
@@ -346,6 +404,25 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     // time (never cached) — every other frame reuses its cached, stable identity.
     if (base.kind === 'approval' && resolvedApprovals[base.requestId] !== undefined) {
       return { ...base, resolved: resolvedApprovals[base.requestId] };
+    }
+    // The subagent cards' identity color + display labels read the live agents/
+    // sessions lists, so they are layered on fresh too (same rationale as the
+    // approval overlay; these frames are rare, so the re-render cost is nil).
+    if (base.kind === 'subagent-spawn' || base.kind === 'subagent-completion') {
+      const color = agentByRef.get(base.agentRef)?.color;
+      return color !== undefined ? { ...base, color } : base;
+    }
+    if (base.kind === 'subagent-message') {
+      const color = messageColor(base.from);
+      const fromLabel = sessionById.get(base.from)?.title;
+      const toLabel = sessionById.get(base.to)?.title;
+      if (color === undefined && fromLabel === undefined && toLabel === undefined) return base;
+      return {
+        ...base,
+        ...(color !== undefined ? { color } : {}),
+        ...(fromLabel !== undefined ? { fromLabel } : {}),
+        ...(toLabel !== undefined ? { toLabel } : {}),
+      };
     }
     return base;
   });
@@ -517,6 +594,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     },
     openPath: state.actions.openPath,
     openExternal: state.actions.openExternal,
+    onOpenSession: state.actions.selectSession,
     toggleRaw: state.actions.toggleRaw,
     activeSessionId,
     ...(activeAgent?.name !== undefined ? { agentName: activeAgent.name } : {}),
@@ -703,9 +781,11 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   // just lets one stable closure always see the current session.
   const openPathRef = useRef(vm.status === 'ready' ? vm.openPath : undefined);
   const openUrlRef = useRef(vm.status === 'ready' ? vm.openExternal : undefined);
+  const openSessionRef = useRef(vm.status === 'ready' ? vm.onOpenSession : undefined);
   const sessionIdRef = useRef<string | undefined>(undefined);
   openPathRef.current = vm.status === 'ready' ? vm.openPath : undefined;
   openUrlRef.current = vm.status === 'ready' ? vm.openExternal : undefined;
+  openSessionRef.current = vm.status === 'ready' ? vm.onOpenSession : undefined;
   sessionIdRef.current = vm.status === 'ready' ? vm.activeSessionId : undefined;
 
   const onOpenPath = useCallback((path: string, line?: number): void => {
@@ -727,6 +807,12 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     void open(url).then((res) => {
       if (!res.ok) reportFailure('open that link', res.reason ?? 'the link could not be opened.');
     });
+  }, []);
+
+  // A subagent card's jump-to-thread — session switching via the console action.
+  // Stable identity (ref pattern, mirrors onOpenPath) for the memoized rows.
+  const onOpenSession = useCallback((sessionId: string): void => {
+    openSessionRef.current?.(sessionId);
   }, []);
 
   // Measure the floating composer's rendered height (it grows as the textarea does)
@@ -855,6 +941,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
                           findMatch={matchesFind}
                           onOpenPath={onOpenPath}
                           onOpenUrl={onOpenUrl}
+                          onOpenSession={onOpenSession}
                           label="Conversation"
                           busy={isActive && vm.sessionStatus === 'running'}
                           busySince={isActive ? vm.runningSince : undefined}

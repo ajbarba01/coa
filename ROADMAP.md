@@ -26,7 +26,7 @@ redirect) was removed** — `steerSession` no longer carries a `mode`; `control.
 Core is the single writer of a delivery's log line (one rule, every backend): the line is written
 when drained, unless a `tool_use` is open, in which case it is held and written the instant the
 last one closes — so the transcript can no longer record a steer inside a `tool_use`/`tool_result`
-pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. | Live deny/R-12 push bridge, worktree-per-writer (a child shares its root's tree today — `docs/adr/0034`); the cost roll-up's RPC producer (see item M below); discovery (`find_agent`, item M); role/capability enforcement (deferred — see "Someday / ideas"). Subagent fan-out itself now ships — see the Subagent orchestration workstream. |
+pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0010`, executed): `events.ndjson` is the sole writer, and the UI `TurnFrame` view + the provider transcript are read-time projections (the transcript folds the log, repairing an unmatched tool call by synthesis); `messages.json`/the second-writer path are retired, so integrity is structural (not a flush discipline) and the P-β M2 divergence is closed — full-fidelity capture live-verified in `sot-smoke.live.test.ts`. **Worktree-per-writer now ships, scoped** (a child shares its root's tree by default, `docs/adr/0034`; opt-in isolation via a real `git worktree add`, see the subagent section above) — the `begin_fork`/`exit_fork` tool verbs are the remaining gap (item E). | Live deny/R-12 push bridge; the cost roll-up's RPC producer (see item M below); discovery (`find_agent`, item M); role/capability enforcement (deferred — see "Someday / ideas"). Subagent fan-out itself now ships — see the Subagent orchestration workstream. |
 | M9 Runtime Adapter | Partial | Claude adapter, the tri-backend adapter factory (`adapter-claude-sdk` / `adapter-deepseek` / `adapter-longcat`), `registerTools`, the model/reasoning config seam, and per-provider reasoning surfaced as thinking blocks. The Claude session now advertises a bounded eight-tool built-in floor and registers three hook events (`Stop` + `PreToolUse` gate + `PostToolUse` producer trigger); see item L. The runtime-adapter interface carries only the six methods the session host actually drives — the never-wired enhancement ports (reminder/context/cache delivery, usage telemetry, capability profile, refs, eval) were deleted; settled usage flows through the `onSettle` callback. | Golden-corpus eval/Tier-B path, `registerMcp` resolver — each reintroduces its port with the feature. |
 | M10 Console | Partial / rich | Electron shell on `@coa/console-kit` (+ `@coa/console-transcript` for the conversation), live chat wired to a real governed session, rich tool cards, live drift/cache-staleness banners, a Stop button + Esc that cooperatively interrupts the running turn (`interruptSession`); an auto-expanding, smooth-collapsing (and now correctly-timed: collapses when output begins) reasoning block in the muted trace color, a cascaded blur+rise entrance for non-streamed blocks (tool cards/results/plans), and a block-split streaming reveal (`StreamingMarkdown`) in which agent output arrives a whole formatted markdown block at a time (each with the entrance; the in-progress block is held until it completes) while the reasoning trace types out per-word (stable-key, append-only) — all behind a single `reveal` config seam; and a live mid-turn steer affordance (the Composer's Queue (⏎)/Steer (⌥⏎) buttons, wired to `steerSession`; Barge In is gone — `docs/adr/0031`). | The **workbench rebuild** (see "In flight" — the 2026-07 UX overhaul's new design system at `docs/adr/0014`; W0–W5 have landed); live approvals/deny (blocked on M8's R-12), Longform + graph (React Flow) views, the system-prompt viewer. | 
 
@@ -190,19 +190,33 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   refusing it. **A child's completion reaches the parent as a system-authored notice, never a
   message** (ADR-0033) — `origin: 'system'` on the `Delivery` port ADR-0030 built, hardcoded and
   unreachable from any tool handler, carrying only the fact of completion (`completed`/`errored`/
-  `stopped`), never the child's output; the parent reads the child's own transcript for the result
-  (agent-to-agent messaging is not built). **A read-time, session-scoped transcript join is built but
-  unwired** (`foldTreeToTranscript`): it has no production caller — a parent reads a child's
-  `events.ndjson` directly, and the console groups by lineage instead. Nor is it the turn-level
+  `stopped`). **The notice now carries the child's own result text too** (ADR-0038, extending
+  ADR-0033's content contract): `session-service.ts`'s `#childResultText` folds the completed
+  child's own event log — and, if it spawned any children of its own, theirs too — via
+  `foldTreeToTranscript` (finally wired, its first production caller) and
+  `transcript-projection.ts`'s new `latestAssistantText`, then `notify.ts`'s `renderChildEnded`
+  sanitizes and caps it (2000 chars, same flatten-control-chars treatment as the errored-detail
+  path, plus an explicit truncation note) before it rides the unforgeable `system` envelope as
+  quoted DATA — a fact about what the child said, never an assertion the envelope vouches for. The
+  full transcript is still reachable exactly as before (`store.getEvents`/`reload`) for anything
+  past the cap. Nor is the new wiring the turn-level
   `parentTurn`/`subagent` `TurnFrame` link the original M10 design proposed (that seam likewise stays
   reserved, unwired). Unit-proven to nest to arbitrary depth (a grandchild fixture) and to merge
   deterministically by `(seq, sessionId)`, which is a total order, **not** a shared chronology across
   sessions. The console (`Browser.tsx`/
   `session-tree.ts`) groups by the same lineage, badges a session Root vs. Subagent, and pulls a
   matched search hit's ancestors back into view via a `.root` fallback, hardened against a broken
-  `.parent` chain. A child shares its root's worktree (no worktree manager exists to give it its
-  own) — accepted, since v1 is attended and every write from either agent still passes
-  `PreToolUse`. **The tree cost roll-up is implemented and unit-tested but has no producer**:
+  `.parent` chain. **A worktree manager now exists** (`packages/core/src/session/worktree-manager.ts`):
+  a child shares its root's worktree by default (unchanged — every write from either agent still
+  passes `PreToolUse`), but `spawn_agent`'s `isolate` flag gives a child a real, separate
+  `git worktree add` checkout under the gitignored `.coa/worktrees/<sessionId>/`, confined at the
+  Retrieve/Mutate/base-tool seam too (`catalogueFor`/`baseCatalogueFor` now take the session's own
+  bound worktree, not just the daemon's static root). An isolated worktree survives its session
+  ending (results may need review); cleanup is an explicit reap — now a real RPC verb pair
+  (`listWorktrees`/`reapWorktree`, `worktree-handlers.ts`; reap refuses a session whose turn is
+  running) — or the daemon-start `sweepStale()` idle sweep. The
+  `begin_fork`/`exit_fork` tool verbs that would expose this to a model are still unbuilt (item E).
+  **The tree cost roll-up is implemented and unit-tested but has no producer**:
   `listSessions` maps the conversation store straight through with no `costUsd`, and the ledger's
   `root` key (`docs/adr/0032`) is in-process only — shipped deliberately deferred rather than half
   a feature; the console's session-cost UI honestly reads "Not tracked yet". **A live run against a
@@ -217,9 +231,42 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   (kernel/on-demand, the schema-budget axis) and package `toolRefs` (the availability axis) are
   orthogonal** — `edit_symbol`/`apply_patch` are kernel-partition yet deliberately opt-in-only via
   the `coding` package, so an edit-less role stays edit-less; a regression guard now asserts every
-  `TOOL_CATALOGUE` entry is granted by at least one starter package. **Next: discovery** — the
-  agent-list Piece and `find_agent` (a model must be handed a ref today, or use a built-in) — is
-  its own plan, along with the cost roll-up's RPC producer (below).
+  `TOOL_CATALOGUE` entry is granted by at least one starter package. **Discovery now ships**: a
+  `find_agent` on-demand tool (`workbench/spawn.ts`) searches the same live roster `spawn_agent`
+  resolves against — `ref`/`name`/`description` substring match, case-insensitive, query optional
+  (omit it to list the whole roster) — reusing `SpawnDeps.listAgents` and the sanitized/bounded
+  JSON-per-line rendering `spawn_agent`'s own unknown-ref reply already built (`listKnownAgents`,
+  factored out so both share one sanitizer and one row cap), rather than a second registry. Granted
+  by the Core package's `toolRefs` alongside `spawn_agent`, so anywhere a model may spawn it may
+  also discover. The cost roll-up's RPC producer (below) is a separate, harder gap — parked, not
+  shipped with this. **Agent-to-agent messaging now ships too** (`docs/adr/0039`): `send_message`
+  (kernel, non-blocking) and `list_agents` (on-demand, the LIVE roster — distinct from
+  `find_agent`'s registry read) let any two sessions sharing a family-tree root talk, hierarchy as
+  provenance only. A durable append-only message log lives per root under `.coa/local/messages/`,
+  deliberately not the change-event spine. Delivery realizes on the two mechanisms the session
+  layer already had: `Delivery`/`DeliveryQueue` for a receiver mid-turn, a freshly queued turn
+  ("wake", `SessionService.#wake`) for every other receiver state — idle, not-registered
+  (idle-evicted), and not-yet-started all collapse onto the SAME mechanism, since none can be
+  reached by a plain queue push (nothing is draining it outside an active turn). The roster is
+  relationship-relative (`self`/`parent`/`child`/`ancestor`/`descendant`/`other`), each row
+  liveness-graded with confidence (`'observed'` when currently registered or this process itself
+  watched the session end; `'advisory'` otherwise — never a fabricated signal). **Deviates from
+  the design doc's own "cost cap bounds it" claim**: `docs/adr/0035` had already archived the cap
+  three days earlier, so messaging inherits the same no-fan-out-bound acceptance `spawn_agent`
+  already lives under, not a second cap that no longer exists. Three new `TurnFrame` kinds
+  (`subagent-spawn`/`subagent-completion`/`subagent-message`) announce these events on the
+  daemon's live push stream for the console, added alongside (not replacing) the existing
+  zero-producer `subagent` kind — live-only, never persisted (a reload won't show one). See
+  `docs/adr/0039` for the full design and its named deviations. **The console surfaces now ship
+  too**: the three announcements render as first-class transcript cards
+  (`console-transcript`'s `SubagentCards` — agent identity color, status pill, jump-to-thread
+  via the session switcher); the Work column's Subagents floor lists the active family tree's
+  children depth-nested with live status (the console's own run map first, then the announcement
+  mirror, idle-ground when neither observed) and jump-to-thread rows; and the Worktree floor
+  reads the new `listWorktrees` verb (path, cheap dirty summary, liveness) with the explicit
+  reap wired to `reapWorktree` (a dirty tree confirms once more; a running session's reap is
+  withheld). Changes and the session-cost roll-up stay honestly floored (the cost producer is
+  parked, below).
 
 ## Remaining work (keystones first)
 
@@ -248,8 +295,8 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   reminder/context/cache delivery [M]. The runtime-adapter interface was shrunk to its six
   driven methods, so each of these items reintroduces its port together with the feature.
 - **E. M6 remainder** — AST-ops rename/rewrite + diff engine [L]; the `begin_fork`/`exit_fork` tool
-  verbs (depend on M8's worktree manager, item I) [L]; `find_tools`/`load_tool` proxy [M]; POSIX-only
-  confine + graph reads [S–M].
+  verbs (item I's worktree manager they'd depend on now ships) [L]; `find_tools`/`load_tool` proxy
+  [M]; POSIX-only confine + graph reads [S–M].
 - **F. Adapters polish** — real DeepSeek prices (currently config-driven zero-floor placeholders)
   [S]; a provider-discriminated reasoning union (today's reasoning surfacing is per-provider, not
   unified) [M]; verify LongCat model IDs/effort levels against the live API [S].
@@ -265,8 +312,10 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
 - **I. M8 deferred** — the daemon-singleton `LiveSessionRegistry` (threaded into `apps/cli`'s daemon
   composition, with running-aware idle-timeout eviction, `onClose`-hooked checkpoint/worktree-release, and
   `registry.closeAll()` wired into shutdown) is DONE; interactive multi-turn REPL / streaming-input mode [M];
-  worktree manager [L]; subagents (D122 depth-1 fan-out) [L]; DACL/peer-cred hardening on the
-  named-pipe transport [M].
+  the worktree manager is DONE (real `git worktree add`/`remove` under `.coa/worktrees/`, opt-in
+  isolation, idle-sweep on daemon start, and the `listWorktrees`/`reapWorktree` verbs feeding the
+  Worktree dock floor); subagents (D122 depth-1
+  fan-out) [L]; DACL/peer-cred hardening on the named-pipe transport [M].
 - **J. M1 graph hardening (GRF-*)** — calls/inherits/weight edges, an SCC model, temporal
   projection [L]; underpins M3 staleness and M4 health scoring.
 - **K. The preset-vs-`canUseTool` spike [S–M, live spend].** The named live gap P1a leaves behind
@@ -309,20 +358,43 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   since the predicate now reaches it via `PreToolUse`. The delegation deny probe is
   retired-by-success: the floor removes the tool, so the path is unreachable until P1c
   chooses to alias `Agent` onto a governed spawn.
-- **M. Subagent discovery + the cost roll-up's RPC producer [S–M].** Two gaps the subagent
-  orchestration arc named but did not build (see the workstream entry above;
-  [ADR-0032](docs/adr/0032-the-cost-cap-bounds-fan-out.md)/[0033](docs/adr/0033-a-notice-is-not-a-message.md)/[0034](docs/adr/0034-a-subagent-is-a-session-with-a-parent-link.md)).
-  **Discovery [M]**, the next plan: today a model must be handed an agent `ref` or fall back to a
-  built-in — `spawn_agent`'s unknown-ref reply lists the live registry, but there is no proactive
-  agent-list Piece or `find_agent` tool, so a model that does not already know a ref has to spawn
-  wrong once and read the retry listing (exactly what the live run's own defect forced). **The cost
-  roll-up's producer [S]**: `SessionMeta.root`/`LedgerRecord.root` and the summation logic exist
-  and are unit-tested, but nothing wires them to an RPC a client can read —
-  `conversation-handlers.ts`'s `listSessions` maps the conversation store straight through with no
-  `costUsd` field, and the ledger's `root` key lives in `ledger.entries()`, in-process only. Ship it
-  deferred was the maintainer's ruling for this arc; picking it up means adding `costUsd` to the
-  persisted session record (or a read-time join against the ledger) and surfacing it through
-  `listSessions`, so the console's already-built summation stops reading "Not tracked yet".
+- **M. Subagent discovery — done. Agent-to-agent messaging — done. The cost roll-up's RPC
+  producer — investigated, parked [S–M].** Gaps the subagent orchestration arc named but did not
+  build at the time (see the workstream entry above;
+  [ADR-0032](docs/adr/0032-the-cost-cap-bounds-fan-out.md)/[0033](docs/adr/0033-a-notice-is-not-a-message.md)/[0034](docs/adr/0034-a-subagent-is-a-session-with-a-parent-link.md)/[0039](docs/adr/0039-agent-to-agent-messaging-is-a-mesh-with-no-fan-out-bound.md)).
+  **Discovery — done**: `find_agent` (on-demand, granted via Core alongside `spawn_agent`) searches
+  the live roster by `ref`/`name`/`description`; see the workstream entry above for the full
+  wiring. **Messaging — done**: `send_message`/`list_agents`, a durable per-root log, and three
+  live-only `TurnFrame` announcement kinds; see the workstream entry above and `docs/adr/0039` for
+  the full design and its deviations from the design doc (the cost-cap claim chief among them —
+  `docs/adr/0035` had already archived it). **The cost roll-up's producer — investigated and PARKED, not a cheap RPC wire-up**: the
+  original framing (add `costUsd` to `listSessions`, join against the ledger) undersold the gap.
+  The ledger's `LedgerRecord` allow-list (`packages/core/src/governance/ledger.ts`) has **no
+  session-identifying field at all** — only `root` (the top-of-tree ancestor), and even that is
+  attached *only* when `session.parent !== undefined`
+  (`session.ts:348`/`per-turn-driver.ts:56`/`held-open-driver.ts:304`, all guarded identically,
+  deliberately: "a root session's own spend stays root-less"). Two concrete consequences: (1) a
+  ROOT session's own direct spend carries no field that could ever attribute it back to that
+  session's id — it is indistinguishable from any other root session's spend once redacted; (2)
+  every CHILD under the same root shares the exact same `root` value, so siblings' spends are
+  indistinguishable from each other too. The daemon-global `CostCap.charge()`
+  (`packages/core/src/governance/cost-cap.ts`) doesn't help either — its `sessionId` parameter is
+  received and ignored (`_sessionId`), feeding one process-wide running total. Meanwhile the
+  consumer already built and wired (`console-viewmodel/session-tree.ts`'s `groupSessionTree`, live
+  in `Work.tsx`'s Cost floor) and the wire schema's own doc comment
+  (`console-viewmodel/agents.ts`'s `SessionSummary.costUsd`: *"this session's own recorded spend...
+  a family tree's total is the sum of every session's `costUsd` that shares its root... never just
+  the root's own"*) both expect genuinely PER-SESSION numbers, root included — precisely what
+  nothing in the runtime can produce today. This is not "expensive to compute" (an O(n) scan would
+  be fine, the ledger is process-local and small) — it is data that was **never captured**, for
+  either session class. **What a real fix needs**: extend `LedgerRecord`'s allow-list with a
+  `sessionId` field, stamp it on *every* settlement (root and child alike — drop the
+  `session.parent !== undefined` guard), then either an O(n) `listSessions`-time aggregation over
+  `ledger.entries()` grouped by `sessionId`, or an incrementally-maintained `Map<sessionId, number>`
+  updated inside `recordSpend`/`Ledger.record` and read synchronously by `listSessions` — the
+  properly cheap version, but a genuine data-model change either way, not a wiring task. Left
+  undone; `listSessions` still maps the conversation store straight through with no `costUsd`
+  field, and the console's session-cost UI still honestly reads "Not tracked yet".
   **A production-code live smoke belongs under `packages/core/src/`, not `adapter-claude-sdk`**:
   `packages/core` already depends on both `@coa/adapter-claude-sdk` and `@coa/adapter-deepseek`
   (real, non-dev dependencies — `packages/core/package.json`), and `dependency-cruiser` excludes
@@ -426,7 +498,8 @@ everything else the new design overwrites.
   title strip). The right column now shows the session's real state — the root agent row and the agent's
   plan checklist (Claude-only seam: `plan` frames come from the SDK `TodoWrite` tool; a session without one
   shows a "no plan yet" line) — with subagents / changes / worktree / record / session-cost as honestly
-  labeled "not tracked yet" floors (their data is deferred, items E/I). The flags nav item keeps the app's
+  labeled "not tracked yet" floors (their data was deferred, items E/I; the Subagents and Worktree floors
+  have since gone live — see the subagent orchestration workstream). The flags nav item keeps the app's
   only red count. The nav HUD content (usage/account/flags mini-states) was deferred out of this arc — see
   "Someday / ideas".
 - **W4 — Orphan homes [M]. ✅ Done.** The redesigned **agents editor** (role/package picker, thinking
@@ -621,4 +694,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-08-05_
+_Last reviewed: 2026-08-09_

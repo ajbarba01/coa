@@ -10,8 +10,16 @@ import { defaultReveal } from './reveal.js';
 import { StreamingMarkdown } from './StreamingMarkdown.js';
 import { formatTokens } from './tokenEstimate.js';
 import { ToolCard } from './ToolCard.js';
+import {
+  SubagentCompletionCard,
+  SubagentMessageCard,
+  SubagentSpawnCard,
+  type OpenSessionFn,
+} from './SubagentCards.js';
 import { nearBottom } from './scrollState.js';
 import { cx } from '@coa/console-kit';
+
+export type { OpenSessionFn } from './SubagentCards.js';
 
 /** Reveal a touched file (from a tool card's path/match link) in the editor/OS at an
  *  optional line. Supplied live by `ChatPanel` (backed by the reveal IPC); omitted in
@@ -42,6 +50,10 @@ export interface TranscriptProps {
    *  `onOpenPath`, MUST be referentially stable across renders (threaded into `MemoRow`).
    *  Omitted ⇒ URLs render as plain text. */
   onOpenUrl?: OpenUrlFn | undefined;
+  /** Open a session's own tab/thread (a subagent card's jump affordance). Like
+   *  `onOpenPath`, MUST be referentially stable across renders (threaded into
+   *  `MemoRow`). Omitted ⇒ the cards render without the jump control. */
+  onOpenSession?: OpenSessionFn | undefined;
   label?: string | undefined;
   className?: string | undefined;
   /** Test seam: force the jump-to-latest control's visibility instead of deriving it
@@ -312,10 +324,12 @@ export function TranscriptRow({
   frame,
   onOpenPath,
   onOpenUrl,
+  onOpenSession,
 }: {
   frame: TranscriptFrame;
   onOpenPath?: OpenPathFn | undefined;
   onOpenUrl?: OpenUrlFn | undefined;
+  onOpenSession?: OpenSessionFn | undefined;
 }): React.JSX.Element {
   const depth = 'depth' in frame ? frame.depth : undefined;
   // Left padding scaled by depth doubles as the nesting indent AND the space between
@@ -429,6 +443,30 @@ export function TranscriptRow({
             </span>
           )}
         </div>
+      </RowShell>
+    );
+  }
+
+  // The three subagent announcement cards — first-class bordered blocks (unlike the
+  // quiet `subagent` status row above): each records a unit of orchestration work.
+  if (frame.kind === 'subagent-spawn') {
+    return (
+      <RowShell indent={indent}>
+        <SubagentSpawnCard frame={frame} onOpenSession={onOpenSession} />
+      </RowShell>
+    );
+  }
+  if (frame.kind === 'subagent-completion') {
+    return (
+      <RowShell indent={indent}>
+        <SubagentCompletionCard frame={frame} onOpenSession={onOpenSession} />
+      </RowShell>
+    );
+  }
+  if (frame.kind === 'subagent-message') {
+    return (
+      <RowShell indent={indent}>
+        <SubagentMessageCard frame={frame} onOpenSession={onOpenSession} />
       </RowShell>
     );
   }
@@ -754,12 +792,14 @@ const MemoRow = memo(function MemoRow({
   frame,
   onOpenPath,
   onOpenUrl,
+  onOpenSession,
   index,
   findActive = false,
 }: {
   frame: TranscriptFrame;
   onOpenPath?: OpenPathFn | undefined;
   onOpenUrl?: OpenUrlFn | undefined;
+  onOpenSession?: OpenSessionFn | undefined;
   index: number;
   /** True when this row is the active find-in-conversation match — washes the row so
    *  prev/next navigation has a visible landing target. */
@@ -803,7 +843,12 @@ const MemoRow = memo(function MemoRow({
         } as React.CSSProperties
       }
     >
-      <TranscriptRow frame={frame} onOpenPath={onOpenPath} onOpenUrl={onOpenUrl} />
+      <TranscriptRow
+        frame={frame}
+        onOpenPath={onOpenPath}
+        onOpenUrl={onOpenUrl}
+        onOpenSession={onOpenSession}
+      />
     </div>
   );
 });
@@ -820,6 +865,7 @@ export function Transcript({
   frames,
   onOpenPath,
   onOpenUrl,
+  onOpenSession,
   label = 'Conversation',
   className,
   showJumpToLatest,
@@ -1068,6 +1114,7 @@ export function Transcript({
               frame={item}
               onOpenPath={onOpenPath}
               onOpenUrl={onOpenUrl}
+              onOpenSession={onOpenSession}
               index={index}
               findActive={findOpen && index === activeMatchFrameIndex}
             />

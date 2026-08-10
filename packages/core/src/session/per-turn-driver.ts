@@ -51,6 +51,7 @@ export async function runPerTurn(
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
         ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+        ...(turn.isolate !== undefined ? { isolate: turn.isolate } : {}),
         sessionId: session.id,
         // A root session's own spend carries no `root` (byte-identical to
         // before lineage existed); a spawned child's does, tagged with its

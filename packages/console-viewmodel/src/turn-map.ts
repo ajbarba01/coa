@@ -172,6 +172,46 @@ function mapFrame(frame: WireTurnFrame, id: string, depth?: number): TurnFrame |
       };
     case 'subagent':
       return { id, kind: 'subagent', childWorktree: frame.childWorktree, event: frame.event, ...d };
+    // The three live-only subagent announcements pass through field-for-field: the
+    // wire shape is already view-ready, and each renders as its own dedicated card
+    // (spawn / completion / agent-to-agent message). Live-only means a reload never
+    // replays one — `reloadToViewFrames` simply never sees these kinds.
+    case 'subagent-spawn':
+      return {
+        id,
+        kind: 'subagent-spawn',
+        childSessionId: frame.childSessionId,
+        childWorktree: frame.childWorktree,
+        agentRef: frame.agentRef,
+        description: frame.description,
+        isolate: frame.isolate,
+        ...d,
+      };
+    case 'subagent-completion':
+      return {
+        id,
+        kind: 'subagent-completion',
+        childSessionId: frame.childSessionId,
+        childWorktree: frame.childWorktree,
+        agentRef: frame.agentRef,
+        reason: frame.reason,
+        ...(frame.detail !== undefined ? { detail: frame.detail } : {}),
+        ...(frame.result !== undefined ? { result: frame.result } : {}),
+        ...d,
+      };
+    case 'subagent-message':
+      return {
+        id,
+        kind: 'subagent-message',
+        messageId: frame.messageId,
+        threadId: frame.threadId,
+        ...(frame.replyTo !== undefined ? { replyTo: frame.replyTo } : {}),
+        from: frame.from,
+        to: frame.to,
+        direction: frame.direction,
+        body: frame.body,
+        ...d,
+      };
     case 'interrupted':
       return { id, kind: 'interrupted' };
     default:

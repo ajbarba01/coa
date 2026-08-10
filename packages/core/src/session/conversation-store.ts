@@ -107,6 +107,13 @@ const metaSchema = z.object({
   /** The root of this session's family tree — itself, for a root. Stored rather than
    *  walked: a parent chain can cycle, and a stored root is constant-time and cannot. */
   root: z.string().optional(),
+  /** Whether this session was spawned with its own isolated git worktree
+   *  (`StartChildRequest.isolate`). Persisted (unlike `WorktreeManager`'s own
+   *  in-memory record, which does not survive a daemon restart) so a later turn —
+   *  e.g. `SessionService#wake` answering an inbound message after a restart — can
+   *  still ask `bindWorktree` to rebind the session's own worktree instead of
+   *  silently falling back to the shared root. */
+  isolated: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   backendSessionId: z.string().optional(),
@@ -179,6 +186,8 @@ export interface ConversationStore {
     scope: string;
     parent?: string;
     root?: string;
+    /** See {@link SessionMeta.isolated}. */
+    isolate?: boolean;
   }): SessionMeta;
   /** Every session, most-recently-active first. Corrupt entries are skipped. */
   list(): SessionMeta[];
@@ -199,6 +208,12 @@ export interface ConversationStore {
   clearBackendSession(id: string): void;
   /** Append events to the session's log (bumps updatedAt). */
   append(id: string, events: PersistedEvent[]): void;
+  /** The raw persisted event stream — `full` kept, unlike {@link reload} — plus the
+   *  count of stored events too corrupt to read. The one read {@link foldTreeToTranscript}
+   *  needs (it folds several sessions' raw streams together), so a tree-spanning
+   *  read shares the exact same on-disk parse `loadBackendMessages` already uses
+   *  rather than re-deriving it. */
+  getEvents(id: string): { events: PersistedEvent[]; skipped: number };
   /** The persisted turn sequence (up to and including `toSeq`, when given) — the frame
    *  stream, `full` dropped (the UI view) — plus the count of stored events too corrupt
    *  to read, so a truncated transcript can be shown as truncated. */
@@ -288,7 +303,7 @@ export function createConversationStore(
   };
 
   return {
-    create({ id, agentRef, title, scope, parent, root }) {
+    create({ id, agentRef, title, scope, parent, root, isolate }) {
       const ts = now();
       const meta: SessionMeta = {
         id,
@@ -299,6 +314,7 @@ export function createConversationStore(
         updatedAt: ts,
         ...(parent !== undefined ? { parent } : {}),
         ...(root !== undefined ? { root } : {}),
+        ...(isolate === true ? { isolated: true } : {}),
       };
       writeMeta(meta);
       return meta;
@@ -353,6 +369,10 @@ export function createConversationStore(
       const lines = events.map((e) => `${JSON.stringify(e)}\n`).join('');
       appendFileSync(eventsPath(id), lines, 'utf8');
       touch(id, {});
+    },
+
+    getEvents(id) {
+      return readEvents(id);
     },
 
     reload(id, toSeq) {

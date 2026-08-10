@@ -44,9 +44,44 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
     group: 'exec',
     description:
       'start a subagent by name; returns its id immediately — the subagent runs in the ' +
-      'background and its result arrives separately, so do not wait for a report here',
+      'background and its result arrives separately, so do not wait for a report here. ' +
+      'pass isolate:true to give it its own git worktree (a real, separate checkout) ' +
+      'instead of sharing this one — use it for a subagent that will WRITE and whose ' +
+      'changes should not collide with concurrent work; leave it off (default) for a ' +
+      'read-only subagent or one whose edits this session wants to see land directly',
+  },
+  {
+    name: 'send_message',
+    partition: 'kernel',
+    // Same risk class as spawn_agent: it can wake another session and provoke a turn
+    // (real, potentially costly work) that coa cannot preview.
+    group: 'exec',
+    description:
+      'send a message to another agent in this session’s family tree (any ancestor, ' +
+      'descendant, or sibling of this session — not just a direct spawn) — returns ' +
+      'immediately, never waiting for a reply. Pass replyTo with an earlier message’s id ' +
+      'to keep a reply in the same thread. A reply, if any, arrives the same way any other ' +
+      'message does — check list_agents or wait for it to show up, never block waiting here.',
   },
   // On-demand — pulled in via find_tools/load_tool when needed.
+  {
+    name: 'find_agent',
+    partition: 'on-demand',
+    group: 'read',
+    description:
+      'search the agents you may spawn via spawn_agent, by ref/name/description keyword — ' +
+      'omit the query to list the whole roster',
+  },
+  {
+    name: 'list_agents',
+    partition: 'on-demand',
+    group: 'read',
+    description:
+      'the LIVE roster: every agent actually running (or recently run) in this session’s ' +
+      'family tree, labeled by its relation to you (self/parent/child/ancestor/descendant/ ' +
+      'other) and its current liveness — this is who you may send_message to, not what you ' +
+      'may spawn_agent (that’s find_agent)',
+  },
   {
     name: 'get_piece',
     partition: 'on-demand',

@@ -20,11 +20,13 @@ import {
   type ModelSelection,
   type PackageSummary,
   type PermissionMode,
+  type ReapWorktreeResult,
   type ReloadedConversationWire,
   type ReasoningProfile,
   type RoleSummary,
   type SessionSummary,
   type TurnFrame,
+  type WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/AgentsPanel.js';
@@ -118,6 +120,12 @@ export interface ConsoleBridge {
   }>;
   // Persistent sessions: the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
+  /** Every isolated session worktree (path + dirty summary + liveness) — the
+   *  Worktree dock's read. */
+  listWorktrees(): Promise<{ worktrees: WorktreeView[] }>;
+  /** The explicit reap; the daemon refuses (`reaped: false`, `reason: 'running'`)
+   *  while that session's turn is in flight — surfaced, never retried. */
+  reapWorktree(params: { sessionId: string }): Promise<ReapWorktreeResult>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
   reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
@@ -362,6 +370,7 @@ export async function startConsole(
     openExternal: () => Promise.resolve({ ok: false }),
     interruptSession: () => {},
     steerSession: () => {},
+    reapWorktree: () => {},
   });
   state = { ...state, ui: { ...state.ui, settings } };
   // Agents are daemon-owned (built-in ∪ personal ∪ project). On bootstrap the
@@ -718,6 +727,34 @@ export async function startConsole(
     push();
   }
 
+  /** Refresh the Worktree dock's rows (every isolated session worktree). Cheap on the
+   *  daemon side (one `git status --porcelain` per isolated worktree), so it re-runs on
+   *  the events that can change the set: a spawn, a child ending, a reap. */
+  async function loadWorktrees(): Promise<void> {
+    const worktrees = await settle(async () => (await bridge.listWorktrees()).worktrees);
+    state = { ...state, data: { ...state.data, worktrees } };
+    push();
+  }
+
+  /** Reap a session's isolated worktree (the dock's explicit cleanup). A refusal is a
+   *  fact worth a word: `running` means the daemon declined to delete a directory out
+   *  from under an in-flight turn; a bare `false` means there was nothing to reap. */
+  const reapWorktree = (sessionId: string): void => {
+    void surfaceWrite('reap that worktree', bridge.reapWorktree({ sessionId })).then((result) => {
+      if (result === undefined) return;
+      if (!result.reaped) {
+        reportNotice(
+          'Nothing reaped',
+          result.reason === 'running'
+            ? 'that session is still running, so its worktree stays.'
+            : 'that session has no isolated worktree left to remove.',
+        );
+        return;
+      }
+      void loadWorktrees();
+    });
+  };
+
   /** Drop a session's run entry — it is not running, whatever this renderer last thought.
    *  The pill, the steer-mode composer and the queued-message release all hang off this
    *  map, so a stale entry does not merely look wrong: it holds queued follow-ups forever. */
@@ -1056,6 +1093,30 @@ export async function startConsole(
     return provider === undefined || provider === 'claude';
   };
 
+  /** Mirror the parent-stream child announcements into `ui.subagentStatus` (the
+   *  Subagents floor's live status source — `runStatus` only covers sessions THIS
+   *  console subscribed to) and refresh the reads a spawn/ending invalidates: the
+   *  session list (a spawn is a new rail row) and the worktree list (an isolated
+   *  child added one; an ended child's dirty state settles). */
+  const trackSubagentAnnouncements = (frames: TurnFrame[]): void => {
+    let subagentStatus = state.ui.subagentStatus;
+    let changed = false;
+    for (const f of frames) {
+      if (f.kind === 'subagent-spawn') {
+        subagentStatus = { ...subagentStatus, [f.childSessionId]: { state: 'running' as const } };
+        changed = true;
+      } else if (f.kind === 'subagent-completion') {
+        subagentStatus = { ...subagentStatus, [f.childSessionId]: { state: f.reason } };
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    state = { ...state, ui: { ...state.ui, subagentStatus } };
+    push();
+    void refreshSessionList();
+    void loadWorktrees();
+  };
+
   // Forward every daemon push to its owning session (never the active one blindly); a
   // completed session refreshes the rail so its auto-title + recency update.
   // (Drift/cache banners are derived client-side, not pushed.)
@@ -1181,6 +1242,7 @@ export async function startConsole(
     }
     if ('sessionId' in data) {
       const frames = pushToViewFrames(data);
+      trackSubagentAnnouncements(frames);
       // The live-failure hook: an auth-shaped error frame flags the active claude login
       // (advisory — the badge lights; nothing blocks, nothing switches). Scoped to the
       // pushing session's own backend — a deepseek/other-provider auth error has nothing
@@ -1362,6 +1424,7 @@ export async function startConsole(
       openExternal,
       interruptSession,
       steerSession,
+      reapWorktree,
     },
   };
   push();
@@ -1383,6 +1446,7 @@ export async function startConsole(
     loadCatalogue(),
     initAgents(),
     initSessions(),
+    loadWorktrees(),
   ]).then(() => undefined);
 
   /** Recover the one-shot boot loads (cold-boot rehydrate gap): a `cameUp` daemon-status
@@ -1425,6 +1489,7 @@ export async function startConsole(
       loadModelMetadata(),
       loadCatalogue(),
       initAgents(),
+      loadWorktrees(),
     ]);
     if (state.data.sessions.status !== 'ok' || state.ui.activeSessionId === undefined) {
       await initSessions();

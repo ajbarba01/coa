@@ -108,6 +108,22 @@ export interface QueuedTurn extends TurnRequest {
   /** Set only for the FOUNDING turn (a brand-new session) — resolves the caller's
    *  pending answer with the worktree as soon as the turn starts. */
   onReady?: (started: StartedHandle) => void;
+  /**
+   * Set on a spawned child's FOUNDING turn (`SessionService#startChild`, from
+   * `StartChildRequest.isolate`) — an ordinary `send()` never sets this, so a
+   * top-level session is never isolated. `bindWorktree` is idempotent per session
+   * (see `WorktreeManager`), so a later turn on the same child omitting this is
+   * always fine, in-process or across a restart: `WorktreeManager.bind` itself
+   * reconciles against disk (`git worktree list`) whenever it has no in-memory
+   * record for a session, regardless of whether this flag is set, so a resumed
+   * child's worktree binding never silently degrades to the shared root even
+   * when the caller (e.g. `SessionService#send`'s continuation turns, which have
+   * no `isolate` field to carry at all) never re-supplies it. `SessionService#wake`
+   * additionally re-sets this field from the persisted `SessionMeta.isolated` flag
+   * on a woken turn — belt-and-braces, not load-bearing, since `WorktreeManager`
+   * would resolve the same worktree either way.
+   */
+  isolate?: boolean;
 }
 
 /**

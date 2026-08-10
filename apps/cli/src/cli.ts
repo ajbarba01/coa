@@ -12,9 +12,11 @@ import {
   buildModelMetadataHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
+  buildWorktreeHandlers,
   classifyTool,
   connectClient,
   createConversationStore,
+  createMessageLog,
   defaultDaemonPath,
   effectiveModels,
   LiveSessionRegistry,
@@ -285,11 +287,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // once a session is actually running a turn, long after every `const` below has
   // initialized, since no session can exist before `bindDaemon` at the end of this
   // function even accepts a connection.
-  const { deps, handle, models, modelAccounts } = buildSessionDeps({
+  const { deps, handle, models, modelAccounts, worktrees } = buildSessionDeps({
     walPath,
     root,
     home,
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
+    resolveMessaging: (sessionId) => sessions.messagingFor(sessionId),
     // F2: same forward-reference-safe-closure trick as `resolveSpawn` above —
     // `registry` is declared further down this same scope, but this closure only
     // ever fires once a real tool call needs a permission decision, long after
@@ -301,6 +304,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       return session === undefined ? undefined : buildModeDeps(session, provider);
     },
   });
+  // Idle-cleanup: reap whatever isolated worktree this fresh process has no record
+  // of yet (by construction, everything a prior run — crashed, or just not cleanly
+  // shut down — left behind) and is past its idle window. Run once, here, before
+  // any session gets the chance to bind a worktree of its own.
+  worktrees.sweepStale();
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected into the login manager the handler map constructs.
   const consoleHandlers = buildDaemonConsoleHandlers(handle, {
@@ -342,6 +350,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
       ),
   });
   const conversationHandlers = buildConversationHandlers(store);
+  // The durable inter-agent message log (docs/adr/0039) — one file per family-tree
+  // root, beside the conversation store under the same gitignored `.coa/local/` tree.
+  const messageLog = createMessageLog(join(root, '.coa', 'local', 'messages'));
   // The daemon-authoritative home for every conversation's live session (the daemon,
   // not any client, owns a live session across turns),
   // constructed once — same lifetime as `store` — so two connections sharing a
@@ -368,6 +379,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     registry,
     store,
     listAgents: () => agentRegistry.list().agents,
+    messageLog,
   });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
@@ -394,6 +406,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...registryHandlers,
     ...agentHandlers,
     ...conversationHandlers,
+    // The Worktree dock's read + reap seam. `isRunning` consults the live registry's
+    // own state (never client tracking) so a reap can't delete a working directory
+    // out from under an in-flight turn.
+    ...buildWorktreeHandlers({
+      worktrees,
+      isRunning: (sessionId) => registry.get(sessionId)?.state === 'running',
+    }),
     ...shutdownHandlers,
     ...buildSessionHandlers(sessions, connection, {
       // The provider→backend capability facts live beside the adapter factory (one

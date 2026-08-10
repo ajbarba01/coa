@@ -72,6 +72,48 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     childWorktree: z.string(),
     event: z.enum(['spawn-proposal', 'spawn', 'running', 'idle', 'done', 'rollup']),
   }),
+  // Three live-only announcement kinds (packages/core/src/session/session-service.ts's
+  // `#announceSubagent`) — the `subagent` kind above has zero production producers (its
+  // 6-state `event` enum doesn't map onto "a child started" / "a child finished" / "a
+  // message crossed the mesh"), so these are a proper schema extension rather than
+  // overloading it with new meaning. Each is emitted straight onto the `turn` push
+  // (`kind:'turn'`), never persisted to the append-only log (a live-session-only
+  // annotation for the console, like `status`/`cost`/`mode` pushes already are) — a
+  // reload will not show one; giving them durability is a follow-up, not built here.
+  z.object({
+    t: z.literal('subagent-spawn'),
+    childSessionId: z.string(),
+    childWorktree: z.string(),
+    agentRef: z.string(),
+    description: z.string(),
+    isolate: z.boolean(),
+  }),
+  z.object({
+    t: z.literal('subagent-completion'),
+    childSessionId: z.string(),
+    childWorktree: z.string(),
+    agentRef: z.string(),
+    // The same three-outcome vocabulary `notify.ts`'s `SessionEndReason` uses — no
+    // inferred/advisory reason here either (docs/adr/0033).
+    reason: z.enum(['completed', 'errored', 'stopped']),
+    detail: z.string().optional(),
+    result: z.string().optional(),
+  }),
+  z.object({
+    t: z.literal('subagent-message'),
+    messageId: z.string(),
+    // The message's thread — its own id for a fresh thread, or the id of the thread it
+    // replies into (see `session/message-dispatch.ts`'s `dispatchMessage`).
+    threadId: z.string(),
+    replyTo: z.string().optional(),
+    from: z.string(),
+    to: z.string(),
+    // One `subagent-message` frame is announced to EACH side of a send (`session-service.ts`'s
+    // `#sendMessage`) — `direction` is relative to whichever session this push's own
+    // `sessionId` names, not a global fact about the message.
+    direction: z.enum(['sent', 'received']),
+    body: z.string(),
+  }),
   z.object({
     t: z.literal('turn-boundary'),
     role: z.enum(['user', 'assistant']),

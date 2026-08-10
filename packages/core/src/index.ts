@@ -48,9 +48,16 @@ export {
   type StartChildRequest,
 } from './session/session-service.js';
 export { LiveSessionRegistry } from './session/live-registry.js';
+export {
+  WorktreeManager,
+  type WorktreeRecord,
+  type WorktreeStatus,
+} from './session/worktree-manager.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
+export { buildWorktreeHandlers, type WorktreeHandlerDeps } from './session/worktree-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
 export { createConversationStore } from './session/conversation-store.js';
+export { createMessageLog, SYSTEM_SENDER, type MessageLog } from './session/message-log.js';
 export { createDaemonCore, type DaemonCoreHandle } from './session/daemon.js';
 export { AccountsRegistry } from './auth/registry.js';
 export { LoginManager } from './auth/login-manager.js';

@@ -299,6 +299,7 @@ async function establishHeldQuery(
       ...(turn.model ? { model: turn.model } : {}),
       ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
       ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+      ...(turn.isolate !== undefined ? { isolate: turn.isolate } : {}),
       sessionId: session.id,
       // See the per-turn call site's identical spread: a root session's own spend
       // stays root-less; a spawned child's is tagged with its top-of-tree

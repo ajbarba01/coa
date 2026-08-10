@@ -116,7 +116,13 @@ function foldFrame(
     case 'reconcile':
     case 'permission':
     case 'subagent':
-      // No transcript memory — these frames are dropped.
+    case 'subagent-spawn':
+    case 'subagent-completion':
+    case 'subagent-message':
+      // No transcript memory — these frames are dropped. The three subagent-* kinds are
+      // live-only announcements (session-service.ts's `#announceSubagent`) that are never
+      // even persisted, so this case only exists to keep the exhaustiveness check below
+      // honest about every wire kind, not because one has ever reached this fold.
       break;
     case 'text-delta':
     case 'thinking-delta':
@@ -286,6 +292,25 @@ export function repairUnpairedToolCalls(messages: readonly BackendMessage[]): Ba
  * sessions). Reused by {@link foldTreeToTranscript} only; not exported, since a
  * single-session caller has `repairUnpairedToolCalls` already.
  */
+/**
+ * The last non-empty assistant message in a folded transcript — what a completion
+ * notice quotes as a session's "result" (see `notify.ts`'s `renderChildEnded` and
+ * its caller in `session-service.ts`). Walking from the end rather than joining
+ * every assistant message is deliberate: a session's own transcript can contain
+ * several assistant turns (one per internal tool round-trip), and everything
+ * before the last one is the WORK, not the answer — concatenating all of it would
+ * hand the reader a jumble of intermediate reasoning fragments instead of the one
+ * message the session actually finished on. `undefined` when the session produced
+ * no assistant text at all (a pure tool-only run, or an interrupted one).
+ */
+export function latestAssistantText(messages: readonly BackendMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role === 'assistant' && message.content.trim() !== '') return message.content;
+  }
+  return undefined;
+}
+
 function repairUnpairedToolCallsPerSession(
   tagged: readonly { sessionId: string; message: BackendMessage }[],
 ): BackendMessage[] {
