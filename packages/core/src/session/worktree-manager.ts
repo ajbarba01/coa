@@ -127,6 +127,13 @@ export class WorktreeManager {
   readonly #now: () => number;
   readonly #onWarn: (message: string) => void;
   readonly #records = new Map<string, WorktreeRecord>();
+  /** Session ids THIS process has already reconciled against disk (via {@link #bind})
+   *  and confirmed have no isolated worktree — so a later `bind()` call for the same
+   *  (overwhelmingly common, shared-root) session skips a redundant `git worktree
+   *  list` shell-out every turn. Never populated for an isolated session — those are
+   *  tracked in {@link #records} instead, whose presence alone is the "no need to
+   *  reconcile" signal for {@link get}/{@link status}/{@link reap}. */
+  readonly #knownShared = new Set<string>();
   #isGitRepoCache: boolean | undefined;
 
   constructor(options: WorktreeManagerOptions) {
@@ -146,14 +153,25 @@ export class WorktreeManager {
    * separate git worktree; it is honored only against a git-backed `repoRoot` and
    * only degrades (never throws) when it is not, or when the underlying `git
    * worktree add` itself fails — a session's isolation request is an enhancement,
-   * never a precondition for the session to start. Before attempting a fresh
-   * `git worktree add`, an isolate decision with no in-memory record is first
-   * reconciled against disk (see {@link #rehydrate}) — a daemon restart empties
-   * `#records`, but a PRIOR process's real worktree (and whatever it wrote,
-   * possibly uncommitted) is still registered with git; adding again into that
-   * same path would simply fail and silently un-isolate the session.
+   * never a precondition for the session to start. Before deciding ANYTHING, a
+   * session with no in-memory record is first reconciled against disk (see
+   * {@link #rehydrate}) — a daemon restart empties `#records`, but a PRIOR
+   * process's real worktree (and whatever it wrote, possibly uncommitted) is
+   * still registered with git. This reconciliation runs regardless of
+   * `opts.isolate`: a resumed child's continuation turn (`SessionService#send`,
+   * unlike its founding `#startChild`/woken `#wake` turns) carries no `isolate`
+   * flag at all, so gating the disk check on that flag would let such a turn's
+   * `bind()` decide `shared` without ever looking — silently un-isolating the
+   * session and orphaning its worktree on disk (docs/adr/0037). A session once
+   * confirmed to have no isolated worktree is remembered in {@link #knownShared}
+   * so this reconciliation runs at most once per session per process, not on
+   * every one of that session's (far more common, shared-root) turns.
    */
   bind(sessionId: string, _scope: string, opts?: { isolate?: boolean }): string {
+    if (!this.#records.has(sessionId) && !this.#knownShared.has(sessionId)) {
+      const rehydrated = this.#rehydrate(sessionId);
+      if (rehydrated !== undefined) return rehydrated.path;
+    }
     const action = decideBind({
       sessionId,
       repoRoot: this.#repoRoot,
@@ -162,9 +180,10 @@ export class WorktreeManager {
       isGitRepo: this.#isGitRepo(),
       existingPath: this.#records.get(sessionId)?.path,
     });
-    if (action.kind !== 'isolate') return action.path;
-    const rehydrated = this.#rehydrate(sessionId);
-    if (rehydrated !== undefined) return rehydrated.path;
+    if (action.kind !== 'isolate') {
+      if (action.kind === 'shared') this.#knownShared.add(sessionId);
+      return action.path;
+    }
     try {
       // `action.path`'s own parent — already the coa-managed directory, already
       // normalized by `decideBind` — rather than re-deriving it from `repoRoot`.

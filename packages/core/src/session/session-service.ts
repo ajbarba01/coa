@@ -706,9 +706,12 @@ export class SessionService {
    * agent-definition-to-role/model/roles/packageIds/exclude derivation, since a woken
    * session's next turn needs the exact same facts a spawn's founding turn does —
    * INCLUDING `isolate`: `meta.isolated` is what `#startChild` persisted at spawn
-   * time, and re-supplying it here is what lets a woken turn rebind its own worktree
-   * after a daemon restart, when `WorktreeManager`'s in-memory record of the
-   * session's prior isolation decision no longer exists (docs/adr/0037).
+   * time. Re-supplying it here is belt-and-braces, not load-bearing —
+   * `WorktreeManager.bind` reconciles against disk whenever it has no in-memory
+   * record for a session regardless of this flag (docs/adr/0037), which is what
+   * actually lets a woken turn (or an ordinary `send()` continuation turn, which
+   * carries no `isolate` field at all) rebind its own worktree correctly after a
+   * daemon restart.
    */
   #wake(to: string, store: ConversationStore, input: string): void {
     const meta = store.getMeta(to);

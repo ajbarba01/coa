@@ -113,12 +113,15 @@ export interface QueuedTurn extends TurnRequest {
    * `StartChildRequest.isolate`) — an ordinary `send()` never sets this, so a
    * top-level session is never isolated. `bindWorktree` is idempotent per session
    * (see `WorktreeManager`), so a later turn on the same child omitting this is
-   * normally fine: the session's isolation decision was already made on its first
-   * turn, and `WorktreeManager` still remembers it in-process. That memory does NOT
-   * survive a daemon restart, though — `SessionService#wake` (waking an idle child
-   * to deliver an inbound message) re-sets this field from the persisted
-   * `SessionMeta.isolated` flag specifically to cover that case, so a resumed
-   * session's worktree binding never silently degrades to the shared root.
+   * always fine, in-process or across a restart: `WorktreeManager.bind` itself
+   * reconciles against disk (`git worktree list`) whenever it has no in-memory
+   * record for a session, regardless of whether this flag is set, so a resumed
+   * child's worktree binding never silently degrades to the shared root even
+   * when the caller (e.g. `SessionService#send`'s continuation turns, which have
+   * no `isolate` field to carry at all) never re-supplies it. `SessionService#wake`
+   * additionally re-sets this field from the persisted `SessionMeta.isolated` flag
+   * on a woken turn — belt-and-braces, not load-bearing, since `WorktreeManager`
+   * would resolve the same worktree either way.
    */
   isolate?: boolean;
 }

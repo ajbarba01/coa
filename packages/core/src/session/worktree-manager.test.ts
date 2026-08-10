@@ -226,6 +226,30 @@ describe('WorktreeManager (lifecycle, against a real fixture git repo)', () => {
     expect(warnings).toEqual([]);
   });
 
+  it("bind() with NO isolate flag on a fresh process still rehydrates a prior process's on-disk worktree — the SessionService#send continuation-turn shape", () => {
+    // `SessionService#send` (an already-live conversation's continuation turn,
+    // e.g. a follow-up typed against a resumed child from the console's
+    // Subagents dock or a transcript's "Open Thread" button) has no `isolate`
+    // field on its `SendRequest` at all, so it calls `bind()` exactly like this
+    // — `opts` entirely absent — unlike the founding `#startChild`/woken `#wake`
+    // turns, which both explicitly re-supply `{ isolate: true }`. Reconciliation
+    // must not depend on that flag being present.
+    const priorRun = new WorktreeManager({ repoRoot: repo });
+    const firstPath = priorRun.bind('child-1', 'src', { isolate: true });
+    writeFileSync(join(firstPath, 'uncommitted.ts'), 'export const x = 1;\n');
+
+    const freshRun = new WorktreeManager({ repoRoot: repo });
+    const secondPath = freshRun.bind('child-1', 'src');
+
+    // The regression this pins: gating disk reconciliation on `opts.isolate`
+    // lets this call fall straight to `{ kind: 'shared', path: repoRoot }`
+    // without ever consulting git — silently un-isolating the session and
+    // orphaning `uncommitted.ts`, unreferenced, in the real isolated worktree.
+    expect(secondPath).toBe(firstPath);
+    expect(secondPath).not.toBe(repo);
+    expect(existsSync(join(secondPath, 'uncommitted.ts'))).toBe(true);
+  });
+
   it('list() surfaces an isolated worktree a PRIOR process created, before this process has bound anything itself', () => {
     const priorRun = new WorktreeManager({ repoRoot: repo });
     const orphanPath = priorRun.bind('child-1', 'src', { isolate: true });
