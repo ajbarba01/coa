@@ -9,16 +9,10 @@ import {
   type AgentSkillConfig,
   type AgentSummary,
   type ApprovalDecision,
-  type AuthView,
   type CapState,
   type Checkpoint,
   type FeedView,
-  type InvocableSkill,
-  type LibrarySummary,
-  type LibraryView,
-  type LoginSnapshot,
   type Attachment,
-  type ModelCatalogView,
   type ModelDescriptor,
   type ModelMetadataView,
   type ModelSelection,
@@ -26,7 +20,6 @@ import {
   type PermissionMode,
   type ReapWorktreeResult,
   type ReloadedConversationWire,
-  type ReasoningProfile,
   type RoleSummary,
   type SessionSummary,
   type TurnFrame,
@@ -34,8 +27,8 @@ import {
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 // From the picker module directly, NOT via AgentsPanel's re-export: the agents
-// surface reads the library store, which reads this module's rpc wrappers, so an
-// AgentsPanel import here would close a static module cycle.
+// surface pulls in the whole panel tree, so an AgentsPanel import here would drag
+// the surface layer into the controller.
 import { modelLabel } from './panels/ModelPicker.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
@@ -45,6 +38,7 @@ import {
   driftCompareConfig,
   resolvableSkillSelection,
 } from './panels/banners.js';
+import { invocableSkills } from './panels/rpc.js';
 import {
   initialState,
   type ConsoleState,
@@ -190,139 +184,6 @@ export interface ConsoleBridge {
   saveSettings(settings: ConsoleSettings): Promise<void>;
 }
 
-/**
- * The auth surface's RPC callers. Unlike the rest of this module, these don't flow through
- * `startConsole`'s injected `ConsoleBridge` — the auth store (`panels/authStore.ts`) is a
- * standalone zustand store (shared by the auth surface, the usage surface, and the nav HUD),
- * not part of the single `ConsoleState` pipeline, so it reaches the preload bridge directly.
- * Exported (rather than inlined in the store) so a test can `vi.mock` this module and hand
- * the store a fake — the store itself never talks to `window.coa`.
- */
-export const rpcAuthView = (): Promise<AuthView> => window.coa.authView();
-export const rpcAddProvider = (providerId: string): Promise<AuthView> =>
-  window.coa.addProvider({ providerId });
-export const rpcRemoveProvider = (
-  providerId: string,
-  removeProfiles?: boolean,
-): Promise<AuthView> =>
-  window.coa.removeProvider({
-    providerId,
-    ...(removeProfiles !== undefined ? { removeProfiles } : {}),
-  });
-export const rpcAddCredential = (
-  providerId: string,
-  label: string,
-  secret: string,
-): Promise<AuthView> => window.coa.addCredential({ providerId, label, secret });
-export const rpcReplaceSecret = (id: string, secret: string): Promise<AuthView> =>
-  window.coa.replaceSecret({ id, secret });
-export const rpcRenameCredential = (id: string, label: string): Promise<AuthView> =>
-  window.coa.renameCredential({ id, label });
-export const rpcRemoveCredential = (id: string, removeProfile?: boolean): Promise<AuthView> =>
-  window.coa.removeCredential({ id, ...(removeProfile !== undefined ? { removeProfile } : {}) });
-export const rpcSetIsolatedBrowserLogins = (on: boolean): Promise<AuthView> =>
-  window.coa.setIsolatedBrowserLogins({ on });
-export const rpcSetBrowserPath = (path: string): Promise<AuthView> =>
-  window.coa.setBrowserPath({ path });
-export const rpcReclaimBrowserProfiles = (names: string[]): Promise<AuthView> =>
-  window.coa.reclaimBrowserProfiles({ names });
-export const rpcSetProviderEnabled = (providerId: string, on: boolean): Promise<AuthView> =>
-  window.coa.setProviderEnabled({ providerId, on });
-export const rpcSetCredentialDisabled = (id: string, disabled: boolean): Promise<AuthView> =>
-  window.coa.setCredentialDisabled({ id, disabled });
-export const rpcMakeActive = (id: string): Promise<AuthView> => window.coa.makeActive({ id });
-export const rpcClearCooldown = (id: string): Promise<AuthView> => window.coa.clearCooldown({ id });
-/** Named distinctly from `ConsoleController.refresh` (a different read entirely) — this
- *  re-reads every pointer locator (identity, expiry, limits) for the auth surface's ⟳. */
-export const rpcRefreshAuth = (): Promise<AuthView> => window.coa.refresh();
-
-/**
- * The driven-login flow's RPC callers, mirroring the block above — the `loginStore`
- * (`panels/loginStore.ts`) reaches the preload bridge only through these.
- */
-export const rpcStartLogin = (params: {
-  email: string;
-  credentialId?: string;
-}): Promise<LoginSnapshot> => window.coa.startLogin(params);
-export const rpcLoginState = (): Promise<LoginSnapshot> => window.coa.loginState();
-export const rpcSubmitLoginCode = (code: string): Promise<LoginSnapshot> =>
-  window.coa.submitLoginCode({ code });
-export const rpcCancelLogin = (): Promise<LoginSnapshot> => window.coa.cancelLogin();
-export const rpcResolveLoginMismatch = (action: 'keep' | 'retry'): Promise<LoginSnapshot> =>
-  window.coa.resolveLoginMismatch({ action });
-export const rpcProbeHealth = (): Promise<AuthView> => window.coa.probeHealth();
-export const rpcReportAuthFailure = (credentialId: string): Promise<AuthView> =>
-  window.coa.reportAuthFailure({ credentialId });
-
-/**
- * The model catalog surface's RPC callers, mirroring the `rpcAuthView` block above — the
- * `modelsStore` (`panels/modelsStore.ts`) reaches the preload bridge only through these.
- */
-export const rpcModelCatalog = (): Promise<ModelCatalogView> => window.coa.modelCatalog();
-export const rpcAddModels = (p: { providerId: string; ids: string[] }): Promise<ModelCatalogView> =>
-  window.coa.addModels(p);
-export const rpcAddCustomModel = (p: {
-  providerId: string;
-  id: string;
-  label?: string;
-  reasoning?: ReasoningProfile;
-}): Promise<ModelCatalogView> => window.coa.addCustomModel(p);
-export const rpcEditModel = (p: {
-  providerId: string;
-  id: string;
-  label?: string;
-  reasoning?: ReasoningProfile;
-}): Promise<ModelCatalogView> => window.coa.editModel(p);
-export const rpcRemoveModel = (p: { providerId: string; id: string }): Promise<ModelCatalogView> =>
-  window.coa.removeModel(p);
-export const rpcSetModelHidden = (p: {
-  providerId: string;
-  id: string;
-  hidden: boolean;
-}): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
-
-/**
- * The skills/MCP library's RPC callers, mirroring the `rpcAuthView` block above — the
- * `libraryStore` (`panels/libraryStore.ts`) reaches the preload bridge only through these.
- */
-export const rpcListLibrary = (): Promise<LibraryView> => window.coa.listLibrary();
-export const rpcRescanLibrary = (): Promise<LibraryView> => window.coa.rescanLibrary();
-export const rpcListSkills = (): Promise<{ skills: InvocableSkill[] }> => window.coa.listSkills();
-export const rpcLinkLibrary = (p: {
-  kind: 'skill' | 'mcp';
-  scope: 'personal' | 'project';
-  source: { path: string; serverName?: string };
-  name?: string;
-}): Promise<LibrarySummary> => window.coa.linkLibrary(p);
-export const rpcCopyLibrary = (p: {
-  kind: 'skill' | 'mcp';
-  source: { path: string; serverName?: string };
-  name?: string;
-}): Promise<LibrarySummary> => window.coa.copyLibrary(p);
-export const rpcUnlinkLibrary = (p: {
-  kind: 'skill' | 'mcp';
-  scope: 'personal' | 'project';
-  name: string;
-}): Promise<{ removed: boolean }> => window.coa.unlinkLibrary(p);
-export const rpcSetLibraryEnabled = (p: {
-  kind: 'skill' | 'mcp';
-  scope: 'personal' | 'project';
-  name: string;
-  enabled: boolean;
-}): Promise<LibrarySummary> => window.coa.setLibraryEnabled(p);
-
-/** The effective-skills hook, mirroring `onAuthFailure` above: the library store
- *  registers its own invocable-list getter so the drift-dismissal key can fold in the
- *  SAME resolvable skill slice the chat banner compares — without this module importing
- *  the store, which imports these rpc wrappers (a static cycle the dependency ruleset
- *  forbids). It is the store's whole `Remote` read, not just its rows: the dismissal
- *  key must drop the skill slice on an unsettled read exactly as the banner does, or a
- *  dismissal would stop matching the banner it was meant to suppress. */
-let invocableSkillsSource: () => Remote<InvocableSkill[]> = () => ({ status: 'loading' });
-export const onInvocableSkills = (fn: () => Remote<InvocableSkill[]>): void => {
-  invocableSkillsSource = fn;
-};
-
 /** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose:
  *  a false hit costs an amber dot the next probe clears, never a block — so the net is
  *  wide (401s, OAuth, login wording) but only ever reads ERROR frames, never chat. */
@@ -335,8 +196,8 @@ export function detectAuthFailure(frames: TurnFrame[]): boolean {
 
 /** The auth-failure hook, mirroring `onModelsChanged` below: the bootstrap registers the
  *  store-side reporter (loginStore's — it owns the auth-store reach) so the push consumer
- *  can flag the active login WITHOUT importing the auth store, which imports this module's
- *  rpc wrappers — a static cycle the dependency ruleset forbids. */
+ *  can flag the active login WITHOUT importing the auth store, which imports the rpc
+ *  wrappers — a static cycle the dependency ruleset forbids. */
 let authFailureSink: () => void = () => {};
 export const onAuthFailure = (fn: () => void): void => {
   authFailureSink = fn;
@@ -1031,7 +892,7 @@ export async function startConsole(
       // (the key must match the banner's or dismissal would never suppress it).
       const session = sessions.find((s) => s.id === sessionId);
       const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
-      const skillsRead = invocableSkillsSource();
+      const skillsRead = invocableSkills();
       const key = configKey(
         driftCompareConfig(
           {

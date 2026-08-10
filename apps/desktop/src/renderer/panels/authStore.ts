@@ -17,7 +17,7 @@ import {
   rpcSetCredentialDisabled,
   rpcSetIsolatedBrowserLogins,
   rpcSetProviderEnabled,
-} from '../console.js';
+} from './rpc.js';
 import { PROVIDERS, type ProviderDescriptor } from './providers.js';
 
 /**

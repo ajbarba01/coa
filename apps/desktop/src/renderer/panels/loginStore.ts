@@ -7,7 +7,7 @@ import {
   rpcResolveLoginMismatch,
   rpcStartLogin,
   rpcSubmitLoginCode,
-} from '../console.js';
+} from './rpc.js';
 import { useAuthStore } from './authStore.js';
 
 /**
