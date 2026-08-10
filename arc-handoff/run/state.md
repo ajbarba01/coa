@@ -1,265 +1,57 @@
-# Arc run state — REWRITE THIS FILE after every stage and ~every 30 min
+# Arc run state — ARC CLOSED 2026-08-10
 
-> **RUN INTERRUPTED 2026-08-07 ~07:20 — individual spend limit hit mid-C2.**
-> Everything is on GitHub. This file is written for a FRESH SESSION ON A NEW MACHINE.
+> **The arc is closed and landed on `main`.** Maintainer ruling (2026-08-10): cut the arc short
+> with the library feature as its last feature; defer the remaining features to the in-repo
+> ROADMAP in full detail; squash per stage onto `main`; the console-store port and the docs
+> consolidation re-run are the first post-arc work items, starting immediately.
 
-> **RESUMED 2026-08-07 ~13:15 on the maintainer's Windows machine** (Fable 5 CLI,
-> bypass permissions, subscription account — no spend ceiling per Q4). Maintainer
-> answered the question queue: Q1 archive-anyway, Q3 keep-Cost, Q5 gate-and-keep,
-> Q7 archive-orphans/fold-codenames-into-Stage-4/fix-flakes-early; **Q2 still open.**
-> See the answers section at the bottom of `questions.md`. Local-file restore done
-> (CLAUDE.local.md + exclude entries; settings.local.json skipped — bypass makes it
-> moot). Next action unchanged: gate the WIP adapter, then C2 part 3, plus the newly
-> ruled R1 execution and Q7 cleanups.
+## Final state
 
-## Resume protocol (new machine, from zero)
-
-1. `git clone https://github.com/ajbarba01/coa.git ~/dev/coa`
-2. Restore the arc steering files outside the repo:
-   `git -C ~/dev/coa fetch origin arc/handoff && git -C ~/dev/coa worktree add /tmp/arc-handoff arc/handoff`
-   then `cp -R /tmp/arc-handoff/arc-handoff ~/dev/coa-arc` (or just read them in place).
-   The arc folder is NEVER merged into main — it is a transport artifact.
-3. Read `~/dev/coa-arc/coa-arc-plan.md` fully, then this file, then `journal.md`
-   (what happened), `questions.md` (what needs the maintainer), `ledger.md` (what the
-   knife did).
-4. Do the machine setup in `arc-handoff/MACHINE-SETUP.md` (Node 22, the node-gyp
-   python workaround, the gitignored files, the two skills). **`pnpm install` will fail
-   on Node 24 / Python 3.14 without it.**
-5. `git checkout arc/architecture` — that is the live work branch.
-6. Continue from "Next action" below.
-
-## Where the work lives (all pushed to origin)
-
-| Branch | Tip | State |
+| Ref | Tip | What it is |
 |---|---|---|
-| `main` | d97c118 | untouched, as the arc found it |
-| `arc/reset-knife` | cc78b9f | Stage 0+1 complete, **draft PR #1**, all gates green |
-| `arc/architecture` | 5c232df | **Stage 2 COMPLETE except C4 — C3 is now fully closed and independently verified.** C1, de-slop, C2, the cost-cap archive (R1), the Q7 cleanups, C3 built+verified (the turn-lifecycle state machine, fa437a1..77e6dd4, **plus its last item at 5c232df — passed=true on independent re-verification**), Q9 archival, C5 complete+verified. The 5c232df fix turned out to be a real, provable bug, not the hygiene nit its own prior description undersold it as (see journal: a straggler frame could land below the `interrupted` marker via the everyday Stop button, no exotic backend needed). `packages/core/src/session` isolated: 354/354 green, confirmed independently by two separate agents. C4 unbuilt, unblocked, parked on Fable/UX allocation |
-| `arc/docs` | 14b55ac | **Stage 4 docs: the living doc set, drift repair, corpora retired (88 files, -30,736), VERIFIED.** Gates green (2928 tests, depcruise 418, docs-check 11). Both lenses ran clean/fixed; PR #3 body rewritten to match |
-| `arc/c4-console` | 48e863f **pushed** | **C4 COMPLETE.** The push-fed slice store (83 contract tests) plus the component swap, all 8 previously-failing test files fixed, gate green in a real tree (2959 tests · depcruise 428 · docs-check 60), **draft PR #4** open against `arc/architecture`. F10 measured in the running app: 15 switches, 0 crossed an animation-frame boundary, zero bridge calls. Two `done means` clauses remain uncovered — see Q15 |
-| `backup/c4-swap-wip` | (snapshot) | The uncommitted swap as it stood at rescue time, pushed before any edits. Safe to delete once PR #4 lands |
-| `arc/stage3` | b430059 | Stage 3's rolling integration branch, off `arc/architecture` @ 5c232df. Q11, Q14, all 4 UX-polish clusters, **F11**, **F2**, **F3**, **F1+F7**, and now **F4 (Library: skills + MCP manager — DONE: 3-round verify found 1 Blocker + 4 Majors, all fixed in-loop; 4 honesty/interop Minors left, cleanup pass dispatched post-merge)** merged and gated green (3604 tests, depcruise 465/1401, docs-check 64). Each feature/fix lands on its own `arc/f<N>-<name>` (or `arc/qNN-<name>`) branch, merged into this one as it gates green; PR opens against `arc/architecture` once the stage is substantially done |
-| `arc/handoff` | — | this arc folder (transport only, never merge) |
-| tag `pre-reset` | 3536c28 | the pre-knife baseline |
+| `main` | `37acd87` | **The arc's outcome.** Three per-stage squash commits over the pre-arc `d97c118`: `d3c55d4` (the knife), `47839e3` (architecture), `37acd87` (the feature stage). Tree byte-identical to `arc-close/stage3`; full gate green on exactly that tree (3625 tests / 30 skipped, depcruise 465 modules / 1406 deps clean, docs-check 64). |
+| tag `arc-close/reset-knife` | `cc78b9f` | Stage 0+1 full history (25 commits). PR #1 closed with pointer comments. |
+| tag `arc-close/architecture` | `5c232df` | Stage 2 full history (+51). PR #2 closed likewise. |
+| tag `arc-close/stage3` | `a11c368` | The feature stage's full history (+81, incl. the close-out's recovered cache-wipe fix). Branch deleted; tag preserves every journaled SHA. |
+| tag `arc-close/docs` / branch `arc/docs` | `14b55ac` | Stage 4's verified doc consolidation — **NOT merged** (it retires a doc world the feature stage kept editing). PR #3 retargeted to `main`, open as the live workstream: re-run against current main using the branch as template. ROADMAP "Next up" item 2. |
+| tag `arc-close/c4-console` / branch `arc/c4-console` | `48e863f` | C4's verified store rewrite — **NOT merged** (the feature stage built 79 commits on the old store). PR #4 retargeted to `main`, open: port, folded with instant-nav acceptance + the 20-tab memory charter. ROADMAP "Next up" item 1. |
+| `backup/f1-f7-core1-wip` | — | Unique salvage from an interrupted build attempt, superseded by the shipped worktree manager. Kept as insurance; delete at will. |
+| `backup/pre-squash` (local-only) | `88b6a33` | The pre-arc conversation-canvas archive (431 commits). Untouched. |
+| `arc/handoff` | — | This transport branch. Never merges. |
+| tag `pre-reset` | `3536c28` | The pre-knife baseline. |
 
-`arc/wip-adapter-unify` deleted 2026-08-08 (local + `origin`) — confirmed by `merge-base --is-ancestor` fully contained in `arc/architecture` before deletion, per Q5's ruling anticipating exactly this as the closeout step. Nothing lost; every commit lives on in `arc/architecture`.
+All other arc branches (16 remote, ~20 local) verified contained via `merge-base --is-ancestor`
+against `arc-close/stage3` and deleted. **The containment sweep is what caught the lost F3
+cache-wipe fix** (see the journal's close-out entry) — `2ef458a`/`c94f029` lived only on the F3
+feature branch, were never re-merged after the fix pair reported green, and were recovered into
+the final tree before `main` was pushed.
 
-The 5 Stage-0 baseline commits that were on the old machine's local `main` (tip
-a13e46d) are reachable in `arc/reset-knife`'s ancestry — recreate with
-`git branch -f main a13e46d` if you want that local main back. Nothing exists only
-on the old machine.
+## What shipped in the feature stage (all adversarially verified, every feature found ≥1 real bug)
 
-## Stage status (current as of 2026-08-08, the Stage 5 closeout)
+Q11 (root/home seam), Q14 (close-queue leak), 4 UX-polish clusters, F11 (project selection +
+window management), F2 (permission modes), F3 (per-model info / context ring / gated attachments
++ 4 verify bugs), F1+F7 (orchestration finish + worktree manager), F4 (the skills + MCP library
++ 5 verify bugs + a 4-Minor honesty/interop cleanup pass, independently re-verified).
 
-- **Stage 0 (baseline)** — COMPLETE.
-- **Stage 1 (the knife)** — COMPLETE. 12/12 verified rulings executed (R1 archived per Q1's
-  ruling, R2 struck per Q2, R12f's Cost half kept per Q3 — the knife's question queue is fully
-  closed), draft PR #1.
-- **Stage 2 (architecture)** — **COMPLETE.** C1, de-slop, C2 (all 3 parts, adapter unification
-  gated and landed), C3 (session service extraction, including its turn-lifecycle state machine —
-  see journal for the real bug its last item turned out to be), C5 (composition root + error
-  honesty), and now **C4 (console store rewrite)** are all DONE. C4 shipped its slice store, the
-  component swap, and an F10 measurement taken in the running app; its remaining gaps (20+ tab
-  memory, a materialized-host cap policy, scroll-without-loading) are recorded as Q15, not silently
-  passed. Draft PR #4.
-- **Stage 3 (features)** — **STARTING 2026-08-09.** F6 rode C2 and shipped; F1–F5, F7–F10 were
-  untouched going into this session. A new feature was added by the maintainer, grilled to a full
-  design, and written up as **F11** (project selection + window management) in `feature-plans.md`.
-  Sequencing: Q11+Q14 warm-up fixes → F11 → F2 → F3 → F1+F7 → F4 → F8 → F9 → F5, with Q15's
-  measurement charter after F1/F7/F8. Orchestrated as an overnight run on `arc/stage3`.
-- **Stage 4 (docs)** — COMPLETE AND VERIFIED. Landed on `arc/docs`, both adversarial lenses ran
-  and their one real finding (ADR 0015's rationale) is fixed. See branch table above.
-- **Stage 5 (closeout)** — COMPLETE. See the "STAGE 5 CLOSEOUT" journal entry for the full
-  morning-after report.
+## Deferred (in ROADMAP.md on main, full detail — the SSOT now)
 
-## Next action (in order)
+- **Next up (committed):** 1. console store port (+ instant-nav acceptance + 20-tab memory
+  charter = old Q15); 2. docs consolidation re-run.
+- **Deferred features (specified, unscheduled):** Viewer surface (F8), conversation naming +
+  rename (F9), light theme sand-light (F5), the permission-modes live smoke (Q17).
+- **Library residuals** folded into the library workstream's "Remaining" line.
 
-1. ~~Gate the WIP adapter package~~ DONE 2026-08-07 (gated + landed, see journal).
-2. ~~C2 part 2 completion~~ DONE 2026-08-07 (0c8c444 pushed — tree is in the unified
-   state; old packages deleted; arc/architecture tip 0c8c444).
-3. ~~Execute knife ruling R1~~ DONE 2026-08-07 (4848ff4..0be23fb pushed, ADR 0035,
-   both verifiers addressed — see journal). Was: (as a
-   workflow: executor + KEEP-seam and completeness verifiers): needs a SUPERSEDING ADR
-   (0032 fan-out-bound + 0009 exactly-two-blocks are immutable) and a raw-SDK-option
-   escape hatch for the live suites' maxBudgetUsd real-money guard. Full inventory in
-   run/verification/R1.json. Do this BEFORE part 3 so part 3 adds no new
-   maxBudgetUsd construction sites.
-4. ~~C2 part 3~~ DONE 2026-08-07 (c5281b7 · 14044ce pushed, verifier passed — C2
-   fully delivered; arc/architecture tip 14044ce). Follow-up queued for Stage 3: the
-   desktop add-provider GUI flow lacks openai/openrouter rows (CLI/daemon complete).
-5. ~~Q7 cleanups~~ DONE 2026-08-07 (a28bd30..658fbd8 pushed; arc/architecture tip
-   658fbd8). Flakes root-caused (suite also ~20% faster), four orphans archived,
-   verifier findings actioned. New question Q9 raised (health-profile.ts).
-6. ~~C3 session-service extraction~~ DONE + VERIFIED 2026-08-07 (21bbc78 · f66d72b ·
-   ca8fbdf · f648551). session-handlers.ts 1411 -> 122 lines; the non-founding-connection
-   turn bug is fixed and was PROVEN real (all 3 regression tests fail at the pre-fix
-   commit with exactly the predicted symptoms). See the journal for the one verification
-   gap (G4 reattach / held-query-survives-interrupt lack independent confirmation).
-7. ~~Q9 archival~~ DONE 2026-08-07 (d57d5c0).
-8. **C5 — COMPLETE AND VERIFIED.** Both verifiers found real defects; all four blocking
-   findings fixed and hand-verified with mutation probes. Plus the charter item the SCRIPT had
-   dropped (a user-visible sample-data label on the usage surface, 7852763) — found by auditing
-   the plan against the tree, not by any test.
-8b. ~~C3's missing item — turn lifecycle~~ **BUILT, FIXED, AND NOW FULLY CLOSED (fa437a1 ·
-   a1902f9 · 8b97c94 · 77e6dd4 · 5c232df).** One owned state machine replaces three hand-synced
-   flags. Multiple verifier rounds returned passed=false across this charter, each finding
-   something real: a NEW silent-failure mode the refactor itself introduced (the abandon-stop
-   edge), and — in the final round — the two small leftover items (discarded `false` returns,
-   `settle()` clearing `inert`) turned out to be a REAL, provable bug rather than the "latent,
-   future-backend-only" hygiene nit this file previously described: a straggler frame could
-   render below the `interrupted` marker via the everyday Stop button, proven with two working
-   reproductions before any fix existed. Fixed at 5c232df, mutation-probed, and independently
-   re-verified by a second adversarial agent (passed=true). See the journal for the full story
-   and Q13's resolution.
-9. **Stage 4 docs — LANDED on arc/docs (fa6a433 · a716bf4 · 9fb09db · 388272e · 14b55ac),
-   VERIFIED, draft PR #3 body rewritten to match.** Resumed wf_1261f87e-ce1: the five writers
-   replayed from cache, the closer found and reverted an uncommitted ROADMAP.md edit that had
-   wrongly claimed two arc/architecture-only fixes (turn-lifecycle, sample-data label) as done
-   here, and separately committed a pre-existing 942-line prose-tightening pass on
-   ARCHITECTURE.md (388272e) after reading the whole diff. Both verifier lenses then ran for
-   real: lens 1 (prose-vs-tree, 24 claims sampled) passed clean and independently confirmed the
-   ROADMAP.md revert was correct; lens 2 (rationale survival) found one real gap — ADR 0015's
-   two color exceptions (a third-party brand mark's own color, the chart series palette) were
-   deleted with the ADR and left docs/UI.md's "no raw values" law contradicted by live code with
-   no documented exception. Fixed by hand (14b55ac): both exceptions and their reasoning are now
-   named directly in UI.md. Gate green after the fix (2928 tests, depcruise 418, docs-check 11).
-   Pushed to origin/arc/docs. Left alone as genuinely optional (not a docs-check failure): lens 2
-   also noted `docs/recipes/openai-bridge.md` isn't in AGENTS.md's nav table — it's reachable via
-   README so nothing is broken, and the table's shape is "one row per domain authority," which a
-   how-to recipe doesn't cleanly fit.
-10. ~~Stage 5 closeout~~ **COMPLETE.** Every parked charter/feature has a numbered question; all
-    branches pushed (`arc/wip-adapter-unify` deleted, fully merged); PR #2 and PR #3 bodies both
-    current; the final morning report is the "STAGE 5 CLOSEOUT" entry at the end of the journal.
+## Standing operational facts that outlive the arc
 
-## The arc, right now
-
-Stage 0/1 complete, **Stage 2 now COMPLETE including C4**, Stage 4 complete and verified, Stage 5
-complete. C4 was rescued, finished, pushed and measured on 2026-08-08 overnight (draft PR #4);
-the whole architecture workstream is done. **Stage 3's features are the only substantial work
-left**, plus the four open questions (Q10, Q11, Q14, and the new Q15 from F10's uncovered
-clauses). Everything runs on Opus now; no model allocation is outstanding. A fresh session should
-read `CONTINUATION-HANDOFF.md` first, then the journal's last entries; everything after this point
-in the file is prior-session detail, kept for the record.
-
-## Standing operational facts (do not rediscover)
-
-- **Run the test suite UNSANDBOXED.** The claude-sdk control probes spawn child
-  processes and falsely time out in a sandboxed shell (5 fake failures).
-- Gate command: `pnpm check && pnpm docs:check` (typecheck · lint · format · vitest ·
-  depcruise, then the docs router check).
-- ~~Known intermittent flakes~~ FIXED 2026-08-07 at the cause (Combobox focus, daemon
-  watcher, AuthPanel replace-secret, Markdown fence). The suite should now be green
-  every run — a failure is a real failure, not load. Treat any new intermittent as a
-  bug to root-cause, not a known-flake to rerun.
-- Commits: subject-only Conventional Commits, no body, no trailers, no internal
-  codenames, stage files BY NAME, human-sized batches.
-- **`git stash` is DENIED in this harness and the denial tells an agent to stop and wait
-  for a human.** It wedged a C5 agent with finished work stranded in `stash@{0}` and a
-  CLEAN working tree — so "no commits, nothing modified" is NOT proof an agent produced
-  nothing. Check `git stash list` before concluding a dead agent did no work. Every
-  workflow prompt should ban stash and say that a denied call means adapt, not halt.
-- **Syntax-check a workflow script before launching** (`node --input-type=module --check`;
-  the top-level `return` error is expected and fine) and write it as BINARY — a Python
-  text-mode write converts LF to CRLF on Windows, and the launcher rejects the script for
-  control characters.
-- Never push `main`; never force-push anything on origin except the arc's own branches.
-- **A Workflow's agents check out branches directly in the shared main working directory —
-  there is no automatic isolation.** Launching a workflow (e.g. stage4-docs.js, which needs
-  arc/docs checked out) while ALSO reading/editing a different branch's files in that same main
-  tree is a real hazard, not a theoretical one: mid-run, a file that exists on arc/architecture
-  briefly read back as "not found" because the workflow had switched HEAD to arc/docs underneath
-  an unrelated `git status`/`Read` call. If you need to work a different branch while a workflow
-  runs, use a separate `git worktree add <scratch> <branch>` and do that work there, or simply
-  sequence the two rather than parallelizing them.
-- **2026-08-08: a fresh `pnpm check` run threw 10 timeouts across 5 desktop-panel test files
-  (ChatPanel.test.tsx x2, ShowcasePanel.test.tsx, +2 unrecorded) immediately after an 8-agent,
-  1M-token workflow finished on the same machine.** Re-ran `pnpm test` alone seconds later with
-  zero code changes in between: fully green, exact baseline (281/2928). This is the same family
-  as Q10 — recorded there as a new data point, not treated as a regression (the only diff in the
-  tree at the time was a markdown-only edit, which cannot affect JS/TS test timing).
-- **2026-08-09, SUPERSEDED same day: `Workflow`'s `isolation: 'worktree'` was broken, then RESOLVED
-  by a dedicated debugging session.** Original finding (now corrected): 6/6 mutating agents across
-  two runs failed identical pre-flight checks ("git resolves its working tree to <itself>..."),
-  despite the worktrees' own git plumbing being verified correct by hand; the working hypothesis at
-  the time was an unnormalized forward-slash/backslash path comparison
-  ([terragrunt#5976](https://github.com/gruntwork-io/terragrunt/issues/5976)). **A follow-up
-  debugging session (run in parallel via a separate Claude Code session on this same machine, per a
-  handoff prompt) found the REAL root cause: the pre-flight check compares paths
-  case-sensitively, and the harness holds the project root as both a lowercase- and
-  uppercase-drive-letter string within one session (`c:\...` vs `C:\...`) while git's own
-  `rev-parse --show-toplevel` always emits the uppercase form — so a lowercase-pinned path never
-  string-compares equal to git's, and the run is refused with the same bogus "core.worktree
-  redirect" message.** Not a separator bug (separators ARE normalized); not the space in "Side
-  Projects" (verified that path works fine on its own). The check fires ONLY when the worktree
-  directory already exists (fresh spawns always pass; a re-entered/retried worktree can trip it).
-  Verified fixed live: two agents given separate worktrees committed independently
-  (`e77df7b`/`ec54623`) with zero collision and the main checkout untouched. **`isolation:
-  'worktree'` is usable again — sequential-only is no longer required.** Operational rules while
-  using it: (1) before each mutating workflow, sweep leftovers (`git worktree prune`, then delete
-  any stale dirs under `.claude/worktrees/`); (2) keep parallel worktree fan-out modest (≤4 at a
-  time) — concurrent `git worktree add` calls can race `.git/config.lock`, and a failed `add` is
-  what strands the directory that trips the case-sensitivity check later; (3) if it fires anyway,
-  treat it as transient — prune, delete that one worktree dir, retry the agent. Caveat carried
-  forward from the debugging session: the fix mechanism and a fresh-spawn success are both proven;
-  "sweeping prevents recurrence" is inference, since the lowercase-drive pin can't be forced on
-  demand to test it directly — stay alert for a recurrence rather than trusting this as airtight.
-  A leftover ~900 MB of stranded worktree dirs from the debugging session's own repro
-  (`wf_bb3ac976-a28-{1,2}`, work already safely on `arc/q11-root-home-seam`/`arc/q14-close-queue-
-  leak`, both confirmed merged into `arc/stage3`) was cleaned up same-day. Full detail in the
-  journal's "isolation: 'worktree' is broken" and "isolation: 'worktree' — RESOLVED" entries.
-
-## Model allocation — SUPERSEDED AGAIN 2026-08-09 (maintainer decision, Max plan)
-
-**Fable is available again** — the maintainer moved to the Max plan. The 2026-08-08 "everything
-runs on Opus" note below is stale on this one point (accurate on everything else). The arc's
-original standing rule is live again: Fable for UX-sensitive and design-sensitive work (this
-matters most in Stage 3, the arc's most UX-heavy stage — both new-feature UX design and a polish
-pass over already-built surfaces), cheaper/mechanical-appropriate tiers elsewhere. Verified live
-this session (`model_check: "Fable 5"`) before committing any UX workstream to it.
-
-## Model allocation — SUPERSEDED 2026-08-08 (maintainer decision) — see above, now stale
-
-**All Fable credit is now exhausted. Everything remaining — UX included — runs on Opus.**
-The plan's Fable-on-UX hard rule no longer applies, and nothing is parked waiting on model
-allocation. The two-track handoff split retired with it: `CONTINUATION-HANDOFF.md` is the one
-continuation brief.
-
-_Prior history, for the record:_ the first Fable account's promo credit was exhausted 2026-08-07
-(hit its monthly limit mid-part-3; the maintainer re-logged into the second account), and the
-decision then was Opus for backend/mechanical work with the second account's Fable credit
-reserved for the UX stages — Stage 3's mockup-driven features, C4's console rewrite, and the
-mockup-conformance gates. That reserve is now spent: it went to C4's store layer, which turned
-out to be state architecture rather than design work, and ran out before F10's verification —
-the one genuinely UX-shaped part of that charter.
-
-## Spend / cost discipline (READ THIS — the run died here)
-
-The plan set a **$250 ceiling checked between stages, and it was never enforced**: no
-spend meter was available in-session, and subagent token counts (~4.4M across ~45
-agents) were tracked instead without being converted to dollars or acted on. The run
-ended by hitting the account's individual spend limit mid-workflow, not by the planned
-wind-down. On resume: set a hard token budget on every workflow (the budget mechanism
-throws when exhausted), run fewer agents per phase, use cheaper tiers for mechanical
-passes, and check actual account spend between stages.
-
-## Workspace cleanup, 2026-08-08 (maintainer-directed)
-
-- **The stray `.claude/worktrees/conversation-canvas` worktree is GONE — removed, not just
-  flagged.** Before deleting, checked what it actually was: 431 commits (2026-07-01..07-11) of a
-  console-redesign prototyping workbench, not nothing — but it is fully preserved on a local-only
-  branch `backup/pre-squash` (tip 88b6a33), so nothing was lost. Deletion also had to close 4
-  zombie Electron processes it had left running since earlier that day, loaded from its own stale
-  binary via the exact module-resolution hijack this file already documented — that is what was
-  locking `default_app.asar` and blocking the directory delete. Verified before killing them: all
-  4 traced to that stray path specifically, none to the real `apps/desktop`.
-- **`allowBuilds: electron: false` in pnpm-workspace.yaml stays `false`.** Maintainer left the
-  call to the orchestrator. Decision: the file's own comment already documents the tradeoff
-  deliberately (postinstall only fetches a prebuilt binary, not needed for typecheck/bundle); the
-  repo is headed toward open-sourcing (see MEMORY's PHI-scrub note), so the tighter default that
-  keeps a stranger's `pnpm install` from running Electron's postinstall unconditionally is the
-  right posture. The documented one-time manual zip-extraction repair remains the path for
-  interactive dev.
-
-## Open questions: 3 parked (Q1–Q3 in questions.md) + every parked charter/feature
-## Approximate cost so far: ~4.4M subagent tokens over ~6h wall-clock (pre-2026-08-08) + Stage 4
-## re-verification (~1M tokens, 8 agents) on 2026-08-08
+- Gate: `pnpm check && pnpm docs:check`, UNSANDBOXED (sandboxed shells falsely time out the
+  claude-sdk control probes). Verify a suspicious failure in isolation before blaming load.
+- `git stash` is DENIED in this harness — adapt, never halt. Stage by name, subject-only
+  Conventional Commits, no internal codenames in subjects, no employer references anywhere.
+- `Workflow`'s `isolation: 'worktree'` is unreliable on this machine (recurred after a verified
+  fix) — run mutating workflow stages sequentially in the shared main tree.
+- Never junction/symlink from an isolated worktree into the main tree; any bulk delete of a
+  dir that may hold reparse points: enumerate them first or use `robocopy /XJ`.
+- Workflow agents inherit the SESSION model unless pinned — pin `opus` for core/verify/fix
+  stages, `fable` for UI/design halves (the F4 build accidentally ran everything on Fable).
+- The OS watchdog (`coa-stage3-watchdog` scheduled task) still points at session
+  `bde57b69-2e91-4947-bcaf-c13e87b750a7`; retire it when the post-arc work ends.

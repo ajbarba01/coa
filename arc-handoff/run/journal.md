@@ -2262,3 +2262,29 @@ pair into `arc/stage3` clean (`merge: the model-metadata cache-wipe fix and its 
 correction`), full gate re-running; the `arc-close/stage3` tag and `main`'s feature squash commit
 will be rebuilt from the corrected tip. Standing lesson for any future arc: "a fix pair reported
 back green" is not "the fix is on the integration branch" — verify containment, not reports.
+
+## [ARC CLOSED — landed on main] — 2026-08-10
+
+Executed the maintainer's close-out ruling end to end. `main` is now `37acd87`: three per-stage
+squash commits (knife `d3c55d4`, architecture `47839e3`, features `37acd87`) over the pre-arc
+`d97c118`, each built directly from the stage tip's tree object via `git commit-tree` after the
+naive stacked `merge --squash` route silently resurrected knife-era hunks that architecture had
+reworked (caught by the staged-tree-vs-tip identity check; the commit-tree route makes identity
+true by construction). Final tree verified byte-identical to `arc-close/stage3` (`a11c368`,
+which includes the recovered F3 cache-wipe fix — see the prior entry); the full gate ran green
+on exactly that tree (3625 tests / depcruise 465/1406 / docs-check 64) immediately before the
+squash was rebuilt from it, so the gate result transfers by tree-hash equality. Pushed
+(`d97c118..37acd87`) — the first and only main push of the arc, maintainer-authorized.
+
+ROADMAP.md on main now carries the close-out's whole deferred surface in full detail
+(commit `58f5822`): a committed "Next up" pair (console store port + instant-nav + the 20-tab
+memory charter; docs consolidation re-run) and the three deferred features (Viewer, naming +
+rename, sand-light) plus the permission-modes live-smoke gap and the library residuals — the
+feature-plans detail preserved without arc-internal codenames or mockup refs.
+
+Housekeeping: five `arc-close/*` tags pushed (every journaled SHA stays resolvable); PRs #1/#2
+closed with pointer comments; PRs #3/#4 retargeted to `main` and kept open as the two live
+workstreams; 16 remote + ~20 local branches deleted after per-branch `merge-base --is-ancestor`
+verification (the sweep that caught the lost fix); `backup/c4-swap-wip` deleted per its recorded
+condition; `backup/f1-f7-core1-wip` and `backup/pre-squash` kept. state.md rewritten as the
+final record. Next: the console store port, per the maintainer's "very next order of business."
