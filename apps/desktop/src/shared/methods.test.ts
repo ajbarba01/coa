@@ -97,4 +97,57 @@ describe('IPC method registry', () => {
     expect(METHODS.setBrowserPath.params?.parse({ path: 'C:\\chrome.exe' })).toBeTruthy();
     expect(METHODS.removeCredential.params?.parse({ id: 'x', removeProfile: true })).toBeTruthy();
   });
+
+  it('validates openProject params/result (F11)', () => {
+    expect(
+      METHODS.openProject.params?.parse({ root: 'C:\\repos\\alpha', target: 'new' }),
+    ).toBeTruthy();
+    expect(() => METHODS.openProject.params?.parse({ root: 'C:\\repos\\alpha' })).toThrow();
+    expect(() =>
+      METHODS.openProject.params?.parse({ root: 'C:\\repos\\alpha', target: 'sideways' }),
+    ).toThrow();
+    expect(
+      METHODS.openProject.result.parse({
+        opened: 'focused-existing',
+        workspace: { name: 'alpha', root: 'C:\\repos\\alpha' },
+      }),
+    ).toBeTruthy();
+  });
+
+  it('validates listRecentProjects result (F11)', () => {
+    const list = [{ root: 'C:\\repos\\alpha', name: 'alpha', lastOpenedAt: 1, open: true }];
+    expect(METHODS.listRecentProjects.result.parse(list)).toEqual(list);
+    expect(() => METHODS.listRecentProjects.result.parse([{ root: 'C:\\repos\\alpha' }])).toThrow();
+  });
+
+  it('validates setMode params/result (F2) and rejects a mode outside the four ruled values', () => {
+    expect(METHODS.setMode.params?.parse({ id: 'c1', mode: 'plan' })).toBeTruthy();
+    expect(() => METHODS.setMode.params?.parse({ id: 'c1', mode: 'auto' })).toThrow();
+    expect(() => METHODS.setMode.params?.parse({ mode: 'plan' })).toThrow();
+    expect(METHODS.setMode.result.parse({ set: true })).toEqual({ set: true });
+  });
+
+  it('validates respondApproval params/result (F2)', () => {
+    expect(
+      METHODS.respondApproval.params?.parse({ id: 'c1', requestId: 'r1', decision: 'approve' }),
+    ).toBeTruthy();
+    expect(() =>
+      METHODS.respondApproval.params?.parse({ id: 'c1', requestId: 'r1', decision: 'maybe' }),
+    ).toThrow();
+    expect(METHODS.respondApproval.result.parse({ resolved: false })).toEqual({
+      resolved: false,
+    });
+  });
+
+  it('validates sessionMode result — both the not-found and the full snapshot shapes (F2)', () => {
+    expect(METHODS.sessionMode.result.parse({ found: false })).toEqual({ found: false });
+    const snapshot = {
+      found: true,
+      mode: 'manual',
+      effectiveMode: 'bypass',
+      pending: [{ requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} }],
+    };
+    expect(METHODS.sessionMode.result.parse(snapshot)).toEqual(snapshot);
+    expect(() => METHODS.sessionMode.result.parse({ found: true, mode: 'manual' })).toThrow();
+  });
 });

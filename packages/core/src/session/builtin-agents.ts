@@ -29,5 +29,8 @@ export const BUILTIN_AGENTS: readonly AgentSummary[] = [
     icon: 'search',
     color: 'sky',
     roles: ['researcher'],
+    // F2: makes "it never edits" an ENFORCED fact, not just a prompt-level claim —
+    // a spawned explorer session starts in plan mode (no writes, no commands, ever).
+    defaultMode: 'plan',
   },
 ];

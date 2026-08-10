@@ -46,6 +46,10 @@ export interface ShellState {
   confirmRemoveModel?: { providerId: string; id: string } | undefined;
   /** The login the remove-confirm dialog is asking about (undefined = closed). */
   confirmRemoveCredential?: string | undefined;
+  /** F11: the project the swap-while-active confirm dialog is asking about (undefined =
+   *  closed). Only raised when `openProject({target:'current'})` would swap THIS window
+   *  away from a session that has a turn actively running — see `shouldConfirmSwap`. */
+  confirmSwapProject?: { root: string; name: string } | undefined;
   /** The provider whose driven-login EMAIL pre-step is open (undefined = closed). Only the
    *  renderer-local pre-step joins the exclusive set — once the daemon owns a flow, the
    *  dialog projects daemon state and is dismissed only by an explicit cancel (killing a
@@ -63,8 +67,14 @@ export interface ShellState {
   daemonReason?: string | undefined;
   /** The REAL window maximize state (main pushes it) — drives the restore glyph. */
   maximized: boolean;
-  /** The open project, read from main (which derives it from the daemon's cwd). */
+  /** The open project, read from main (which derives it from the CALLING window's bound
+   *  root — F11: one project per window, never one app-wide workspace). */
   workspace?: { name: string; root: string } | undefined;
+  /** Bumped on every F11 project SWAP (never on the initial boot-time read — see
+   *  `applyProjectSwitch`) — the composition root keys the console controller's lifecycle
+   *  on this, so a swap tears down and reboots the controller exactly like a fresh window
+   *  mount, rather than trying to patch stale project-scoped state in place. */
+  projectEpoch: number;
 
   /** Also exits search mode (a surface switch is a work-mode navigation). */
   setSurface: (id: string) => void;
@@ -99,12 +109,22 @@ export interface ShellState {
   setAddModelsProvider: (providerId: string | undefined) => void;
   setConfirmRemoveModel: (target: { providerId: string; id: string } | undefined) => void;
   setConfirmRemoveCredential: (id: string | undefined) => void;
+  setConfirmSwapProject: (target: { root: string; name: string } | undefined) => void;
   setLoginEmailFor: (target: { providerId: string; credentialId?: string } | undefined) => void;
   /** Put the caret in the composer — whatever the user types next is a message. */
   focusComposer: () => void;
   setDaemon: (daemon: DaemonStatus, reason?: string) => void;
   setMaximized: (maximized: boolean) => void;
+  /** The boot-time read only (`App`'s one-shot `getWorkspace()` on mount). Never call this
+   *  for a runtime project switch — it does not clear project-scoped chrome or bump
+   *  `projectEpoch`; use `applyProjectSwitch` instead. */
   setWorkspace: (workspace: { name: string; root: string }) => void;
+  /** F11 — commit a project switch that just happened in THIS window: adopts the new
+   *  workspace, drops the tab strip (open/closed tabs name the OLD project's sessions, and
+   *  a session id from one project means nothing in another), closes whatever dialog asked
+   *  for the swap, and bumps `projectEpoch` so the composition root tears down and reboots
+   *  the console controller fresh — the same boot sequence a brand new window runs. */
+  applyProjectSwitch: (workspace: { name: string; root: string }) => void;
 }
 
 /** The modal overlays are mutually exclusive — opening one dismisses the rest so they
@@ -121,6 +141,7 @@ const CLOSE_ALL_DIALOGS = {
   addModelsProvider: undefined,
   confirmRemoveModel: undefined,
   confirmRemoveCredential: undefined,
+  confirmSwapProject: undefined,
   loginEmailFor: undefined,
 } as const;
 
@@ -144,12 +165,14 @@ export const useShell = create<ShellState>((set, get) => ({
   addModelsProvider: undefined,
   confirmRemoveModel: undefined,
   confirmRemoveCredential: undefined,
+  confirmSwapProject: undefined,
   loginEmailFor: undefined,
   composerFocus: 0,
   daemon: 'stopped',
   daemonReason: undefined,
   maximized: false,
   workspace: undefined,
+  projectEpoch: 0,
 
   setSurface: (surface) => set({ surface, mode: 'work' }),
   openTab: (sessionId) =>
@@ -247,8 +270,23 @@ export const useShell = create<ShellState>((set, get) => ({
         ? { ...CLOSE_ALL_DIALOGS, loginEmailFor: target }
         : { loginEmailFor: undefined },
     ),
+  setConfirmSwapProject: (target) =>
+    set(
+      target !== undefined
+        ? { ...CLOSE_ALL_DIALOGS, confirmSwapProject: target }
+        : { confirmSwapProject: undefined },
+    ),
   focusComposer: () => set((s) => ({ composerFocus: s.composerFocus + 1 })),
   setDaemon: (daemon, daemonReason) => set({ daemon, daemonReason }),
   setMaximized: (maximized) => set({ maximized }),
   setWorkspace: (workspace) => set({ workspace }),
+  applyProjectSwitch: (workspace) =>
+    set((s) => ({
+      ...CLOSE_ALL_DIALOGS,
+      workspace,
+      projectEpoch: s.projectEpoch + 1,
+      tabs: [],
+      closedTabs: [],
+      previewId: undefined,
+    })),
 }));

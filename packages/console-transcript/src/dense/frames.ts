@@ -110,4 +110,48 @@ export type TranscriptFrame =
             status?: string | undefined;
           }
         | undefined;
+    }
+  // The three live-only subagent announcement cards (spawn / completion /
+  // agent-to-agent message). `color` is the child agent's identity color NAME from
+  // the kit's agent-* vocabulary — layered on by the app (which owns the agents
+  // list), never derived here; absent falls back to slate.
+  | {
+      id: string;
+      kind: 'subagent-spawn';
+      childSessionId: string;
+      childWorktree: string;
+      agentRef: string;
+      description: string;
+      isolate: boolean;
+      color?: string | undefined;
+      depth?: number | undefined;
+    }
+  | {
+      id: string;
+      kind: 'subagent-completion';
+      childSessionId: string;
+      childWorktree: string;
+      agentRef: string;
+      reason: 'completed' | 'errored' | 'stopped';
+      detail?: string | undefined;
+      result?: string | undefined;
+      color?: string | undefined;
+      depth?: number | undefined;
+    }
+  | {
+      id: string;
+      kind: 'subagent-message';
+      messageId: string;
+      threadId: string;
+      replyTo?: string | undefined;
+      from: string;
+      to: string;
+      direction: 'sent' | 'received';
+      body: string;
+      /** Resolved display names for the two session ids, layered on by the app
+       *  (which owns the sessions/agents lists); the raw id is the fallback. */
+      fromLabel?: string | undefined;
+      toLabel?: string | undefined;
+      color?: string | undefined;
+      depth?: number | undefined;
     };

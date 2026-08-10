@@ -488,6 +488,31 @@ describe('runGovernedLoop', () => {
     ]);
   });
 
+  it('carries this turn attachments on the first user message', async () => {
+    const complete = scriptedComplete([text('described')]);
+    const attachments: DriverMessage['attachments'] = [
+      { kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' },
+    ];
+
+    await runGovernedLoop(deps({ complete: complete.fn, input: 'what is this?', attachments }));
+
+    expect(complete.seen[0]).toEqual([
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'what is this?', attachments },
+    ]);
+  });
+
+  it('omits the attachments field entirely when none are given (byte-identical to today)', async () => {
+    const complete = scriptedComplete([text('ok')]);
+
+    await runGovernedLoop(deps({ complete: complete.fn, input: 'hi' }));
+
+    expect(complete.seen[0]).toEqual([
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'hi' },
+    ]);
+  });
+
   it('caps an oversized tool result before it enters the conversation (history-poison backstop)', async () => {
     const result = { blob: 'x'.repeat(TOOL_RESULT_CHAR_CAP * 4) };
     const fullLen = JSON.stringify(result).length;

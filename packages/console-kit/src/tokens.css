@@ -20,14 +20,25 @@
   --radius-r3: 5px;
   --radius-r4: 8px;
 
+  /* The user chat-bubble's asymmetric tail (deliberate — a chat-direction cue, not a
+   * step on the r1-r4 scale). Named so the compound value lives in one place instead
+   * of as a raw arbitrary literal at the call site. */
+  --radius-bubble: 6px 6px 2px 6px;
+
   /* Slipstream curve. */
   --ease-slip: cubic-bezier(0.19, 1, 0.22, 1);
 
   /* The type scale (the showcase "type scale" section is the spec). Sizes only —
-   * weight/color are per-role, not per-size. */
+   * weight/color are per-role, not per-size. --text-h1/--text-h2 fill the step the
+   * scale was missing between body and icon — prose headings (Markdown.tsx) were
+   * reaching past it for raw text-[15px]/text-[14px] literals; the values here match
+   * what was already rendered, just named. */
+  --text-h1: 15px;
+  --text-h2: 14px;
   --text-body: 13px;
   --text-sec: 12.5px;
   --text-code: 11.5px;
+  --text-fine: 11px;
   --text-meta: 10.5px;
   --text-caps: 10px;
   --text-icon: 17px;

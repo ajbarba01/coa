@@ -31,7 +31,7 @@ export function Row({
   children: ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="grid grid-cols-[132px_1fr] gap-4">
+    <div className="grid grid-cols-[var(--specimen-label-w)_1fr] gap-4">
       <div className={cx('text-code text-s7', align === 'start' ? 'pt-1' : 'self-center')}>
         {label}
       </div>

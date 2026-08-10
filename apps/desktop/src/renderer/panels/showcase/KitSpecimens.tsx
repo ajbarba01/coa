@@ -13,6 +13,7 @@ import {
   MenuCard,
   MenuItem,
   Meter,
+  RingMeter,
   ModalShell,
   PaneOverlayProvider,
   PanelResize,
@@ -43,7 +44,7 @@ import {
 function InlineMessageSpecimen(): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <InlineMessage tone="info">Syncing.</InlineMessage>
+      <InlineMessage tone="info">Syncing</InlineMessage>
       <InlineMessage tone="success">Saved</InlineMessage>
       <InlineMessage tone="warning">Unsaved changes</InlineMessage>
       <InlineMessage tone="danger">Failed to load</InlineMessage>
@@ -185,6 +186,31 @@ function MeterSpecimen(): React.JSX.Element {
           <Meter percent={percent} aria-label={`${label} specimen`} />
         </div>
       ))}
+    </div>
+  );
+}
+
+function RingMeterSpecimen(): React.JSX.Element {
+  return (
+    <div className="flex items-end gap-5">
+      {(
+        [
+          ['Quiet', 20],
+          ['Needs-you', 60],
+          ['Critical', 92],
+          ['Near-zero', 0.5],
+        ] as const
+      ).map(([label, percent]) => (
+        <div key={label} className="flex flex-col items-center gap-1.5">
+          <RingMeter percent={percent} aria-label={`${label} ring specimen`} />
+          <Cap>{label}</Cap>
+        </div>
+      ))}
+      <div className="flex flex-col items-center gap-1.5">
+        {/* No percent at all: the dashed unknown track — never a fake fill. */}
+        <RingMeter aria-label="Unknown ring specimen" />
+        <Cap>Unknown</Cap>
+      </div>
     </div>
   );
 }
@@ -630,6 +656,9 @@ export function KitSpecimens(): React.JSX.Element {
         </Specimen>
         <Specimen id="Meter">
           <MeterSpecimen />
+        </Specimen>
+        <Specimen id="RingMeter">
+          <RingMeterSpecimen />
         </Specimen>
         <Specimen id="InlineMessage">
           <InlineMessageSpecimen />

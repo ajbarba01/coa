@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CapabilityFrame, ModelSelection, NeutralConfig } from '@coa/shared';
+import type { AgentSkillConfig, CapabilityFrame, ModelSelection, NeutralConfig } from '@coa/shared';
 
 /**
  * Prompt freezing (provider caching is a prefix match; any byte change in the
@@ -87,6 +87,13 @@ export interface PromptConfig {
   roles?: readonly string[] | undefined;
   packageIds?: readonly string[] | undefined;
   exclude?: readonly string[] | undefined;
+  /** The library-skill selection injected into the prompt — each resolved skill's
+   *  library name + delivery choice. Part of the drift key: adding/removing a skill,
+   *  or flipping auto↔disclosure, compiles a different prompt. Skill CONTENT is
+   *  deliberately not here (like the date, it is not a selection — the library's own
+   *  copy-drift surface owns content change). Absent/empty ⇒ hashes exactly as
+   *  before skills existed, so no stored conversation banners on upgrade. */
+  skills?: readonly AgentSkillConfig[] | undefined;
 }
 
 /** Deterministic JSON (object keys sorted at every depth) so the hash is stable
@@ -117,11 +124,24 @@ export function configHashOf(config: PromptConfig): string {
   // Roles are the canonical role selection; a config with no `roles` falls back to
   // the singular `role` so legacy single-role configs still hash correctly.
   const roles = config.roles ?? (config.role !== '' ? [config.role] : []);
+  // Skills as a set keyed by case-folded name (first occurrence wins, mirroring the
+  // resolver), sorted so selection order never trips drift. The key is added to the
+  // canonical object ONLY when non-empty: a skill-less config must hash byte-identically
+  // to a pre-library one, or every stored conversation would raise the banner once.
+  const skillByName = new Map<string, { name: string; delivery: string }>();
+  for (const s of config.skills ?? []) {
+    const key = s.name.toLowerCase();
+    if (!skillByName.has(key)) skillByName.set(key, { name: s.name, delivery: s.delivery });
+  }
+  const skills = [...skillByName.values()].sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  );
   const canonical = {
     role: config.role,
     roles: asSet(roles),
     packageIds: asSet(config.packageIds),
     exclude: asSet(config.exclude),
+    ...(skills.length > 0 ? { skills } : {}),
   };
   return createHash('sha256').update(stableStringify(canonical)).digest('hex').slice(0, 16);
 }

@@ -418,7 +418,7 @@ function BodyView({
       const lines = (full ? body.text : clamped.shown).split('\n');
       return (
         <>
-          <div className="overflow-x-auto px-3 py-1.5 font-mono text-[11px] leading-[1.65] whitespace-pre">
+          <div className="overflow-x-auto px-3 py-2 font-mono text-code leading-[1.7] whitespace-pre">
             {lines.map((ln, i) => (
               <div key={i}>
                 <SyntaxText code={ln} language={body.lang} />
@@ -447,7 +447,7 @@ function BodyView({
           )}
           <div
             className={cx(
-              'overflow-x-auto px-3 py-1.5 font-mono text-[11px] leading-[1.65] whitespace-pre',
+              'overflow-x-auto px-3 py-2 font-mono text-code leading-[1.7] whitespace-pre',
               failed ? 'text-s10' : 'text-s8',
             )}
           >
@@ -466,7 +466,7 @@ function BodyView({
       const lines = (full ? body.text : clamped.shown).split('\n');
       return (
         <>
-          <div className="overflow-x-auto py-1 font-mono text-[11px] leading-[1.65]">
+          <div className="overflow-x-auto py-2 font-mono text-code leading-[1.7]">
             {lines.map((ln, i) => (
               <MatchRow key={i} tool={body.tool} line={ln} onOpenPath={onOpenPath} />
             ))}

@@ -2,22 +2,33 @@ import type {
   Accounts,
   ActiveAccount,
   AgentFile,
+  AgentSkillConfig,
+  ApprovalDecision,
+  Attachment,
   AuthView,
   CapState,
   Checkpoint,
   FeedView,
+  InvocableSkill,
+  LibrarySummary,
+  LibraryView,
   LoginSnapshot,
   ModelCatalogView,
   ModelDescriptor,
+  ModelMetadataView,
   ModelSelection,
   PackageSummary,
+  PermissionMode,
   ReloadedConversationWire,
   ReasoningProfile,
+  ReapWorktreeResult,
   RoleSummary,
   SessionSummary,
+  WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import type { DaemonReport } from '../shared/methods.js';
+import type { RecentProject } from '../shared/projects.js';
 
 export {};
 declare global {
@@ -70,9 +81,24 @@ declare global {
         model?: ModelSelection;
         packageIds?: string[];
         exclude?: string[];
+        /** Attachments on this send's user message; the daemon refuses them for a
+         *  backend with no attachment seam (never a silent drop). */
+        attachments?: Attachment[];
+        /** Explicit per-send skill selection, overriding the agent definition's
+         *  `skills` list for this turn. */
+        skills?: AgentSkillConfig[];
+        /** Library skills invoked explicitly on THIS turn (the composer's `/skill`).
+         *  An unknown name refuses the send before anything mutates. */
+        invokeSkills?: string[];
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
+      /** Every isolated session worktree (path + dirty summary + liveness) — the
+       *  Worktree dock's read. Proxies the daemon `listWorktrees`. */
+      listWorktrees(): Promise<{ worktrees: WorktreeView[] }>;
+      /** The explicit reap; the daemon refuses (`reaped: false`, `reason: 'running'`)
+       *  while the session's turn is in flight. Proxies the daemon `reapWorktree`. */
+      reapWorktree(params: { sessionId: string }): Promise<ReapWorktreeResult>;
       reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
@@ -85,8 +111,40 @@ declare global {
       /** Console reattach — proxies the daemon's `subscribeSession`, which
        *  immediately hydrates this connection with the session's CURRENT run-status. */
       subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
+      /** F2 — live-switch a session's permission mode; proxies the daemon `setMode`.
+       *  Takes effect starting with the NEXT tool call. The chip's own reflection
+       *  updates from the resulting `mode` push, not this response. */
+      setMode(params: { id: string; mode: PermissionMode }): Promise<{ set: boolean }>;
+      /** F2 — answer a pending ask (the composer's docked approve/deny gate);
+       *  proxies the daemon `respondApproval`. `resolved: false` ⇒ unknown session
+       *  id, or no pending request with that id (a harmless no-op, not an error). */
+      respondApproval(params: {
+        id: string;
+        requestId: string;
+        decision: ApprovalDecision;
+      }): Promise<{ resolved: boolean }>;
+      /** F2 — a session's current permission-mode snapshot (mode/effectiveMode/every
+       *  ask still awaiting a reply); proxies the daemon `sessionMode`. For reattach
+       *  hydration, without waiting on the next live push. */
+      sessionMode(params: { id: string }): Promise<
+        | { found: false }
+        | {
+            found: true;
+            mode: PermissionMode;
+            effectiveMode: PermissionMode;
+            pending: Array<{
+              requestId: string;
+              tool: string;
+              summary: string;
+              input: Record<string, unknown>;
+            }>;
+          }
+      >;
       listModels(): Promise<ModelDescriptor[]>;
       modelCatalog(): Promise<ModelCatalogView>;
+      /** Per-model info (context window/pricing/modalities/reasoning) — the context
+       *  ring, the model-picker hover card, and attach gating all read this. */
+      modelMetadata(params?: { provider?: string }): Promise<ModelMetadataView>;
       addModels(params: { providerId: string; ids: string[] }): Promise<ModelCatalogView>;
       addCustomModel(params: {
         providerId: string;
@@ -121,6 +179,20 @@ declare global {
       /** The native directory picker (a directory field's browse affordance). Cancelling
        *  returns no path — the caller keeps whatever the field already held. */
       pickDirectory(params: { defaultPath?: string }): Promise<{ path?: string }>;
+      /** F11 — open/switch/focus a project. `target: 'new'` always opens a fresh window;
+       *  `target: 'current'` swaps THIS window in place. If `root` is already open in some
+       *  window, that window is focused instead, regardless of `target` — coa never runs
+       *  two daemons over the same project. The caller must confirm with the user BEFORE
+       *  calling this with `target: 'current'` while its own project has a turn actively
+       *  running (main performs the swap unconditionally once called; it does not itself
+       *  gate on in-flight work — only the caller knows whether one is running). */
+      openProject(params: { root: string; target: 'current' | 'new' }): Promise<{
+        opened: 'new' | 'current' | 'focused-existing';
+        workspace: { name: string; root: string };
+      }>;
+      /** The recent-projects MRU (picker backing list), each entry decorated with a live
+       *  `open` flag (true iff some window currently has it open) computed at call time. */
+      listRecentProjects(): Promise<Array<RecentProject & { open: boolean }>>;
       /** The edit menu's actions — main drives Chromium's native editing commands on the
        *  focused element (the renderer never touches the clipboard itself). */
       editCommand(params: { command: 'cut' | 'copy' | 'paste' | 'selectAll' }): Promise<void>;
@@ -143,6 +215,45 @@ declare global {
         ref: string;
         scope: 'personal' | 'project';
       }): Promise<{ removed: boolean }>;
+      /** The skills/MCP library, the ONE read the Library surface renders — proxies
+       *  the daemon `listLibrary` (entries + discovered + diagnostics, drift inside). */
+      listLibrary(): Promise<LibraryView>;
+      /** The same fresh read, as the surface's explicit refresh gesture (drift is
+       *  hash-on-demand, no watcher) — proxies the daemon `rescanLibrary`. */
+      rescanLibrary(): Promise<LibraryView>;
+      /** The effective (enabled, resolvable, project-shadows-personal) skill rows —
+       *  the composer's slash popover and the agent editor's picker read this. */
+      listSkills(): Promise<{ skills: InvocableSkill[] }>;
+      /** Link a discovered skill/MCP server into a store as a live reference —
+       *  proxies the daemon `linkLibrary` (a bad source is an error reply). */
+      linkLibrary(params: {
+        kind: 'skill' | 'mcp';
+        scope: 'personal' | 'project';
+        source: { path: string; serverName?: string };
+        name?: string;
+      }): Promise<LibrarySummary>;
+      /** Materialize into the PROJECT store (committable, with provenance). Calling
+       *  it again on an existing copy IS the one-click re-sync — proxies `copyLibrary`. */
+      copyLibrary(params: {
+        kind: 'skill' | 'mcp';
+        source: { path: string; serverName?: string };
+        name?: string;
+      }): Promise<LibrarySummary>;
+      /** Remove a library record (and a skill copy's materialized files). `removed:
+       *  false` ⇒ nothing was there — proxies the daemon `unlinkLibrary`. */
+      unlinkLibrary(params: {
+        kind: 'skill' | 'mcp';
+        scope: 'personal' | 'project';
+        name: string;
+      }): Promise<{ removed: boolean }>;
+      /** Surfacing-only enable/disable (a disabled entry stays listed; consumers
+       *  exclude it) — proxies the daemon `setLibraryEnabled`. */
+      setLibraryEnabled(params: {
+        kind: 'skill' | 'mcp';
+        scope: 'personal' | 'project';
+        name: string;
+        enabled: boolean;
+      }): Promise<LibrarySummary>;
       /** Kick off the driven-login flow (a fresh add, or a relogin against an
        *  existing credential) — proxies the daemon `startLogin`. */
       startLogin(params: { email: string; credentialId?: string }): Promise<LoginSnapshot>;

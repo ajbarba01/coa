@@ -5,6 +5,7 @@ import { iconIntent } from './data/Icon.intent.js';
 import { inlineMessageIntent } from './feedback/InlineMessage.intent.js';
 import { toastIntent } from './feedback/Toast.intent.js';
 import { meterIntent } from './data/Meter.intent.js';
+import { ringMeterIntent } from './data/RingMeter.intent.js';
 import { panelResizeIntent } from './layout/PanelResize.intent.js';
 import type { ComponentIntent } from './lib/intent.js';
 import { spinnerIntent } from './Spinner.intent.js';
@@ -34,6 +35,7 @@ export const allIntents: ComponentIntent[] = [
   spinnerIntent,
   brandMarkIntent,
   meterIntent,
+  ringMeterIntent,
   iconIntent,
   inlineMessageIntent,
   toastIntent,

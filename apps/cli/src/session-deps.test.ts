@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ChangeEventDraft } from '@coa/core';
+import { AccountsRegistry, type ChangeEventDraft } from '@coa/core';
 import { buildSessionDeps, type BuiltSession } from './session-deps.js';
 
 let dir: string;
@@ -28,6 +28,34 @@ describe('buildSessionDeps', () => {
   it('binds the worktree to the configured root', () => {
     built = buildSessionDeps({ walPath: join(dir, 'log.ndjson'), root: dir });
     expect(built.deps.bindWorktree('s1', 'src')).toBe(dir);
+  });
+
+  it('honors an injected home instead of the ambient homedir()', () => {
+    const home = mkdtempSync(join(tmpdir(), 'coa-sd-home-'));
+    // A decoy homedir() DIFFERENT from `home` — a call site that regressed to reading it
+    // directly would resolve the active account from here instead, i.e. ambient.
+    const decoyHome = mkdtempSync(join(tmpdir(), 'coa-sd-decoy-'));
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = decoyHome;
+    process.env.USERPROFILE = decoyHome;
+    try {
+      const accounts = new AccountsRegistry(home);
+      accounts.add('work', { type: 'config-dir', dir: 'D:\\claude-work' }, 'claude');
+      accounts.setActive('work');
+
+      built = buildSessionDeps({ walPath: join(dir, 'log.ndjson'), root: dir, home });
+
+      expect(built.deps.activeAccount?.('claude')).toMatchObject({ label: 'work' });
+      expect(readdirSync(decoyHome)).toEqual([]);
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      rmSync(home, { recursive: true, force: true });
+      rmSync(decoyHome, { recursive: true, force: true });
+    }
   });
 
   it('drives the committed generation registry: a drifted target makes the close-gate live', () => {

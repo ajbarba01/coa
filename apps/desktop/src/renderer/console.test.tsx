@@ -39,12 +39,15 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     useAccount: vi.fn().mockResolvedValue({ active: {} }),
     startSession: vi.fn().mockResolvedValue({ sessionId: 'c1', worktree: '/wt' }),
     listModels: vi.fn().mockResolvedValue([]),
+    modelMetadata: vi.fn().mockResolvedValue({ entries: [] }),
     listRoles: vi.fn().mockResolvedValue([]),
     listPackages: vi.fn().mockResolvedValue([]),
     listAgents: vi.fn().mockResolvedValue({ agents: MOCK_AGENTS, diagnostics: [] }),
     saveAgent: vi.fn().mockResolvedValue({ ok: true }),
     deleteAgent: vi.fn().mockResolvedValue({ removed: true }),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
+    listWorktrees: vi.fn().mockResolvedValue({ worktrees: [] }),
+    reapWorktree: vi.fn().mockResolvedValue({ reaped: true }),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
     reloadConversation: vi.fn().mockResolvedValue(reloaded()),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
@@ -52,6 +55,9 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     interruptSession: vi.fn().mockResolvedValue({ interrupted: true }),
     steerSession: vi.fn().mockResolvedValue({ steered: true }),
     subscribeSession: vi.fn().mockResolvedValue({ subscribed: true }),
+    setMode: vi.fn().mockResolvedValue({ set: true }),
+    respondApproval: vi.fn().mockResolvedValue({ resolved: true }),
+    sessionMode: vi.fn().mockResolvedValue({ found: false }),
     openPath: vi.fn().mockResolvedValue({ ok: true, revealed: 'editor' }),
     openExternal: vi.fn().mockResolvedValue({ ok: true }),
     onPush: vi.fn().mockReturnValue(() => {}),
@@ -426,6 +432,63 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(last().ui.runStatus['c1']).toBeUndefined();
   });
 
+  it('keeps the run-status pill set across a blocked-approval push — a pending ask is still a live, in-flight turn, and Stop/Esc/Interrupt must stay reachable', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    // LiveSession.state never leaves 'running' for the duration of an ask (see
+    // requestApproval); this push is a live annotation on top, not a "turn ended" signal.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-approval' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    // The daemon resolving the ask and reflecting back to running must not reset the pill's clock.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'done' });
+    expect(last().ui.runStatus['c1']).toBeUndefined();
+  });
+
+  it('keeps the run-status pill set across a blocked-tool push', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-tool' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
+  it('a blocked-approval push arriving with no prior running push still marks the turn in flight (defensive — reattach hydration always starts from running/idle, but the pill derivation must not depend on that ordering)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'blocked-approval' });
+    expect(last().ui.runStatus['c1']).toBeDefined();
+  });
+
   it('hydrates the run-status pill from the daemon on connect (reattach — the session exists independent of any viewer), not from local send-tracking', async () => {
     let emit: ((payload: unknown) => void) | undefined;
     const bridge = fakeBridge({
@@ -701,6 +764,78 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
     expect(bridge.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ input: 'add tests', conversationId: 'c1' }),
     );
+  });
+
+  it('a send with staged attachments carries them on the startSession params and notes them locally', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    const attachments = [
+      { kind: 'image' as const, mimeType: 'image/png', data: 'aWJt', name: 'shot.png' },
+      { kind: 'text' as const, name: 'notes.md', text: '# notes' },
+    ];
+
+    last().actions.sendMessage('what is in this?', attachments);
+
+    expect(bridge.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ input: 'what is in this?', attachments }),
+    );
+    // The persisted transcript carries only text, so a console-local note records
+    // that the attachments went along (same mechanism as the model-switch note).
+    // It publishes with the coalesced turn flush, one frame later.
+    await flushRaf();
+    expect(last().ui.notesBySession['c1']).toEqual([
+      expect.objectContaining({ text: 'attached shot.png, notes.md' }),
+    ]);
+  });
+
+  it('a plain send carries NO attachments field — byte-identical to before', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.sendMessage('just text');
+    const params = vi.mocked(bridge.startSession).mock.calls.at(-1)?.[0];
+    expect(params !== undefined && 'attachments' in params).toBe(false);
+  });
+
+  it('a usage push lands on its session for the context ring (last settle wins)', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'usage', sessionId: 'c1', tokensIn: 30_000, tokensOut: 1_200 });
+    expect(last().ui.usageBySession['c1']).toEqual({ tokensIn: 30_000, tokensOut: 1_200 });
+
+    // A later settle REPLACES (its tokensIn already includes the whole context).
+    emit?.({
+      kind: 'usage',
+      sessionId: 'c1',
+      tokensIn: 42_000,
+      tokensOut: 900,
+      cacheReadTokens: 8_000,
+    });
+    expect(last().ui.usageBySession['c1']).toEqual({
+      tokensIn: 42_000,
+      tokensOut: 900,
+      cacheReadTokens: 8_000,
+    });
+  });
+
+  it('routes a usage push by sessionId — a background settle never leaks onto the active ring', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    emit?.({ kind: 'usage', sessionId: 'c-other', tokensIn: 5, tokensOut: 5 });
+    expect(last().ui.usageBySession['c1']).toBeUndefined();
+    expect(last().ui.usageBySession['c-other']).toEqual({ tokensIn: 5, tokensOut: 5 });
   });
 
   it('settles an interrupted reasoning block and appends the interrupt marker from the daemon frames (live == reload)', async () => {
@@ -1447,5 +1582,275 @@ describe('a write the daemon answered but did not carry out is said out loud', (
     await new Promise((r) => setTimeout(r, 0));
 
     expect(useNotices.getState().notice).toBeUndefined();
+  });
+});
+
+describe('F2 — permission modes', () => {
+  it('setPermissionMode proxies the switch to the bridge for the given session', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+    last().actions.setPermissionMode('c1', 'plan');
+    expect(bridge.setMode).toHaveBeenCalledExactlyOnceWith({ id: 'c1', mode: 'plan' });
+  });
+
+  it("a mode push reflects the session's live permission-mode state", async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({ kind: 'mode', sessionId: 'c1', mode: 'edits', effectiveMode: 'edits' });
+    expect(last().ui.modeBySession['c1']).toEqual({ mode: 'edits', effectiveMode: 'edits' });
+  });
+
+  it('a degraded mode push carries its honest reason through untouched', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'mode',
+      sessionId: 'c1',
+      mode: 'plan',
+      effectiveMode: 'bypass',
+      degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+    });
+    expect(last().ui.modeBySession['c1']).toEqual({
+      mode: 'plan',
+      effectiveMode: 'bypass',
+      degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+    });
+  });
+
+  it('an approval push queues a live pending ask for its session', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'write auth.ts',
+      tool: 'write_file',
+      toolClass: 'write',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([
+      { requestId: 'r1', tool: 'write_file', summary: 'write auth.ts', toolClass: 'write' },
+    ]);
+  });
+
+  it('respondApproval answers a live pending ask over the real RPC and clears it optimistically', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'write auth.ts',
+      tool: 'write_file',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+
+    last().actions.respondApproval('r1', 'approve');
+    expect(bridge.respondApproval).toHaveBeenCalledExactlyOnceWith({
+      id: 'c1',
+      requestId: 'r1',
+      decision: 'approve',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([]);
+  });
+
+  it('a terminal status push (interrupted/done/error) drops any pending ask still queued for that session — Stop mid-ask must never gate-lock the composer forever', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'run tests',
+      tool: 'Bash',
+      toolClass: 'exec',
+    });
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+
+    // The turn that raised the ask just stopped — the daemon fail-safe-denies its own
+    // copy on this exact transition, but only THIS console-side clear stops the composer
+    // from staying gate-locked on a request nothing could ever answer.
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'interrupted' });
+
+    expect(last().ui.pendingApprovalsBySession['c1']).toBeUndefined();
+  });
+
+  it('a running status push leaves a live pending ask alone', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    emit?.({
+      kind: 'approval',
+      requestId: 'r1',
+      sessionId: 'c1',
+      summary: 'run tests',
+      tool: 'Bash',
+    });
+    emit?.({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+
+    expect(last().ui.pendingApprovalsBySession['c1']).toHaveLength(1);
+  });
+
+  it('leaves the live pending queue untouched, and never calls the RPC, for an id that is not a genuinely live request', async () => {
+    const bridge = fakeBridge();
+    const { last } = await mount(bridge);
+
+    last().actions.respondApproval('frame-only-id', 'deny');
+    expect(bridge.respondApproval).not.toHaveBeenCalled();
+    // The pre-existing local overlay (transcript-frame-derived approvals — dev/test data
+    // only) still resolves it, unaffected.
+    expect(last().ui.resolvedApprovals['frame-only-id']).toBe('denied');
+  });
+
+  it("hydrates a session's permission-mode state on open/reattach from sessionMode", async () => {
+    const bridge = fakeBridge({
+      sessionMode: vi.fn().mockResolvedValue({
+        found: true,
+        mode: 'edits',
+        effectiveMode: 'edits',
+        pending: [{ requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} }],
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    expect(bridge.sessionMode).toHaveBeenCalledWith({ id: 'c1' });
+    expect(last().ui.modeBySession['c1']).toEqual({ mode: 'edits', effectiveMode: 'edits' });
+    expect(last().ui.pendingApprovalsBySession['c1']).toEqual([
+      { requestId: 'r1', tool: 'bash', summary: 'run tests', input: {} },
+    ]);
+  });
+
+  it('hydration synthesizes the honest degraded reason when the snapshot itself is already degraded', async () => {
+    const bridge = fakeBridge({
+      sessionMode: vi.fn().mockResolvedValue({
+        found: true,
+        mode: 'plan',
+        effectiveMode: 'bypass',
+        pending: [],
+      }),
+    });
+    const { last } = await mount(bridge);
+
+    expect(last().ui.modeBySession['c1']).toMatchObject({ mode: 'plan', effectiveMode: 'bypass' });
+    expect(last().ui.modeBySession['c1']?.degraded).toBeDefined();
+  });
+});
+
+describe('subagent announcements — the parent-stream mirror', () => {
+  it('mirrors spawn→running and completion→reason into ui.subagentStatus, refreshing the session + worktree reads', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    const listWorktrees = bridge.listWorktrees as ReturnType<typeof vi.fn>;
+    const listSessions = bridge.listSessions as ReturnType<typeof vi.fn>;
+    const worktreeReadsBefore = listWorktrees.mock.calls.length;
+    const sessionReadsBefore = listSessions.mock.calls.length;
+
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 5,
+      frame: {
+        t: 'subagent-spawn',
+        childSessionId: 'child-1',
+        childWorktree: '/repo/.coa/worktrees/child-1',
+        agentRef: 'roles/reviewer',
+        description: 'review the diff',
+        isolate: true,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.subagentStatus['child-1']).toEqual({ state: 'running' });
+    // A spawn is a new rail row and (isolated) a new worktree — both reads re-run.
+    expect(listSessions.mock.calls.length).toBeGreaterThan(sessionReadsBefore);
+    expect(listWorktrees.mock.calls.length).toBeGreaterThan(worktreeReadsBefore);
+
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 6,
+      frame: {
+        t: 'subagent-completion',
+        childSessionId: 'child-1',
+        childWorktree: '/repo/.coa/worktrees/child-1',
+        agentRef: 'roles/reviewer',
+        reason: 'errored',
+        detail: 'rate limited',
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.subagentStatus['child-1']).toEqual({ state: 'errored' });
+  });
+
+  it('reapWorktree surfaces a running refusal as a notice and re-reads on success', async () => {
+    const reap = vi
+      .fn()
+      .mockResolvedValueOnce({ reaped: false, reason: 'running' })
+      .mockResolvedValueOnce({ reaped: true });
+    const bridge = fakeBridge({ reapWorktree: reap });
+    const { last } = await mount(bridge);
+    const listWorktrees = bridge.listWorktrees as ReturnType<typeof vi.fn>;
+    const readsBefore = listWorktrees.mock.calls.length;
+
+    useNotices.getState().dismiss();
+    last().actions.reapWorktree('child-1');
+    await new Promise((r) => setTimeout(r, 0));
+    // Refused ⇒ no re-read, and the refusal is said out loud (a notice, never a block).
+    expect(listWorktrees.mock.calls.length).toBe(readsBefore);
+    expect(useNotices.getState().notice?.title).toBe('Nothing reaped');
+    expect(useNotices.getState().notice?.detail).toContain('still running');
+
+    last().actions.reapWorktree('child-1');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(listWorktrees.mock.calls.length).toBeGreaterThan(readsBefore);
+    expect(reap).toHaveBeenCalledTimes(2);
   });
 });

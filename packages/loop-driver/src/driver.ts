@@ -1,4 +1,4 @@
-import type { TurnFrame } from '@coa/shared';
+import type { Attachment, TurnFrame } from '@coa/shared';
 import type {
   CanUseTool,
   CompleteFn,
@@ -57,6 +57,15 @@ export interface GovernedLoopDeps {
   systemPrompt: string;
   /** The user's turn. */
   input: string;
+  /**
+   * Attachments on THIS turn's user message (images/text files) — the same
+   * {@link Attachment} shape `BackendMessage` carries for history replay. Threaded
+   * onto the loop's first `user` message; the `complete()` implementation decides
+   * how (or whether) to honor each one (an image against a non-vision model is a
+   * typed capability rejection, not a silent drop). Absent/empty ⇒ byte-identical
+   * to today.
+   */
+  attachments?: readonly Attachment[];
   /**
    * The prior conversation from the conversation store, minus the system prompt, replayed verbatim ahead
    * of `input` so a pure-API backend has memory across turns (a server-session
@@ -130,7 +139,13 @@ export async function runGovernedLoop(deps: GovernedLoopDeps): Promise<void> {
   const messages: DriverMessage[] = [
     { role: 'system', content: deps.systemPrompt },
     ...(deps.history ?? []),
-    { role: 'user', content: deps.input },
+    {
+      role: 'user',
+      content: deps.input,
+      ...(deps.attachments !== undefined && deps.attachments.length > 0
+        ? { attachments: [...deps.attachments] }
+        : {}),
+    },
   ];
   const usage: RuntimeUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
   const maxIterations = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;

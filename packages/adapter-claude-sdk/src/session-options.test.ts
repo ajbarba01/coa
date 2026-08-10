@@ -40,31 +40,69 @@ describe('assembleSessionOptions — the per-session query() options', () => {
     expect(opts.allowedTools).toEqual(['get_symbol']);
   });
 
-  it('wires the injected per-tool predicate onto the SDK canUseTool, echoing input on allow', async () => {
-    const denyEdit: CanUseTool = (call) =>
-      call.tool === 'Edit' ? { behavior: 'deny', message: 'demoted' } : { behavior: 'allow' };
-    const opts = assemble({ canUseTool: denyEdit });
+  it('never calls the injected predicate through the native canUseTool — it always allows and echoes input', async () => {
+    // The native seam used to call the SAME predicate PreToolUse calls. That was harmless
+    // while the predicate was a stateless deny-rules lookup, but F2 gave it a stateful,
+    // user-visible side effect (minting an approval request id, pushing a live card) for a
+    // call that needs asking — calling it from both seams would double-fire that for one
+    // logical call. So the native callback must never reach the predicate at all, whatever
+    // it would have decided.
+    let calls = 0;
+    const denyEverything: CanUseTool = () => {
+      calls += 1;
+      return { behavior: 'deny', message: 'demoted' };
+    };
+    const opts = assemble({ canUseTool: denyEverything });
 
     const ctx = { signal: new AbortController().signal, toolUseID: 't1' };
     expect(await opts.canUseTool?.('Edit', { file: 'a.ts' }, ctx)).toEqual({
-      behavior: 'deny',
-      message: 'demoted',
-    });
-    expect(await opts.canUseTool?.('Read', { file_path: 'b.ts' }, ctx)).toEqual({
       behavior: 'allow',
-      updatedInput: { file_path: 'b.ts' },
+      updatedInput: { file: 'a.ts' },
     });
+    expect(calls).toBe(0);
   });
 
-  it('threads the sessionId into the ToolCall handed to the predicate', async () => {
-    let seen = '';
-    const capture: CanUseTool = (call) => {
-      seen = call.sessionId;
+  it('calls the injected predicate at most once for one logical tool call across both wired seams', async () => {
+    // The regression this guards: F2 gave the predicate a stateful, user-visible side
+    // effect (minting a fresh approval request id, pushing a live approval card) for a
+    // call that needs asking. Before F2, `assembleSessionOptions` wired the SAME
+    // predicate onto BOTH the native SDK `canUseTool` callback and the `PreToolUse`
+    // hook — harmless when the decision was a stateless deny-rules lookup computed
+    // twice, but with F2's side effect it minted two request ids and pushed two
+    // uncorrelated approval cards for what the user perceives as one action. This
+    // exercises both seams `assembleSessionOptions` actually returns, for the identical
+    // simulated call, against real output (not a mock of the wiring).
+    let calls = 0;
+    const spy: CanUseTool = () => {
+      calls += 1;
       return { behavior: 'allow' };
     };
-    const opts = assemble({ sessionId: 'sess-42', canUseTool: capture });
-    await opts.canUseTool?.('Read', {}, { signal: new AbortController().signal, toolUseID: 't' });
-    expect(seen).toBe('sess-42');
+    const opts = assemble({ canUseTool: spy });
+    const toolName = 'Edit';
+    const input = { file_path: 'a.ts' };
+
+    // Seam 1 — the native SDK callback.
+    const nativeResult = await opts.canUseTool?.(toolName, input, {
+      signal: new AbortController().signal,
+      toolUseID: 't1',
+    });
+
+    // Seam 2 — the PreToolUse hook, for the identical logical call.
+    await opts.hooks?.PreToolUse?.[0]?.hooks[0]?.(
+      { hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input } as never,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    // (a) — at most one real invocation of the injected predicate for this one call.
+    expect(calls).toBe(1);
+
+    // (b) — the native seam still returns a shape the SDK's Options contract accepts:
+    // an explicit allow with `updatedInput` echoed back. A bare `{behavior:'allow'}`
+    // typechecks but the real CLI refuses the call without `updatedInput` (see
+    // `toSdkPermission`'s doc comment in sdk-options.ts) — so this proves the native
+    // path change did not also silently break the contract the SDK expects back.
+    expect(nativeResult).toEqual({ behavior: 'allow', updatedInput: input });
   });
 
   it('wires the close-gate onto the Stop hook, blocking the close when the gate denies', async () => {

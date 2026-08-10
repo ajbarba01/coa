@@ -20,6 +20,7 @@ export {
 } from './rpc/console-handlers.js';
 export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { buildModelHandlers, MODEL_PROVIDERS } from './rpc/model-handlers.js';
+export { buildModelMetadataHandlers } from './rpc/model-metadata-handlers.js';
 export { loadGenerateFile } from './context/generate-config.js';
 export { createGenerationRunner, type GenerationIo } from './context/generation-runner.js';
 export { assembleProducers } from './context/producers.js';
@@ -38,8 +39,29 @@ export {
   packageSummaries,
 } from './session/agent-registry.js';
 export { AgentRegistry } from './session/agent-defs.js';
+export { LibraryService, type LibraryServiceDeps } from './library/service.js';
+export { skillToPiece } from './library/skill-piece.js';
+export {
+  createSessionLibraryPort,
+  effectiveMcpServers,
+  effectiveSkills,
+  grantsPiecePull,
+  listInvocableSkills,
+  reconcileSkillIndex,
+  resolveInvocation,
+  resolveMcpServers,
+  resolveSkillConfigs,
+  SKILL_INDEX_PIECE_NAME,
+  type EffectiveMcpServer,
+  type EffectiveSkill,
+  type InvokedSkillPayload,
+  type ResolvedSkillSet,
+  type SessionLibraryDeps,
+  type SessionLibraryPort,
+} from './library/injection.js';
+export { buildLibraryHandlers, type LibraryPorts } from './rpc/library-handlers.js';
 export { composeSessionDeps, type SessionWiring } from './session/composition.js';
-export { buildSessionHandlers } from './session/session-handlers.js';
+export { buildSessionHandlers, type SessionCapabilities } from './session/session-handlers.js';
 export {
   SessionService,
   type SendRequest,
@@ -47,9 +69,16 @@ export {
   type StartChildRequest,
 } from './session/session-service.js';
 export { LiveSessionRegistry } from './session/live-registry.js';
+export {
+  WorktreeManager,
+  type WorktreeRecord,
+  type WorktreeStatus,
+} from './session/worktree-manager.js';
 export { buildConversationHandlers } from './session/conversation-handlers.js';
+export { buildWorktreeHandlers, type WorktreeHandlerDeps } from './session/worktree-handlers.js';
 export { ModelCache, type ModelCacheAccount } from './session/model-cache.js';
 export { createConversationStore } from './session/conversation-store.js';
+export { createMessageLog, SYSTEM_SENDER, type MessageLog } from './session/message-log.js';
 export { createDaemonCore, type DaemonCoreHandle } from './session/daemon.js';
 export { AccountsRegistry } from './auth/registry.js';
 export { LoginManager } from './auth/login-manager.js';
@@ -58,6 +87,7 @@ export { ConsoleStateStore } from './console/console-state-store.js';
 export { KeyStateStore } from './workbench/web/key-state-store.js';
 export { ModelCatalogStore } from './models/model-catalog-store.js';
 export { effectiveModels } from './models/effective-models.js';
+export { ModelMetadataCatalog, modelMetadataCachePath } from './models/metadata-catalog.js';
 export {
   WebConfigStore,
   webConfigPath,
@@ -69,3 +99,6 @@ export {
 export { buildWebToolDeps, webConfigSchema, type WebConfig } from './workbench/web/web-config.js';
 export { makeSummarizer } from './workbench/web/summarizer.js';
 export { type Summarizer, type WebToolDeps } from './workbench/web-tools.js';
+export { classifyTool } from './workbench/tool-class.js';
+export { type ModeDeps } from './session/permission.js';
+export { DEFAULT_PERMISSION_MODE } from './session/live-session.js';

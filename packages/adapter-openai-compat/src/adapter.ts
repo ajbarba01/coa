@@ -1,6 +1,8 @@
 import type {
+  Attachment,
   BackendMessage,
   Locator,
+  McpServerEntry,
   ModelSelection,
   NeutralConfig,
   SessionConfig,
@@ -47,8 +49,25 @@ export interface OpenAiCompatAdapterInit {
   onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The prior conversation transcript (system omitted), resent verbatim for cross-turn memory — a pure chat API has no server-side session to `resume`. */
   history?: readonly BackendMessage[];
+  /** Attachments on THIS turn's live user message (images/text files). */
+  attachments?: readonly Attachment[];
+  /**
+   * Whether the active model reports vision support (from the model-metadata
+   * catalog) — gates whether an `image` attachment reaches the wire or is rejected
+   * with a typed `AttachmentCapabilityError`. Absent ⇒ `false`.
+   */
+  visionSupported?: boolean;
   /** The account's login pointer (an env-var/key-file pointer); absent ⇒ the spec's default key var. */
   locator?: Locator;
+  /**
+   * The library-resolved external MCP servers the session ASKED for. This backend
+   * has no MCP runtime (a pure chat API + coa's own governed tools), so it cannot
+   * honor them — the honest degrade is a typed error frame naming the unavailable
+   * servers at loop start (the session carries the fact; strict-superset — a
+   * feature this backend lacks is surfaced, never silently pretended). Absent or
+   * empty ⇒ byte-identical to before.
+   */
+  mcpServers?: Record<string, McpServerEntry>;
   /**
    * Record on-disk changes no governed tool made (the daemon's reconciler). Fired after
    * every tool call: coa executes its own tools, but a shell command can touch anything
@@ -133,6 +152,17 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
         `${this.#spec.id}: no API key — set ${this.#spec.apiKeyEnvVar} or add an env-var account`,
       );
     }
+    // MCP degrade, surfaced BEFORE the loop runs: this backend has no MCP runtime,
+    // so a session that asked for external servers is told so on its own turn
+    // stream (recorded like any loop-origin advisory), never silently shorted.
+    const unavailableMcp = Object.keys(this.#init.mcpServers ?? {});
+    if (unavailableMcp.length > 0) {
+      this.#init.onTurn?.({
+        t: 'error',
+        origin: 'loop',
+        message: `the ${this.#spec.id} backend has no MCP support — configured server(s) unavailable this session: ${unavailableMcp.join(', ')}`,
+      });
+    }
     const reasoning = this.#init.model?.reasoning;
     const complete = makeOpenAiCompatComplete(this.#spec, {
       apiKey,
@@ -141,6 +171,14 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
       ...(reasoning !== undefined ? { reasoning } : {}),
       ...(this.#init.baseUrl !== undefined ? { baseUrl: this.#init.baseUrl } : {}),
       ...(this.#init.fetchImpl !== undefined ? { fetchImpl: this.#init.fetchImpl } : {}),
+      ...(this.#init.visionSupported !== undefined
+        ? { visionSupported: this.#init.visionSupported }
+        : {}),
+      // Everything the driver resends ahead of THIS turn's own live user message — the
+      // compiled system prompt (+1) plus the replayed prior conversation — is history:
+      // an old attachment in that span must degrade, never hard-fail a turn that never
+      // touched it (see complete.ts's `historyBoundary`).
+      historyBoundary: 1 + (this.#init.history?.length ?? 0),
     });
     await runGovernedLoop({
       sessionId: this.#init.sessionId,
@@ -149,6 +187,7 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
       systemPrompt: backend.systemPrompt,
       input: await firstPrompt(this.#init.input),
       ...(this.#init.history !== undefined ? { history: this.#init.history } : {}),
+      ...(this.#init.attachments !== undefined ? { attachments: this.#init.attachments } : {}),
       canUseTool: this.#canUseTool,
       gate: this.#stopPredicate,
       ...(this.#init.onTurn !== undefined ? { onTurn: this.#init.onTurn } : {}),

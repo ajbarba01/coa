@@ -6,30 +6,75 @@ import {
   reconcileStreaming,
   reloadToViewFrames,
   type AgentFile,
+  type AgentSkillConfig,
   type AgentSummary,
+  type ApprovalDecision,
   type AuthView,
   type CapState,
   type Checkpoint,
   type FeedView,
+  type InvocableSkill,
+  type LibrarySummary,
+  type LibraryView,
   type LoginSnapshot,
+  type Attachment,
   type ModelCatalogView,
   type ModelDescriptor,
+  type ModelMetadataView,
   type ModelSelection,
   type PackageSummary,
+  type PermissionMode,
+  type ReapWorktreeResult,
   type ReloadedConversationWire,
   type ReasoningProfile,
   type RoleSummary,
   type SessionSummary,
   type TurnFrame,
+  type WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-import { modelLabel } from './panels/AgentsPanel.js';
+// From the picker module directly, NOT via AgentsPanel's re-export: the agents
+// surface reads the library store, which reads this module's rpc wrappers, so an
+// AgentsPanel import here would close a static module cycle.
+import { modelLabel } from './panels/ModelPicker.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
-import { cacheKey, configKey } from './panels/banners.js';
-import { initialState, type ConsoleState, type Remote } from './panels/state.js';
+import {
+  cacheKey,
+  configKey,
+  driftCompareConfig,
+  resolvableSkillSelection,
+} from './panels/banners.js';
+import {
+  initialState,
+  type ConsoleState,
+  type PendingApprovalItem,
+  type Remote,
+} from './panels/state.js';
 import { reportFailure, reportNotice, surfaceWrite } from './shell/failures.js';
 import { applySettings } from './theme.js';
+
+/** F2 — the daemon's answer to the `sessionMode` reattach read: a session's current
+ *  permission-mode state, or `{found:false}` for an unknown id. */
+export type SessionModeSnapshot =
+  | { found: false }
+  | {
+      found: true;
+      mode: PermissionMode;
+      effectiveMode: PermissionMode;
+      pending: Array<{
+        requestId: string;
+        tool: string;
+        summary: string;
+        input: Record<string, unknown>;
+      }>;
+    };
+
+/** F2 — the honest reason surfaced when a session's enforcement degrades to bypass
+ *  (mirrors the daemon's own `LiveSession#modePush` wording, so the reattach-hydrated
+ *  read and the live push read as one honest voice, never two). */
+const NO_APPROVAL_SEAM_REASON =
+  'the active backend has no approval seam — enforcement degrades to bypass';
 
 /** Builds the "switched model" note text from an applied override, e.g.
  *  `switched to Opus 4.8 · high`. `models` resolves the friendly label when the
@@ -66,8 +111,13 @@ export interface ConsoleBridge {
     model?: ModelSelection;
     packageIds?: string[];
     exclude?: string[];
+    skills?: AgentSkillConfig[];
+    invokeSkills?: string[];
   }): Promise<{ sessionId: string; worktree: string }>;
   listModels(): Promise<ModelDescriptor[]>;
+  /** The per-model info catalog (context window/pricing/modalities/reasoning) —
+   *  the context ring, the model-picker hover card, and attach gating read it. */
+  modelMetadata(): Promise<ModelMetadataView>;
   // The agent-assembly catalogue for the role/package picker.
   listRoles(): Promise<RoleSummary[]>;
   listPackages(): Promise<PackageSummary[]>;
@@ -84,6 +134,12 @@ export interface ConsoleBridge {
   }>;
   // Persistent sessions: the rail list + per-session transcript reload.
   listSessions(): Promise<SessionSummary[]>;
+  /** Every isolated session worktree (path + dirty summary + liveness) — the
+   *  Worktree dock's read. */
+  listWorktrees(): Promise<{ worktrees: WorktreeView[] }>;
+  /** The explicit reap; the daemon refuses (`reaped: false`, `reason: 'running'`)
+   *  while that session's turn is in flight — surfaced, never retried. */
+  reapWorktree(params: { sessionId: string }): Promise<ReapWorktreeResult>;
   newSession(params: { agentRef: string }): Promise<{ id: string }>;
   reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
   deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
@@ -102,6 +158,22 @@ export interface ConsoleBridge {
    *  the session's CURRENT run-status, so a reload mid-run reads `running` from the
    *  daemon snapshot rather than from this renderer's own send-tracking (the daemon, not the renderer, owns the live session). */
   subscribeSession(params: { id: string }): Promise<{ subscribed: boolean }>;
+  /** F2 — live-switch a session's permission mode; proxies the daemon `setMode`. Takes
+   *  effect starting with the NEXT tool call. The chip's own reflection updates from the
+   *  resulting `mode` push, not this response (`set` is only whether the id was known). */
+  setMode(params: { id: string; mode: PermissionMode }): Promise<{ set: boolean }>;
+  /** F2 — answer a pending ask (the composer's docked approve/deny gate); proxies the
+   *  daemon `respondApproval`. `resolved: false` ⇒ unknown session id, or no pending
+   *  request with that id (a harmless no-op, not an error). */
+  respondApproval(params: {
+    id: string;
+    requestId: string;
+    decision: ApprovalDecision;
+  }): Promise<{ resolved: boolean }>;
+  /** F2 — a session's current permission-mode snapshot; proxies the daemon `sessionMode`.
+   *  Used to hydrate a reattach (e.g. a reload while a manual-mode ask still blocks the
+   *  session) without waiting on the next live push. */
+  sessionMode(params: { id: string }): Promise<SessionModeSnapshot>;
   /** Reveal a touched file in the editor/OS at an optional line (confined to the session's
    *  worktree by main). Advisory — resolves a result; never blocks. */
   openPath(params: { path: string; line?: number; sessionId?: string }): Promise<{
@@ -209,6 +281,48 @@ export const rpcSetModelHidden = (p: {
   hidden: boolean;
 }): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
 
+/**
+ * The skills/MCP library's RPC callers, mirroring the `rpcAuthView` block above — the
+ * `libraryStore` (`panels/libraryStore.ts`) reaches the preload bridge only through these.
+ */
+export const rpcListLibrary = (): Promise<LibraryView> => window.coa.listLibrary();
+export const rpcRescanLibrary = (): Promise<LibraryView> => window.coa.rescanLibrary();
+export const rpcListSkills = (): Promise<{ skills: InvocableSkill[] }> => window.coa.listSkills();
+export const rpcLinkLibrary = (p: {
+  kind: 'skill' | 'mcp';
+  scope: 'personal' | 'project';
+  source: { path: string; serverName?: string };
+  name?: string;
+}): Promise<LibrarySummary> => window.coa.linkLibrary(p);
+export const rpcCopyLibrary = (p: {
+  kind: 'skill' | 'mcp';
+  source: { path: string; serverName?: string };
+  name?: string;
+}): Promise<LibrarySummary> => window.coa.copyLibrary(p);
+export const rpcUnlinkLibrary = (p: {
+  kind: 'skill' | 'mcp';
+  scope: 'personal' | 'project';
+  name: string;
+}): Promise<{ removed: boolean }> => window.coa.unlinkLibrary(p);
+export const rpcSetLibraryEnabled = (p: {
+  kind: 'skill' | 'mcp';
+  scope: 'personal' | 'project';
+  name: string;
+  enabled: boolean;
+}): Promise<LibrarySummary> => window.coa.setLibraryEnabled(p);
+
+/** The effective-skills hook, mirroring `onAuthFailure` above: the library store
+ *  registers its own invocable-list getter so the drift-dismissal key can fold in the
+ *  SAME resolvable skill slice the chat banner compares — without this module importing
+ *  the store, which imports these rpc wrappers (a static cycle the dependency ruleset
+ *  forbids). It is the store's whole `Remote` read, not just its rows: the dismissal
+ *  key must drop the skill slice on an unsettled read exactly as the banner does, or a
+ *  dismissal would stop matching the banner it was meant to suppress. */
+let invocableSkillsSource: () => Remote<InvocableSkill[]> = () => ({ status: 'loading' });
+export const onInvocableSkills = (fn: () => Remote<InvocableSkill[]>): void => {
+  invocableSkillsSource = fn;
+};
+
 /** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose:
  *  a false hit costs an amber dot the next probe clears, never a block — so the net is
  *  wide (401s, OAuth, login wording) but only ever reads ERROR frames, never chat. */
@@ -296,6 +410,7 @@ export async function startConsole(
     setSettings: () => {},
     toggleRaw: () => {},
     respondApproval: () => {},
+    setPermissionMode: () => {},
     selectAgent: () => {},
     createAgent: () => {},
     updateAgent: () => {},
@@ -311,6 +426,7 @@ export async function startConsole(
     openExternal: () => Promise.resolve({ ok: false }),
     interruptSession: () => {},
     steerSession: () => {},
+    reapWorktree: () => {},
   });
   state = { ...state, ui: { ...state.ui, settings } };
   // Agents are daemon-owned (built-in ∪ personal ∪ project). On bootstrap the
@@ -358,6 +474,12 @@ export async function startConsole(
     push();
   }
 
+  async function loadModelMetadata(): Promise<void> {
+    const modelMetadata = await settle(async () => (await bridge.modelMetadata()).entries);
+    state = { ...state, data: { ...state.data, modelMetadata } };
+    push();
+  }
+
   async function loadCatalogue(): Promise<void> {
     const [roles, packages] = await Promise.all([
       settle(() => bridge.listRoles()),
@@ -400,7 +522,16 @@ export async function startConsole(
     push();
   };
 
-  const respondApproval = (requestId: string, decision: 'approve' | 'deny'): void => {
+  /** F2: answer a pending ask. `requestId` may name either kind of approval the
+   *  composer can dock: a transcript-derived one (dev/test data only — the wire
+   *  never emits this in production) resolves purely locally via the
+   *  `resolvedApprovals` overlay, exactly as before; a genuinely LIVE one (present
+   *  in the active session's `pendingApprovalsBySession`) is removed from the
+   *  pending queue optimistically and answered for real over `respondApproval` —
+   *  the actual F2 ask/response round trip. Both branches can fire for the same
+   *  call without conflict: a live requestId is a daemon-minted UUID, so it can
+   *  never collide with a hand-authored mock/test id. */
+  const respondApproval = (requestId: string, decision: ApprovalDecision): void => {
     const resolved = decision === 'approve' ? 'approved' : 'denied';
     state = {
       ...state,
@@ -410,7 +541,67 @@ export async function startConsole(
       },
     };
     push();
+
+    const id = state.ui.activeSessionId;
+    if (id === undefined) return;
+    const pending = state.ui.pendingApprovalsBySession[id] ?? [];
+    if (!pending.some((p) => p.requestId === requestId)) return;
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        pendingApprovalsBySession: {
+          ...state.ui.pendingApprovalsBySession,
+          [id]: pending.filter((p) => p.requestId !== requestId),
+        },
+      },
+    };
+    push();
+    void surfaceWrite(
+      'respond to that request',
+      bridge.respondApproval({ id, requestId, decision }),
+    );
   };
+
+  /** F2: live-switch the given session's permission mode (visibility IS the
+   *  guardrail — no confirmation gate on switching to a riskier mode). Fire-and-
+   *  forget: the chip's own reflection updates from the daemon's `mode` push,
+   *  which always follows a successful switch (including back to this caller),
+   *  not from an optimistic local write here. */
+  const setPermissionMode = (sessionId: string, mode: PermissionMode): void => {
+    void surfaceWrite('change the permission mode', bridge.setMode({ id: sessionId, mode }));
+  };
+
+  /** F2: hydrate a session's permission-mode state from the daemon's own snapshot
+   *  (mode/effectiveMode/every still-pending ask) — called on open/reattach so a
+   *  fresh mount (e.g. a reload mid-manual-ask) shows the true current state
+   *  instead of the client-side floor. REPLACES rather than merges: the snapshot
+   *  is authoritative, so a request resolved while this console was disconnected
+   *  must not linger. Ignored if the user has already moved to a different
+   *  session by the time it resolves (a stale response). */
+  async function hydrateMode(id: string): Promise<void> {
+    const snap = await bridge.sessionMode({ id }).catch(() => ({ found: false as const }));
+    if (!snap.found || state.ui.activeSessionId !== id) return;
+    const degraded = snap.mode !== snap.effectiveMode ? { degraded: NO_APPROVAL_SEAM_REASON } : {};
+    const pendingItems: PendingApprovalItem[] = snap.pending.map((p) => ({
+      requestId: p.requestId,
+      tool: p.tool,
+      summary: p.summary,
+      input: p.input,
+    }));
+    state = {
+      ...state,
+      ui: {
+        ...state.ui,
+        modeBySession: {
+          ...state.ui.modeBySession,
+          [id]: { mode: snap.mode, effectiveMode: snap.effectiveMode, ...degraded },
+        },
+        pendingApprovalsBySession: { ...state.ui.pendingApprovalsBySession, [id]: pendingItems },
+      },
+    };
+    push();
+  }
 
   // ---- Agents — the daemon-owned registry (built-in ∪ personal ∪ project, project
   // winning). Hydrated from `listAgents` on startup; every edit writes THROUGH to
@@ -592,6 +783,34 @@ export async function startConsole(
     push();
   }
 
+  /** Refresh the Worktree dock's rows (every isolated session worktree). Cheap on the
+   *  daemon side (one `git status --porcelain` per isolated worktree), so it re-runs on
+   *  the events that can change the set: a spawn, a child ending, a reap. */
+  async function loadWorktrees(): Promise<void> {
+    const worktrees = await settle(async () => (await bridge.listWorktrees()).worktrees);
+    state = { ...state, data: { ...state.data, worktrees } };
+    push();
+  }
+
+  /** Reap a session's isolated worktree (the dock's explicit cleanup). A refusal is a
+   *  fact worth a word: `running` means the daemon declined to delete a directory out
+   *  from under an in-flight turn; a bare `false` means there was nothing to reap. */
+  const reapWorktree = (sessionId: string): void => {
+    void surfaceWrite('reap that worktree', bridge.reapWorktree({ sessionId })).then((result) => {
+      if (result === undefined) return;
+      if (!result.reaped) {
+        reportNotice(
+          'Nothing reaped',
+          result.reason === 'running'
+            ? 'that session is still running, so its worktree stays.'
+            : 'that session has no isolated worktree left to remove.',
+        );
+        return;
+      }
+      void loadWorktrees();
+    });
+  };
+
   /** Drop a session's run entry — it is not running, whatever this renderer last thought.
    *  The pill, the steer-mode composer and the queued-message release all hang off this
    *  map, so a stale entry does not merely look wrong: it holds queued follow-ups forever. */
@@ -644,6 +863,10 @@ export async function startConsole(
         // A failed reattach says nothing about liveness — the daemon being unreachable is
         // already the gate's story, and guessing here would be the same lie inverted.
       });
+    // F2: hydrate this session's permission-mode state (mode/effectiveMode/every
+    // pending ask) the same way the run-status pill hydrates above — a fresh mount
+    // must show the daemon's own current state, never a client-side guess.
+    void hydrateMode(id);
 
     const loaded = await settle(() => bridge.reloadConversation({ id }));
     if (loaded.status === 'ok') turnsBySession.set(id, reloadToViewFrames(loaded.value));
@@ -803,14 +1026,23 @@ export async function startConsole(
     }
     if (bannerId === 'drift' && actionId === 'dismiss') {
       // Suppress the drift banner for the config it currently reflects; a further config
-      // change is a new key, so it re-shows. Keyed off the active agent's config.
+      // change is a new key, so it re-shows. Keyed off the active agent's config —
+      // including the resolvable skill slice, the same fold the banner itself compares
+      // (the key must match the banner's or dismissal would never suppress it).
       const session = sessions.find((s) => s.id === sessionId);
       const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
-      const key = configKey({
-        roles: agent?.roles,
-        packageIds: agent?.packageIds,
-        exclude: agent?.exclude,
-      });
+      const skillsRead = invocableSkillsSource();
+      const key = configKey(
+        driftCompareConfig(
+          {
+            roles: agent?.roles,
+            packageIds: agent?.packageIds,
+            exclude: agent?.exclude,
+            skills: resolvableSkillSelection(agent?.skills, skillsRead),
+          },
+          skillsRead,
+        ),
+      );
       state = {
         ...state,
         ui: { ...state.ui, dismissedDrift: { ...state.ui.dismissedDrift, [sessionId]: key } },
@@ -926,6 +1158,30 @@ export async function startConsole(
     return provider === undefined || provider === 'claude';
   };
 
+  /** Mirror the parent-stream child announcements into `ui.subagentStatus` (the
+   *  Subagents floor's live status source — `runStatus` only covers sessions THIS
+   *  console subscribed to) and refresh the reads a spawn/ending invalidates: the
+   *  session list (a spawn is a new rail row) and the worktree list (an isolated
+   *  child added one; an ended child's dirty state settles). */
+  const trackSubagentAnnouncements = (frames: TurnFrame[]): void => {
+    let subagentStatus = state.ui.subagentStatus;
+    let changed = false;
+    for (const f of frames) {
+      if (f.kind === 'subagent-spawn') {
+        subagentStatus = { ...subagentStatus, [f.childSessionId]: { state: 'running' as const } };
+        changed = true;
+      } else if (f.kind === 'subagent-completion') {
+        subagentStatus = { ...subagentStatus, [f.childSessionId]: { state: f.reason } };
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    state = { ...state, ui: { ...state.ui, subagentStatus } };
+    push();
+    void refreshSessionList();
+    void loadWorktrees();
+  };
+
   // Forward every daemon push to its owning session (never the active one blindly); a
   // completed session refreshes the rail so its auto-title + recency update.
   // (Drift/cache banners are derived client-side, not pushed.)
@@ -938,19 +1194,120 @@ export async function startConsole(
       // is present when the pill clears), and guarantee the flush even if rAF is throttled.
       flushTurns();
       const runStatus = { ...state.ui.runStatus };
-      if (data.state === 'running') runStatus[data.sessionId] ??= { since: Date.now() };
-      else delete runStatus[data.sessionId];
+      if (
+        data.state === 'running' ||
+        data.state === 'blocked-approval' ||
+        data.state === 'blocked-tool'
+      ) {
+        // F2: `blocked-approval`/`blocked-tool` are a live annotation on top of a
+        // turn that is still genuinely in flight underneath (LiveSession.state
+        // itself never leaves 'running' for the duration of an ask — see
+        // requestApproval/resolveApproval) — NOT a "not running" signal. Every
+        // Stop/interrupt affordance (Composer's Stop button, the global Esc
+        // handler, the palette's "Interrupt Running Turn") hangs off this same
+        // map, so treating a pending ask as idle silently strands the user with
+        // only approve/deny/redirect and no way to abort the turn outright.
+        // `??=` preserves an already-recorded `since` rather than resetting the
+        // elapsed-time pill's clock when the ask lands mid-turn.
+        runStatus[data.sessionId] ??= { since: Date.now() };
+      } else {
+        delete runStatus[data.sessionId];
+      }
       // A terminal status carries NO transcript content: the daemon settles the in-flight turn's
       // partial blocks and records the `interrupted` marker as real, persisted frames, which
       // arrive on this same push stream. Closing blocks or synthesizing a marker here would
       // diverge from what a reload folds out of the log — the live-vs-reload mismatch.
       state = { ...state, ui: { ...state.ui, runStatus } };
+      // F2: a turn that just ended — however it ended — leaves no in-flight tool call
+      // still waiting on an answer; a pending ask belongs to the turn that raised it,
+      // and that turn is now over. The daemon fail-safe-denies its own copy on exactly
+      // this transition (`SessionService.interrupt`/`LiveSession.close`), but that alone
+      // never tells THIS console to drop the card it's still showing — without this, Stop
+      // mid-ask left the composer gate-locked on a request nothing could ever answer.
+      if (
+        (data.state === 'done' || data.state === 'error' || data.state === 'interrupted') &&
+        (state.ui.pendingApprovalsBySession[data.sessionId]?.length ?? 0) > 0
+      ) {
+        const pendingApprovalsBySession = { ...state.ui.pendingApprovalsBySession };
+        delete pendingApprovalsBySession[data.sessionId];
+        state = { ...state, ui: { ...state.ui, pendingApprovalsBySession } };
+      }
       if (data.state === 'done') void refreshSessionList();
+      push();
+      return;
+    }
+    // The per-turn usage mirror (the adapters' own settlement numbers) — the context
+    // ring reads the LAST settled turn's figures, so each push replaces rather than
+    // accumulates (the settled tokensIn already includes the whole context handed over).
+    if (data.kind === 'usage') {
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          usageBySession: {
+            ...state.ui.usageBySession,
+            [data.sessionId]: {
+              tokensIn: data.tokensIn,
+              tokensOut: data.tokensOut,
+              ...(data.cacheReadTokens !== undefined
+                ? { cacheReadTokens: data.cacheReadTokens }
+                : {}),
+            },
+          },
+        },
+      };
+      push();
+      return;
+    }
+    // F2: the mode-reflection push — the daemon is the ONE authority over a session's
+    // permission mode; the console only ever mirrors it. `degraded` rides straight
+    // through unchanged (the daemon's own honest wording — SC-1).
+    if (data.kind === 'mode') {
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          modeBySession: {
+            ...state.ui.modeBySession,
+            [data.sessionId]: {
+              mode: data.mode,
+              effectiveMode: data.effectiveMode,
+              ...(data.degraded !== undefined ? { degraded: data.degraded } : {}),
+            },
+          },
+        },
+      };
+      push();
+      return;
+    }
+    // F2: a live ask — queued FIFO (oldest first: the longest-waiting request is what's
+    // actually blocking the session), so a rare concurrent-call case never loses one to
+    // the other overwriting it.
+    if (data.kind === 'approval') {
+      const prior = state.ui.pendingApprovalsBySession[data.sessionId] ?? [];
+      const item: PendingApprovalItem = {
+        requestId: data.requestId,
+        tool: data.tool ?? '',
+        summary: data.summary,
+        ...(data.input !== undefined ? { input: data.input } : {}),
+        ...(data.toolClass !== undefined ? { toolClass: data.toolClass } : {}),
+      };
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          pendingApprovalsBySession: {
+            ...state.ui.pendingApprovalsBySession,
+            [data.sessionId]: [...prior, item],
+          },
+        },
+      };
       push();
       return;
     }
     if ('sessionId' in data) {
       const frames = pushToViewFrames(data);
+      trackSubagentAnnouncements(frames);
       // The live-failure hook: an auth-shaped error frame flags the active claude login
       // (advisory — the badge lights; nothing blocks, nothing switches). Scoped to the
       // pushing session's own backend — a deepseek/other-provider auth error has nothing
@@ -961,7 +1318,11 @@ export async function startConsole(
     }
   });
 
-  const sendMessage = (text: string): void => {
+  const sendMessage = (
+    text: string,
+    attachments?: readonly Attachment[],
+    invokeSkills?: readonly string[],
+  ): void => {
     const body = text.trim();
     const id = state.ui.activeSessionId;
     if (body === '' || id === undefined) return;
@@ -1005,6 +1366,46 @@ export async function startConsole(
         },
       };
     }
+    // Invoked skills leave a console-local note beside the send (same mechanism as the
+    // "switched model" note): the daemon persists each invocation as its own `system`
+    // frame but never pushes it live, so without this the live view would show no trace
+    // the invocation ever rode along (a reload shows the persisted frame instead).
+    if (invokeSkills !== undefined && invokeSkills.length > 0) {
+      const afterCount = turnsBySession.get(id)?.length ?? 0;
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          notesBySession: {
+            ...state.ui.notesBySession,
+            [id]: [
+              ...(state.ui.notesBySession[id] ?? []),
+              { afterCount, text: `invoked ${invokeSkills.map((n) => `/${n}`).join(', ')}` },
+            ],
+          },
+        },
+      };
+    }
+    // Attachments leave a console-local note beside the send (same mechanism as the
+    // "switched model" note): the persisted transcript carries only the text, so
+    // without this the live view would show no trace an attachment ever went along.
+    if (attachments !== undefined && attachments.length > 0) {
+      const names = attachments.map((a) => a.name ?? (a.kind === 'image' ? 'image' : 'text file'));
+      const afterCount = turnsBySession.get(id)?.length ?? 0;
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          notesBySession: {
+            ...state.ui.notesBySession,
+            [id]: [
+              ...(state.ui.notesBySession[id] ?? []),
+              { afterCount, text: `attached ${names.join(', ')}` },
+            ],
+          },
+        },
+      };
+    }
     appendTurns(id, [{ id: `you:${youSeq}`, role: 'you', kind: 'text', text: body }]);
     // The pending pick is being applied now: clear the override and optimistically pin
     // it locally, so the predictive cache banner clears on send (the daemon persists the
@@ -1042,6 +1443,14 @@ export async function startConsole(
           : {}),
         ...(agent?.exclude && agent.exclude.length > 0 ? { exclude: agent.exclude } : {}),
         ...(Object.keys(model).length > 0 ? { model } : {}),
+        ...(attachments !== undefined && attachments.length > 0
+          ? { attachments: [...attachments] }
+          : {}),
+        // Explicit one-turn skill loads (the composer's `/skill`). The daemon refuses
+        // an unknown name with an error reply, which lands in the catch below.
+        ...(invokeSkills !== undefined && invokeSkills.length > 0
+          ? { invokeSkills: [...invokeSkills] }
+          : {}),
       })
       // The first send auto-titles the session server-side; reflect it in the rail.
       .then(() => refreshSessionList())
@@ -1093,6 +1502,7 @@ export async function startConsole(
       setSettings,
       toggleRaw,
       respondApproval,
+      setPermissionMode,
       selectAgent,
       createAgent,
       updateAgent,
@@ -1108,6 +1518,7 @@ export async function startConsole(
       openExternal,
       interruptSession,
       steerSession,
+      reapWorktree,
     },
   };
   push();
@@ -1125,9 +1536,11 @@ export async function startConsole(
   const bootLoads = Promise.allSettled([
     loadAccounts(),
     loadModels(),
+    loadModelMetadata(),
     loadCatalogue(),
     initAgents(),
     initSessions(),
+    loadWorktrees(),
   ]).then(() => undefined);
 
   /** Recover the one-shot boot loads (cold-boot rehydrate gap): a `cameUp` daemon-status
@@ -1164,7 +1577,14 @@ export async function startConsole(
 
   async function hydrate(): Promise<void> {
     await bootLoads;
-    await Promise.all([loadAccounts(), loadModels(), loadCatalogue(), initAgents()]);
+    await Promise.all([
+      loadAccounts(),
+      loadModels(),
+      loadModelMetadata(),
+      loadCatalogue(),
+      initAgents(),
+      loadWorktrees(),
+    ]);
     if (state.data.sessions.status !== 'ok' || state.ui.activeSessionId === undefined) {
       await initSessions();
     }

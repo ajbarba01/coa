@@ -11,7 +11,14 @@ export interface SpawnDeps {
   /** The LIVE effective agent set. Called per dispatch — never a list cached at session start. */
   listAgents: () => readonly AgentSummary[];
   /** Start the child and return once it has STARTED, never once it has finished. */
-  startChild: (req: { agentRef: string; description: string; prompt: string }) => {
+  startChild: (req: {
+    agentRef: string;
+    description: string;
+    prompt: string;
+    /** Give the child its own git worktree instead of sharing the parent's;
+     *  absent/`false` ⇒ today's shared-root behavior, byte-identical. */
+    isolate?: boolean | undefined;
+  }) => {
     sessionId: string;
   };
 }
@@ -81,6 +88,40 @@ export function sanitizeEchoedText(raw: string, maxLength: number = MAX_ECHOED_L
 }
 
 /**
+ * Sanitize + bound a roster of agents for a model-facing reply: at most
+ * {@link MAX_LISTED_AGENTS} rows, each one JSON object with `ref`/`name`/
+ * `description` (`name`/`description` flattened through {@link sanitizeEchoedText}
+ * first), plus how many were left out. One JSON object per line, not a hand-built
+ * label string: a delimiter like `ref: ` or ` — ` is still ordinary printable
+ * text, so a hostile `name`/`description` could plant a second, decoy-looking
+ * `ref: <token>` on the same line and steer a good-faith retry (or a discovery
+ * query) onto an agent the model never chose. `JSON.stringify`'s quoting/escaping
+ * makes `ref` a single value no amount of attacker-controlled string content can
+ * imitate — the guarantee comes from the format's escaping semantics, not from
+ * denying particular substrings, so no future field or separator can reopen this
+ * the way a blocklist would. `name`/`description` still go through
+ * {@link sanitizeEchoedText} first: `JSON.stringify` escapes quotes/backslashes/C0
+ * controls, but not U+2028/U+2029, so that step is still required before
+ * encoding. `omitted` is reported as a plain number rather than baked into a row,
+ * so each caller decides how to say it (a trailing text line for `spawnAgent`'s
+ * one-string error message; a structured field for `findAgent`'s row array).
+ * Shared by the unknown-ref reply (below) and `findAgent`, so agent-authored text
+ * is echoed through exactly one sanitizer and one bound regardless of which reply
+ * carries it.
+ */
+function listKnownAgents(agents: readonly AgentSummary[]): { rows: string[]; omitted: number } {
+  const shown = agents.slice(0, MAX_LISTED_AGENTS);
+  const rows = shown.map((a) =>
+    JSON.stringify({
+      ref: a.ref,
+      name: sanitizeEchoedText(a.name),
+      description: sanitizeEchoedText(a.description),
+    }),
+  );
+  return { rows, omitted: agents.length - shown.length };
+}
+
+/**
  * Dispatch a subagent by name. Resolution is against the LIVE registry on every
  * call: compiled prompts are frozen byte-stable for cache warmth, so any list baked
  * at session start is stale the moment an agent is authored.
@@ -92,32 +133,13 @@ export function sanitizeEchoedText(raw: string, maxLength: number = MAX_ECHOED_L
  * carry no injection surface of their own within this module.
  */
 export function spawnAgent(
-  args: { agent: string; description: string; prompt: string },
+  args: { agent: string; description: string; prompt: string; isolate?: boolean | undefined },
   deps: SpawnDeps,
 ): ToolResponse<SpawnResult> {
   const agents = deps.listAgents();
   const match = agents.find((a) => a.ref === args.agent);
   if (match === undefined) {
-    // One JSON object per line, not a hand-built label string: a delimiter like
-    // `ref: ` or ` — ` is still ordinary printable text, so a hostile `name`/
-    // `description` could plant a second, decoy-looking `ref: <token>` on the
-    // same line and steer a good-faith retry onto an agent the model never
-    // chose. JSON.stringify's quoting/escaping makes `ref` a single value no
-    // amount of attacker-controlled string content can imitate — the guarantee
-    // comes from the format's escaping semantics, not from denying particular
-    // substrings, so no future field or separator can reopen this the way a
-    // blocklist would. `name`/`description` still go through the same flatten
-    // (below) first: `JSON.stringify` escapes quotes/backslashes/C0 controls,
-    // but not U+2028/U+2029, so that step is still required before encoding.
-    const shown = agents.slice(0, MAX_LISTED_AGENTS);
-    const omitted = agents.length - shown.length;
-    const rows = shown.map((a) =>
-      JSON.stringify({
-        ref: a.ref,
-        name: sanitizeEchoedText(a.name),
-        description: sanitizeEchoedText(a.description),
-      }),
-    );
+    const { rows, omitted } = listKnownAgents(agents);
     if (omitted > 0) {
       rows.push(`… ${omitted} more agent${omitted === 1 ? '' : 's'} not shown`);
     }
@@ -137,10 +159,59 @@ export function spawnAgent(
     agentRef: match.ref,
     description: args.description,
     prompt: args.prompt,
+    ...(args.isolate !== undefined ? { isolate: args.isolate } : {}),
   });
   return {
     result: { applied: true, agentRef: match.ref, sessionId },
     handle: `spawn_agent:${sessionId}`,
     pointer: sessionId,
+  };
+}
+
+/** The outcome of an agent-discovery query: the matching roster (bounded, sanitized
+ *  — see {@link listKnownAgents}) or, when the port isn't wired, the unapplied
+ *  reason. There is no "unknown query" failure mode here — an empty match is a
+ *  normal, applied, zero-row result, since (unlike `spawn_agent`'s ref) a query is
+ *  a search, not a claim the caller must get exactly right. */
+export type FindAgentResult =
+  | { applied: true; agents: string[]; omitted: number }
+  | { applied: false; error: CoaError };
+
+/**
+ * Search the same live roster `spawn_agent` resolves against, so a model can
+ * learn what it may spawn before ever attempting a spawn — rather than
+ * discovering the roster reactively off an unknown-ref retry (`spawn_agent`'s
+ * fallback above, still there for a model that skips discovery). Reuses
+ * {@link SpawnDeps.listAgents} and {@link listKnownAgents} wholesale: this is a
+ * query surface over the existing registry read, not a second registry.
+ *
+ * `query`, when given, matches case-insensitively against `ref`, `name`, and
+ * `description` (substring); absent or empty lists the whole roster. Matching
+ * against the RAW (unsanitized) fields — the same values `spawnAgent`'s own ref
+ * lookup trusts structurally — and only sanitizing what gets echoed back in
+ * `agents`, so a hostile `name`/`description` can change how a row is DISPLAYED
+ * but can never widen or narrow which rows MATCH.
+ */
+export function findAgent(
+  args: { query?: string | undefined },
+  deps: Pick<SpawnDeps, 'listAgents'>,
+): ToolResponse<FindAgentResult> {
+  const agents = deps.listAgents();
+  const needle = args.query?.trim().toLowerCase();
+  const matched =
+    needle === undefined || needle === ''
+      ? agents
+      : agents.filter(
+          (a) =>
+            a.ref.toLowerCase().includes(needle) ||
+            a.name.toLowerCase().includes(needle) ||
+            a.description.toLowerCase().includes(needle),
+        );
+  const { rows, omitted } = listKnownAgents(matched);
+  const safeQuery = args.query !== undefined ? sanitizeEchoedText(args.query) : 'all';
+  return {
+    result: { applied: true, agents: rows, omitted },
+    handle: `find_agent:${safeQuery}`,
+    pointer: safeQuery,
   };
 }

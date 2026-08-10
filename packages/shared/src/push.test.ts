@@ -67,6 +67,59 @@ describe('pushSchema', () => {
     };
     expect(pushSchema.parse(push)).toMatchObject({ kind: 'status', state: 'interrupted' });
   });
+
+  it('accepts an approval request carrying a tool class', () => {
+    const push = {
+      kind: 'approval' as const,
+      requestId: 'r1',
+      sessionId: 's1',
+      summary: 'Write src/a.ts',
+      tool: 'Write',
+      input: { path: 'src/a.ts' },
+      toolClass: 'write' as const,
+    };
+    expect(pushSchema.parse(push)).toMatchObject({ kind: 'approval', toolClass: 'write' });
+  });
+
+  it('accepts a mode reflection with no degrade note', () => {
+    const push = {
+      kind: 'mode' as const,
+      sessionId: 's1',
+      mode: 'manual' as const,
+      effectiveMode: 'manual' as const,
+    };
+    expect(pushSchema.parse(push)).toEqual(push);
+  });
+
+  it('accepts a mode reflection degraded to bypass with its reason', () => {
+    const push = {
+      kind: 'mode' as const,
+      sessionId: 's1',
+      mode: 'manual' as const,
+      effectiveMode: 'bypass' as const,
+      degraded: 'the active backend has no approval seam',
+    };
+    expect(pushSchema.parse(push)).toEqual(push);
+  });
+
+  it('rejects a mode reflection with an unknown mode', () => {
+    const push = { kind: 'mode', sessionId: 's1', mode: 'auto', effectiveMode: 'bypass' };
+    expect(pushSchema.safeParse(push).success).toBe(false);
+  });
+
+  it('accepts a per-turn usage report with and without cache reads', () => {
+    const full = {
+      kind: 'usage' as const,
+      sessionId: 's1',
+      tokensIn: 38_120,
+      tokensOut: 2_400,
+      cacheReadTokens: 700,
+    };
+    expect(pushSchema.parse(full)).toEqual(full);
+    // Cache reads are optional — a backend that never reports them still parses.
+    const bare = { kind: 'usage' as const, sessionId: 's1', tokensIn: 10, tokensOut: 2 };
+    expect(pushSchema.parse(bare)).toEqual(bare);
+  });
 });
 
 describe('turnFrameSchema', () => {
@@ -135,5 +188,83 @@ describe('turnFrameSchema — the deliberate-stop vocabulary', () => {
       t: 'turn-boundary',
       role: 'assistant',
     });
+  });
+});
+
+describe('turnFrameSchema — the three live subagent announcement kinds', () => {
+  it('round-trips a spawn announcement', () => {
+    const frame = {
+      t: 'subagent-spawn' as const,
+      childSessionId: 'kid-1',
+      childWorktree: '/repo',
+      agentRef: 'explorer',
+      description: 'go look',
+      isolate: false,
+    };
+    expect(turnFrameSchema.parse(frame)).toEqual(frame);
+  });
+
+  it('round-trips a completion announcement, with detail/result both optional', () => {
+    const bare = {
+      t: 'subagent-completion' as const,
+      childSessionId: 'kid-1',
+      childWorktree: '/repo',
+      agentRef: 'explorer',
+      reason: 'stopped' as const,
+    };
+    expect(turnFrameSchema.parse(bare)).toEqual(bare);
+
+    const completed = { ...bare, reason: 'completed' as const, result: 'the answer is 4' };
+    expect(turnFrameSchema.parse(completed)).toEqual(completed);
+
+    const errored = { ...bare, reason: 'errored' as const, detail: 'connection dropped' };
+    expect(turnFrameSchema.parse(errored)).toEqual(errored);
+  });
+
+  it('rejects a completion reason outside the enumerated three', () => {
+    expect(
+      turnFrameSchema.safeParse({
+        t: 'subagent-completion',
+        childSessionId: 'kid-1',
+        childWorktree: '/repo',
+        agentRef: 'explorer',
+        reason: 'went-quiet',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('round-trips a message announcement, replyTo optional, direction relative to the receiver', () => {
+    const fresh = {
+      t: 'subagent-message' as const,
+      messageId: 'msg-1',
+      threadId: 'msg-1',
+      from: 'sess-a',
+      to: 'sess-b',
+      direction: 'sent' as const,
+      body: 'are you done yet?',
+    };
+    expect(turnFrameSchema.parse(fresh)).toEqual(fresh);
+
+    const reply = {
+      ...fresh,
+      messageId: 'msg-2',
+      replyTo: 'msg-1',
+      direction: 'received' as const,
+    };
+    expect(turnFrameSchema.parse(reply)).toEqual(reply);
+  });
+
+  it('rejects a message direction outside sent/received', () => {
+    expect(
+      turnFrameSchema.safeParse({
+        t: 'subagent-message',
+        messageId: 'm',
+        threadId: 'm',
+        from: 'a',
+        to: 'b',
+        direction: 'queued',
+        body: 'x',
+      }).success,
+    ).toBe(false);
   });
 });

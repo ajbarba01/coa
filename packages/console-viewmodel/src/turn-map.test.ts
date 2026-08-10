@@ -148,6 +148,98 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     });
   });
 
+  it('maps a subagent-spawn announcement field-for-field to its card frame', () => {
+    expect(
+      pushToViewFrames(
+        turn(
+          {
+            t: 'subagent-spawn',
+            childSessionId: 'child-1',
+            childWorktree: '/repo/.coa/worktrees/child-1',
+            agentRef: 'reviewer',
+            description: 'review the diff',
+            isolate: true,
+          },
+          7,
+        ),
+      ),
+    ).toEqual([
+      {
+        id: 's:7',
+        kind: 'subagent-spawn',
+        childSessionId: 'child-1',
+        childWorktree: '/repo/.coa/worktrees/child-1',
+        agentRef: 'reviewer',
+        description: 'review the diff',
+        isolate: true,
+      },
+    ]);
+  });
+
+  it('maps a subagent-completion carrying the child’s own result and detail', () => {
+    expect(
+      pushToViewFrames(
+        turn({
+          t: 'subagent-completion',
+          childSessionId: 'child-1',
+          childWorktree: 'wt',
+          agentRef: 'reviewer',
+          reason: 'completed',
+          result: 'two findings',
+          detail: 'exit 0',
+        }),
+      )[0],
+    ).toEqual({
+      id: 's:0',
+      kind: 'subagent-completion',
+      childSessionId: 'child-1',
+      childWorktree: 'wt',
+      agentRef: 'reviewer',
+      reason: 'completed',
+      result: 'two findings',
+      detail: 'exit 0',
+    });
+  });
+
+  it('maps a subagent-completion without result/detail to a frame that omits both keys', () => {
+    const frame = pushToViewFrames(
+      turn({
+        t: 'subagent-completion',
+        childSessionId: 'child-1',
+        childWorktree: 'wt',
+        agentRef: 'reviewer',
+        reason: 'stopped',
+      }),
+    )[0];
+    expect(frame).not.toHaveProperty('result');
+    expect(frame).not.toHaveProperty('detail');
+  });
+
+  it('maps a subagent-message keeping direction relative to the pushing session', () => {
+    expect(
+      pushToViewFrames(
+        turn({
+          t: 'subagent-message',
+          messageId: 'm1',
+          threadId: 'm1',
+          from: 'child-1',
+          to: 'child-2',
+          direction: 'received',
+          body: 'symbol map attached',
+        }),
+      )[0],
+    ).toEqual({
+      id: 's:0',
+      kind: 'subagent-message',
+      messageId: 'm1',
+      threadId: 'm1',
+      from: 'child-1',
+      to: 'child-2',
+      direction: 'received',
+      body: 'symbol map attached',
+    });
+  });
+
   it('still drops turn-boundary and reconcile (deferred)', () => {
     expect(pushToViewFrames(turn({ t: 'turn-boundary', role: 'assistant' }))).toEqual([]);
     expect(pushToViewFrames(turn({ t: 'reconcile', changeSeq: 1, pointer: 'p' }))).toEqual([]);

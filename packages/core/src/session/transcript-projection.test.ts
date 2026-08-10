@@ -3,6 +3,7 @@ import type { TurnFrame } from '@coa/shared';
 import {
   foldEventsToTranscript,
   foldTreeToTranscript,
+  latestAssistantText,
   type PersistedEvent,
 } from './transcript-projection.js';
 
@@ -454,5 +455,55 @@ describe('foldTreeToTranscript (join)', () => {
     ]);
     const out = foldTreeToTranscript(rootEvents, descendants);
     expect(out.some((m) => m.content === hostile)).toBe(true);
+  });
+});
+
+describe('latestAssistantText', () => {
+  it('returns the last assistant message, not an earlier intermediate one', () => {
+    const messages = foldEventsToTranscript([
+      ev(0, { t: 'text', text: 'do it', role: 'user' }),
+      ev(1, { t: 'text', text: 'thinking out loud' }),
+      ev(2, { t: 'turn-boundary', role: 'assistant' }),
+      ev(3, { t: 'text', text: 'the final answer' }),
+    ]);
+    expect(latestAssistantText(messages)).toBe('the final answer');
+  });
+
+  it('skips a trailing tool message and finds the assistant text before it', () => {
+    const messages = foldEventsToTranscript([
+      ev(0, { t: 'text', text: 'do it', role: 'user' }),
+      ev(1, { t: 'text', text: 'the answer' }),
+      ev(2, { t: 'tool_use', tool: 'Read', input: {}, handle: 'h1' }),
+      ev(3, { t: 'tool_result', handle: 'h1', ok: true, pointer: 'p' }),
+    ]);
+    expect(latestAssistantText(messages)).toBe('the answer');
+  });
+
+  it('is undefined for a transcript with no assistant text at all', () => {
+    const messages = foldEventsToTranscript([ev(0, { t: 'text', text: 'hi', role: 'user' })]);
+    expect(latestAssistantText(messages)).toBeUndefined();
+  });
+
+  it('skips a wholly-empty trailing assistant message and finds the real one before it', () => {
+    const messages: Array<{ role: 'user' | 'assistant' | 'tool' | 'system'; content: string }> = [
+      { role: 'user', content: 'do it' },
+      { role: 'assistant', content: 'the real answer' },
+      { role: 'assistant', content: '' },
+    ];
+    expect(latestAssistantText(messages)).toBe('the real answer');
+  });
+
+  it('finds the final answer across a folded tree, after a child’s own trailing content', () => {
+    // The completion-notice use case: a root that spawned a child, where the CHILD's
+    // own last word is what a caller building a completion notice for the CHILD wants
+    // — `foldTreeToTranscript` called with the child as the root events.
+    const childEvents: PersistedEvent[] = [
+      ev(0, { t: 'text', text: 'go look into it', role: 'user' }),
+      ev(1, { t: 'text', text: 'investigating' }),
+      ev(2, { t: 'turn-boundary', role: 'assistant' }),
+      ev(3, { t: 'text', text: 'found it: the bug is in foo.ts' }),
+    ];
+    const messages = foldTreeToTranscript(childEvents, new Map());
+    expect(latestAssistantText(messages)).toBe('found it: the bug is in foo.ts');
   });
 });

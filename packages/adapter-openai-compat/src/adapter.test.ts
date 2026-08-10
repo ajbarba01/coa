@@ -189,6 +189,129 @@ describe('OpenAiCompatAdapter', () => {
     await expect(adapter.runLoop(SESSION)).rejects.toThrow('renderNative');
   });
 
+  it('threads a live-turn attachment through to the wire when visionSupported is set', async () => {
+    const captured: Captured = {};
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'what is this?',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch(captured),
+      attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      visionSupported: true,
+    });
+    wire(adapter);
+
+    await adapter.runLoop(SESSION);
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    expect(wireMessages[1]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what is this?' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      ],
+    });
+  });
+
+  it('rejects a live-turn image attachment end-to-end when visionSupported is not set, without ever sending the request', async () => {
+    let fetchCalled = false;
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'what is this?',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: async (url, init) => {
+        fetchCalled = true;
+        return textFetch({})(url, init);
+      },
+      attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+      // visionSupported omitted
+    });
+    wire(adapter);
+
+    await expect(adapter.runLoop(SESSION)).rejects.toThrow(/does not support image attachments/);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('degrades a past-turn image attachment sitting in resent history instead of breaking a plain-text turn on a non-vision model', async () => {
+    const captured: Captured = {};
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'now: thanks, and what about the weather today?',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch(captured),
+      // The conversation's history carries an image attached on an earlier turn (e.g.
+      // sent to a vision-capable model before the user switched); this turn's own send
+      // is plain text and touches no attachment at all.
+      history: [
+        {
+          role: 'user',
+          content: 'what is in this image?',
+          attachments: [{ kind: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }],
+        },
+        { role: 'assistant', content: 'a photo of a cat' },
+      ],
+      // visionSupported omitted — the now-active model has no vision support.
+    });
+    wire(adapter);
+
+    await adapter.runLoop(SESSION);
+
+    const wireMessages = captured.body?.['messages'] as Array<Record<string, unknown>>;
+    // The history entry degrades instead of throwing.
+    expect(wireMessages[1]).toEqual({
+      role: 'user',
+      content: 'what is in this image?\n\n[earlier image attachment omitted for this model]',
+    });
+    // The turn the user actually sent this round reaches the model untouched.
+    expect(wireMessages[3]).toEqual({
+      role: 'user',
+      content: 'now: thanks, and what about the weather today?',
+    });
+  });
+
+  it('surfaces configured MCP servers as an honest typed degrade — no MCP runtime here', async () => {
+    const frames: TurnFrame[] = [];
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'go',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch({}),
+      onTurn: (f) => frames.push(f),
+      mcpServers: {
+        gh: { transport: 'stdio', command: 'gh-mcp' },
+        docs: { transport: 'http', url: 'https://docs.example' },
+      },
+    });
+    wire(adapter);
+
+    await adapter.runLoop(SESSION);
+
+    const degrade = frames.find((f) => f.t === 'error');
+    expect(degrade).toMatchObject({
+      t: 'error',
+      origin: 'loop',
+      message: expect.stringContaining('no MCP support'),
+    });
+    expect((degrade as { message: string }).message).toContain('gh');
+    expect((degrade as { message: string }).message).toContain('docs');
+    // The loop still ran — a degrade is a fact on the stream, never a cage.
+    expect(frames).toContainEqual({ t: 'text', text: 'done' });
+  });
+
+  it('emits no degrade frame when no MCP servers were configured (byte-identical floor)', async () => {
+    const frames: TurnFrame[] = [];
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'go',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch({}),
+      onTurn: (f) => frames.push(f),
+    });
+    wire(adapter);
+    await adapter.runLoop(SESSION);
+    expect(frames.some((f) => f.t === 'error')).toBe(false);
+  });
+
   it('forwards a registered base tool (e.g. Read) onto the wire tools list', async () => {
     const captured: Captured = {};
     const readTool: RegisteredTool = {

@@ -2,6 +2,7 @@ import type {
   BackendMessage,
   CapabilitySet,
   Locator,
+  McpServerEntry,
   ModelSelection,
   NeutralConfig,
   SessionConfig,
@@ -20,6 +21,7 @@ import type {
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { renderNative } from './render-native.js';
 import { assembleSessionOptions } from './session-options.js';
+import { toSdkExternalServers } from './external-mcp.js';
 import { toCoaMcpServer } from './mcp-tools.js';
 import { resolveToolTransport } from './tool-frame.js';
 import { sessionAuthEnv } from './auth-env.js';
@@ -48,6 +50,15 @@ export interface ClaudeSdkAdapterInit {
   onTurn?: (frame: TurnFrame, full?: string) => void;
   /** The agent's model selection (model id + faithful reasoning config); absent ⇒ account/SDK defaults. */
   model?: ModelSelection;
+  /**
+   * The library-resolved EXTERNAL MCP servers (name → neutral config) for this
+   * session. Mapped onto the SDK's native `mcpServers` option and composed
+   * alongside the in-process `coa` governance server — which wins a name
+   * collision, so governance is never shadowed by config. `strictMcpConfig`
+   * stays on: this option is the ONE channel MCP config reaches the loop
+   * through; ambient `.mcp.json`/user settings never leak in.
+   */
+  mcpServers?: Record<string, McpServerEntry>;
   /** The adapter's settlement step → the governance ledger's charge, called once per settled result. */
   onSettle?: (sessionId: string, usage: RuntimeUsage) => void;
   /**
@@ -189,7 +200,15 @@ export class ClaudeSdkAdapter implements RuntimeAdapter {
     });
     const registerSet = new Set(transport.registerCoaTools);
     const registered = this.#catalogue.filter((tool) => registerSet.has(tool.name));
-    const mcpServers = registered.length > 0 ? { coa: toCoaMcpServer(registered) } : undefined;
+    // External (library-resolved) servers first, then the in-process `coa` server —
+    // spread order makes `coa` win a name collision, so a library entry named "coa"
+    // can never shadow the governance surface.
+    const external = toSdkExternalServers(this.#init.mcpServers ?? {});
+    const servers = {
+      ...external,
+      ...(registered.length > 0 ? { coa: toCoaMcpServer(registered) } : {}),
+    };
+    const mcpServers = Object.keys(servers).length > 0 ? servers : undefined;
     // The adapter's auth seam: map the active account's locator to the loop's login env
     // (select CLAUDE_CONFIG_DIR, clear the API-key/ambient-token vars). Absent
     // locator ⇒ no overlay ⇒ the subprocess inherits process.env (today's auth).

@@ -10,6 +10,7 @@ export const NOOP_ACTIONS: ConsoleActions = {
   setSettings: () => {},
   toggleRaw: () => {},
   respondApproval: () => {},
+  setPermissionMode: () => {},
   selectAgent: () => {},
   createAgent: () => {},
   updateAgent: () => {},
@@ -25,6 +26,7 @@ export const NOOP_ACTIONS: ConsoleActions = {
   openExternal: () => Promise.resolve({ ok: false }),
   interruptSession: () => {},
   steerSession: () => {},
+  reapWorktree: () => {},
 };
 
 export interface StateOverrides {

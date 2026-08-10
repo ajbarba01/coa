@@ -14,6 +14,7 @@ import {
   selectAgentsVm,
 } from './AgentsPanel.js';
 import { useAgentsUi } from './agentsUi.js';
+import { useLibraryStore } from './libraryStore.js';
 import { makeState, type StateOverrides } from '../testing/fixtures.js';
 import { MOCK_AGENTS } from '../testing/mockAgents.js';
 import { PKGS } from './resolvedSet.test.js';
@@ -1019,5 +1020,127 @@ describe('AgentsSurface — containment and shape', () => {
       'aria-pressed',
       'false',
     );
+  });
+});
+
+describe('AgentEditor — the skills section', () => {
+  const skillAgent: AgentSummary = {
+    ref: 'roles/writer',
+    scope: 'project',
+    name: 'Writer',
+    description: 'Writes things down.',
+    icon: 'pen',
+    color: 'sky',
+    skills: [
+      { name: 'commits', delivery: 'auto' },
+      { name: 'ghost', delivery: 'disclosure' },
+    ],
+  };
+
+  beforeEach(() => {
+    useLibraryStore.setState({
+      invocable: {
+        status: 'ok',
+        value: [
+          { name: 'commits', description: 'Commit style', scope: 'project' },
+          { name: 'review', description: 'Review checklist', scope: 'personal' },
+        ],
+      },
+      // Silence the surface's mount read — these tests drive the store state directly.
+      hydrate: vi.fn().mockResolvedValue(undefined),
+    });
+  });
+
+  const skillState = (actions: StateOverrides['actions'] = {}): ConsoleState =>
+    stateWith({ status: 'ok', value: [skillAgent] }, {}, actions);
+
+  it('lists configured skills with delivery, marking one the library no longer serves', () => {
+    render(<AgentsSurface state={skillState()} />);
+    const section = screen.getByRole('region', { name: 'Skills' });
+    const commits = within(section).getByRole('listitem', { name: 'commits' });
+    expect(within(commits).getByText('Commit style')).toBeInTheDocument();
+    expect(
+      within(commits).getByRole('button', { name: 'Auto', pressed: true }),
+    ).toBeInTheDocument();
+    const ghost = within(section).getByRole('listitem', { name: 'ghost' });
+    expect(within(ghost).getByText('Not in the library')).toBeInTheDocument();
+    expect(
+      within(ghost).getByRole('button', { name: 'On demand', pressed: true }),
+    ).toBeInTheDocument();
+  });
+
+  it('flips a skill delivery through updateAgent', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsSurface state={skillState({ updateAgent })} />);
+    const commits = within(screen.getByRole('region', { name: 'Skills' })).getByRole('listitem', {
+      name: 'commits',
+    });
+    await userEvent.click(within(commits).getByRole('button', { name: 'On demand' }));
+    expect(updateAgent).toHaveBeenCalledWith('roles/writer', {
+      skills: [
+        { name: 'commits', delivery: 'disclosure' },
+        { name: 'ghost', delivery: 'disclosure' },
+      ],
+    });
+  });
+
+  it('adds a skill from the library picker (auto delivery is the default)', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsSurface state={skillState({ updateAgent })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add Skill' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'review' }));
+    expect(updateAgent).toHaveBeenCalledWith('roles/writer', {
+      skills: [
+        { name: 'commits', delivery: 'auto' },
+        { name: 'ghost', delivery: 'disclosure' },
+        { name: 'review', delivery: 'auto' },
+      ],
+    });
+  });
+
+  it('removes a configured skill', async () => {
+    const updateAgent = vi.fn();
+    render(<AgentsSurface state={skillState({ updateAgent })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove skill: ghost' }));
+    expect(updateAgent).toHaveBeenCalledWith('roles/writer', {
+      skills: [{ name: 'commits', delivery: 'auto' }],
+    });
+  });
+
+  it('states an empty library instead of offering an empty picker', () => {
+    useLibraryStore.setState({ invocable: { status: 'ok', value: [] } });
+    render(<AgentsSurface state={skillState()} />);
+    expect(
+      screen.getByText('No skills in the library — link one on the Library surface'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Skill' })).toBeNull();
+  });
+
+  it('names a FAILED library read, and never marks a configured skill absent on it', () => {
+    // The regression: an unreadable library left the footer on "Reading the library…"
+    // forever AND is no evidence that a configured skill is gone.
+    useLibraryStore.setState({ invocable: { status: 'error', message: 'daemon unreachable' } });
+    render(<AgentsSurface state={skillState()} />);
+    expect(screen.queryByText('Reading the library…')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('daemon unreachable');
+    expect(screen.queryByText('Not in the library')).toBeNull();
+  });
+
+  it('says the library is still being read while the read is in flight', () => {
+    useLibraryStore.setState({ invocable: { status: 'loading' } });
+    render(<AgentsSurface state={skillState()} />);
+    expect(screen.getByText('Reading the library…')).toBeInTheDocument();
+    expect(screen.queryByText('Not in the library')).toBeNull();
+  });
+
+  it('renders a built-in agent read-only: no picker, delivery inert, no remove', () => {
+    const builtin: AgentSummary = { ...skillAgent, ref: 'builtin/writer', scope: 'builtin' };
+    render(<AgentsSurface state={stateWith({ status: 'ok', value: [builtin] })} />);
+    expect(screen.queryByRole('button', { name: 'Add Skill' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Remove skill/ })).toBeNull();
+    const commits = within(screen.getByRole('region', { name: 'Skills' })).getByRole('listitem', {
+      name: 'commits',
+    });
+    expect(within(commits).getByRole('button', { name: 'Auto' })).toBeDisabled();
   });
 });

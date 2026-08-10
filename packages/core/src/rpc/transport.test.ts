@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RpcHandlers } from './router.js';
-import { listen, type RpcServer } from './transport.js';
+import {
+  canonicalProjectRoot,
+  defaultDaemonPath,
+  listen,
+  projectEndpointId,
+  type RpcServer,
+} from './transport.js';
 
 let n = 0;
 function testPath(): string {
@@ -86,5 +92,57 @@ describe('listen — JSON-RPC over a real OS pipe/socket', () => {
     // didn't take the process down.
     const res = await roundTrip(path, { jsonrpc: '2.0', id: 99, method: 'ping' });
     expect(res).toEqual({ jsonrpc: '2.0', id: 99, result: 'pong' });
+  });
+});
+
+describe('defaultDaemonPath — deterministic per-project endpoint (F11)', () => {
+  it('is deterministic: the same root always yields the same path', () => {
+    const a = defaultDaemonPath('C:\\repos\\alpha', 'win32');
+    const b = defaultDaemonPath('C:\\repos\\alpha', 'win32');
+    expect(a).toBe(b);
+  });
+
+  it('gives different projects different endpoints', () => {
+    const a = defaultDaemonPath('C:\\repos\\alpha', 'win32');
+    const b = defaultDaemonPath('C:\\repos\\beta', 'win32');
+    expect(a).not.toBe(b);
+  });
+
+  it('normalizes a trailing separator — the same project either way', () => {
+    const a = defaultDaemonPath('C:\\repos\\alpha', 'win32');
+    const b = defaultDaemonPath('C:\\repos\\alpha\\', 'win32');
+    expect(a).toBe(b);
+  });
+
+  it('is case-insensitive on win32 (the filesystem it addresses is)', () => {
+    const a = defaultDaemonPath('C:\\Repos\\Alpha', 'win32');
+    const b = defaultDaemonPath('c:\\repos\\alpha', 'win32');
+    expect(a).toBe(b);
+  });
+
+  it('is case-SENSITIVE off win32', () => {
+    const a = defaultDaemonPath('/repos/Alpha', 'linux');
+    const b = defaultDaemonPath('/repos/alpha', 'linux');
+    expect(a).not.toBe(b);
+  });
+
+  it('shapes a Windows path as a named pipe and a POSIX path as a socket file', () => {
+    expect(defaultDaemonPath('/repos/alpha', 'linux')).toMatch(/\.sock$/);
+    expect(defaultDaemonPath('C:\\repos\\alpha', 'win32')).toMatch(/^\\\\\.\\pipe\\coa-/);
+  });
+});
+
+describe('canonicalProjectRoot / projectEndpointId', () => {
+  it('canonicalizes case only on win32', () => {
+    expect(canonicalProjectRoot('C:\\Repos\\Alpha', 'win32')).toBe(
+      canonicalProjectRoot('c:\\repos\\alpha', 'win32'),
+    );
+  });
+
+  it('projectEndpointId is a short, deterministic, endpoint-safe token', () => {
+    const id = projectEndpointId('C:\\repos\\alpha', 'win32');
+    expect(id).toMatch(/^[0-9a-f]{16}$/);
+    expect(projectEndpointId('C:\\repos\\alpha', 'win32')).toBe(id);
+    expect(projectEndpointId('C:\\repos\\beta', 'win32')).not.toBe(id);
   });
 });

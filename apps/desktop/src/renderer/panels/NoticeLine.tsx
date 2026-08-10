@@ -71,7 +71,7 @@ export function NoticeLine({
             type="button"
             aria-label="Dismiss"
             onClick={() => onAction(n.id, 'dismiss')}
-            className="slip flex-none cursor-pointer text-s7 hover:text-s10"
+            className="slip slip-press flex-none cursor-pointer rounded-r1 p-0.5 text-s7 hover:bg-s4 hover:text-s10 focus-visible:outline-focus active:scale-[0.97]"
           >
             <Icon name="close" />
           </button>

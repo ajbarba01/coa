@@ -1,10 +1,24 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDaemonCore, listen, ModelCache, ModelCatalogStore, type RpcServer } from '@coa/core';
+import {
+  connectClient,
+  createDaemonCore,
+  listen,
+  LiveSessionRegistry,
+  ModelCache,
+  ModelCatalogStore,
+  type RpcServer,
+} from '@coa/core';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
-import { runCli, startDaemon, listMergedModels, listEffectiveModels } from './cli.js';
+import {
+  runCli,
+  startDaemon,
+  listMergedModels,
+  listEffectiveModels,
+  buildModeDeps,
+} from './cli.js';
 
 let n = 0;
 function testPath(): string {
@@ -76,6 +90,131 @@ describe('startDaemon — the serve path', () => {
 
     await server.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Q11: `root`/`home` used to be honored in some daemon-composition call sites and
+  // bypassed (ambient `process.cwd()`/`os.homedir()`) in others. This drives real writes
+  // through the live daemon over both scopes an agent save resolves (`home` for
+  // personal, `root` for project) and over the auth store (`home`), then asserts nothing
+  // landed in the ambient locations — a decoy `homedir()` different from the injected
+  // `home`, and the real `process.cwd()`.
+  it('honors an injected root/home end to end, never the ambient cwd()/homedir()', async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'coa-serve-root-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'coa-serve-home-'));
+    const decoyHome = mkdtempSync(join(tmpdir(), 'coa-serve-decoy-'));
+    const path = testPath();
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    process.env.HOME = decoyHome;
+    process.env.USERPROFILE = decoyHome;
+
+    try {
+      const server = await startDaemon({
+        walPath: join(rootDir, 'log.ndjson'),
+        path,
+        root: rootDir,
+        home: homeDir,
+        out: () => {},
+        err: () => {},
+      });
+      const client = await connectClient(path);
+      try {
+        const personal = await client.request('saveAgent', {
+          ref: 'q11-personal',
+          scope: 'personal',
+          file: { name: 'Q11 personal', description: 'seam check' },
+        });
+        expect('error' in personal).toBe(false);
+        const project = await client.request('saveAgent', {
+          ref: 'q11-project',
+          scope: 'project',
+          file: { name: 'Q11 project', description: 'seam check' },
+        });
+        expect('error' in project).toBe(false);
+        const cred = await client.request('addCredential', {
+          providerId: 'deepseek',
+          label: 'q11',
+          secret: 'sk-test',
+        });
+        expect('error' in cred).toBe(false);
+      } finally {
+        await client.close();
+      }
+      await server.close();
+
+      // landed where injected
+      expect(existsSync(join(homeDir, '.coa', 'agents', 'q11-personal.yaml'))).toBe(true);
+      expect(existsSync(join(rootDir, '.coa', 'agents', 'q11-project.yaml'))).toBe(true);
+      expect(existsSync(join(homeDir, '.coa', 'keys', 'deepseek-q11'))).toBe(true);
+
+      // never leaked to the ambient decoy homedir() or the real process.cwd()
+      expect(readdirSync(decoyHome)).toEqual([]);
+      expect(existsSync(join(process.cwd(), '.coa', 'agents', 'q11-personal.yaml'))).toBe(false);
+      expect(existsSync(join(process.cwd(), '.coa', 'agents', 'q11-project.yaml'))).toBe(false);
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+      rmSync(rootDir, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+      rmSync(decoyHome, { recursive: true, force: true });
+    }
+  });
+});
+
+// F2: `startDaemon`'s `resolveMode` closure hands `buildCanUseTool` the daemon's
+// ONE composition of a session's mode-aware permission deps — `session.ts`'s own
+// tests only ever exercise that consumption against a FAKE `resolveMode`, so the
+// actual construction (this file's `buildModeDeps`) had no coverage of its own.
+// These drive it against a REAL `LiveSessionRegistry`-issued session (the exact
+// class `startDaemon` wires), never a stub — the same object identity a live
+// tool call's `registry.get(sessionId)` would resolve.
+describe('buildModeDeps — the real resolveMode composition startDaemon wires', () => {
+  it('flips the session approval seam on and binds a live getMode/hasApprovalSeam to it', () => {
+    const registry = new LiveSessionRegistry();
+    const { session } = registry.getOrCreate('s1', undefined, 'plan');
+    // A fresh LiveSession already defaults approvalSeam to true; force it false first
+    // so the assertion below can only pass if buildModeDeps genuinely set it, not
+    // because it started out true.
+    session.setApprovalSeam(false);
+
+    const deps = buildModeDeps(session, 'claude');
+
+    expect(session.approvalSeam).toBe(true);
+    expect(deps.hasApprovalSeam()).toBe(true);
+    expect(deps.getMode()).toBe('plan');
+
+    // A live mid-session mode switch is reflected on the very next read — the
+    // same live binding `permission.ts`'s `decideMode` relies on reading fresh.
+    session.setMode('bypass');
+    expect(deps.getMode()).toBe('bypass');
+  });
+
+  it('classifies with the real tool-class taxonomy, not a stub', () => {
+    const registry = new LiveSessionRegistry();
+    const { session } = registry.getOrCreate('s2');
+    const deps = buildModeDeps(session, 'claude');
+
+    expect(deps.classify('Read')).toBe('read');
+    expect(deps.classify('Write')).toBe('write');
+    expect(deps.classify('Bash')).toBe('exec');
+  });
+
+  it('requestApproval round-trips through the real LiveSession ask/answer flow', async () => {
+    const registry = new LiveSessionRegistry();
+    const { session } = registry.getOrCreate('s3', undefined, 'manual');
+    const deps = buildModeDeps(session, 'claude');
+
+    const pending = deps.requestApproval(
+      { tool: 'Write', args: { path: 'a.txt' }, sessionId: 's3' },
+      'write',
+    );
+    const [request] = session.pendingApprovals();
+    expect(request?.tool).toBe('Write');
+
+    session.resolveApproval(request!.requestId, 'allow');
+    await expect(pending).resolves.toBe('allow');
   });
 });
 

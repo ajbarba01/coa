@@ -1,14 +1,33 @@
-import { basename, dirname, join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn, type StdioOptions } from 'node:child_process';
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron';
-import { connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  session,
+  shell,
+  type IpcMainInvokeEvent,
+} from 'electron';
+import { canonicalProjectRoot, connectClient, defaultDaemonPath, probeDaemon } from '@coa/core/rpc';
 import { contentSecurityPolicy } from './csp.js';
 import { titleBarConfig, WINDOW_BACKGROUND } from './titlebar.js';
 import { appliedLevel, keyToZoomAction, nextLevel, BASE_ZOOM_LEVEL } from './zoom.js';
 import { type DaemonClient } from './daemon.js';
-import { createDaemonManager, failureLine, type DaemonProcess } from './daemon-manager.js';
+import {
+  createDaemonManager,
+  failureLine,
+  type DaemonManager,
+  type DaemonProcess,
+} from './daemon-manager.js';
+import { createDaemonRegistry, type DaemonRegistry } from './daemon-registry.js';
+import { createWindowRegistry, type WindowRegistry } from './window-registry.js';
+import { recordRecentProject } from './recent-projects.js';
+import { secondInstanceTarget } from './second-instance.js';
+import { findCoaInstallRoot } from './coa-install.js';
 import { readJson, writeJson } from './persistence.js';
 import { codeInvocation, confineToWorktree, safeForWindowsShell } from './openPath.js';
 import { validateExternalUrl } from './openExternal.js';
@@ -25,28 +44,47 @@ import {
   type WindowControlName,
 } from '../shared/methods.js';
 import { parseSettings } from '../shared/settings.js';
-
-/** The single console window — the target for window-control IPC, status pushes,
- *  and second-instance focus. */
-let mainWindow: BrowserWindow | undefined;
+import { parseProjectsState, type RecentProject } from '../shared/projects.js';
 
 /**
- * The project root the reveal IPC resolves a tool card's (worktree-relative) path against —
- * the same directory the daemon is launched in (its `cwd`, which is the tools' `worktreeRoot`),
- * so a worktree-relative path from a tool result resolves to the real file. Detected from the
- * workspace marker (as an editor detects a workspace), memoized, and independent of the daemon
- * push stream — so it is correct on first launch AND after a restart that reconnects to an
- * already-running daemon (the stream only re-emits `worktree` on a new turn, and that value is
- * a logical worktree id, not a filesystem path). The renderer never supplies a root (it can't
- * be trusted to); main derives it so `openPath` confinement is authoritative.
+ * F11: coa governs any project a window is pointed at, not only its own
+ * checkout. Two registries replace the old app-wide singletons:
+ *  - {@link windowRegistry} — every open window, keyed by id, each tracking the
+ *    project ROOT it is bound to (was `mainWindow: BrowserWindow | undefined`).
+ *  - {@link daemonRegistry} — one daemon manager PER PROJECT ROOT, refcounted by
+ *    the windows bound to it, spawned on first reference and killed the instant
+ *    the last one releases (see daemon-registry.ts's doc comment for the
+ *    concurrent-write hazard this rules out).
+ * Every window-scoped IPC handler below resolves "which project" from the
+ * CALLING window (`event.sender` → `BrowserWindow.fromWebContents`), never from
+ * a single global — see `windowFromEvent`/`requireWindowRoot`/`requireManager`.
  */
-let cachedProjectRoot: string | undefined;
-function projectRoot(): string {
-  cachedProjectRoot ??= findRepoRoot(process.cwd());
-  return cachedProjectRoot;
+const windowRegistry: WindowRegistry<BrowserWindow> =
+  createWindowRegistry<BrowserWindow>(canonicalProjectRoot);
+const daemonRegistry: DaemonRegistry = createDaemonRegistry({
+  createManager: buildManagerFor,
+  canonicalize: canonicalProjectRoot,
+});
+
+/**
+ * Where coa itself is installed — walked up from Electron's own `process.cwd()`.
+ * Locates the daemon's CLI binary at spawn time ONLY; it is independent of which
+ * project a window governs (see coa-install.ts). Memoized: the walk never
+ * changes within one running app instance.
+ */
+let cachedCoaInstallRoot: string | undefined;
+function coaInstallRoot(): string {
+  cachedCoaInstallRoot ??= findCoaInstallRoot(process.cwd());
+  return cachedCoaInstallRoot;
 }
 
-function createWindow(): void {
+/** Create a window bound to `root`: registers it, takes a daemon reference (F11
+ *  refcounting — the daemon is spawned on the FIRST window bound to a project and
+ *  killed when the LAST one closes), and wires the same per-window chrome the
+ *  single-window app always had (zoom, devtools, maximize state, dev-server load
+ *  retry). Returns the window so a caller (openProject, second-instance,
+ *  launch-restore) can act on it further if needed. */
+function createProjectWindow(root: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -63,9 +101,19 @@ function createWindow(): void {
       webSecurity: true,
     },
   });
-  mainWindow = win;
+  windowRegistry.bind(win.id, win, root);
+  daemonRegistry.acquire(root);
+
   win.on('closed', () => {
-    if (mainWindow === win) mainWindow = undefined;
+    // Look up the CURRENT root, not the `root` this closure was created with — `win`
+    // may have been rebound to a different project since creation (`rebindWindow`,
+    // the swap-in-current-window path), and closing must release whatever project
+    // this window is bound to NOW, or the swapped-to project's daemon reference is
+    // never released and its process is orphaned with zero windows watching it.
+    const currentRoot = windowRegistry.rootOf(win.id) ?? root;
+    windowRegistry.unbind(win.id);
+    // Fire-and-forget: closing must not block on the daemon's graceful teardown.
+    void daemonRegistry.release(currentRoot);
   });
 
   // Ctrl+/- window zoom (VSCode-style): intercept the accelerator keys before they
@@ -85,6 +133,9 @@ function createWindow(): void {
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomLevel(appliedLevel(parseSettings(readJson(settingsFile())).zoomLevel));
     win.webContents.send(WINDOW_STATE_CHANNEL, win.isMaximized());
+    // Re-sync THIS window's project's current daemon status — a reload (or the
+    // first paint) must not wait for the next status CHANGE to learn it.
+    pushDaemonStatusFor(win);
   });
   // Keep the DOM maximize/restore glyph in sync with the real window state.
   const pushMaximized = (): void => win.webContents.send(WINDOW_STATE_CHANNEL, win.isMaximized());
@@ -120,6 +171,66 @@ function createWindow(): void {
     if (isMainFrame && rendererUrl && !win.isDestroyed()) setTimeout(load, 500);
   });
   load();
+
+  return win;
+}
+
+/** Rebind `win` from whatever project it had to `newRoot` in place (the
+ *  swap-in-current-window path of `openProject`) — releases the old project's
+ *  daemon reference, takes one on the new project, and re-syncs the daemon-status
+ *  push so the window's gate reflects the new project immediately. A no-op if
+ *  `win` is already bound to `newRoot` (by canonical identity). */
+async function rebindWindow(win: BrowserWindow, newRoot: string): Promise<void> {
+  const oldRoot = windowRegistry.rootOf(win.id);
+  if (oldRoot !== undefined && canonicalProjectRoot(oldRoot) === canonicalProjectRoot(newRoot)) {
+    return;
+  }
+  windowRegistry.rebind(win.id, newRoot);
+  daemonRegistry.acquire(newRoot);
+  if (oldRoot !== undefined) void daemonRegistry.release(oldRoot);
+  pushDaemonStatusFor(win);
+}
+
+/** Push `win`'s project's CURRENT daemon report — used on load/reload and right
+ *  after a rebind, so the gate doesn't wait for the next status CHANGE. */
+function pushDaemonStatusFor(win: BrowserWindow): void {
+  const root = windowRegistry.rootOf(win.id);
+  const manager = root !== undefined ? daemonRegistry.get(root) : undefined;
+  if (manager !== undefined) win.webContents.send(DAEMON_STATUS_CHANNEL, manager.report());
+}
+
+/** Bring `win` to the front (same restore/show/focus sequence the old
+ *  second-instance handler used on the single `mainWindow`). */
+function focusWindow(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/** The `BrowserWindow` an IPC call came from, if it still exists (a window can be
+ *  destroyed mid-request). Every window-scoped handler resolves "which project"
+ *  through this — never through a single global. */
+function windowFromEvent(event: IpcMainInvokeEvent): BrowserWindow | undefined {
+  return BrowserWindow.fromWebContents(event.sender) ?? undefined;
+}
+
+/** The project root the CALLING window is bound to. Every window is bound at
+ *  creation time (see `createProjectWindow`), so this is only ever undefined for
+ *  a window that raced its own destruction. */
+function requireWindowRoot(event: IpcMainInvokeEvent): string {
+  const win = windowFromEvent(event);
+  const root = win !== undefined ? windowRegistry.rootOf(win.id) : undefined;
+  if (root === undefined) throw new Error('no project is open in this window');
+  return root;
+}
+
+/** The CALLING window's project's daemon manager — the F11 replacement for the
+ *  single app-wide `daemon` this used to be. */
+function requireManager(event: IpcMainInvokeEvent): DaemonManager {
+  const root = requireWindowRoot(event);
+  const manager = daemonRegistry.get(root);
+  if (manager === undefined) throw new Error(`no daemon registered for ${root}`);
+  return manager;
 }
 
 /**
@@ -156,30 +267,21 @@ class DaemonError extends Error {
   }
 }
 
-/** Walk up from `start` for the pnpm workspace root (where the project's `.coa` lives). */
 /** How much of the daemon's stderr to keep for the failure line (a few lines' worth). */
 const DAEMON_STDERR_TAIL = 4000;
 
-function findRepoRoot(start: string): string {
-  for (let dir = start; ; ) {
-    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return start; // hit the filesystem root — fall back to `start`
-    dir = parent;
-  }
-}
-
 /**
- * How to launch the daemon, resolved deterministically rather than trusting the
- * Electron process to have inherited `coa` on PATH (it often hasn't). Preference:
- * an explicit `COA_CLI` override → the built `apps/cli/dist/bin.js` run with the
- * same Node that launched the app (`npm_node_execpath`, so the native addons'
- * ABI matches) → a bare `coa serve` on PATH as a last resort. The daemon runs with
- * cwd = the repo root so it reads/writes the project's real `.coa` store.
+ * How to launch `root`'s daemon, resolved deterministically rather than trusting
+ * the Electron process to have inherited `coa` on PATH (it often hasn't).
+ * Preference: an explicit `COA_CLI` override → the built `apps/cli/dist/bin.js`
+ * from coa's OWN install location ({@link coaInstallRoot}, NOT `root` — F11:
+ * these are independent once coa can govern a project it isn't itself part of) →
+ * a bare `coa serve` on PATH as a last resort. The daemon runs with `cwd = root`
+ * so it reads/writes THAT project's `.coa` store (and resolves the same
+ * project-keyed endpoint a probe against `root` expects).
  */
-function daemonSpawn(): DaemonProcess {
-  const root = projectRoot();
-  const binPath = join(root, 'apps', 'cli', 'dist', 'bin.js');
+function daemonSpawn(root: string): DaemonProcess {
+  const binPath = join(coaInstallRoot(), 'apps', 'cli', 'dist', 'bin.js');
   const node = process.env['npm_node_execpath'] ?? 'node';
   const override = process.env['COA_CLI'];
   // stderr is PIPED, not ignored: a daemon that dies on a missing binary or a broken
@@ -209,33 +311,43 @@ function daemonSpawn(): DaemonProcess {
 }
 
 /**
- * The daemon lifecycle owner behind the title-bar Start/Stop/Restart control.
- * `connect` adapts the ABI-safe pipe client and forwards the daemon's push stream
- * to the renderer; `spawn` launches the daemon as a tracked child (reaped on stop
- * + quit); status changes are pushed to the window on {@link DAEMON_STATUS_CHANNEL}.
+ * Build the daemon manager for `root` — the daemon-registry's `createManager`
+ * factory. Everything below closes over `root`, including push routing: a
+ * connection's forwarded `push` notifications and status changes are delivered
+ * to whichever window is CURRENTLY bound to `root` (looked up at delivery time
+ * via `windowRegistry`, never cached), so a rebind never needs this manager
+ * rewired.
  */
-const daemon = createDaemonManager({
-  path: defaultDaemonPath(),
-  probe: probeDaemon,
-  // Give a cold daemon time to load its native addons + bind the pipe (~a few seconds).
-  retry: { attempts: 50, delayMs: 200 },
-  connect: async (path, onClose): Promise<DaemonClient> =>
-    toDaemonClient(
-      await connectClient(
-        path,
-        (note) => {
-          if (note.method === 'push') {
-            mainWindow?.webContents.send(PUSH_CHANNEL, note.params);
-          }
-        },
-        onClose,
+function buildManagerFor(root: string): DaemonManager {
+  const manager = createDaemonManager({
+    path: defaultDaemonPath(root),
+    probe: probeDaemon,
+    // Give a cold daemon time to load its native addons + bind the pipe (~a few seconds).
+    retry: { attempts: 50, delayMs: 200 },
+    connect: async (path, onClose): Promise<DaemonClient> =>
+      toDaemonClient(
+        await connectClient(
+          path,
+          (note) => {
+            if (note.method === 'push') {
+              windowRegistry.windowForRoot(root)?.webContents.send(PUSH_CHANNEL, note.params);
+            }
+          },
+          onClose,
+        ),
       ),
-    ),
-  spawn: daemonSpawn,
-});
+    spawn: () => daemonSpawn(root),
+  });
+  manager.onStatus((report) => {
+    if (report.status === 'error') {
+      console.error(`[coa] daemon error (${root}): ${report.reason ?? 'no reason reported'}`);
+    }
+    windowRegistry.windowForRoot(root)?.webContents.send(DAEMON_STATUS_CHANNEL, report);
+  });
+  return manager;
+}
 
-/** The per-user layout file. Per-workspace keying lands when the app gains a
- *  workspace-open flow; today the daemon is a single fixed pipe. */
+/** The per-app-install (never per-project — F11 ruled chrome app-global) layout file. */
 function layoutFile(): string {
   return join(app.getPath('userData'), 'coa', 'layout.json');
 }
@@ -244,9 +356,58 @@ function settingsFile(): string {
   return join(app.getPath('userData'), 'coa', 'settings.json');
 }
 
-/** Forward a read to the daemon, surfacing a JSON-RPC error as a coded IPC error. */
-async function proxyDaemon(method: string, params?: unknown): Promise<unknown> {
-  const res = await (await daemon.client()).request(method, params);
+/** The recent-projects MRU + the roots open at last quit — see `shared/projects.ts`. */
+function projectsFile(): string {
+  return join(app.getPath('userData'), 'coa', 'projects.json');
+}
+
+/** Move `root` to the front of the recent-projects list (an `openProject` call,
+ *  successful or focusing-existing — either way the user just reached for it). */
+function recordRecent(root: string): void {
+  const state = parseProjectsState(readJson(projectsFile()));
+  const entry: RecentProject = { root, name: basename(root), lastOpenedAt: Date.now() };
+  writeJson(projectsFile(), {
+    ...state,
+    recent: recordRecentProject(state.recent, entry, canonicalProjectRoot),
+  });
+}
+
+/** Dedupe a root list by canonical identity, keeping the first spelling seen. */
+function dedupeRoots(roots: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const root of roots) {
+    const key = canonicalProjectRoot(root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(root);
+  }
+  return out;
+}
+
+/** The project roots to open at launch — F11's restore-last-session. The
+ *  persisted `openAtQuit` set wins; a fresh install (nothing ever persisted) falls
+ *  back to today's only prior behavior: one window on coa's own install root. */
+function rootsToRestore(): string[] {
+  const state = parseProjectsState(readJson(projectsFile()));
+  return state.openAtQuit.length > 0 ? dedupeRoots(state.openAtQuit) : [coaInstallRoot()];
+}
+
+/** Snapshot every currently-open project root, one per window, for the next launch. */
+function persistOpenAtQuit(): void {
+  const state = parseProjectsState(readJson(projectsFile()));
+  writeJson(projectsFile(), { ...state, openAtQuit: dedupeRoots(windowRegistry.openRoots()) });
+}
+
+/** Forward a read to the CALLING window's project daemon, surfacing a JSON-RPC
+ *  error as a coded IPC error. */
+async function proxyDaemon(
+  event: IpcMainInvokeEvent,
+  method: string,
+  params?: unknown,
+): Promise<unknown> {
+  const manager = requireManager(event);
+  const res = await (await manager.client()).request(method, params);
   if ('error' in res && res.error) throw new DaemonError(res.error.message, res.error.code);
   return res.result;
 }
@@ -297,21 +458,22 @@ function spawnCode(absPath: string, line: number | undefined): Promise<boolean> 
 
 /**
  * The reveal-in-editor IPC (a tool card's path/match click). Resolves the (worktree-
- * relative) path against the named session's worktree root, CONFINES it (a path that
- * escapes the root is refused — never open an arbitrary file), then opens it in VS Code
- * at the line via `code -g`, falling back to `shell.showItemInFolder` when `code` is
- * unavailable. Always resolves a structured result (never throws to the renderer) — the
- * renderer toasts a failure; the reveal is advisory and never blocks.
+ * relative) path against the CALLING window's bound project root, CONFINES it (a
+ * path that escapes the root is refused — never open an arbitrary file), then opens
+ * it in VS Code at the line via `code -g`, falling back to `shell.showItemInFolder`
+ * when `code` is unavailable. Always resolves a structured result (never throws to
+ * the renderer) — the renderer toasts a failure; the reveal is advisory and never
+ * blocks.
  */
-async function revealPath(params: {
-  path: string;
-  line?: number;
-  sessionId?: string;
-}): Promise<RevealResult> {
-  // Resolve against the project root main derives (= the daemon's cwd / the tools'
-  // worktreeRoot), not an ephemeral push-supplied worktree id — so it works on first launch
-  // and after a restart, and points at the real filesystem directory.
-  const abs = confineToWorktree(projectRoot(), params.path);
+async function revealPath(
+  event: IpcMainInvokeEvent,
+  params: { path: string; line?: number; sessionId?: string },
+): Promise<RevealResult> {
+  // Resolve against the calling window's bound project root (= the daemon's cwd / the
+  // tools' worktreeRoot), not an ephemeral push-supplied worktree id — so it works on
+  // first launch and after a restart, and points at the real filesystem directory.
+  const root = requireWindowRoot(event);
+  const abs = confineToWorktree(root, params.path);
   if (abs === undefined) {
     return { ok: false, reason: `Path escapes the worktree: ${params.path}` };
   }
@@ -349,117 +511,215 @@ function expandHome(p: string): string {
   return p === '~' || p.startsWith('~/') || p.startsWith('~\\') ? join(homedir(), p.slice(1)) : p;
 }
 
-/** The native directory picker, parented to the console window (a free-floating dialog can
- *  land behind it). Cancelling returns NO path — the renderer keeps whatever it had. */
-async function pickDirectory(params: { defaultPath?: string }): Promise<{ path?: string }> {
+/** The native directory picker, parented to the CALLING window (a free-floating dialog
+ *  can land behind it). Cancelling returns NO path — the renderer keeps whatever it had. */
+async function pickDirectory(
+  event: IpcMainInvokeEvent,
+  params: { defaultPath?: string },
+): Promise<{ path?: string }> {
+  const win = windowFromEvent(event);
   const options = {
     properties: ['openDirectory' as const],
     ...(params.defaultPath !== undefined && existsSync(expandHome(params.defaultPath))
       ? { defaultPath: expandHome(params.defaultPath) }
       : {}),
   };
-  const res = mainWindow
-    ? await dialog.showOpenDialog(mainWindow, options)
-    : await dialog.showOpenDialog(options);
+  const res =
+    win !== undefined
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
   const path = res.filePaths[0];
   return res.canceled || path === undefined ? {} : { path };
 }
 
-async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
+/**
+ * F11 — open, switch to, or focus a project. Contract:
+ *  - `root` must already exist as a real directory (a stale recent entry, a
+ *    mistyped path — refused up front with a plain `Error` rather than a
+ *    confusing daemon-spawn failure).
+ *  - If `root` is ALREADY open in some window (by canonical identity), that
+ *    window is focused and NOTHING ELSE happens — never a second daemon over the
+ *    same project, regardless of what `target` asked for.
+ *  - Otherwise `target: 'new'` opens a fresh window; `target: 'current'` rebinds
+ *    the calling window in place (releasing its old project's daemon reference,
+ *    taking one on the new project).
+ *  - Every successful call (including "focused existing") moves `root` to the
+ *    front of the recent-projects list.
+ * Returns which of the three things happened plus the resulting workspace, so
+ * the caller can react without a second round trip. The caller is responsible
+ * for confirming with the user BEFORE calling this with `target: 'current'`
+ * while its own project has a turn actively running (see the IPC method's doc
+ * comment in `shared/methods.ts`) — main performs the swap unconditionally.
+ */
+async function openProject(
+  event: IpcMainInvokeEvent,
+  params: { root: string; target: 'current' | 'new' },
+): Promise<{
+  opened: 'new' | 'current' | 'focused-existing';
+  workspace: { name: string; root: string };
+}> {
+  const root = resolve(params.root);
+  if (!existsSync(root) || !statSync(root).isDirectory()) {
+    throw new Error(`not a directory: ${root}`);
+  }
+  recordRecent(root);
+  const workspace = { name: basename(root), root };
+
+  const requester = windowFromEvent(event);
+  const requesterRoot = requester !== undefined ? windowRegistry.rootOf(requester.id) : undefined;
+  // Already the calling window's own project — nothing to rebind.
+  if (
+    requester !== undefined &&
+    requesterRoot !== undefined &&
+    canonicalProjectRoot(requesterRoot) === canonicalProjectRoot(root)
+  ) {
+    focusWindow(requester);
+    return { opened: 'current', workspace };
+  }
+
+  const existing = windowRegistry.windowForRoot(root);
+  if (existing !== undefined) {
+    // Some OTHER window already has this project open — never a second daemon for
+    // the same project, so "already open" wins over whatever `target` asked for.
+    focusWindow(existing);
+    return { opened: 'focused-existing', workspace };
+  }
+
+  if (params.target === 'new' || requester === undefined) {
+    createProjectWindow(root);
+    return { opened: 'new', workspace };
+  }
+
+  await rebindWindow(requester, root);
+  return { opened: 'current', workspace };
+}
+
+/** The recent-projects MRU, each entry live-annotated with whether it's open in
+ *  some window right now (computed from the window registry, never persisted). */
+function listRecentProjects(): Array<RecentProject & { open: boolean }> {
+  const state = parseProjectsState(readJson(projectsFile()));
+  return state.recent.map((entry) => ({
+    ...entry,
+    open: windowRegistry.windowForRoot(entry.root) !== undefined,
+  }));
+}
+
+async function runMethod(
+  name: MethodName,
+  params: unknown,
+  event: IpcMainInvokeEvent,
+): Promise<unknown> {
   switch (name) {
     case 'capState':
-      return proxyDaemon('capState');
+      return proxyDaemon(event, 'capState');
     case 'flagsForUser':
-      return proxyDaemon('flagsForUser');
+      return proxyDaemon(event, 'flagsForUser');
     case 'listTimeline':
-      return proxyDaemon('listTimeline');
+      return proxyDaemon(event, 'listTimeline');
     case 'listAccounts':
-      return proxyDaemon('listAccounts');
+      return proxyDaemon(event, 'listAccounts');
     case 'currentAccount':
-      return proxyDaemon('currentAccount');
+      return proxyDaemon(event, 'currentAccount');
     case 'useAccount':
-      return proxyDaemon('useAccount', params);
+      return proxyDaemon(event, 'useAccount', params);
     case 'authView':
-      return proxyDaemon('authView');
+      return proxyDaemon(event, 'authView');
     case 'addProvider':
-      return proxyDaemon('addProvider', params);
+      return proxyDaemon(event, 'addProvider', params);
     case 'removeProvider':
-      return proxyDaemon('removeProvider', params);
+      return proxyDaemon(event, 'removeProvider', params);
     case 'addCredential':
-      return proxyDaemon('addCredential', params);
+      return proxyDaemon(event, 'addCredential', params);
     case 'replaceSecret':
-      return proxyDaemon('replaceSecret', params);
+      return proxyDaemon(event, 'replaceSecret', params);
     case 'renameCredential':
-      return proxyDaemon('renameCredential', params);
+      return proxyDaemon(event, 'renameCredential', params);
     case 'removeCredential':
-      return proxyDaemon('removeCredential', params);
+      return proxyDaemon(event, 'removeCredential', params);
     case 'setProviderEnabled':
-      return proxyDaemon('setProviderEnabled', params);
+      return proxyDaemon(event, 'setProviderEnabled', params);
     case 'setCredentialDisabled':
-      return proxyDaemon('setCredentialDisabled', params);
+      return proxyDaemon(event, 'setCredentialDisabled', params);
     case 'makeActive':
-      return proxyDaemon('makeActive', params);
+      return proxyDaemon(event, 'makeActive', params);
     case 'clearCooldown':
-      return proxyDaemon('clearCooldown', params);
+      return proxyDaemon(event, 'clearCooldown', params);
     case 'setIsolatedBrowserLogins':
-      return proxyDaemon('setIsolatedBrowserLogins', params);
+      return proxyDaemon(event, 'setIsolatedBrowserLogins', params);
     case 'setBrowserPath':
-      return proxyDaemon('setBrowserPath', params);
+      return proxyDaemon(event, 'setBrowserPath', params);
     case 'reclaimBrowserProfiles':
-      return proxyDaemon('reclaimBrowserProfiles', params);
+      return proxyDaemon(event, 'reclaimBrowserProfiles', params);
     case 'refresh':
-      return proxyDaemon('refresh');
+      return proxyDaemon(event, 'refresh');
     case 'startSession':
-      return proxyDaemon('createSession', params);
+      return proxyDaemon(event, 'createSession', params);
     case 'newSession':
-      return proxyDaemon('newSession', params);
+      return proxyDaemon(event, 'newSession', params);
     case 'listSessions':
-      return proxyDaemon('listSessions');
+      return proxyDaemon(event, 'listSessions');
+    case 'listWorktrees':
+      return proxyDaemon(event, 'listWorktrees');
+    case 'reapWorktree':
+      return proxyDaemon(event, 'reapWorktree', params);
     case 'reloadConversation':
-      return proxyDaemon('reloadConversation', params);
+      return proxyDaemon(event, 'reloadConversation', params);
     case 'deleteSession':
-      return proxyDaemon('deleteSession', params);
+      return proxyDaemon(event, 'deleteSession', params);
     case 'recompilePrompt':
-      return proxyDaemon('recompilePrompt', params);
+      return proxyDaemon(event, 'recompilePrompt', params);
     case 'interruptSession':
-      return proxyDaemon('interruptSession', params);
+      return proxyDaemon(event, 'interruptSession', params);
     case 'steerSession':
-      return proxyDaemon('steerSession', params);
+      return proxyDaemon(event, 'steerSession', params);
     case 'subscribeSession':
-      return proxyDaemon('subscribeSession', params);
+      return proxyDaemon(event, 'subscribeSession', params);
+    case 'setMode':
+      return proxyDaemon(event, 'setMode', params);
+    case 'respondApproval':
+      return proxyDaemon(event, 'respondApproval', params);
+    case 'sessionMode':
+      return proxyDaemon(event, 'sessionMode', params);
     case 'listModels':
-      return proxyDaemon('listModels');
+      return proxyDaemon(event, 'listModels');
     case 'modelCatalog':
-      return proxyDaemon('modelCatalog');
+      return proxyDaemon(event, 'modelCatalog');
+    case 'modelMetadata':
+      return proxyDaemon(event, 'modelMetadata', params);
     case 'addModels':
-      return proxyDaemon('addModels', params);
+      return proxyDaemon(event, 'addModels', params);
     case 'addCustomModel':
-      return proxyDaemon('addCustomModel', params);
+      return proxyDaemon(event, 'addCustomModel', params);
     case 'editModel':
-      return proxyDaemon('editModel', params);
+      return proxyDaemon(event, 'editModel', params);
     case 'removeModel':
-      return proxyDaemon('removeModel', params);
+      return proxyDaemon(event, 'removeModel', params);
     case 'setModelHidden':
-      return proxyDaemon('setModelHidden', params);
+      return proxyDaemon(event, 'setModelHidden', params);
     case 'listRoles':
-      return proxyDaemon('listRoles');
+      return proxyDaemon(event, 'listRoles');
     case 'listPackages':
-      return proxyDaemon('listPackages');
+      return proxyDaemon(event, 'listPackages');
     case 'openPath':
-      return revealPath(params as { path: string; line?: number; sessionId?: string });
+      return revealPath(event, params as { path: string; line?: number; sessionId?: string });
     case 'openExternal':
       return openExternalUrl(params as { url: string });
     case 'pickDirectory':
-      return pickDirectory(params as { defaultPath?: string });
+      return pickDirectory(event, params as { defaultPath?: string });
+    case 'openProject':
+      return openProject(event, params as { root: string; target: 'current' | 'new' });
+    case 'listRecentProjects':
+      return listRecentProjects();
     case 'editCommand': {
       // The DOM edit menu's actions: main drives Chromium's native editing commands on
-      // the focused element, so the renderer never touches the clipboard itself.
+      // the focused element (the one that sent this call), so the renderer never
+      // touches the clipboard itself.
       const { command } = params as { command: 'cut' | 'copy' | 'paste' | 'selectAll' };
-      mainWindow?.webContents[command]();
+      event.sender[command]();
       return undefined;
     }
     case 'getWorkspace': {
-      const root = projectRoot();
+      const root = requireWindowRoot(event);
       return { name: basename(root), root };
     }
     case 'getLayout':
@@ -470,25 +730,39 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
     case 'getSettings':
       return parseSettings(readJson(settingsFile()));
     case 'listAgents':
-      return proxyDaemon('listAgents');
+      return proxyDaemon(event, 'listAgents');
     case 'saveAgent':
-      return proxyDaemon('saveAgent', params);
+      return proxyDaemon(event, 'saveAgent', params);
     case 'deleteAgent':
-      return proxyDaemon('deleteAgent', params);
+      return proxyDaemon(event, 'deleteAgent', params);
+    case 'listLibrary':
+      return proxyDaemon(event, 'listLibrary');
+    case 'rescanLibrary':
+      return proxyDaemon(event, 'rescanLibrary');
+    case 'listSkills':
+      return proxyDaemon(event, 'listSkills');
+    case 'linkLibrary':
+      return proxyDaemon(event, 'linkLibrary', params);
+    case 'copyLibrary':
+      return proxyDaemon(event, 'copyLibrary', params);
+    case 'unlinkLibrary':
+      return proxyDaemon(event, 'unlinkLibrary', params);
+    case 'setLibraryEnabled':
+      return proxyDaemon(event, 'setLibraryEnabled', params);
     case 'startLogin':
-      return proxyDaemon('startLogin', params);
+      return proxyDaemon(event, 'startLogin', params);
     case 'loginState':
-      return proxyDaemon('loginState');
+      return proxyDaemon(event, 'loginState');
     case 'submitLoginCode':
-      return proxyDaemon('submitLoginCode', params);
+      return proxyDaemon(event, 'submitLoginCode', params);
     case 'cancelLogin':
-      return proxyDaemon('cancelLogin');
+      return proxyDaemon(event, 'cancelLogin');
     case 'resolveLoginMismatch':
-      return proxyDaemon('resolveLoginMismatch', params);
+      return proxyDaemon(event, 'resolveLoginMismatch', params);
     case 'probeHealth':
-      return proxyDaemon('probeHealth');
+      return proxyDaemon(event, 'probeHealth');
     case 'reportAuthFailure':
-      return proxyDaemon('reportAuthFailure', params);
+      return proxyDaemon(event, 'reportAuthFailure', params);
     case 'saveSettings': {
       const incoming = parseSettings(params);
       // Main owns `zoomLevel` (driven by the keybindings, not this renderer save), so
@@ -501,64 +775,89 @@ async function runMethod(name: MethodName, params: unknown): Promise<unknown> {
 }
 
 for (const name of Object.keys(METHODS) as MethodName[]) {
-  ipcMain.handle(channel(name), async (_event, rawParams: unknown) => {
+  ipcMain.handle(channel(name), async (event, rawParams: unknown) => {
     const spec = METHODS[name];
     const params = spec.params ? spec.params.parse(rawParams) : undefined;
-    const result = await runMethod(name, params);
+    const result = await runMethod(name, params, event);
     return spec.result.parse(result);
   });
 }
 
 // The title-bar daemon control (Start/Stop/Restart) + a status read. These are
 // main-local transport actions, not daemon RPC reads, so they sit on their own channels.
-const daemonActions: Record<DaemonControlName, () => unknown | Promise<unknown>> = {
-  status: () => daemon.report(),
-  start: () => daemon.start(),
-  adopt: () => daemon.adopt(),
-  stop: () => daemon.stop(),
-  restart: () => daemon.restart(),
+// F11: window-scoped — each window controls ITS OWN project's daemon (resolved from
+// the calling window's bound root), never a single app-wide one.
+const daemonActions: Record<
+  DaemonControlName,
+  (manager: DaemonManager) => unknown | Promise<unknown>
+> = {
+  status: (m) => m.report(),
+  start: (m) => m.start(),
+  adopt: (m) => m.adopt(),
+  stop: (m) => m.stop(),
+  restart: (m) => m.restart(),
 };
 for (const [name, action] of Object.entries(daemonActions) as [
   DaemonControlName,
-  () => unknown,
+  (m: DaemonManager) => unknown,
 ][]) {
-  ipcMain.handle(DAEMON_CONTROL[name], async () => (await action()) ?? undefined);
+  ipcMain.handle(
+    DAEMON_CONTROL[name],
+    async (event) => (await action(requireManager(event))) ?? undefined,
+  );
 }
 
-// The custom (DOM) window controls act on the single window. `toggleMaximize` mirrors
-// the OS behaviour; the resulting state is pushed back on WINDOW_STATE_CHANNEL by the
-// maximize/unmaximize listeners wired in `createWindow`.
-const windowActions: Record<WindowControlName, () => void> = {
-  minimize: () => mainWindow?.minimize(),
-  toggleMaximize: () =>
-    mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize(),
-  close: () => mainWindow?.close(),
+// The custom (DOM) window controls act on the window that SENT the call — F11
+// generalizes this from the single `mainWindow` singleton to whichever window's
+// title bar the click came from. The resulting state is pushed back on
+// WINDOW_STATE_CHANNEL by the maximize/unmaximize listeners wired in `createProjectWindow`.
+const windowActions: Record<WindowControlName, (win: BrowserWindow) => void> = {
+  minimize: (win) => win.minimize(),
+  toggleMaximize: (win) => (win.isMaximized() ? win.unmaximize() : win.maximize()),
+  close: (win) => win.close(),
 };
-for (const [name, action] of Object.entries(windowActions) as [WindowControlName, () => void][]) {
-  ipcMain.handle(WINDOW_CONTROL[name], () => {
-    action();
+for (const [name, action] of Object.entries(windowActions) as [
+  WindowControlName,
+  (win: BrowserWindow) => void,
+][]) {
+  ipcMain.handle(WINDOW_CONTROL[name], (event) => {
+    const win = windowFromEvent(event);
+    if (win !== undefined) action(win);
     return undefined;
   });
 }
 
-// A single instance owns the daemon + the fixed pipe; a second launch (e.g. a stale
-// prior `electron-vite dev`) would otherwise shadow it with a hidden second window.
+/** Whether `path` exists and is a real directory — never throws (a missing path,
+ *  a permission error, all resolve to "not a directory"). */
+function isRealDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// A single instance owns every project's daemon + endpoint; a second launch (e.g. a
+// stale prior `electron-vite dev`, or a future "open with coa" shell association)
+// would otherwise shadow it with a hidden second window. F11: the handler is now
+// PROJECT-AWARE — a launch naming a project focuses (or opens) that project's
+// window specifically, rather than just refocusing whatever `mainWindow` used to mean.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+  app.on('second-instance', (_event, argv) => {
+    const target = secondInstanceTarget(argv, isRealDirectory);
+    if (target !== undefined) {
+      const existing = windowRegistry.windowForRoot(target);
+      if (existing !== undefined) focusWindow(existing);
+      else createProjectWindow(resolve(target)); // never a second daemon — F11 registry-backed
+      return;
     }
+    // No project named (a plain relaunch): fall back to whatever window is already open.
+    const [first] = windowRegistry.all();
+    if (first !== undefined) focusWindow(first.win);
   });
   bootstrap();
-}
-
-/** Push the current daemon report to the renderer (used on status change + on window load). */
-function pushDaemonStatus(): void {
-  mainWindow?.webContents.send(DAEMON_STATUS_CHANNEL, daemon.report());
 }
 
 function bootstrap(): void {
@@ -576,22 +875,15 @@ function bootstrap(): void {
         },
       });
     });
-    createWindow();
-    // Mirror daemon status to the renderer; re-push on each (re)load so a reload or a
-    // status change that happened before the window was ready still lands. A failure is
-    // ALSO logged here: the gate shows one line, and the terminal keeps a record for a
-    // user who is looking at the app rather than at the window.
-    daemon.onStatus((report) => {
-      if (report.status === 'error') {
-        console.error(`[coa] daemon error: ${report.reason ?? 'no reason reported'}`);
-      }
-      pushDaemonStatus();
-    });
-    mainWindow?.webContents.on('did-finish-load', () => pushDaemonStatus());
-    // Auto-start the daemon on launch (the pill shows `running` once connected).
-    void daemon.start();
+    // F11 launch-restore: reopen every project/window that was open at last quit
+    // (a fresh install — nothing ever persisted — falls back to one window on coa's
+    // own install root, today's only prior behavior).
+    for (const root of rootsToRestore()) createProjectWindow(root);
+
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) {
+        for (const root of rootsToRestore()) createProjectWindow(root);
+      }
     });
   });
 
@@ -599,6 +891,10 @@ function bootstrap(): void {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  // Reap the daemon connection + tracked child so it doesn't outlive the app.
-  app.on('before-quit', () => daemon.dispose());
+  app.on('before-quit', () => {
+    // Snapshot what's open now so the NEXT launch restores it, then reap every
+    // project's daemon (best-effort, not awaited — the app is quitting).
+    persistOpenAtQuit();
+    daemonRegistry.disposeAll();
+  });
 }

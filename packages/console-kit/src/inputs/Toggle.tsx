@@ -28,7 +28,10 @@ export function Toggle({
         'slip relative h-[16px] w-[28px] flex-none rounded-r1 border',
         disabled
           ? 'cursor-default border-s4 bg-s2'
-          : cx('cursor-pointer', on ? 'border-s7 bg-s6' : 'border-s5 bg-s3'),
+          : cx(
+              'slip-press cursor-pointer active:scale-[0.97]',
+              on ? 'border-s7 bg-s6 hover:border-s8' : 'border-s5 bg-s3 hover:border-s6',
+            ),
       )}
       {...aria}
     >

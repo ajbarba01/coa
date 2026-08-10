@@ -6,6 +6,7 @@ import { AgentsStrip, AgentsSurface } from '../panels/AgentsPanel.js';
 import { AuthStrip, AuthSurface } from '../panels/AuthPanel.js';
 import { ChatSurface } from '../panels/ChatPanel.js';
 import { FlagsSurface } from '../panels/FlagsPanel.js';
+import { LibraryStrip, LibrarySurface } from '../panels/LibraryPanel.js';
 import { ShowcaseSurface } from '../panels/ShowcasePanel.js';
 import { TimelineSurface } from '../panels/TimelinePanel.js';
 import { UsageStrip, UsageSurface } from '../panels/UsagePanel.js';
@@ -78,6 +79,10 @@ function SurfaceHost({
       return <UsageSurface />;
     case 'agents':
       return <AgentsSurface state={state} />;
+    // The library owns its data via its own daemon-fed store (libraryStore.ts), so
+    // no ConsoleState — the auth-surface precedent.
+    case 'library':
+      return <LibrarySurface />;
     case 'showcase':
       // Dev-gated here as well as in the nav registry: a persisted layout restores the
       // raw surface id, so a production build must fall to the floor even when an old
@@ -203,6 +208,8 @@ export function Center(): React.JSX.Element {
             <UsageStrip />
           ) : surface === 'agents' ? (
             <AgentsStrip />
+          ) : surface === 'library' ? (
+            <LibraryStrip />
           ) : (
             <>
               {/* The nav's label, not the raw id: this strip sits in the same slot as
@@ -389,7 +396,9 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
                     <span
                       aria-hidden
                       className={cx(
-                        'absolute top-1 z-10 h-full w-0.5 rounded-[1px] bg-s9',
+                        // z-seam (not the default stacking order) so the bar paints over
+                        // the trailing-edge divider hairline instead of under it.
+                        'absolute top-1 z-(--z-seam) h-full w-0.5 rounded-[1px] bg-s9',
                         dragBar?.edge === 'trailing' ? 'right-0' : 'left-0',
                       )}
                     />
@@ -454,7 +463,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           type="button"
           aria-label="New Session"
           onClick={() => setNewSessionOpen(true)}
-          className="slip flex flex-none cursor-pointer items-center px-3 text-[20px] text-s7 hover:text-s9"
+          className="slip flex flex-none cursor-pointer items-center px-3 font-mono text-icon text-s7 hover:text-s9"
           style={NO_DRAG}
         >
           +
@@ -473,7 +482,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
           type="button"
           onClick={openSearch}
           aria-label="Search Sessions"
-          className="slip flex cursor-pointer items-center px-3.5 text-[20px] text-s7 hover:text-s9"
+          className="slip flex cursor-pointer items-center px-3.5 font-mono text-icon text-s7 hover:text-s9"
           style={NO_DRAG}
         >
           ⌕

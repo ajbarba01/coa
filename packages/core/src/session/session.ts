@@ -1,8 +1,10 @@
 import type {
+  Attachment,
   BackendMessage,
   CapabilityFrame,
   CapabilitySet,
   Locator,
+  McpServerEntry,
   ModelSelection,
   NeutralConfig,
   Piece,
@@ -17,8 +19,10 @@ import type {
   ToolCatalogue,
   TurnInterrupt,
 } from '@coa/spi';
+import { reconcileSkillIndex } from '../library/injection.js';
+import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
-import { buildCanUseTool, buildStopGate } from './permission.js';
+import { buildCanUseTool, buildStopGate, type ModeDeps } from './permission.js';
 
 /**
  * The per-session lifecycle: create → attach-worktree → compile →
@@ -37,6 +41,13 @@ export interface SessionAdapterInit {
   sandbox: CapabilitySet;
   /** The session's prompt input — a one-shot string or a stream of user-turn strings (neutral, no backend type). */
   input: string | AsyncIterable<string>;
+  /** Attachments on this run's user message (the one shared wire shape). The adapter
+   *  maps each onto its backend's own encoding, or rejects with a typed
+   *  `AttachmentCapabilityError` when it can't honor one — never a silent drop. */
+  attachments?: readonly Attachment[];
+  /** Whether the chosen model reports image-input support (daemon-resolved from the
+   *  model-metadata catalog) — the adapter's image gate. Absent ⇒ unverified/no. */
+  visionSupported?: boolean;
   /** The agent's model selection; `model`/`reasoning` are the backend's (provider drives adapter routing upstream). */
   model?: ModelSelection;
   /** The backend's settlement step → the cost charge step, called once per settled result. */
@@ -55,6 +66,14 @@ export interface SessionAdapterInit {
    * pointer frame; the session layer persists it alongside the frame, never on the wire.
    */
   onTurn?: (frame: TurnFrame, full?: string) => void;
+  /**
+   * The library-resolved external MCP servers for this session (name → config).
+   * A backend with native MCP support (the Claude SDK) composes them alongside
+   * its own in-process `coa` server; a backend without one surfaces a typed
+   * degrade notice on the turn stream instead of silently pretending
+   * (strict-superset — never a lie). Absent/empty ⇒ byte-identical to before.
+   */
+  mcpServers?: Record<string, McpServerEntry>;
   /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
   locator?: Locator;
   /** A prior backend session id to resume (conversation continuity); absent ⇒ a fresh conversation. */
@@ -137,12 +156,25 @@ export interface AssemblePiecesContext {
 /** The live core references the session layer holds and wires per session (all injected; the session layer sorts last). */
 export interface SessionDeps {
   newSessionId: () => string;
-  /** Bind a git worktree for the session; returns its path. */
-  bindWorktree: (sessionId: string, scope: string) => string;
-  /** Release the session's worktree at close. */
+  /** Bind a git worktree for the session; returns its path. `opts.isolate` requests
+   *  a REAL, separate git worktree rather than the shared repo root — set only on a
+   *  spawned child's founding turn (see {@link StartChildRequest} in
+   *  `session-service.ts`); absent ⇒ today's shared-root behavior. */
+  bindWorktree: (sessionId: string, scope: string, opts?: { isolate?: boolean }) => string;
+  /** Release the session's worktree at close. An isolated worktree is NOT removed
+   *  here — its results may still need review, so cleanup is the explicit reap
+   *  action (`WorktreeManager.reap`) or the daemon-start staleness sweep, never a
+   *  session ending. */
   releaseWorktree: (worktree: string) => void;
-  /** Gather the session's pieces + capability frame (baseline scaffold + assembled context → compiler input). */
-  assemblePieces: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
+  /** Gather the session's pieces + capability frame (baseline scaffold + assembled context →
+   *  compiler input). `mcpServers`, when returned, is the assembly's package-referenced
+   *  external-server NAME list — resolved against the session's library-supplied configs
+   *  in {@link createSession}, with an unresolved name surfaced, never silently dropped. */
+  assemblePieces: (ctx: AssemblePiecesContext) => {
+    pieces: Piece[];
+    frame: CapabilityFrame;
+    mcpServers?: string[];
+  };
   /** Compile pieces → backend-neutral config. */
   compile: (pieces: Piece[], frame: CapabilityFrame) => NeutralConfig;
   /** The per-session capability set. */
@@ -166,6 +198,15 @@ export interface SessionDeps {
   }) => void;
   /** The per-tool deny-rule check. */
   perToolDeny: (tool: string, input: unknown) => { behavior: 'deny'; message: string } | undefined;
+  /**
+   * F2: resolve THIS session's mode-aware layer, bound to its live-session
+   * mode/approval-seam state and given the session's resolved `provider` (a
+   * static per-backend fact, known here before the adapter is even
+   * constructed). Absent, or returning `undefined` (an unknown session id —
+   * should not happen in practice), ⇒ mode enforcement is off for this session,
+   * byte-identical to before F2 existed (the strict-superset floor).
+   */
+  resolveMode?: (sessionId: string, provider: string) => ModeDeps | undefined;
   /** The close-gate verdict. */
   gate: () => StopDecision;
   /** The governed tool catalogue (names; the rich surface is registered by the backend port). */
@@ -174,13 +215,28 @@ export interface SessionDeps {
   baseCatalogue: ToolCatalogue;
   /**
    * Build THIS session's own copy of `catalogue`, with `spawn_agent` bound to the given
-   * session id as parent. Preferred over the shared `catalogue` when present (`createSession`
-   * calls it with `resolveSpawn`'s result); absent ⇒ falls back to `catalogue` unchanged —
-   * a session that never spawns behaves byte-identically to before this seam existed.
+   * session id as parent and `send_message`/`list_agents` bound to it as sender/roster
+   * owner. Preferred over the shared `catalogue` when present (`createSession` calls it
+   * with `resolveSpawn`/`resolveMessaging`'s results and the session's own bound
+   * worktree); absent ⇒ falls back to `catalogue` unchanged — a session that never
+   * spawns or messages behaves byte-identically to before this seam existed.
+   * `worktreeRoot`, when given, confines this session's Retrieve/Mutate handlers to it
+   * instead of the daemon's static root (an isolated session's real worktree); absent ⇒
+   * the daemon's static root.
    */
-  catalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  catalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    worktreeRoot?: string,
+    messaging?: MessagingDeps,
+  ) => ToolCatalogue;
   /** As {@link catalogueFor}, for `baseCatalogue` (non-claude providers). */
-  baseCatalogueFor?: (sessionId: string, spawn: SpawnDeps | undefined) => ToolCatalogue;
+  baseCatalogueFor?: (
+    sessionId: string,
+    spawn: SpawnDeps | undefined,
+    worktreeRoot?: string,
+    messaging?: MessagingDeps,
+  ) => ToolCatalogue;
   /** change-event-spine checkpoint at the session boundary. */
   checkpoint: () => void;
   /**
@@ -210,6 +266,12 @@ export interface SessionDeps {
    * own central case). Absent ⇒ spawning stays unavailable.
    */
   resolveSpawn?: (sessionId: string) => SpawnDeps | undefined;
+  /**
+   * Resolve THIS session's messaging port (bound to `sessionId` as sender — docs/adr/0039),
+   * read at the same point as {@link resolveSpawn} and for the same reason: never an
+   * ambient "current session" guess. Absent ⇒ messaging stays unavailable.
+   */
+  resolveMessaging?: (sessionId: string) => MessagingDeps | undefined;
 }
 
 /** Start a session: bind, compile, render, wire both governance hooks, and run the loop. */
@@ -225,12 +287,26 @@ export async function createSession(
      *  ledger record alongside `account` so a whole spawned run's cost is answerable, not
      *  just an account's. */
     root?: string;
+    /** Give this session its own git worktree instead of the shared root — set only
+     *  on a spawned child's founding turn (see {@link SessionDeps.bindWorktree}). */
+    isolate?: boolean;
     input: string | AsyncIterable<string>;
+    /** Attachments on this run's user message (see {@link SessionAdapterInit.attachments}). */
+    attachments?: readonly Attachment[];
+    /** Daemon-resolved image-input capability (see {@link SessionAdapterInit.visionSupported}). */
+    visionSupported?: boolean;
     model?: ModelSelection;
     /** Opt-in packages the user added beyond the role's (assembly selection). */
     packageIds?: string[];
     /** Default packages the user turned off (assembly selection). */
     exclude?: string[];
+    /** Library-resolved skill Pieces to inject (delivery-mapped push/pull); ride the
+     *  existing {@link AgentSpec.skills} seam via `assemblePieces`. Unused on a frozen
+     *  turn (the frozen prompt already carries them byte-stably). */
+    skills?: Piece[];
+    /** The library-resolved external MCP servers delivered to the backend adapter
+     *  (see {@link SessionAdapterInit.mcpServers}). */
+    mcpServers?: Record<string, McpServerEntry>;
     onTurn?: (frame: TurnFrame, full?: string) => void;
     /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
     onStart?: (started: { id: string; worktree: string }) => void;
@@ -250,6 +326,11 @@ export async function createSession(
     drainDeliveries?: DrainDeliveries;
     /** The session layer's turn-interrupt receiver, forwarded to the adapter (see {@link SessionAdapterInit.onTurnInterrupt}). */
     onTurnInterrupt?: (interrupt: TurnInterrupt) => void;
+    /** Mirror of each settlement's usage, fired alongside the charge — the drivers
+     *  push it to subscribers so the console's context ring rides the SAME per-turn
+     *  usage the adapters already report (never a second tracking mechanism).
+     *  Absent ⇒ byte-identical to before this hook existed. */
+    onUsage?: (usage: RuntimeUsage) => void;
     /** The session's frozen compilation (neutral config + frame). When present the
      *  prompt is NOT recompiled — the byte-stable frozen prompt is reused (cache
      *  warmth + "static unless raised"); absent ⇒ compile fresh (the first turn). */
@@ -260,7 +341,11 @@ export async function createSession(
   deps: SessionDeps,
 ): Promise<Session> {
   const sessionId = req.sessionId ?? deps.newSessionId();
-  const worktree = deps.bindWorktree(sessionId, req.scope);
+  const worktree = deps.bindWorktree(
+    sessionId,
+    req.scope,
+    req.isolate !== undefined ? { isolate: req.isolate } : undefined,
+  );
   req.onStart?.({ id: sessionId, worktree });
   // Reuse the frozen compilation when the session already has one; otherwise compile
   // once and report it up so it can be frozen for every later turn.
@@ -278,10 +363,36 @@ export async function createSession(
       worktree,
       ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
       ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
+      ...(req.skills !== undefined ? { skills: req.skills } : {}),
     });
     frame = assembled.frame;
-    neutral = deps.compile(assembled.pieces, frame);
+    // The on-demand skill advertisement names a tool, and only the resolved frame
+    // knows whether this session carries it. Reconcile before compiling so the
+    // prompt never points the model at a hole; the dropped skills get the same
+    // visible line the unresolved MCP servers below get (SC-1: surface, never lie).
+    const disclosure = reconcileSkillIndex(assembled.pieces, frame);
+    neutral = deps.compile(disclosure.pieces, frame);
     req.onCompile?.({ neutral, frame });
+    if (disclosure.unadvertised.length > 0) {
+      req.onTurn?.({
+        t: 'error',
+        origin: 'daemon',
+        message: `library skill(s) set to load on demand were not advertised this session: ${disclosure.unadvertised.join(', ')} — this agent's packages grant no get_piece tool, so nothing could pull them (add a package that grants it, or set the skill's delivery to auto). They stay invocable by name.`,
+      });
+    }
+    // A package-referenced external MCP server the library did not resolve gets a
+    // visible line, never a silent drop (SC-1). Only a compile turn can know the
+    // assembly's name list; a frozen turn already surfaced it when it compiled.
+    const unresolvedMcp = (assembled.mcpServers ?? []).filter(
+      (name) => req.mcpServers?.[name] === undefined,
+    );
+    if (unresolvedMcp.length > 0) {
+      req.onTurn?.({
+        t: 'error',
+        origin: 'daemon',
+        message: `MCP server(s) not resolvable from the library and unavailable this session: ${unresolvedMcp.join(', ')} (link and enable them in the library)`,
+      });
+    }
   }
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
   // The chosen model names its provider (from the merged model list); that provider's
@@ -294,6 +405,7 @@ export async function createSession(
   // spend to the audit ledger (when wired). The backend adapter calls this exactly once per result.
   const onSettle = (sid: string, usage: RuntimeUsage): void => {
     deps.charge(sid, usage);
+    req.onUsage?.(usage);
     deps.recordSpend?.({
       costUsd: usage.costUsd,
       tokensIn: usage.tokensIn,
@@ -308,7 +420,10 @@ export async function createSession(
     sandbox,
     input: req.input,
     onSettle,
+    ...(req.attachments !== undefined ? { attachments: req.attachments } : {}),
+    ...(req.visionSupported !== undefined ? { visionSupported: req.visionSupported } : {}),
     ...(req.model ? { model: req.model } : {}),
+    ...(req.mcpServers !== undefined ? { mcpServers: req.mcpServers } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     observeChanges: deps.observeChanges,
     ...(account?.locator ? { locator: account.locator } : {}),
@@ -326,22 +441,32 @@ export async function createSession(
   adapter.renderNative(neutral);
   adapter.denyBuiltins();
   // The session-scoped catalogue is preferred whenever the composition root wired one:
-  // `spawn_agent` on the SHARED daemon-wide catalogue would have no way to learn which
-  // live session is calling it, and a naive shared "current session" ambient would race
-  // across concurrently-live sessions (a parent and its already-running child — this
-  // feature's own central case). `resolveSpawn` reads the real `sessionId` right here,
-  // not from anywhere it could go stale. Neither seam present ⇒ the original static
-  // catalogue, byte-identical to before this existed.
+  // `spawn_agent`/`send_message` on the SHARED daemon-wide catalogue would have no way
+  // to learn which live session is calling it, and a naive shared "current session"
+  // ambient would race across concurrently-live sessions (a parent and its
+  // already-running child — this feature's own central case). `resolveSpawn`/
+  // `resolveMessaging` read the real `sessionId` right here, not from anywhere it could
+  // go stale. Neither seam present ⇒ the original static catalogue, byte-identical to
+  // before this existed.
   const spawn = deps.resolveSpawn?.(sessionId);
+  const messaging = deps.resolveMessaging?.(sessionId);
   const catalogueFor = provider === 'claude' ? deps.catalogueFor : deps.baseCatalogueFor;
   const catalogue =
     catalogueFor !== undefined
-      ? catalogueFor(sessionId, spawn)
+      ? catalogueFor(sessionId, spawn, worktree, messaging)
       : provider === 'claude'
         ? deps.catalogue
         : deps.baseCatalogue;
   adapter.registerTools(catalogue);
-  adapter.interceptTool(buildCanUseTool({ perToolDeny: deps.perToolDeny }));
+  // F2: resolved AFTER `provider` is known (above) so a per-provider approval-seam
+  // fact is never stale; `resolveMode` itself binds to the live session by
+  // `sessionId`, so the predicate's `getMode`/`hasApprovalSeam` stay live reads
+  // even though this composition runs once (per turn, or once for a whole
+  // held-open query — see permission.ts's `ModeDeps` doc).
+  const modeDeps = deps.resolveMode?.(sessionId, provider);
+  adapter.interceptTool(
+    buildCanUseTool({ perToolDeny: deps.perToolDeny, ...(modeDeps ? { mode: modeDeps } : {}) }),
+  );
   adapter.interceptStop(buildStopGate({ gate: deps.gate }));
 
   const config = { role: req.role, scope: req.scope, worktree, capabilityFrame: frame };

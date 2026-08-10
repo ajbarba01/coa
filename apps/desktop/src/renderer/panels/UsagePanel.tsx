@@ -168,8 +168,10 @@ export function UsageStrip(): React.JSX.Element {
 /** A segmented control, not a row of buttons: one track, and the selection is a tile that
  *  SLIDES between cells (layoutId) — the multi-state control the console already implies.
  *  `layoutId` must be unique per instance, or the tile flies between controls.
- *  Options are value/label pairs so a cell can be cased without recasing the view state. */
-function Segmented({
+ *  Options are value/label pairs so a cell can be cased without recasing the view state.
+ *  Exported for the Library strip's Skills/MCP switch (the second consumer; it graduates
+ *  to its own module — or the kit — on the third). */
+export function Segmented({
   options,
   value,
   onChange,
@@ -449,7 +451,7 @@ function ScopeTiles({
               // The retired filter row's chip vocabulary (border + press), so the tile
               // reads as the toggle it is, not as a decorated logo.
               className={cx(
-                'slip slip-press flex cursor-pointer flex-col items-center gap-1 rounded-r2 border px-2.5 py-2 active:scale-[0.97]',
+                'slip slip-press flex cursor-pointer flex-col items-center gap-1 rounded-r3 border px-2.5 py-2 active:scale-[0.97]',
                 on ? 'border-s7 bg-s4' : 'border-s4 bg-s2 hover:border-s6',
               )}
             >

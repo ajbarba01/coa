@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CapabilitySet, NeutralConfig } from '@coa/shared';
+import type { CapabilitySet, NeutralConfig, Piece } from '@coa/shared';
 import type {
   BackendConfig,
   CanUseTool,
@@ -8,12 +8,35 @@ import type {
   RuntimeUsage,
   StopPredicate,
 } from '@coa/spi';
+import { SKILL_INDEX_PIECE_NAME } from '../library/injection.js';
 import {
   createSession,
   closeSession,
   type SessionAdapterInit,
   type SessionDeps,
 } from './session.js';
+
+const AXES = {
+  delivery: 'push',
+  salience: 'never',
+  provenance: 'authored',
+} as const satisfies Piece['axes'];
+
+/** One library skill delivered on demand (a `pull` Piece — no renderer folds it in). */
+const pullSkill = (name: string): Piece => ({
+  name,
+  description: `${name} skill`,
+  body: 'b',
+  axes: { ...AXES, delivery: 'pull' },
+});
+
+/** The aggregated advertisement `resolveSkillConfigs` appends for a disclosure set. */
+const skillIndex = (): Piece => ({
+  name: SKILL_INDEX_PIECE_NAME,
+  description: 'the on-demand skills available to this agent',
+  body: 'load its full instructions with the get_piece tool',
+  axes: AXES,
+});
 
 const NEUTRAL: NeutralConfig = {
   prefixHead: [],
@@ -134,12 +157,170 @@ describe('createSession', () => {
     expect(seen).toMatchObject({ packageIds: ['research'], exclude: ['core'] });
   });
 
+  it('threads library skill Pieces into assemblePieces and the MCP map into the adapter init', async () => {
+    let seen: Parameters<SessionDeps['assemblePieces']>[0] | undefined;
+    const h = harness({
+      assemblePieces: (ctx) => {
+        seen = ctx;
+        return { pieces: [], frame: { allow: [], deny: [] } };
+      },
+    });
+    const skill = {
+      name: 'commits',
+      description: 'd',
+      body: 'b',
+      axes: {
+        delivery: 'push' as const,
+        salience: 'never' as const,
+        provenance: 'authored' as const,
+      },
+    };
+    const mcpServers = { gh: { transport: 'http' as const, url: 'https://mcp.example' } };
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', skills: [skill], mcpServers },
+      h.deps,
+    );
+    expect(seen?.skills).toEqual([skill]);
+    expect(h.adapter()?.init.mcpServers).toEqual(mcpServers);
+  });
+
+  it('surfaces a package-referenced MCP server the library did not resolve (never silent)', async () => {
+    const h = harness({
+      assemblePieces: () => ({
+        pieces: [],
+        frame: { allow: [], deny: [] },
+        mcpServers: ['gh', 'ghost'],
+      }),
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      {
+        role: 'swe',
+        scope: 'src',
+        input: 'go',
+        mcpServers: { gh: { transport: 'http', url: 'https://mcp.example' } },
+        onTurn: (frame) => frames.push(frame),
+      },
+      h.deps,
+    );
+    expect(frames).toContainEqual(
+      expect.objectContaining({
+        t: 'error',
+        origin: 'daemon',
+        message: expect.stringContaining('ghost'),
+      }),
+    );
+    // The resolved server is NOT named as unavailable.
+    const messages = frames.map((f) => (f as { message?: string }).message ?? '');
+    expect(messages.some((m) => m.includes('gh,') || m.includes(' gh '))).toBe(false);
+  });
+
+  it('compiles no on-demand-skill advertisement when the frame grants no pull tool, and says so', async () => {
+    // The advertisement names `get_piece`; a role whose packages do not grant it
+    // would otherwise be told to pull with a tool the session never registers.
+    const pieces = [pullSkill('commits'), skillIndex()];
+    let compiled: Piece[] | undefined;
+    const h = harness({
+      assemblePieces: () => ({ pieces, frame: { allow: ['Read', 'Edit'], deny: [] } }),
+      compile: (p) => {
+        compiled = p;
+        return NEUTRAL;
+      },
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', onTurn: (frame) => frames.push(frame) },
+      h.deps,
+    );
+    expect(compiled?.map((p) => p.name)).toEqual(['commits']);
+    expect(frames).toContainEqual(
+      expect.objectContaining({
+        t: 'error',
+        origin: 'daemon',
+        message: expect.stringContaining('commits'),
+      }),
+    );
+  });
+
+  it('keeps the on-demand-skill advertisement when the frame grants the pull tool', async () => {
+    const pieces = [pullSkill('commits'), skillIndex()];
+    let compiled: Piece[] | undefined;
+    const h = harness({
+      assemblePieces: () => ({ pieces, frame: { allow: ['get_piece'], deny: [] } }),
+      compile: (p) => {
+        compiled = p;
+        return NEUTRAL;
+      },
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      { role: 'swe', scope: 'src', input: 'go', onTurn: (frame) => frames.push(frame) },
+      h.deps,
+    );
+    expect(compiled?.map((p) => p.name)).toEqual(['commits', SKILL_INDEX_PIECE_NAME]);
+    expect(frames).toEqual([]);
+  });
+
+  it('reuses a frozen compilation without re-surfacing MCP resolution (assembly skipped)', async () => {
+    let assembled = 0;
+    const h = harness({
+      assemblePieces: () => {
+        assembled += 1;
+        return { pieces: [], frame: { allow: [], deny: [] }, mcpServers: ['ghost'] };
+      },
+    });
+    const frames: unknown[] = [];
+    await createSession(
+      {
+        role: 'swe',
+        scope: 'src',
+        input: 'go',
+        frozen: { neutral: NEUTRAL, frame: { allow: [], deny: [] } },
+        onTurn: (frame) => frames.push(frame),
+      },
+      h.deps,
+    );
+    expect(assembled).toBe(0);
+    expect(frames).toEqual([]);
+  });
+
   it('wires the settlement callback to the cost charge', async () => {
     const h = harness();
     await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
     expect(h.stats.charged).toEqual([
       { sessionId: 'sess-1', usage: { tokensIn: 1, tokensOut: 2, costUsd: 0.5 } },
     ]);
+  });
+
+  it('threads attachments + the resolved vision fact into the adapter init', async () => {
+    const h = harness();
+    const attachments = [{ kind: 'image' as const, mimeType: 'image/png', data: 'aWJt' }];
+    await createSession(
+      { role: 'dev', scope: 'src', input: 'go', attachments, visionSupported: true },
+      h.deps,
+    );
+    expect(h.adapter()?.init.attachments).toEqual(attachments);
+    expect(h.adapter()?.init.visionSupported).toBe(true);
+  });
+
+  it('omits attachments/visionSupported from the init when the request carries none', async () => {
+    const h = harness();
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    expect('attachments' in (h.adapter()?.init ?? {})).toBe(false);
+    expect('visionSupported' in (h.adapter()?.init ?? {})).toBe(false);
+  });
+
+  it('mirrors each settlement to onUsage alongside the charge (the context ring feed)', async () => {
+    const h = harness();
+    const seen: RuntimeUsage[] = [];
+    await createSession(
+      { role: 'dev', scope: 'src', input: 'go', onUsage: (usage) => seen.push(usage) },
+      h.deps,
+    );
+    // The SAME usage the charge saw — one settlement channel, mirrored, never a
+    // second tracking mechanism.
+    expect(seen).toEqual([{ tokensIn: 1, tokensOut: 2, costUsd: 0.5 }]);
+    expect(h.stats.charged).toHaveLength(1);
   });
 
   it('wires the per-tool deny rules into the canUseTool predicate on the tool hook', async () => {
@@ -149,6 +330,50 @@ describe('createSession', () => {
       .adapter()
       ?.canUseTool?.({ tool: 'apply_patch', args: {}, sessionId: 'sess-1' });
     expect(decision?.behavior).toBe('deny');
+  });
+
+  it('resolveMode is absent by default — mode enforcement off, byte-identical to before F2', async () => {
+    const h = harness();
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    const decision = await h
+      .adapter()
+      ?.canUseTool?.({ tool: 'Bash', args: {}, sessionId: 'sess-1' });
+    expect(decision).toEqual({ behavior: 'allow' });
+  });
+
+  it('wires resolveMode into the canUseTool predicate, resolved with the sessionId and provider', async () => {
+    const seen: { sessionId: string; provider: string }[] = [];
+    const h = harness({
+      resolveMode: (sessionId, provider) => {
+        seen.push({ sessionId, provider });
+        return {
+          getMode: () => 'plan',
+          hasApprovalSeam: () => true,
+          classify: () => 'write',
+          requestApproval: () => Promise.resolve('allow'),
+        };
+      },
+    });
+    await createSession(
+      { role: 'dev', scope: 'src', input: 'go', model: { provider: 'deepseek' } },
+      h.deps,
+    );
+    expect(seen).toEqual([{ sessionId: 'sess-1', provider: 'deepseek' }]);
+    const decision = await h
+      .adapter()
+      ?.canUseTool?.({ tool: 'Write', args: { path: 'a.ts' }, sessionId: 'sess-1' });
+    // plan mode blocks a write outright — proves the resolved ModeDeps actually
+    // reached the composed predicate, not just that resolveMode was called.
+    expect(decision?.behavior).toBe('deny');
+  });
+
+  it('resolveMode returning undefined (unknown session id) leaves mode enforcement off', async () => {
+    const h = harness({ resolveMode: () => undefined });
+    await createSession({ role: 'dev', scope: 'src', input: 'go' }, h.deps);
+    const decision = await h
+      .adapter()
+      ?.canUseTool?.({ tool: 'Bash', args: {}, sessionId: 'sess-1' });
+    expect(decision).toEqual({ behavior: 'allow' });
   });
 
   it('threads the active account locator into the adapter init and stamps the session label', async () => {

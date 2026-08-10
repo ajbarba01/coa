@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { flagRecordSchema } from './flag.js';
+import { permissionModeSchema, toolClassSchema } from './permission.js';
 
 /**
  * The server-to-client push wire records (the CHAT and CON families). `tokens` is the
@@ -71,6 +72,48 @@ export const turnFrameSchema = z.discriminatedUnion('t', [
     childWorktree: z.string(),
     event: z.enum(['spawn-proposal', 'spawn', 'running', 'idle', 'done', 'rollup']),
   }),
+  // Three live-only announcement kinds (packages/core/src/session/session-service.ts's
+  // `#announceSubagent`) — the `subagent` kind above has zero production producers (its
+  // 6-state `event` enum doesn't map onto "a child started" / "a child finished" / "a
+  // message crossed the mesh"), so these are a proper schema extension rather than
+  // overloading it with new meaning. Each is emitted straight onto the `turn` push
+  // (`kind:'turn'`), never persisted to the append-only log (a live-session-only
+  // annotation for the console, like `status`/`cost`/`mode` pushes already are) — a
+  // reload will not show one; giving them durability is a follow-up, not built here.
+  z.object({
+    t: z.literal('subagent-spawn'),
+    childSessionId: z.string(),
+    childWorktree: z.string(),
+    agentRef: z.string(),
+    description: z.string(),
+    isolate: z.boolean(),
+  }),
+  z.object({
+    t: z.literal('subagent-completion'),
+    childSessionId: z.string(),
+    childWorktree: z.string(),
+    agentRef: z.string(),
+    // The same three-outcome vocabulary `notify.ts`'s `SessionEndReason` uses — no
+    // inferred/advisory reason here either (docs/adr/0033).
+    reason: z.enum(['completed', 'errored', 'stopped']),
+    detail: z.string().optional(),
+    result: z.string().optional(),
+  }),
+  z.object({
+    t: z.literal('subagent-message'),
+    messageId: z.string(),
+    // The message's thread — its own id for a fresh thread, or the id of the thread it
+    // replies into (see `session/message-dispatch.ts`'s `dispatchMessage`).
+    threadId: z.string(),
+    replyTo: z.string().optional(),
+    from: z.string(),
+    to: z.string(),
+    // One `subagent-message` frame is announced to EACH side of a send (`session-service.ts`'s
+    // `#sendMessage`) — `direction` is relative to whichever session this push's own
+    // `sessionId` names, not a global fact about the message.
+    direction: z.enum(['sent', 'received']),
+    body: z.string(),
+  }),
   z.object({
     t: z.literal('turn-boundary'),
     role: z.enum(['user', 'assistant']),
@@ -126,6 +169,38 @@ export const pushSchema = z.discriminatedUnion('kind', [
     tool: z.string().optional(),
     input: z.record(z.string(), z.unknown()).optional(),
     diffHandle: z.string().optional(),
+    /** F2: the tool's risk class (never `read` — a read-class call is never
+     *  asked about), for the chip/card's icon and copy. */
+    toolClass: toolClassSchema.optional(),
+  }),
+  // F2: the mode-reflection push — sent whenever a session's permission mode (or
+  // the honesty of its enforcement) changes, so every subscribed console stays in
+  // sync with the daemon's own authority over it (mode is NEVER decided by the
+  // console). `effectiveMode` is what the predicate actually enforces right now;
+  // it differs from `mode` only when `degraded` is set (SC-1 — the active
+  // backend has no real approval seam, so enforcement honestly falls back to
+  // `bypass` rather than claiming a mode it cannot deliver).
+  z.object({
+    kind: z.literal('mode'),
+    sessionId: z.string(),
+    mode: permissionModeSchema,
+    effectiveMode: permissionModeSchema,
+    degraded: z.string().optional(),
+  }),
+  // Per-turn settled token usage — the same numbers the backend adapter reports
+  // through its settlement callback (the one usage channel into the cost meter),
+  // mirrored to subscribers so the console's context ring reads REAL counts rather
+  // than inventing a second usage-tracking mechanism. `tokensIn` is what the
+  // adapter settled for the turn (the Claude backend reports the final request's
+  // input tokens; the pure-API loop sums its round trips), `cacheReadTokens` the
+  // prompt-cache reads that didn't bill as fresh input. Emitted once per settled
+  // result, alongside the charge.
+  z.object({
+    kind: z.literal('usage'),
+    sessionId: z.string(),
+    tokensIn: z.number(),
+    tokensOut: z.number(),
+    cacheReadTokens: z.number().optional(),
   }),
   z.object({ kind: z.literal('tokens'), sessionId: z.string(), delta: z.string() }),
   z.object({ kind: z.literal('banner'), sessionId: z.string(), banner: bannerSchema }),

@@ -1,6 +1,50 @@
-import type { ModelSelection, Push } from '@coa/shared';
+import { randomUUID } from 'node:crypto';
+import type {
+  AgentSkillConfig,
+  Attachment,
+  McpServerEntry,
+  ModelSelection,
+  PermissionMode,
+  Piece,
+  Push,
+  ToolCall,
+  ToolClass,
+} from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
+import type { InvokedSkill } from './skill-invocation.js';
 import type { TurnLifecycle } from './turn-lifecycle.js';
+
+/** The system-wide mode floor a session with no agent-resolved default falls back
+ *  to — `manual` (ask before writes/commands), the same balanced default Claude
+ *  Code's own `default` mode uses. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'manual';
+
+/** A still-pending approval request, as replayed to a caller reading the current
+ *  snapshot (e.g. a console reattach) — the push payload minus its resolver. */
+export interface PendingApprovalSnapshot {
+  requestId: string;
+  tool: string;
+  summary: string;
+  input: Record<string, unknown>;
+}
+
+/** Best-effort one-line summary of a proposed tool call, for the approval card.
+ *  Prefers a symbol ref's name/path (edit_symbol) over a plain arg (Write/Edit's
+ *  `path`, apply_patch's `target`, Bash's `command`); falls back to the bare
+ *  tool name when neither is present. Pure and total — never throws. */
+function summarizeToolCall(call: ToolCall): string {
+  const ref = call.ref;
+  if (ref !== undefined) {
+    const label =
+      'name' in ref ? ref.name : ref.symbol !== undefined ? `${ref.path}#${ref.symbol}` : ref.path;
+    return `${call.tool} ${label}`;
+  }
+  for (const key of ['path', 'target', 'command']) {
+    const value = call.args[key];
+    if (typeof value === 'string') return `${call.tool} ${value}`;
+  }
+  return call.tool;
+}
 
 /**
  * A `LiveSession`'s run state — whether the backend loop is actively driving a
@@ -25,6 +69,27 @@ export interface TurnRequest {
   scope?: string;
   packageIds?: string[];
   exclude?: string[];
+  /** Attachments on THIS turn's user message (the one shared wire shape). Rides the
+   *  turn to the backend adapter; absent/empty ⇒ byte-identical to before. */
+  attachments?: readonly Attachment[];
+  /** Whether the turn's model reports image-input support — resolved DAEMON-side
+   *  from the model-metadata catalog at the RPC edge (never client-claimed), and
+   *  consumed by the adapter's image gate. Absent ⇒ unverified, treated as no. */
+  visionSupported?: boolean;
+  /** The library-resolved skill selection this turn's agent carries ({name, delivery}
+   *  per resolved skill) — the drift key's skill slice (prompt-freeze.ts). Resolved
+   *  DAEMON-side per turn (`SessionService`'s library port), so a library change
+   *  surfaces as drift on the very next send. */
+  skillSelection?: AgentSkillConfig[];
+  /** The resolved skill Pieces (delivery-mapped push/pull) the assembly injects on a
+   *  fresh compile — the same facts `skillSelection` records, in injectable form. */
+  skillPieces?: Piece[];
+  /** Explicit slash invocations riding THIS turn: each skill's body reaches this one
+   *  turn's context even in disclosure mode (see skill-invocation.ts). */
+  invokedSkills?: InvokedSkill[];
+  /** The library-resolved external MCP servers (name → config) delivered to this
+   *  turn's backend adapter (native on the Claude SDK; a surfaced degrade elsewhere). */
+  mcpServers?: Record<string, McpServerEntry>;
 }
 
 /** A subscriber callback that receives every push fanned out by a session. */
@@ -61,6 +126,22 @@ export interface QueuedTurn extends TurnRequest {
   /** Set only for the FOUNDING turn (a brand-new session) — resolves the caller's
    *  pending answer with the worktree as soon as the turn starts. */
   onReady?: (started: StartedHandle) => void;
+  /**
+   * Set on a spawned child's FOUNDING turn (`SessionService#startChild`, from
+   * `StartChildRequest.isolate`) — an ordinary `send()` never sets this, so a
+   * top-level session is never isolated. `bindWorktree` is idempotent per session
+   * (see `WorktreeManager`), so a later turn on the same child omitting this is
+   * always fine, in-process or across a restart: `WorktreeManager.bind` itself
+   * reconciles against disk (`git worktree list`) whenever it has no in-memory
+   * record for a session, regardless of whether this flag is set, so a resumed
+   * child's worktree binding never silently degrades to the shared root even
+   * when the caller (e.g. `SessionService#send`'s continuation turns, which have
+   * no `isolate` field to carry at all) never re-supplies it. `SessionService#wake`
+   * additionally re-sets this field from the persisted `SessionMeta.isolated` flag
+   * on a woken turn — belt-and-braces, not load-bearing, since `WorktreeManager`
+   * would resolve the same worktree either way.
+   */
+  isolate?: boolean;
 }
 
 /**
@@ -110,18 +191,42 @@ export class LiveSession {
    */
   readonly deliveries = new DeliveryQueue();
 
+  /** F2: this session's CONFIGURED permission mode — settable live via {@link setMode};
+   *  a mode-aware `canUseTool` predicate reads it fresh on every call (see
+   *  `permission.ts`'s `ModeDeps.getMode`), so a switch takes effect starting with
+   *  the NEXT tool call, never retroactively on one already in flight. */
+  mode: PermissionMode;
+  /** F2: whether the CURRENTLY active backend adapter can actually honor an ask (a
+   *  real approval seam) — set once per turn-drive, when the provider is known
+   *  (see the daemon's `resolveMode` wiring). Defaults `true`: every backend wired
+   *  today genuinely awaits `canUseTool`, so a session read before its first turn
+   *  reports the honest floor rather than a premature degrade. */
+  approvalSeam = true;
+
   #sinks = new Set<Sink>();
+  /** Daemon advisories announced before anyone subscribed — held for the first
+   *  subscriber (see {@link announce}), because `emit` reaches CURRENT sinks only. */
+  #pendingAnnouncements: Push[] = [];
   #queue: QueuedTurn[] = [];
   #waiter: ((turn: QueuedTurn | undefined) => void) | undefined;
   #closed = false;
   #steerSink: ((text: string) => void) | undefined = undefined;
   #interruptClosure: (() => boolean) | undefined = undefined;
   #onClose: Array<() => void> = [];
+  #pendingApprovals = new Map<
+    string,
+    { resolve: (decision: 'allow' | 'deny') => void; snapshot: PendingApprovalSnapshot }
+  >();
 
-  constructor(id: string, lineage?: { parent?: string; root?: string }) {
+  constructor(
+    id: string,
+    lineage?: { parent?: string; root?: string },
+    defaultMode: PermissionMode = DEFAULT_PERMISSION_MODE,
+  ) {
     this.id = id;
     this.parent = lineage?.parent;
     this.root = lineage?.root ?? id;
+    this.mode = defaultMode;
   }
 
   /**
@@ -167,7 +272,134 @@ export class LiveSession {
     this.#onClose.push(fn);
   }
 
+  /** F2: live-switch this session's permission mode and reflect the change to
+   *  every subscriber (the `mode` push). Taking effect starting with the NEXT
+   *  tool call is a property of HOW the predicate reads `mode` (fresh, every
+   *  call — see `permission.ts`), not of this method. */
+  setMode(mode: PermissionMode): void {
+    this.mode = mode;
+    this.emit(this.#modePush());
+  }
+
+  /** F2: record whether the active backend adapter can currently honor an ask (a
+   *  per-turn-drive fact, since it can only be known once the provider is
+   *  resolved). Re-emits the reflection only when the EFFECTIVE mode actually
+   *  changes as a result, so an unchanged provider across turns never spams a
+   *  push nothing downstream needs to react to. */
+  setApprovalSeam(seam: boolean): void {
+    if (seam === this.approvalSeam) return;
+    const before = this.effectiveMode();
+    this.approvalSeam = seam;
+    if (this.effectiveMode() !== before) this.emit(this.#modePush());
+  }
+
+  /** F2: the mode the `canUseTool` predicate actually enforces right now —
+   *  `bypass` whenever {@link approvalSeam} is false, regardless of the
+   *  configured {@link mode} (SC-1 honesty: never claim an enforcement the
+   *  backend cannot deliver). */
+  effectiveMode(): PermissionMode {
+    return this.approvalSeam ? this.mode : 'bypass';
+  }
+
+  #modePush(): Push {
+    const effectiveMode = this.effectiveMode();
+    return {
+      kind: 'mode',
+      sessionId: this.id,
+      mode: this.mode,
+      effectiveMode,
+      ...(effectiveMode !== this.mode
+        ? { degraded: 'the active backend has no approval seam — enforcement degrades to bypass' }
+        : {}),
+    };
+  }
+
+  /**
+   * F2: ask the user, blocking until they answer ({@link resolveApproval}) or
+   * the session closes (resolves `'deny'` — fail-safe, so a torn-down session
+   * never leaves the awaiting `canUseTool` call hanging on a promise nothing
+   * will ever settle). Pushes the pending request live (the `approval` push)
+   * and reflects `blocked-approval` on the status channel WITHOUT touching
+   * `state` itself (mirrors the ad hoc terminal-status pushes
+   * `session-service.ts` emits for `done`/`error`/`interrupted`) — the turn is
+   * still `running` underneath; the running status resumes once answered.
+   */
+  requestApproval(call: ToolCall, toolClass: ToolClass): Promise<'allow' | 'deny'> {
+    const requestId = randomUUID();
+    const snapshot: PendingApprovalSnapshot = {
+      requestId,
+      tool: call.tool,
+      summary: summarizeToolCall(call),
+      input: call.args,
+    };
+    this.emit({
+      kind: 'approval',
+      requestId,
+      sessionId: this.id,
+      summary: snapshot.summary,
+      tool: call.tool,
+      input: call.args,
+      toolClass,
+    });
+    this.emit({
+      kind: 'status',
+      sessionId: this.id,
+      worktree: this.worktree ?? '',
+      state: 'blocked-approval',
+    });
+    return new Promise<'allow' | 'deny'>((resolve) => {
+      this.#pendingApprovals.set(requestId, { resolve, snapshot });
+    });
+  }
+
+  /** F2: resolve a pending approval request. `false` ⇒ no such pending request
+   *  (already answered, the session was already torn down, or the id is stale/
+   *  unknown) — a second answer to the same id is a harmless no-op, not an error. */
+  resolveApproval(requestId: string, decision: 'allow' | 'deny'): boolean {
+    const pending = this.#pendingApprovals.get(requestId);
+    if (pending === undefined) return false;
+    this.#pendingApprovals.delete(requestId);
+    pending.resolve(decision);
+    // Only reflect back to `running` once EVERY pending ask has cleared — another
+    // one still open means the turn is still blocked on it.
+    if (this.#pendingApprovals.size === 0) {
+      this.emit({
+        kind: 'status',
+        sessionId: this.id,
+        worktree: this.worktree ?? '',
+        state: this.state === 'running' ? 'running' : 'idle',
+      });
+    }
+    return true;
+  }
+
+  /** F2: every approval request still awaiting a reply, as a plain read (e.g. for
+   *  a console reattach to learn what's pending without waiting on a push). */
+  pendingApprovals(): PendingApprovalSnapshot[] {
+    return [...this.#pendingApprovals.values()].map((p) => p.snapshot);
+  }
+
+  /**
+   * F2: fail-safe-resolve every still-pending ask as denied WITHOUT the
+   * intermediate running/idle reflection {@link resolveApproval} emits (the
+   * caller is about to emit its own terminal status right after — `interrupted`
+   * from a user Stop, or nothing at all from {@link close}'s hard teardown —
+   * so an extra flip back to running first would be a lie no one asked to see).
+   * Called from a user Stop (`SessionService.interrupt`): a turn that just
+   * stopped will never make the tool call its ask was blocking, so leaving the
+   * ask pending would hang the daemon's `#pendingApprovals` entry forever (and
+   * a later reattach's `sessionMode` snapshot would keep reporting a request
+   * for a tool call that will never happen) while gate-locking the composer,
+   * which has no answer it could ever send. Also the tail of {@link close}'s own
+   * fail-safe, so there is exactly one place this logic lives.
+   */
+  abandonPendingApprovals(): void {
+    for (const pending of this.#pendingApprovals.values()) pending.resolve('deny');
+    this.#pendingApprovals.clear();
+  }
+
   /** Add `sink` to the fan-out set, hydrate it with the current status push,
+   *  then deliver any advisories held for the first subscriber ({@link announce}),
    *  and return an unsubscribe function. */
   subscribe(sink: Sink): () => void {
     this.#sinks.add(sink);
@@ -179,7 +411,33 @@ export class LiveSession {
     } catch {
       this.#sinks.delete(sink);
     }
+    // Held advisories flush AFTER hydration, so the subscriber still joins at the
+    // session's current status first. A sink dropped by its own hydration throw
+    // leaves the buffer intact for whoever attaches next.
+    if (this.#sinks.size > 0 && this.#pendingAnnouncements.length > 0) {
+      const pending = this.#pendingAnnouncements;
+      this.#pendingAnnouncements = [];
+      for (const push of pending) this.emit(push);
+    }
     return () => this.#sinks.delete(sink);
+  }
+
+  /**
+   * Emit a daemon advisory that must reach SOMEONE: delivered like any push when a
+   * subscriber is attached, otherwise held for the FIRST subscriber and flushed on
+   * attach (once — later subscribers see only live traffic, like every live-only
+   * frame). Plain `emit` fans out to current sinks only, which silently drops an
+   * advisory raised in the founding-turn / child-spawn window where the caller's
+   * subscription is still deferred to the turn's first status — exactly what an
+   * advisory's never-silently-dropped contract forbids.
+   */
+  announce(push: Push): void {
+    if (this.#sinks.size > 0) {
+      this.emit(push);
+      return;
+    }
+    if (this.#closed) return;
+    this.#pendingAnnouncements.push(push);
   }
 
   /** Fan `push` out to every subscribed sink. A sink that throws (e.g. a dropped
@@ -196,8 +454,11 @@ export class LiveSession {
   }
 
   /** Queue `turn` for the loop to drain, resolving a pending `nextTurn()` waiter
-   *  immediately if one is parked. */
+   *  immediately if one is parked. A no-op once `close()` has run — the queue
+   *  must not outlive the session, so nothing enqueued after teardown is ever
+   *  kept around to be drained later (mirrors `deliveries`' sealed-push guard). */
   enqueue(turn: QueuedTurn): void {
+    if (this.#closed) return;
     if (this.#waiter) {
       const waiter = this.#waiter;
       this.#waiter = undefined;
@@ -218,11 +479,24 @@ export class LiveSession {
   }
 
   /** Mark the channel closed; run the registered finalizers (e.g. ending a
-   *  held-open query's input feed), and resolve any parked `nextTurn()` waiter with
-   *  `undefined`. */
+   *  held-open query's input feed), drop any turn still sitting in the queue,
+   *  and resolve any parked `nextTurn()` waiter with `undefined`. */
   close(): void {
     this.#closed = true;
     this.deliveries.seal();
+    // Advisories still waiting for a first subscriber have no one left to reach.
+    this.#pendingAnnouncements = [];
+    // A turn already queued but not yet drained must not outlive the session:
+    // left in place, the NEXT `nextTurn()` call (once the loop's current turn
+    // finishes) would still find it and hand it to `runTurn`, dispatching a
+    // brand-new backend query the registry — which has already deleted this
+    // session's entry by the time close() runs — has no record of. Drop it
+    // explicitly instead of letting `nextTurn()` silently drain it later.
+    this.#queue = [];
+    // F2 fail-safe: a still-pending ask must not hang forever once the session is
+    // torn down — resolve every one as denied so its awaiting `canUseTool` call
+    // unblocks instead of leaking a promise nothing will ever settle.
+    this.abandonPendingApprovals();
     // Finalizers first (and once): ending the held-open input feed lets the backend
     // query drain its last result before the parked loop wakes and exits.
     const finalizers = this.#onClose;

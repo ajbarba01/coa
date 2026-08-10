@@ -30,6 +30,7 @@ export const comboboxIntent: ComponentIntent = assertIntent({
     'with rail (wider popup, scopes down the left edge, the active one tinted, fixed-height list) · without (narrow popup, list sized to its rows)',
     'with a leading glyph on the trigger (the selection’s own mark) · text only',
     'popup anchored to the trigger’s start edge (default) or its end edge (a trigger in a right-packed row, whose start edge moves as its label changes width)',
+    'with a detail card (an overview surface beside the popup, following the cursor row — mouse and arrows alike; a null return renders none) · without',
   ],
   accessibility:
     'Trigger carries role="combobox", aria-expanded and aria-haspopup="listbox"; ArrowUp/ArrowDown move a cursor over the filtered rows, Enter selects it; Escape runs through the kit dismiss-layer stack via PopoverCard; the popup opens onto the filter input by name (initialFocus) rather than onto whatever is first tabbable; the rail is a labelled role="group" of aria-pressed buttons, each named by its scope since the rail is glyphs only, each carrying the kit tooltip (never a native title, which the OS draws outside the page in its own skin), and it swallows mousedown so the filter input keeps the caret; the trigger takes the same kit tooltip through its own spec.',

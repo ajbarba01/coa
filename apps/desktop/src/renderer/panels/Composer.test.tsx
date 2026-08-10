@@ -2,8 +2,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { ModelDescriptor } from '@coa/console-viewmodel';
-import { Composer, type ComposerProps, type PendingApproval } from './Composer.js';
+import type { AttachControlVm, ModelDescriptor } from '@coa/console-viewmodel';
+import { useNotices } from '../shell/failures.js';
+import { attachTooltip, Composer, type ComposerProps, type PendingApproval } from './Composer.js';
 
 const MODELS: ModelDescriptor[] = [
   { id: 'sonnet', displayName: 'Sonnet', description: 'Sonnet 4.6 · balanced', provider: 'claude' },
@@ -18,12 +19,16 @@ const EFFORTS = [
 function baseProps(overrides: Partial<ComposerProps> = {}): ComposerProps {
   return {
     running: false,
+    mode: 'manual',
+    effectiveMode: 'manual',
+    onSetMode: vi.fn(),
     models: MODELS,
     currentModelId: 'sonnet',
     onPickModel: vi.fn(),
     effortOptions: EFFORTS,
     effortValue: 'high',
     onPickEffort: vi.fn(),
+    skills: { status: 'loading' },
     onSend: vi.fn(),
     ...overrides,
   };
@@ -307,5 +312,342 @@ describe('Composer — merged notices', () => {
     render(<Composer {...baseProps({ notices: [DRIFT], onNoticeAction })} />);
     await userEvent.click(screen.getByRole('button', { name: 'Recompile' }));
     expect(onNoticeAction).toHaveBeenCalledWith('drift', 'recompile');
+  });
+});
+
+describe('Composer — attachments (capability-gated intake)', () => {
+  const OPEN: AttachControlVm = {
+    image: { enabled: true },
+    text: { enabled: true },
+    imageSupport: 'supported',
+  };
+  const NO_VISION: AttachControlVm = {
+    image: { enabled: false, reason: 'This model does not accept image input' },
+    text: { enabled: true },
+    imageSupport: 'unsupported',
+  };
+  const NO_BACKEND: AttachControlVm = {
+    image: { enabled: false, reason: 'This backend cannot carry attachments yet' },
+    text: { enabled: false, reason: 'This backend cannot carry attachments yet' },
+    imageSupport: 'supported',
+  };
+
+  const PNG = (): File =>
+    new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
+  const MD = (): File => new File(['# notes'], 'notes.md', { type: 'text/markdown' });
+
+  const attachInput = (): HTMLInputElement => {
+    const el = document.querySelector('[data-attach-input]');
+    if (!(el instanceof HTMLInputElement)) throw new Error('attach input missing');
+    return el;
+  };
+
+  it('the attach tooltip states what can ride, or exactly why nothing can', () => {
+    expect(attachTooltip(OPEN)).toBe('Attach an image or a text file');
+    expect(attachTooltip(NO_VISION)).toBe(
+      'Attach a text file (This model does not accept image input)',
+    );
+    expect(attachTooltip(NO_BACKEND)).toBe('This backend cannot carry attachments yet');
+    expect(attachTooltip(undefined)).toBe('Attachments are unavailable here');
+  });
+
+  it('enables the button when something can ride, disables it (still visible) when nothing can', () => {
+    const { rerender } = render(<Composer {...baseProps({ attach: OPEN })} />);
+    expect(screen.getByRole('button', { name: 'Attach a file' })).not.toBeDisabled();
+    rerender(<Composer {...baseProps({ attach: NO_BACKEND })} />);
+    expect(screen.getByRole('button', { name: 'Attach a file' })).toBeDisabled();
+  });
+
+  it('a picked image stages a chip and rides the send as a real image attachment', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ attach: OPEN, onSend })} />);
+    fireEvent.change(attachInput(), { target: { files: [PNG()] } });
+    expect(await screen.findByText('shot.png')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole('textbox'), 'what is this?{Enter}');
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const [text, attachments] = onSend.mock.calls[0] as [string, unknown[]];
+    expect(text).toBe('what is this?');
+    expect(attachments).toEqual([
+      expect.objectContaining({ kind: 'image', mimeType: 'image/png', name: 'shot.png' }),
+    ]);
+    // The wire contract: base64 payload only, no data: prefix.
+    const image = (attachments as { kind: string; data: string }[])[0]!;
+    expect(image.data.length).toBeGreaterThan(0);
+    expect(image.data.startsWith('data:')).toBe(false);
+    // Sent attachments leave the composer — the next send starts clean.
+    expect(screen.queryByText('shot.png')).not.toBeInTheDocument();
+  });
+
+  it('a text file inlines as a text attachment (no capability gate needed)', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ attach: NO_VISION, onSend })} />);
+    fireEvent.change(attachInput(), { target: { files: [MD()] } });
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'summarize{Enter}');
+    expect(onSend).toHaveBeenCalledWith('summarize', [
+      { kind: 'text', name: 'notes.md', text: '# notes' },
+    ]);
+  });
+
+  it('pasting an image stages it through the same gate', async () => {
+    render(<Composer {...baseProps({ attach: OPEN })} />);
+    fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { files: [PNG()] } });
+    expect(await screen.findByText('shot.png')).toBeInTheDocument();
+  });
+
+  it('pasting an image on a non-vision model refuses LOUDLY with the model reason, stages nothing', async () => {
+    useNotices.getState().dismiss();
+    render(<Composer {...baseProps({ attach: NO_VISION })} />);
+    fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { files: [PNG()] } });
+    await vi.waitFor(() => {
+      expect(useNotices.getState().notice?.detail).toBe('This model does not accept image input.');
+    });
+    expect(screen.queryByText('shot.png')).not.toBeInTheDocument();
+  });
+
+  it('dropping a file on the shell stages it', async () => {
+    const { container } = render(<Composer {...baseProps({ attach: OPEN })} />);
+    const shell = container.querySelector('[data-composer-shell]');
+    if (shell === null) throw new Error('shell missing');
+    fireEvent.drop(shell, { dataTransfer: { files: [MD()], types: ['Files'] } });
+    expect(await screen.findByText('notes.md')).toBeInTheDocument();
+  });
+
+  it('a staged chip is removable before send', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ attach: OPEN, onSend })} />);
+    fireEvent.change(attachInput(), { target: { files: [MD()] } });
+    await screen.findByText('notes.md');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove attachment: notes.md' }));
+    expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'go{Enter}');
+    expect(onSend).toHaveBeenCalledWith('go');
+  });
+
+  it('an unattachable type refuses with an honest reason', async () => {
+    useNotices.getState().dismiss();
+    render(<Composer {...baseProps({ attach: OPEN })} />);
+    const exe = new File([new Uint8Array([1, 2])], 'tool.exe', {
+      type: 'application/octet-stream',
+    });
+    fireEvent.change(attachInput(), { target: { files: [exe] } });
+    await vi.waitFor(() => {
+      expect(useNotices.getState().notice?.detail).toBe('tool.exe is not an image or a text file.');
+    });
+  });
+
+  it('renders the context ring beside the model chip, reading the real window', async () => {
+    render(
+      <Composer
+        {...baseProps({
+          ringUsage: { tokensIn: 40_000, tokensOut: 2_000 },
+          activeModelMetadata: { id: 'sonnet', provider: 'claude', contextWindow: 200_000 },
+        })}
+      />,
+    );
+    expect(screen.getByRole('meter')).toHaveAttribute('aria-valuenow', '21');
+  });
+
+  it('with no window known the ring renders its honest unknown, never a fake fill', () => {
+    render(<Composer {...baseProps()} />);
+    expect(screen.queryByRole('meter')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: /context window unknown for this model/i }),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * Regression: staged attachments/draft text are local, unscoped React state — with
+   * no session-switch reset, they survive a `rerender` carrying a DIFFERENT session's
+   * props (a new `activeSessionId`, a new `onSend`) and ride out under the WRONG
+   * session, or worse, get carried into a session whose backend cannot attach at all.
+   */
+  describe('session scoping', () => {
+    it('drops a staged attachment and drafted text on a session switch, never carrying it into the new session', async () => {
+      const onSendA = vi.fn();
+      const onSendB = vi.fn();
+      const { rerender } = render(
+        <Composer
+          {...baseProps({ activeSessionId: 'session-a', attach: OPEN, onSend: onSendA })}
+        />,
+      );
+      fireEvent.change(attachInput(), { target: { files: [MD()] } });
+      await screen.findByText('notes.md');
+      await userEvent.type(screen.getByRole('textbox'), 'about session A');
+      expect(screen.getByRole('textbox')).toHaveValue('about session A');
+
+      // Switch to a different session — a new id, a new onSend, the same capabilities.
+      rerender(
+        <Composer
+          {...baseProps({ activeSessionId: 'session-b', attach: OPEN, onSend: onSendB })}
+        />,
+      );
+
+      // The stale draft/chip must not survive the switch.
+      expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+      expect(screen.getByRole('textbox')).toHaveValue('');
+
+      // A plain-text send under session B must reach session B's onSend, carrying
+      // nothing session A staged.
+      await userEvent.type(screen.getByRole('textbox'), 'about session B{Enter}');
+      expect(onSendB).toHaveBeenCalledWith('about session B');
+      expect(onSendA).not.toHaveBeenCalled();
+    });
+
+    it('drops a staged attachment when switching to a session whose backend cannot carry one', async () => {
+      const onSend = vi.fn();
+      const { rerender } = render(
+        <Composer {...baseProps({ activeSessionId: 'session-a', attach: OPEN, onSend })} />,
+      );
+      fireEvent.change(attachInput(), { target: { files: [MD()] } });
+      await screen.findByText('notes.md');
+
+      // Switch to a session on a backend that cannot carry attachments at all.
+      rerender(
+        <Composer {...baseProps({ activeSessionId: 'session-b', attach: NO_BACKEND, onSend })} />,
+      );
+      expect(screen.queryByText('notes.md')).not.toBeInTheDocument();
+
+      // A plain-text send under the new session carries no leftover attachment.
+      await userEvent.type(screen.getByRole('textbox'), 'go{Enter}');
+      expect(onSend).toHaveBeenCalledWith('go');
+    });
+
+    it('keeps the draft when re-rendering with the SAME session (not every prop change resets it)', async () => {
+      const { rerender } = render(
+        <Composer {...baseProps({ activeSessionId: 'session-a', attach: OPEN })} />,
+      );
+      await userEvent.type(screen.getByRole('textbox'), 'still typing');
+
+      // Same session, unrelated prop changes (e.g. a running-state flip).
+      rerender(
+        <Composer {...baseProps({ activeSessionId: 'session-a', attach: OPEN, running: true })} />,
+      );
+      expect(screen.getByRole('textbox')).toHaveValue('still typing');
+    });
+  });
+});
+
+describe('Composer — the slash popover (skill invocation)', () => {
+  const SKILLS = {
+    status: 'ok',
+    value: [
+      { name: 'commits', description: 'Commit style', scope: 'project' as const },
+      { name: 'review', description: 'Review checklist', scope: 'personal' as const },
+    ],
+  } as const;
+
+  it('opens on a leading slash, filtered as the query grows', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    const list = screen.getByRole('listbox', { name: 'Invoke a skill' });
+    expect(within(list).getAllByRole('option')).toHaveLength(2);
+    await userEvent.type(screen.getByRole('textbox'), 'com');
+    expect(
+      within(screen.getByRole('listbox', { name: 'Invoke a skill' })).getAllByRole('option'),
+    ).toHaveLength(1);
+    expect(screen.getByText('Commit style')).toBeInTheDocument();
+  });
+
+  it('closes once the draft stops being a slash query (a space commits to prose)', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/com then');
+    expect(screen.queryByRole('listbox', { name: 'Invoke a skill' })).toBeNull();
+  });
+
+  it('attaches the highlighted skill on Enter — arrow keys move the highlight, the field clears', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ skills: SKILLS, onSend })} />);
+    const box = screen.getByRole('textbox');
+    await userEvent.type(box, '/');
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    // The SECOND row was highlighted; nothing was sent — the Enter was the pick.
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box).toHaveValue('');
+    expect(screen.getByText('/review')).toBeInTheDocument();
+    // The send then carries the invocation beside the text.
+    await userEvent.type(box, 'go{Enter}');
+    expect(onSend).toHaveBeenCalledWith('go', undefined, ['review']);
+    // Released by the send: the chip is gone.
+    expect(screen.queryByText('/review')).toBeNull();
+  });
+
+  it('attaches on click too, and an attached skill leaves the offer list', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.click(screen.getByRole('option', { name: /commits/ }));
+    expect(screen.getByText('/commits')).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    const list = screen.getByRole('listbox', { name: 'Invoke a skill' });
+    expect(within(list).queryByText('/commits')).toBeNull();
+    expect(within(list).getByText('/review')).toBeInTheDocument();
+  });
+
+  it('a removed chip does not ride the next send', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ skills: SKILLS, onSend })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.click(screen.getByRole('option', { name: /commits/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove invocation: commits' }));
+    await userEvent.type(screen.getByRole('textbox'), 'go{Enter}');
+    expect(onSend).toHaveBeenCalledWith('go');
+  });
+
+  it('Escape waves the popover off for this draft; an edit re-offers it', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox', { name: 'Invoke a skill' })).toBeNull();
+    await userEvent.type(screen.getByRole('textbox'), 'c');
+    expect(screen.getByRole('listbox', { name: 'Invoke a skill' })).toBeInTheDocument();
+  });
+
+  it('is honest when there is nothing to offer, while loading, and when the read FAILED', async () => {
+    const { rerender } = render(
+      <Composer {...baseProps({ skills: { status: 'ok', value: [] } })} />,
+    );
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    expect(screen.getByText('No skills in the library')).toBeInTheDocument();
+    rerender(<Composer {...baseProps({ skills: { status: 'loading' } })} />);
+    expect(screen.getByText('Reading the library…')).toBeInTheDocument();
+    // The regression: a read that failed for good used to keep saying "Reading the
+    // library…" forever. It names the failure, and never claims the library is empty.
+    rerender(
+      <Composer {...baseProps({ skills: { status: 'error', message: 'daemon unreachable' } })} />,
+    );
+    expect(screen.queryByText('Reading the library…')).toBeNull();
+    expect(screen.queryByText('No skills in the library')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('daemon unreachable');
+  });
+
+  it('a no-match Enter falls through to a normal send — a message starting with / is never caged', async () => {
+    const onSend = vi.fn();
+    render(<Composer {...baseProps({ skills: SKILLS, onSend })} />);
+    await userEvent.type(screen.getByRole('textbox'), '/nomatch{Enter}');
+    expect(onSend).toHaveBeenCalledWith('/nomatch');
+  });
+
+  it('the shelf affordance seeds the slash on an empty draft, and rests disabled mid-message', async () => {
+    render(<Composer {...baseProps({ skills: SKILLS })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Invoke a skill' }));
+    expect(screen.getByRole('textbox')).toHaveValue('/');
+    expect(screen.getByRole('listbox', { name: 'Invoke a skill' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'x');
+    // `/x` is still a slash query; typed prose disables the button instead.
+    await userEvent.clear(screen.getByRole('textbox'));
+    await userEvent.type(screen.getByRole('textbox'), 'hello');
+    expect(screen.getByRole('button', { name: 'Invoke a skill' })).toBeDisabled();
+  });
+
+  it('a session switch drops staged invocations with the rest of the draft', async () => {
+    const { rerender } = render(
+      <Composer {...baseProps({ skills: SKILLS, activeSessionId: 'a' })} />,
+    );
+    await userEvent.type(screen.getByRole('textbox'), '/');
+    await userEvent.click(screen.getByRole('option', { name: /commits/ }));
+    expect(screen.getByText('/commits')).toBeInTheDocument();
+    rerender(<Composer {...baseProps({ skills: SKILLS, activeSessionId: 'b' })} />);
+    expect(screen.queryByText('/commits')).toBeNull();
   });
 });

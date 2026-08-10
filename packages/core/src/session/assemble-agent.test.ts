@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { agentPackageSchema, roleSchema, type AgentPackage, type Role } from '@coa/shared';
+import {
+  agentPackageSchema,
+  roleSchema,
+  type AgentPackage,
+  type Piece,
+  type Role,
+} from '@coa/shared';
+import { compile } from '../compiler/compile.js';
 import { assembleAgent, createRegistryAssemblePieces, CORE_PACKAGE_ID } from './assemble-agent.js';
 import {
   STARTER_PACKAGES,
@@ -302,7 +309,55 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
     expect(frame.allow).toEqual([]);
     expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(true);
   });
+
+  it('reports the assembly’s package-referenced MCP server names', () => {
+    expect(assemble({ role: 'swe', scope: 'src', worktree: '/w' }).mcpServers).toEqual([]);
+    expect(assemble({ role: '', scope: '', worktree: '/w' }).mcpServers).toEqual([]);
+  });
+
+  it('injects library skill Pieces on a role, compiling auto to the prompt and disclosure to the pullable set', () => {
+    const auto = skillPiece('commits', 'push');
+    const disclosed = skillPiece('review', 'pull');
+    const { pieces } = assemble({
+      role: 'swe',
+      scope: 'src',
+      worktree: '/w',
+      skills: [auto, disclosed],
+    });
+    const { config } = compile(pieces, { allow: [], deny: [] });
+    // Auto: the body rides the compiled prompt's stable prefix.
+    expect(
+      config.prefixHead.some(
+        (o) => o.piece.name === 'commits' && o.piece.body === 'body of commits',
+      ),
+    ).toBe(true);
+    // Disclosure: registered by name, body deferred to the pull channel.
+    expect(config.onDemandPullable).toContain('review');
+    expect(config.prefixHead.some((o) => o.piece.name === 'review')).toBe(false);
+  });
+
+  it('the roleless floor still injects skills, between the stable head and the volatile tail', () => {
+    const { pieces } = assemble({
+      role: '',
+      scope: '',
+      worktree: '/w',
+      skills: [skillPiece('commits', 'push')],
+    });
+    const names = pieces.map((p) => p.name);
+    expect(names.indexOf('commits')).toBeGreaterThan(names.indexOf('baseline-tool-use'));
+    expect(names.indexOf('commits')).toBeLessThan(names.indexOf('baseline-environment'));
+  });
 });
+
+/** A library skill Piece as skillToPiece produces it (delivery axis push/pull). */
+function skillPiece(name: string, delivery: 'push' | 'pull'): Piece {
+  return {
+    name,
+    description: `${name} skill`,
+    body: `body of ${name}`,
+    axes: { delivery, salience: 'never', provenance: 'authored' },
+  };
+}
 
 describe('the starter registry', () => {
   it('is schema-valid (every package + role parses)', () => {

@@ -1,4 +1,4 @@
-import { feedViewSchema, type FeedView } from '@coa/shared';
+import { feedViewSchema, modelMetadataSchema, type FeedView } from '@coa/shared';
 import { z } from 'zod';
 
 /** The honest user feed — re-exported from the shared wire type so the console
@@ -147,11 +147,78 @@ export const TurnFrameSchema = z.discriminatedUnion('kind', [
       })
       .optional(),
   }),
+  // The three live-only subagent announcements (the daemon's `#announceSubagent`) —
+  // never persisted to the event log, so a reload does not replay them. Each renders
+  // as a dedicated transcript card: the spawn card, the completion card (carrying the
+  // child's own result for a genuine completion), and the agent-to-agent message card
+  // (one frame per SIDE of a send — `direction` is relative to the session whose
+  // stream carried it, not a global fact about the message).
+  z.object({
+    id: z.string(),
+    kind: z.literal('subagent-spawn'),
+    childSessionId: z.string(),
+    childWorktree: z.string(),
+    agentRef: z.string(),
+    description: z.string(),
+    isolate: z.boolean(),
+    depth: z.number().optional(),
+  }),
+  z.object({
+    id: z.string(),
+    kind: z.literal('subagent-completion'),
+    childSessionId: z.string(),
+    childWorktree: z.string(),
+    agentRef: z.string(),
+    reason: z.enum(['completed', 'errored', 'stopped']),
+    detail: z.string().optional(),
+    result: z.string().optional(),
+    depth: z.number().optional(),
+  }),
+  z.object({
+    id: z.string(),
+    kind: z.literal('subagent-message'),
+    messageId: z.string(),
+    threadId: z.string(),
+    replyTo: z.string().optional(),
+    from: z.string(),
+    to: z.string(),
+    direction: z.enum(['sent', 'received']),
+    body: z.string(),
+    depth: z.number().optional(),
+  }),
 ]);
 export type TurnFrame = z.infer<typeof TurnFrameSchema>;
 
 export const TurnStreamSchema = z.array(TurnFrameSchema);
 export type TurnStream = z.infer<typeof TurnStreamSchema>;
+
+/** One isolated session worktree as the daemon's `listWorktrees` verb reports it —
+ *  the Worktree dock floor's row. `dirty`/`filesChanged` are the manager's cheap
+ *  `git status --porcelain` summary; both absent means the status read failed (the
+ *  row degrades, the list never does). `running` guards the reap affordance. */
+export const WorktreeViewSchema = z
+  .object({
+    sessionId: z.string(),
+    path: z.string(),
+    createdAt: z.string(),
+    running: z.boolean().optional(),
+    dirty: z.boolean().optional(),
+    filesChanged: z.number().optional(),
+  })
+  .strip();
+export type WorktreeView = z.infer<typeof WorktreeViewSchema>;
+
+export const WorktreeListSchema = z.object({ worktrees: z.array(WorktreeViewSchema) }).strip();
+export type WorktreeList = z.infer<typeof WorktreeListSchema>;
+
+/** `reaped: false` with `reason: 'running'` is the daemon's refusal to delete a
+ *  working directory out from under an in-flight turn; `false` with no reason means
+ *  nothing to reap (a double reap is a no-op, not an error). */
+export const ReapWorktreeResultSchema = z.object({
+  reaped: z.boolean(),
+  reason: z.string().optional(),
+});
+export type ReapWorktreeResult = z.infer<typeof ReapWorktreeResultSchema>;
 
 /** A credential as the Auth surface needs it — matches the renderer's `Credential` interface.
  *  Phase-2 fields (identity/plan/expired/lastUsed) are optional and unset until the usage read. */
@@ -256,3 +323,8 @@ export const ModelCatalogViewSchema = z
   })
   .strip();
 export type ModelCatalogView = z.infer<typeof ModelCatalogViewSchema>;
+
+/** The `modelMetadata` verb's reply — every known row (optionally provider-filtered
+ *  server-side by the request params). */
+export const ModelMetadataViewSchema = z.object({ entries: z.array(modelMetadataSchema) }).strip();
+export type ModelMetadataView = z.infer<typeof ModelMetadataViewSchema>;

@@ -18,6 +18,7 @@ import { createConversationStore, type ConversationStore } from './conversation-
 import { configHashOf } from './prompt-freeze.js';
 import { unreadableMemoryNotice } from './memory-plan.js';
 import { LiveSessionRegistry } from './live-registry.js';
+import { TurnLifecycle } from './turn-lifecycle.js';
 import type { RpcConnection } from '../rpc/stream.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import { dispatch } from '../rpc/router.js';
@@ -300,6 +301,9 @@ describe('buildSessionHandlers — createSession over RPC', () => {
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'running' },
       { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 0, frame: frames[0] },
       { kind: 'turn', sessionId: 'sess-1', worktree: '/wt/sess-1', seq: 1, frame: frames[1] },
+      // The settlement's usage mirror (the context ring feed) lands before the
+      // terminal status — the adapter settles as its loop ends.
+      { kind: 'usage', sessionId: 'sess-1', tokensIn: 1, tokensOut: 2 },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'done' },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
@@ -969,6 +973,133 @@ class PartialStreamAdapter extends FrameAdapter {
   }
 }
 
+describe('buildSessionHandlers — F2 permission-mode verbs', () => {
+  function build(): { handlers: RpcHandlers; registry: LiveSessionRegistry } {
+    const registry = new LiveSessionRegistry();
+    const service = sessionService(deps([]), undefined, registry);
+    return { handlers: buildSessionHandlers(service, connection()), registry };
+  }
+
+  it('setMode switches a live session’s mode; sessionMode reads it back', async () => {
+    const { handlers, registry } = build();
+    registry.getOrCreate('c1');
+    expect(await handlers['setMode']!.handle({ id: 'c1', mode: 'plan' })).toEqual({ set: true });
+    expect(registry.get('c1')?.mode).toBe('plan');
+    expect(await handlers['sessionMode']!.handle({ id: 'c1' })).toEqual({
+      found: true,
+      mode: 'plan',
+      effectiveMode: 'plan',
+      pending: [],
+    });
+  });
+
+  it('setMode on an unknown session id returns set:false', async () => {
+    const { handlers } = build();
+    expect(await handlers['setMode']!.handle({ id: 'nope', mode: 'bypass' })).toEqual({
+      set: false,
+    });
+  });
+
+  it('sessionMode on an unknown session id returns found:false', async () => {
+    const { handlers } = build();
+    expect(await handlers['sessionMode']!.handle({ id: 'nope' })).toEqual({ found: false });
+  });
+
+  it('sessionMode surfaces a degraded effectiveMode honestly (SC-1 — never claim an enforcement the backend cannot deliver)', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1', undefined, 'manual');
+    session.setApprovalSeam(false);
+    expect(await handlers['sessionMode']!.handle({ id: 'c1' })).toEqual({
+      found: true,
+      mode: 'manual',
+      effectiveMode: 'bypass',
+      pending: [],
+    });
+  });
+
+  it('the respondApproval round trip: a pending request really blocks the tool call until answered, and approve resolves allow', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1');
+    let settled: 'allow' | 'deny' | undefined;
+    const pending = session
+      .requestApproval({ tool: 'Write', args: { path: 'a.ts' }, sessionId: 'c1' }, 'write')
+      .then((d) => {
+        settled = d;
+        return d;
+      });
+    await Promise.resolve();
+    expect(settled).toBeUndefined(); // genuinely still blocking, not a same-tick resolve
+
+    const [request] = session.pendingApprovals();
+    expect(request?.tool).toBe('Write');
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'c1',
+        requestId: request!.requestId,
+        decision: 'approve',
+      }),
+    ).toEqual({ resolved: true });
+    await expect(pending).resolves.toBe('allow');
+  });
+
+  it('a deny decision resolves deny', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1');
+    const pending = session.requestApproval(
+      { tool: 'Bash', args: { command: 'rm -rf /' }, sessionId: 'c1' },
+      'exec',
+    );
+    const [request] = session.pendingApprovals();
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'c1',
+        requestId: request!.requestId,
+        decision: 'deny',
+      }),
+    ).toEqual({ resolved: true });
+    await expect(pending).resolves.toBe('deny');
+  });
+
+  it('respondApproval on an unknown session id, or a stale requestId, returns resolved:false (a harmless no-op, not an error)', async () => {
+    const { handlers, registry } = build();
+    registry.getOrCreate('c1');
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'nope',
+        requestId: 'r1',
+        decision: 'approve',
+      }),
+    ).toEqual({ resolved: false });
+    expect(
+      await handlers['respondApproval']!.handle({
+        id: 'c1',
+        requestId: 'stale',
+        decision: 'approve',
+      }),
+    ).toEqual({ resolved: false });
+  });
+
+  it('interruptSession fail-safe-denies and clears a pending ask — a Stop mid-ask must never leave the composer gate-locked on a request nothing can still answer', async () => {
+    const { handlers, registry } = build();
+    const { session } = registry.getOrCreate('c1');
+    // A turn genuinely in flight — `interruptSession` requires this to do anything.
+    session.control = { controller: new AbortController(), lifecycle: new TurnLifecycle() };
+    session.setInterruptClosure(() => true);
+
+    const pending = session.requestApproval(
+      { tool: 'Bash', args: { command: 'rm -rf /' }, sessionId: 'c1' },
+      'exec',
+    );
+    expect(session.pendingApprovals()).toHaveLength(1);
+
+    expect(await handlers['interruptSession']!.handle({ id: 'c1' })).toEqual({
+      interrupted: true,
+    });
+    await expect(pending).resolves.toBe('deny');
+    expect(session.pendingApprovals()).toEqual([]);
+  });
+});
+
 describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', () => {
   it("settles an interrupted turn's streamed partial into the log exactly once, and tells the model", async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coa-int-'));
@@ -1035,6 +1166,9 @@ describe('buildSessionHandlers — interruptSession / steerSession (CHAT-10)', (
         seq: 0,
         frame: { t: 'interrupted' },
       },
+      // An aborted turn still settles what it consumed — the usage mirror fires on
+      // EVERY loop exit (a partial turn is still charged), so the ring stays honest.
+      { kind: 'usage', sessionId: 'sess-1', tokensIn: 1, tokensOut: 1 },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'interrupted' },
       { kind: 'status', sessionId: 'sess-1', worktree: '/wt/sess-1', state: 'idle' },
     ]);
@@ -3052,11 +3186,15 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
   function spawnableDeps(
     behaviors: Map<string, 'fail' | 'stop'> = new Map(),
     recordSpend?: SessionDeps['recordSpend'],
+    recordBind?: (sessionId: string, opts: { isolate?: boolean } | undefined) => void,
   ): SessionDeps {
     let n = 0;
     return {
       newSessionId: () => `child-${++n}`,
-      bindWorktree: (id) => `/wt/${id}`,
+      bindWorktree: (id, _scope, opts) => {
+        recordBind?.(id, opts);
+        return `/wt/${id}`;
+      },
       releaseWorktree: () => {},
       assemblePieces: () => ({ pieces: [], frame: { allow: [], deny: [] } }),
       compile: () => NEUTRAL,
@@ -3088,6 +3226,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     behaviors?: Map<string, 'fail' | 'stop'>;
     agents?: AgentSummary[];
     recordSpend?: SessionDeps['recordSpend'];
+    recordBind?: (sessionId: string, opts: { isolate?: boolean } | undefined) => void;
   }): {
     dispatch: (msg: unknown) => ReturnType<typeof dispatch>;
     registry: LiveSessionRegistry;
@@ -3095,7 +3234,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     startChildForTest: (
       parentId: string,
       agentRef: string,
-      overrides?: { description?: string; prompt?: string },
+      overrides?: { description?: string; prompt?: string; isolate?: boolean },
     ) => { sessionId: string };
   } {
     const dir = mkdtempSync(join(tmpdir(), 'coa-spawn-'));
@@ -3104,7 +3243,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     const registry = new LiveSessionRegistry();
     const conn = connection();
     const service = sessionService(
-      spawnableDeps(opts?.behaviors, opts?.recordSpend),
+      spawnableDeps(opts?.behaviors, opts?.recordSpend, opts?.recordBind),
       store,
       registry,
       () => opts?.agents ?? AGENTS,
@@ -3123,6 +3262,7 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
           agentRef,
           description: overrides?.description ?? 'investigate the thing',
           prompt: overrides?.prompt ?? 'go look',
+          ...(overrides?.isolate !== undefined ? { isolate: overrides.isolate } : {}),
         });
       },
     };
@@ -3157,6 +3297,126 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.origin).toBe('system');
     expect(pending[0]?.text).toContain(child.sessionId);
+  });
+
+  it('carries the child’s own final answer in the completion notice, not just a "read the transcript" pointer', async () => {
+    // `FrameAdapter`'s default (non-fail/stop) behavior streams one settled
+    // assistant text frame — `{ t: 'text', text: 'ok' }` — which persists to the
+    // child's own event log before `emitStatus('done')` fires. The notice must
+    // carry that real text, and the child's full transcript must still be
+    // readable afterward via the ordinary store read path (never replaced).
+    const { dispatch: send, registry, store, startChildForTest } = buildTestServer();
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    const parent = registry.get('root-1')!;
+
+    const child = startChildForTest('root-1', 'explorer');
+    await settleChild();
+
+    const pending = parent.deliveries.drain();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.text).toContain('finished: ok');
+
+    // The existing transcript-read path is untouched: the child's full event log
+    // is still there and still reads back the same 'ok' text directly.
+    const { turns } = store.reload(child.sessionId);
+    expect(turns.some((t) => t.frame.t === 'text' && t.frame.text === 'ok')).toBe(true);
+  });
+
+  it('does not carry a result when the child errored — only its detail', async () => {
+    const behaviors = new Map<string, 'fail' | 'stop'>([['child-1', 'fail']]);
+    const { dispatch: send, registry, startChildForTest } = buildTestServer({ behaviors });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    const parent = registry.get('root-1')!;
+
+    startChildForTest('root-1', 'explorer'); // becomes child-1, configured to fail
+    await settleChild();
+
+    const pending = parent.deliveries.drain();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.text).toContain('failed');
+    expect(pending[0]?.text).not.toContain('finished');
+  });
+
+  it('threads an explicit isolate:true spawn request through to bindWorktree', async () => {
+    const binds: Array<{ sessionId: string; isolate: boolean | undefined }> = [];
+    const { dispatch: send, startChildForTest } = buildTestServer({
+      recordBind: (sessionId, opts) => binds.push({ sessionId, isolate: opts?.isolate }),
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    binds.length = 0; // only the child's own bind is under test below
+
+    const child = startChildForTest('root-1', 'explorer', { isolate: true });
+    await settleChild();
+
+    expect(binds).toEqual([{ sessionId: child.sessionId, isolate: true }]);
+  });
+
+  it('leaves isolate unset on bindWorktree when the spawn never asked for it', async () => {
+    const binds: Array<{ sessionId: string; isolate: boolean | undefined }> = [];
+    const { dispatch: send, startChildForTest } = buildTestServer({
+      recordBind: (sessionId, opts) => binds.push({ sessionId, isolate: opts?.isolate }),
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    binds.length = 0;
+
+    const child = startChildForTest('root-1', 'explorer');
+    await settleChild();
+
+    expect(binds).toEqual([{ sessionId: child.sessionId, isolate: undefined }]);
+  });
+
+  it('F2: a spawned child inherits ITS agent’s configured default mode, not the parent’s live mode', async () => {
+    const agentsWithModes: AgentSummary[] = [
+      { ...AGENTS[0]!, defaultMode: 'plan' }, // explorer
+      { ...AGENTS[1]!, defaultMode: 'edits' }, // general-purpose
+    ];
+    const {
+      dispatch: send,
+      registry,
+      startChildForTest,
+    } = buildTestServer({
+      agents: agentsWithModes,
+    });
+    await send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'createSession',
+      params: { conversationId: 'root-1', input: 'hello', role: 'general-purpose', scope: 'repo' },
+    });
+    // The parent's own mode switched live to something neither child's default matches —
+    // proves inheritance reads the CHILD's agent, never the parent's current mode.
+    registry.get('root-1')?.setMode('bypass');
+
+    const explorerChild = startChildForTest('root-1', 'explorer');
+    const generalChild = startChildForTest('root-1', 'general-purpose');
+    expect(registry.get(explorerChild.sessionId)?.mode).toBe('plan');
+    expect(registry.get(generalChild.sessionId)?.mode).toBe('edits');
+  });
+
+  it('F2: a spawned child whose agent declares no default mode falls back to the system floor', async () => {
+    const { startChildForTest, registry } = buildTestServer(); // AGENTS has no defaultMode set
+    const child = startChildForTest('root-1', 'explorer');
+    expect(registry.get(child.sessionId)?.mode).toBe('manual');
   });
 
   it('drops the notice when the parent was already stopped', async () => {
@@ -3437,6 +3697,106 @@ describe('buildSessionHandlers — spawning a subagent child', () => {
       buildSessionHandlers(service, conn),
     );
     expect(response).toMatchObject({ result: { sessionId: 'sess-1', worktree: '/wt/sess-1' } });
+    await conn.settled;
+  });
+});
+
+describe('buildSessionHandlers — attachments (capability-gated at the RPC edge)', () => {
+  const IMAGE = { kind: 'image' as const, mimeType: 'image/png', data: 'aWJt', name: 'shot.png' };
+
+  it('threads attachments + the daemon-resolved vision fact to the adapter for a capable provider', async () => {
+    const conn = connection();
+    let seen: SessionAdapterInit | undefined;
+    const d: SessionDeps = {
+      ...deps([]),
+      createAdapter: (init) => {
+        seen = init;
+        return new FrameAdapter(init, []);
+      },
+    };
+    const handlers = buildSessionHandlers(
+      sessionService(d, undefined, new LiveSessionRegistry()),
+      conn,
+      {
+        attachmentsSupported: (provider) => provider === 'deepseek',
+        // The vision fact is resolved HERE, daemon-side — the client never claims it.
+        visionSupported: (provider, modelId) => provider === 'deepseek' && modelId === 'v4',
+      },
+    );
+    await handlers['createSession']!.handle({
+      input: 'what is in this screenshot?',
+      model: { provider: 'deepseek', model: 'v4' },
+      attachments: [IMAGE],
+    });
+    await conn.settled;
+    expect(seen?.attachments).toEqual([IMAGE]);
+    expect(seen?.visionSupported).toBe(true);
+  });
+
+  it('resolves visionSupported false for a model the catalog cannot verify', async () => {
+    const conn = connection();
+    let seen: SessionAdapterInit | undefined;
+    const d: SessionDeps = {
+      ...deps([]),
+      createAdapter: (init) => {
+        seen = init;
+        return new FrameAdapter(init, []);
+      },
+    };
+    const handlers = buildSessionHandlers(
+      sessionService(d, undefined, new LiveSessionRegistry()),
+      conn,
+      { attachmentsSupported: () => true, visionSupported: () => false },
+    );
+    await handlers['createSession']!.handle({
+      input: 'look',
+      model: { provider: 'deepseek', model: 'unknown-model' },
+      attachments: [IMAGE],
+    });
+    await conn.settled;
+    // Threaded as an explicit false — the adapter's image gate then rejects with the
+    // typed capability error rather than silently sending an unverifiable block.
+    expect(seen?.visionSupported).toBe(false);
+  });
+
+  it('refuses an attachment-carrying send for a provider whose adapter has no seam (never a silent drop)', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      sessionService(deps([]), undefined, new LiveSessionRegistry()),
+      conn,
+      { attachmentsSupported: (provider) => provider !== 'claude' },
+    );
+    // No model ⇒ the claude default — exactly the backend with no attachment seam.
+    await expect(
+      handlers['createSession']!.handle({ input: 'look', attachments: [IMAGE] }),
+    ).rejects.toThrow(/cannot carry attachments/);
+  });
+
+  it('defaults to refusing attachments when no capability facts are injected (the conservative floor)', async () => {
+    const conn = connection();
+    const handlers = handlersFor(deps([]), conn, undefined, new LiveSessionRegistry());
+    await expect(
+      handlers['createSession']!.handle({
+        input: 'look',
+        model: { provider: 'deepseek', model: 'v4' },
+        attachments: [IMAGE],
+      }),
+    ).rejects.toThrow(/cannot carry attachments/);
+  });
+
+  it('an attachment-free send never consults the capability seam and runs unchanged', async () => {
+    const conn = connection();
+    const handlers = buildSessionHandlers(
+      sessionService(deps([{ t: 'text', text: 'hi' }]), undefined, new LiveSessionRegistry()),
+      conn,
+      {
+        attachmentsSupported: () => {
+          throw new Error('must not be consulted');
+        },
+      },
+    );
+    const result = await handlers['createSession']!.handle({ input: 'go' });
+    expect(result).toMatchObject({ sessionId: 'sess-1' });
     await conn.settled;
   });
 });

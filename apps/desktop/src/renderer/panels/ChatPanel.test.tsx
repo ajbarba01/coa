@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptFrame } from '@coa/console-transcript';
-import type { TurnFrame } from '@coa/console-viewmodel';
+import { pushSchema, pushToViewFrames, type TurnFrame } from '@coa/console-viewmodel';
 import {
   ChatSurface,
   composerMeasure,
@@ -501,6 +501,217 @@ describe('raw + approval projection', () => {
         reasoning: { mode: 'effort', effort: 'high' },
       });
     }
+  });
+});
+
+describe('F2 — live permission mode + pending approval', () => {
+  it('surfaces a LIVE pending approval (a real daemon push) as vm.approval', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' }],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toEqual({ id: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' });
+    }
+  });
+
+  it('the live source wins over any transcript-frame-derived approval', () => {
+    const frameStream: TurnFrame[] = [
+      {
+        id: '1',
+        kind: 'approval',
+        requestId: 'frame-1',
+        tool: 'write_file',
+        summary: 'from a frame',
+      },
+    ];
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: frameStream },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'bash', summary: 'a live ask' }],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toMatchObject({ id: 'live-1' });
+    }
+  });
+
+  it('docks the OLDEST pending live approval (FIFO — the longest-waiting ask is what blocks the session)', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [
+              { requestId: 'first', tool: 'write_file', summary: 'a' },
+              { requestId: 'second', tool: 'bash', summary: 'b' },
+            ],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.approval).toMatchObject({ id: 'first' });
+    }
+  });
+
+  it('never surfaces a live pending approval in raw mode (raw stays untouched)', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          rawMode: true,
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'bash', summary: 's' }],
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') expect(vm.approval).toBeUndefined();
+  });
+
+  it("falls back to the active agent's configured default mode before the daemon hydrates", () => {
+    // roles/reviewer (s-audit-auth's agent) sets no defaultMode — the system floor, manual.
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
+    if (vm.status === 'ready') {
+      expect(vm.mode).toBe('manual');
+      expect(vm.effectiveMode).toBe('manual');
+      expect(vm.modeDegraded).toBeUndefined();
+    }
+  });
+
+  it('reflects the daemon-pushed/hydrated permission mode once known', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        { modeBySession: { 's-audit-auth': { mode: 'edits', effectiveMode: 'edits' } } },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.mode).toBe('edits');
+      expect(vm.effectiveMode).toBe('edits');
+    }
+  });
+
+  it('honestly reflects a degraded mode: effectiveMode (not the merely-configured mode) is what the vm carries, with the reason', () => {
+    const vm = selectChatVm(
+      stateWith(
+        { status: 'ok', value: [] },
+        {
+          modeBySession: {
+            's-audit-auth': {
+              mode: 'plan',
+              effectiveMode: 'bypass',
+              degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+            },
+          },
+        },
+      ),
+    );
+    if (vm.status === 'ready') {
+      expect(vm.mode).toBe('plan');
+      expect(vm.effectiveMode).toBe('bypass');
+      expect(vm.modeDegraded).toBe(
+        'the active backend has no approval seam — enforcement degrades to bypass',
+      );
+    }
+  });
+
+  it('onSetMode proxies setPermissionMode for the active session', () => {
+    const setPermissionMode = vi.fn();
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }, {}, { setPermissionMode }));
+    if (vm.status === 'ready') {
+      vm.onSetMode('bypass');
+      expect(setPermissionMode).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'bypass');
+    }
+  });
+
+  describe('the docked pending approval — a LIVE daemon push (the real F2 round trip)', () => {
+    it('renders the composer gate from a live pending approval', () => {
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' }],
+          },
+        },
+      );
+      render(<ChatSurface state={state} />);
+      expect(screen.getByRole('button', { name: /^approve:/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^deny:/i })).toBeTruthy();
+    });
+
+    it('approving calls respondApproval(requestId, "approve")', async () => {
+      const respondApproval = vi.fn();
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'apply_patch', summary: 'src/auth.ts' }],
+          },
+        },
+        { respondApproval },
+      );
+      render(<ChatSurface state={state} />);
+      await userEvent.click(screen.getByRole('button', { name: /^approve:/i }));
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('live-1', 'approve');
+    });
+
+    it('denying calls respondApproval(requestId, "deny")', async () => {
+      const respondApproval = vi.fn();
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          pendingApprovalsBySession: {
+            's-audit-auth': [{ requestId: 'live-1', tool: 'bash', summary: 'rm the temp dir' }],
+          },
+        },
+        { respondApproval },
+      );
+      render(<ChatSurface state={state} />);
+      await userEvent.click(screen.getByRole('button', { name: /^deny:/i }));
+      expect(respondApproval).toHaveBeenCalledExactlyOnceWith('live-1', 'deny');
+    });
+  });
+
+  describe('the composer permission-mode chip', () => {
+    it("renders the session's effective mode, honestly, even when degraded", () => {
+      const state = stateWith(
+        { status: 'ok', value: [] },
+        {
+          modeBySession: {
+            's-audit-auth': {
+              mode: 'plan',
+              effectiveMode: 'bypass',
+              degraded: 'the active backend has no approval seam — enforcement degrades to bypass',
+            },
+          },
+        },
+      );
+      render(<ChatSurface state={state} />);
+      expect(screen.getByRole('button', { name: 'Bypass' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull();
+    });
+
+    it('switching mode via the chip calls setPermissionMode for the active session', async () => {
+      const setPermissionMode = vi.fn();
+      const state = stateWith({ status: 'ok', value: [] }, {}, { setPermissionMode });
+      render(<ChatSurface state={state} />);
+      // s-audit-auth's agent (roles/reviewer) sets no default — the trigger starts on manual.
+      await userEvent.click(screen.getByRole('button', { name: 'Manual' }));
+      await userEvent.click(screen.getByText('Plan'));
+      expect(setPermissionMode).toHaveBeenCalledExactlyOnceWith('s-audit-auth', 'plan');
+    });
   });
 });
 
@@ -1056,5 +1267,207 @@ describe('toGovernedFrame streaming', () => {
   it('omits streaming for a settled text frame', () => {
     const f = { id: 'c', role: 'agent', kind: 'text', text: 'hi' } as TurnFrame;
     expect((toGovernedFrame(f) as { streaming?: boolean }).streaming).toBeUndefined();
+  });
+});
+
+describe('selectChatVm — per-model info (the ring, the attach gate, the hover-card feed)', () => {
+  const V4_META = {
+    id: 'v4',
+    provider: 'deepseek',
+    contextWindow: 128_000,
+    modalities: { input: ['text', 'image'], output: ['text'] },
+  };
+
+  /** The active session pinned to a vision-capable DeepSeek model, catalog loaded. */
+  const infoState = (ui: Partial<ConsoleState['ui']> = {}): ConsoleState =>
+    makeState({
+      data: {
+        turns: { status: 'ok', value: [] },
+        agents: { status: 'ok', value: MOCK_AGENTS },
+        sessions: {
+          status: 'ok',
+          value: [
+            { ...MOCK_SESSIONS[1]!, model: 'v4', provider: 'deepseek' },
+            ...MOCK_SESSIONS.filter((s) => s.id !== 's-audit-auth'),
+          ],
+        },
+        models: { status: 'ok', value: [{ id: 'v4', provider: 'deepseek' }] },
+        modelMetadata: { status: 'ok', value: [V4_META] },
+      },
+      ui: { activeSessionId: 's-audit-auth', ...ui },
+    });
+
+  it('resolves the ACTIVE model row, a verified-vision attach gate, and the session usage', () => {
+    const vm = selectChatVm(
+      infoState({ usageBySession: { 's-audit-auth': { tokensIn: 10_000, tokensOut: 500 } } }),
+    );
+    if (vm.status !== 'ready') throw new Error('vm not ready');
+    expect(vm.activeModelMetadata).toEqual(V4_META);
+    expect(vm.attach.image).toEqual({ enabled: true });
+    expect(vm.attach.text).toEqual({ enabled: true });
+    expect(vm.ringUsage).toEqual({ tokensIn: 10_000, tokensOut: 500 });
+    // The whole entry list rides too — the picker's hover card resolves ANY row from it.
+    expect(vm.modelMetadata).toEqual([V4_META]);
+  });
+
+  it('a claude-default session disables attachments with the backend reason (no seam yet)', () => {
+    // The plain mock session carries no provider — the claude default, whose
+    // adapter has no attachment seam (docs/adr/0036).
+    const vm = selectChatVm(stateWith({ status: 'ok', value: [] }));
+    if (vm.status !== 'ready') throw new Error('vm not ready');
+    expect(vm.attach.image.enabled).toBe(false);
+    expect(vm.attach.text.enabled).toBe(false);
+    expect(vm.attach.image.reason).toBe('This backend cannot carry attachments yet');
+  });
+
+  it('a metadata read still loading degrades to honest unknowns, never a fabricated row', () => {
+    const state = infoState();
+    const vm = selectChatVm({
+      ...state,
+      data: { ...state.data, modelMetadata: { status: 'loading' } },
+    });
+    if (vm.status !== 'ready') throw new Error('vm not ready');
+    expect(vm.activeModelMetadata).toBeUndefined();
+    expect(vm.modelMetadata).toEqual([]);
+    // Backend carries attachments (deepseek), but vision is UNVERIFIED — the image
+    // gate stays closed with the distinct unverified reason.
+    expect(vm.attach.image.enabled).toBe(false);
+    expect(vm.attach.image.reason).toBe('Image support is unverified for this model');
+    expect(vm.attach.text.enabled).toBe(true);
+  });
+});
+
+describe('subagent announcement cards — producer→renderer round trip', () => {
+  /** Validate a raw wire push exactly as the live console edge does, then map it
+   *  through the same two translations the shipped path uses (wire → view →
+   *  transcript frame) before rendering. Any drift between the daemon's schema
+   *  and the renderer's expectations fails HERE, not in production. */
+  const viewFramesFromWire = (rawPush: unknown): TurnFrame[] =>
+    pushToViewFrames(pushSchema.parse(rawPush));
+
+  const turnPush = (frame: unknown, seq = 0): unknown => ({
+    kind: 'turn',
+    sessionId: 's-audit-auth',
+    worktree: '/repo',
+    seq,
+    frame,
+  });
+
+  it('round-trips a subagent-spawn push to a rendered card with identity color + jump', async () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-spawn',
+        childSessionId: 's-ledger-tests',
+        childWorktree: '/repo/.coa/worktrees/s-ledger-tests',
+        agentRef: 'roles/reviewer',
+        description: 'review the ledger diff',
+        isolate: true,
+      }),
+    );
+    const selectSession = vi.fn();
+    const { container } = render(
+      <ChatSurface state={stateWith({ status: 'ok', value: frames }, {}, { selectSession })} />,
+    );
+    expect(screen.getByText('review the ledger diff')).toBeInTheDocument();
+    expect(screen.getByText('Spawned')).toBeInTheDocument();
+    // The identity color overlay resolves roles/reviewer → teal from the agents list.
+    expect(container.querySelector('.text-agent-teal')?.textContent).toBe('roles/reviewer');
+    await userEvent.click(screen.getByRole('button', { name: /open thread/i }));
+    expect(selectSession).toHaveBeenCalledWith('s-ledger-tests');
+  });
+
+  it('round-trips a subagent-completion push quoting the child’s own result verbatim', () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-completion',
+        childSessionId: 's-ledger-tests',
+        childWorktree: '/repo/.coa/worktrees/s-ledger-tests',
+        agentRef: 'roles/reviewer',
+        reason: 'completed',
+        result: 'Two findings, both minor.',
+      }),
+    );
+    render(<ChatSurface state={stateWith({ status: 'ok', value: frames })} />);
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.getByText('Two findings, both minor.')).toBeInTheDocument();
+  });
+
+  it('an errored completion wears its own pill and the detail line', () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-completion',
+        childSessionId: 's-ledger-tests',
+        childWorktree: 'wt',
+        agentRef: 'roles/reviewer',
+        reason: 'errored',
+        detail: 'rate limited',
+      }),
+    );
+    render(<ChatSurface state={stateWith({ status: 'ok', value: frames })} />);
+    expect(screen.getByText('Errored')).toBeInTheDocument();
+    expect(screen.getByText('rate limited')).toBeInTheDocument();
+  });
+
+  it('round-trips a subagent-message push, resolving both session titles and jumping to the counterparty', async () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-message',
+        messageId: 'm1',
+        threadId: 'm1',
+        from: 's-audit-auth',
+        to: 's-ledger-tests',
+        direction: 'sent',
+        body: 'symbol map attached',
+      }),
+    );
+    const selectSession = vi.fn();
+    render(
+      <ChatSurface state={stateWith({ status: 'ok', value: frames }, {}, { selectSession })} />,
+    );
+    // The label overlay resolves both session ids to their rail titles.
+    expect(screen.getByText('audit auth flow')).toBeInTheDocument();
+    expect(screen.getByText('harden ledger tests')).toBeInTheDocument();
+    expect(screen.getByText('symbol map attached')).toBeInTheDocument();
+    expect(screen.getByText('Sent')).toBeInTheDocument();
+    // Sent ⇒ the counterparty is the recipient.
+    await userEvent.click(screen.getByRole('button', { name: /open thread/i }));
+    expect(selectSession).toHaveBeenCalledWith('s-ledger-tests');
+  });
+
+  it('raw mode projects all three announcement kinds as verbatim control lines', () => {
+    expect(
+      frameToRawLine({
+        id: '1',
+        kind: 'subagent-spawn',
+        childSessionId: 'c1',
+        childWorktree: 'wt',
+        agentRef: 'reviewer',
+        description: 'review',
+        isolate: false,
+      }),
+    ).toBe('> control: subagent spawn reviewer (c1) review');
+    expect(
+      frameToRawLine({
+        id: '2',
+        kind: 'subagent-completion',
+        childSessionId: 'c1',
+        childWorktree: 'wt',
+        agentRef: 'reviewer',
+        reason: 'completed',
+        result: 'ok',
+      }),
+    ).toBe('> control: subagent completed reviewer (c1) ok');
+    expect(
+      frameToRawLine({
+        id: '3',
+        kind: 'subagent-message',
+        messageId: 'm1',
+        threadId: 'm1',
+        from: 'a',
+        to: 'b',
+        direction: 'sent',
+        body: 'hello',
+      }),
+    ).toBe('> control: message sent a -> b hello');
   });
 });

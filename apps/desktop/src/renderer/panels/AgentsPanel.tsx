@@ -3,8 +3,10 @@ import type {
   AgentColor,
   AgentDiagnostic,
   AgentIcon,
+  AgentSkillConfig,
   AgentSummary,
   ClaudeReasoning,
+  InvocableSkill,
   ModelDescriptor,
   PackageSummary,
   RoleSummary,
@@ -25,6 +27,7 @@ import {
   MenuItem,
   ModalShell,
   PopoverCard,
+  StatusDot,
   Tooltip,
   cx,
   useDismissLayer,
@@ -57,6 +60,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { NO_DRAG } from '../shell/appRegion.js';
 import { useConsoleState } from '../shell/consoleStore.js';
 import { useAgentsUi } from './agentsUi.js';
+import { useLibraryStore } from './libraryStore.js';
 import { TEXT_INPUT_CLASS, TextInput } from './fields.js';
 import { RISE } from './motion.js';
 import { RowMenu } from './RowMenu.js';
@@ -72,7 +76,7 @@ import {
 } from './resolvedSet.js';
 import { SkeletonLines, SurfaceEmpty, SurfaceError } from './surfaceStates.js';
 import { useNarrow } from './useNarrow.js';
-import type { ConsoleState } from './state.js';
+import type { ConsoleState, Remote } from './state.js';
 
 // The model-picking vocabulary lives with the picker itself now; re-exported here so the
 // surface stays the one import site for anything about an agent.
@@ -860,6 +864,169 @@ function RolesSection({
   );
 }
 
+/** How one configured skill reaches the prompt — the two delivery modes the wire
+ *  schema names, as a small per-row two-cell switch. `auto` compiles the body into
+ *  the prompt; `disclosure` advertises name+description and pulls on demand. */
+function DeliveryToggle({
+  name,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  name: string;
+  value: 'auto' | 'disclosure';
+  onChange: (delivery: 'auto' | 'disclosure') => void;
+  disabled?: boolean;
+}): React.JSX.Element {
+  return (
+    <div
+      role="group"
+      aria-label={`${name} delivery`}
+      className="flex flex-none gap-0.5 rounded-r2 border border-s4 bg-s2 p-0.5"
+    >
+      {(['auto', 'disclosure'] as const).map((d) => (
+        <button
+          key={d}
+          type="button"
+          aria-pressed={value === d}
+          disabled={disabled}
+          onClick={() => onChange(d)}
+          className={cx(
+            'slip rounded-r1 px-1.5 py-0.5 font-mono text-meta',
+            value === d ? 'bg-s4 text-s12' : 'text-s8',
+            disabled ? 'cursor-default' : 'cursor-pointer hover:text-s11',
+          )}
+        >
+          {d === 'auto' ? 'Auto' : 'On demand'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The library skills this agent carries, each with its delivery choice. The rows
+ *  are the agent's own selection; the full effective library set lives behind the
+ *  `AddPicker` (the Roles/Context convention). A configured skill the library no
+ *  longer serves stays listed wearing the honest reason — it is excluded from the
+ *  next compile, and that absence is what the drift banner reports. */
+function SkillsSection({
+  agent,
+  invocable,
+  onChange,
+  readOnly = false,
+}: {
+  agent: AgentSummary;
+  /** The effective library set, states-first: the footer says which unsettled state a
+   *  missing set is in, and only a SETTLED set may mark a configured skill absent. */
+  invocable: Remote<InvocableSkill[]>;
+  onChange: (patch: Partial<Omit<AgentSummary, 'ref'>>) => void;
+  /** A built-in agent ships in code — its skills are a fact, not a set to edit. */
+  readOnly?: boolean;
+}): React.JSX.Element {
+  const configured: AgentSkillConfig[] = agent.skills ?? [];
+  const rows = invocable.status === 'ok' ? invocable.value : [];
+  const byName = new Map(rows.map((s) => [s.name.toLowerCase(), s]));
+
+  const toggle = (name: string): void => {
+    if (readOnly) return;
+    const has = configured.some((s) => s.name.toLowerCase() === name.toLowerCase());
+    onChange({
+      skills: has
+        ? configured.filter((s) => s.name.toLowerCase() !== name.toLowerCase())
+        : [...configured, { name, delivery: 'auto' }],
+    });
+  };
+
+  const setDelivery = (name: string, delivery: 'auto' | 'disclosure'): void => {
+    if (readOnly) return;
+    onChange({ skills: configured.map((s) => (s.name === name ? { ...s, delivery } : s)) });
+  };
+
+  return (
+    <Panel
+      label="Skills"
+      count={configured.length > 0 ? configured.length : undefined}
+      footer={
+        readOnly ? undefined : invocable.status === 'loading' ? (
+          <span className="px-1 font-mono text-meta text-s7">Reading the library…</span>
+        ) : invocable.status === 'error' ? (
+          <SurfaceError message={`Couldn't read the library — ${invocable.message}`} />
+        ) : rows.length === 0 ? (
+          <span className="px-1 font-mono text-meta text-s7">
+            No skills in the library — link one on the Library surface
+          </span>
+        ) : (
+          <AddPicker
+            label="Add Skill"
+            placeholder="Filter skills…"
+            items={rows.map((s) => ({
+              id: s.name,
+              name: s.name,
+              membership: configured.some((c) => c.name.toLowerCase() === s.name.toLowerCase())
+                ? 'added'
+                : 'available',
+              ...(s.description !== '' ? { description: s.description } : {}),
+            }))}
+            onToggle={toggle}
+          />
+        )
+      }
+    >
+      {configured.length === 0 ? (
+        <p className="px-1 py-0.5 text-code text-s7">
+          No skills yet. A skill's body joins the prompt (auto) or loads on demand.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {configured.map((s) => {
+            const row = byName.get(s.name.toLowerCase());
+            // Only a SETTLED set can say a skill is gone; an unreadable library is
+            // not evidence of absence.
+            const missing = invocable.status === 'ok' && row === undefined;
+            return (
+              <div
+                key={s.name}
+                role="listitem"
+                aria-label={s.name}
+                className="flex items-center gap-2.5 rounded-r2 bg-s3 px-2.5 py-1.5"
+              >
+                <span className="flex min-w-0 flex-1 flex-col gap-px">
+                  <span className="truncate text-sec text-s11">{s.name}</span>
+                  {row !== undefined && row.description !== '' && (
+                    <span className="truncate text-meta text-s7">{row.description}</span>
+                  )}
+                </span>
+                {missing && (
+                  <span className="flex flex-none items-center gap-1.5 font-mono text-meta text-warn">
+                    <StatusDot status="needs-you" />
+                    Not in the library
+                  </span>
+                )}
+                <DeliveryToggle
+                  name={s.name}
+                  value={s.delivery}
+                  onChange={(delivery) => setDelivery(s.name, delivery)}
+                  disabled={readOnly}
+                />
+                {!readOnly && (
+                  <button
+                    type="button"
+                    aria-label={`Remove skill: ${s.name}`}
+                    onClick={() => toggle(s.name)}
+                    className="slip slip-press flex-none cursor-pointer rounded-r1 p-0.5 text-s7 hover:bg-s4 hover:text-s10 active:scale-[0.97]"
+                  >
+                    <Icon name="close" size="sm" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 /** The rank a row's membership sorts by: what a default or a selected role brings
  *  in reads first (it needed no decision from the user), the user's own opt-ins
  *  next, and an active exclusion last — still visible, but at the bottom, since it
@@ -1032,8 +1199,8 @@ function ReachSection({
         {/* The consequence panel is where "when does this take effect" belongs — it is a
             fact about the whole declaration, not about any one section above it. */}
         <p className="text-code text-s7">
-          The roles, model, and package selection take effect on the next message. Packages apply
-          once one or more roles are selected (with no roles the agent runs the permissive
+          The roles, model, package, and skill selection take effect on the next message. Packages
+          apply once one or more roles are selected (with no roles the agent runs the permissive
           baseline).
         </p>
       </div>
@@ -1048,6 +1215,9 @@ function ReachSection({
  *  name. */
 function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): React.JSX.Element {
   const a = vm.selected;
+  // The effective library set feeds the Skills section (its picker + the honest
+  // "not in the library" mark). Store-fed, not ConsoleState: the library owns it.
+  const invocable = useLibraryStore((s) => s.invocable);
   // A built-in agent ships in code (no file backs it) — the daemon refuses a
   // save/delete against it, so the editor renders it read-only rather than
   // offering controls that would silently do nothing.
@@ -1201,6 +1371,13 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
                 readOnly={readOnly}
               />
             )}
+
+            <SkillsSection
+              agent={a}
+              invocable={invocable}
+              onChange={(patch) => vm.updateAgent(a.ref, patch)}
+              readOnly={readOnly}
+            />
           </div>
 
           {vm.packages.length > 0 && (
@@ -1433,6 +1610,17 @@ export function AgentsSurface({ state }: { state: ConsoleState }): React.JSX.Ele
     setNarrowUi(measured);
     if (measured) setOpen(false);
   }, [measured, setNarrowUi, setOpen]);
+
+  // The Skills section reads the library's effective set — mount the read here so
+  // visiting Agents first doesn't depend on having visited Chat or the Library
+  // (idempotent, the auth-store convention). Advisory: a failure leaves the
+  // section's honest "reading…" floor.
+  useEffect(() => {
+    void useLibraryStore
+      .getState()
+      .hydrate()
+      .catch(() => {});
+  }, []);
 
   // Esc climbs out of the drill-down. Registered on the kit's dismiss-layer stack, so a
   // menu or modal open above it still wins its own Escape first.

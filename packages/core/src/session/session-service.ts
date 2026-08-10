@@ -1,15 +1,52 @@
-import type { AgentSummary, ModelSelection } from '@coa/shared';
+import { randomUUID } from 'node:crypto';
+import type {
+  AgentSkillConfig,
+  AgentSummary,
+  ApprovalDecision,
+  Attachment,
+  ModelSelection,
+  PermissionMode,
+  TurnFrame,
+} from '@coa/shared';
+import type { SessionLibraryPort } from '../library/injection.js';
+import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
-import type { ConversationStore } from './conversation-store.js';
+import type { ConversationStore, SessionMeta } from './conversation-store.js';
 import { createHeldOpenDriver } from './held-open-driver.js';
+import { descendantsOf } from './lineage.js';
 import type { LiveSessionRegistry } from './live-registry.js';
-import type { LiveSession, QueuedTurn, Sink, TurnSubscription } from './live-session.js';
+import {
+  DEFAULT_PERMISSION_MODE,
+  type LiveSession,
+  type PendingApprovalSnapshot,
+  type QueuedTurn,
+  type Sink,
+  type TurnSubscription,
+} from './live-session.js';
+import {
+  buildRoster,
+  dispatchMessage,
+  type DispatchDeps,
+  type LiveState,
+  type MeshLookup,
+  type RosterMember,
+} from './message-dispatch.js';
+import type { AgentMessage, MessageLog } from './message-log.js';
+import { renderMidTurnDelivery, renderWakeInput } from './message-render.js';
 import { renderChildEnded, type SessionEndReason } from './notify.js';
 import { runPerTurn } from './per-turn-driver.js';
 import { runLiveSession, type RunTurn } from './run-live-session.js';
 import type { SessionDeps } from './session.js';
+import { foldTreeToTranscript, latestAssistantText } from './transcript-projection.js';
 import type { TerminalState, TurnDriverDeps } from './turn-driver.js';
 import { deriveTitle } from './turn-persistence.js';
+
+/** `#emitStatus`'s `TerminalState` → `notify.ts`'s `SessionEndReason` — the one mapping
+ *  shared by the completion notice (`#notifyParentIfChild`), the completion announcement
+ *  (`#announceSubagent`), and the roster's own last-observed-end read (`#lastEnd`). */
+function toEndReason(state: TerminalState): SessionEndReason {
+  return state === 'done' ? 'completed' : state === 'error' ? 'errored' : 'stopped';
+}
 
 /**
  * The daemon's one owner of live-session lifetime (docs/adr/0011). Constructed ONCE, at
@@ -49,6 +86,19 @@ export interface SessionServiceOptions {
    * (see {@link SessionService.spawnFor}).
    */
   listAgents?: () => readonly AgentSummary[];
+  /**
+   * The durable inter-agent message log (docs/adr/0039). Absent ⇒ messaging stays
+   * unavailable (see {@link SessionService.messagingFor}) — the same absent-port floor
+   * `store`/`listAgents` already establish for spawning.
+   */
+  messageLog?: MessageLog;
+  /**
+   * The skills/MCP library port (library/injection.ts), read FRESH per turn — a
+   * skill or server enabled moments ago rides the very next send. Absent ⇒ no
+   * skill injection, no slash invocation, no external MCP delivery — byte-identical
+   * to before the library existed (the strict-superset floor).
+   */
+  library?: SessionLibraryPort;
 }
 
 /** One send against a conversation: the turn's own content plus the two one-shot
@@ -63,6 +113,17 @@ export interface SendRequest {
   model?: ModelSelection;
   packageIds?: string[];
   exclude?: string[];
+  /** Attachments on this send's user message; ride the queued turn to the adapter. */
+  attachments?: readonly Attachment[];
+  /** Daemon-resolved image-input capability for this send's model (see `TurnRequest`). */
+  visionSupported?: boolean;
+  /** Explicit per-send skill selection, overriding the agent definition's `skills`
+   *  for this conversation's turns; absent ⇒ the agent's own configured list. */
+  skills?: AgentSkillConfig[];
+  /** Skills to invoke explicitly on THIS turn (the composer's `/skill`): each body
+   *  reaches this turn's context even in disclosure mode. An unknown name REFUSES
+   *  the send (an explicit ask must never silently vanish). */
+  invokeSkills?: string[];
   /** Join this session's fan-out at the turn's true first status; absent ⇒ the caller is
    *  already attached (or wants nothing pushed to it). */
   subscribe?: TurnSubscription;
@@ -74,6 +135,9 @@ export interface StartChildRequest {
   agentRef: string;
   description: string;
   prompt: string;
+  /** Give the child its own git worktree instead of sharing the parent's; absent/`false`
+   *  ⇒ today's shared-root behavior, byte-identical. */
+  isolate?: boolean | undefined;
 }
 
 export class SessionService {
@@ -81,13 +145,32 @@ export class SessionService {
   readonly #registry: LiveSessionRegistry;
   readonly #store: ConversationStore | undefined;
   readonly #listAgents: (() => readonly AgentSummary[]) | undefined;
+  readonly #messageLog: MessageLog | undefined;
+  readonly #library: SessionLibraryPort | undefined;
   readonly #driverDeps: TurnDriverDeps;
+  /** The last `SessionEndReason` this process itself observed for a session, keyed by
+   *  id — populated in `#emitStatus`, read by the roster's graded-confidence liveness
+   *  (`#roster`/`message-dispatch.ts`'s `buildRoster`). In-process only (not persisted):
+   *  a session that ended in a PRIOR daemon lifetime reads as advisory, never fabricating
+   *  an observation this process never made (SC-1 honesty). */
+  readonly #lastEnd = new Map<string, { reason: SessionEndReason; at: string }>();
+  /** A per-session counter for the three LIVE-ONLY subagent announcement frames
+   *  (`#announceSubagent`) — a separate numbering space from the persisted event log's
+   *  own `seq` (these frames are never appended to it; see `push.ts`'s doc comment on
+   *  the three `subagent-*` kinds). */
+  readonly #liveSeq = new Map<string, number>();
+  /** Which missing-skill names each LIVE session already announced (`#announceMissingSkills`
+   *  — once per session instance, not per send). Weak so an evicted session's set goes
+   *  with it, and a revived session announces afresh. */
+  readonly #announcedMissing = new WeakMap<LiveSession, Set<string>>();
 
   constructor(options: SessionServiceOptions) {
     this.#deps = options.deps;
     this.#registry = options.registry;
     this.#store = options.store;
     this.#listAgents = options.listAgents;
+    this.#messageLog = options.messageLog;
+    this.#library = options.library;
     this.#driverDeps = {
       deps: this.#deps,
       registry: this.#registry,
@@ -105,7 +188,22 @@ export class SessionService {
    */
   async send(req: SendRequest): Promise<{ sessionId: string; worktree: string }> {
     const id = req.conversationId ?? this.#deps.newSessionId();
-    const { session, created } = this.#registry.getOrCreate(id);
+    // F2: a new session inherits its agent's configured default mode. The
+    // conversation's `agentRef` — when one was pre-created via the `newSession`
+    // record (the console's normal top-level flow, before this first send) —
+    // resolves through the SAME live agent list a spawn uses; an ephemeral send
+    // with no store, or a conversation record with no agentRef, falls back to the
+    // system floor. Ignored by `getOrCreate` when the session already exists.
+    const agentRef = this.#store?.getMeta(id)?.agentRef;
+    const defaultMode = this.#resolveDefaultMode(agentRef);
+    // Resolve the library facts BEFORE creating the live session: an unknown
+    // invoked skill throws here (an honest RPC refusal), and nothing was mutated.
+    const library = this.#libraryTurnFields(
+      req.skills ?? this.#agentSkills(agentRef),
+      req.invokeSkills,
+    );
+    const { session, created } = this.#registry.getOrCreate(id, undefined, defaultMode);
+    this.#announceMissingSkills(id, library.missing);
 
     const turn: QueuedTurn = {
       input: req.input,
@@ -115,6 +213,9 @@ export class SessionService {
       ...(req.roles !== undefined ? { roles: req.roles } : {}),
       ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
       ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
+      ...(req.attachments !== undefined ? { attachments: req.attachments } : {}),
+      ...(req.visionSupported !== undefined ? { visionSupported: req.visionSupported } : {}),
+      ...library.fields,
       ...(req.subscribe !== undefined ? { subscribe: req.subscribe } : {}),
     };
 
@@ -171,6 +272,11 @@ export class SessionService {
       lifecycle.abandonStop();
       return false;
     }
+    // F2: the stopped turn will never make the tool call any pending ask of its was
+    // blocking — fail-safe-deny it now (same reasoning as the session-teardown fail-safe
+    // in `LiveSession.close`) rather than leaving it hanging: unanswerable forever, and
+    // gate-locking the composer with a request no response could ever reach.
+    session.abandonPendingApprovals();
     this.#emitStatus(session, session.worktree ?? '', 'interrupted');
     return true;
   }
@@ -195,6 +301,153 @@ export class SessionService {
       session.deliveries.push({ origin: 'user', text });
     }
     return true;
+  }
+
+  /**
+   * F2 — RPC verb `setMode`. Live-switch a session's permission mode; takes
+   * effect starting with the NEXT tool call (the mode-aware predicate reads it
+   * fresh every call — see `permission.ts`), never retroactively on one already
+   * in flight. `false` ⇒ unknown session id, nothing changed.
+   */
+  setMode(id: string, mode: PermissionMode): boolean {
+    const session = this.#registry.get(id);
+    if (session === undefined) return false;
+    session.setMode(mode);
+    return true;
+  }
+
+  /**
+   * F2 — RPC verb `respondApproval`. Answer a pending ask raised by the
+   * mode-aware predicate, unblocking the `canUseTool` call it is holding open.
+   * `decision` is the WIRE vocabulary (`'approve'|'deny'`, matching the
+   * console's existing approve/deny controls); mapped here onto the internal
+   * `'allow'|'deny'` `LiveSession.resolveApproval` vocabulary. `false` ⇒ unknown
+   * session id, or no pending request with that id (already answered, or stale)
+   * — a second answer to the same id is a harmless no-op, not an error.
+   */
+  respondApproval(id: string, requestId: string, decision: ApprovalDecision): boolean {
+    const session = this.#registry.get(id);
+    if (session === undefined) return false;
+    return session.resolveApproval(requestId, decision === 'approve' ? 'allow' : 'deny');
+  }
+
+  /**
+   * F2 — RPC verb `sessionMode`. A plain synchronous snapshot of a session's
+   * permission-mode state: the configured `mode`, the `effectiveMode` actually
+   * enforced right now (differs from `mode` only when the active backend has no
+   * approval seam — SC-1 honesty), and every approval request still awaiting a
+   * reply. For a console that wants "what mode is this session in / is
+   * something pending" without waiting on the next live push (e.g. a reattach).
+   * `undefined` ⇒ unknown session id.
+   */
+  modeSnapshot(
+    id: string,
+  ):
+    | { mode: PermissionMode; effectiveMode: PermissionMode; pending: PendingApprovalSnapshot[] }
+    | undefined {
+    const session = this.#registry.get(id);
+    if (session === undefined) return undefined;
+    return {
+      mode: session.mode,
+      effectiveMode: session.effectiveMode(),
+      pending: session.pendingApprovals(),
+    };
+  }
+
+  /**
+   * F2: resolve the mode a NEW session should start in — its agent's configured
+   * `defaultMode` when `agentRef` resolves through the live agent list, else the
+   * system floor. Used by both `send` (a top-level session, via the
+   * conversation record's `agentRef`) and `#startChild` (a spawn, via its own
+   * `agentRef` directly) so registry default flows identically either way.
+   */
+  #resolveDefaultMode(agentRef: string | undefined): PermissionMode {
+    const agent =
+      agentRef !== undefined ? this.#listAgents?.().find((a) => a.ref === agentRef) : undefined;
+    return agent?.defaultMode ?? DEFAULT_PERMISSION_MODE;
+  }
+
+  /** An agent definition's configured skill list, via the LIVE agent set (never cached). */
+  #agentSkills(agentRef: string | undefined): AgentSkillConfig[] | undefined {
+    if (agentRef === undefined) return undefined;
+    return this.#listAgents?.().find((a) => a.ref === agentRef)?.skills;
+  }
+
+  /**
+   * Resolve one turn's library facts — the skill selection + Pieces, any explicit
+   * invocations, and the external MCP server map — against a FRESH library read.
+   * Returns the QueuedTurn fields plus the configured-but-unresolved skill names
+   * (surfaced by the caller). Throws on an unknown INVOKED skill only: an explicit
+   * `/skill` ask must refuse loudly, while a configured skill that stopped
+   * resolving degrades to a surfaced absence (help, never cage).
+   */
+  #libraryTurnFields(
+    skills: readonly AgentSkillConfig[] | undefined,
+    invokeSkills?: readonly string[],
+  ): { fields: Partial<QueuedTurn>; missing: string[] } {
+    const library = this.#library;
+    if (library === undefined) {
+      if (invokeSkills !== undefined && invokeSkills.length > 0) {
+        throw new Error('skill invocation is unavailable: no skill library is wired');
+      }
+      return { fields: {}, missing: [] };
+    }
+    const resolved = library.resolveSkills(skills ?? []);
+    const invoked = (invokeSkills ?? []).map((name) => {
+      const skill = library.invoke(name);
+      if (skill === undefined) {
+        throw new Error(`unknown skill "${name}" — not linked and enabled in the library`);
+      }
+      return skill;
+    });
+    const mcpServers = library.mcpServers();
+    return {
+      fields: {
+        ...(resolved.selection.length > 0 ? { skillSelection: resolved.selection } : {}),
+        ...(resolved.pieces.length > 0 ? { skillPieces: resolved.pieces } : {}),
+        ...(invoked.length > 0 ? { invokedSkills: invoked } : {}),
+        ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+      },
+      missing: resolved.missing,
+    };
+  }
+
+  /**
+   * Surface configured-but-unresolved skills on the session's live stream (never
+   * persisted, never a block). Unlike the `#announceSubagent` annotations this rides
+   * `LiveSession.announce`, which HOLDS the frame for the first subscriber when none
+   * is attached yet — the founding send defers the caller's subscription to the
+   * turn's first status, and a spawned child has no subscriber at all at spawn, so a
+   * plain emit would silently drop the one advisory whose contract (injection.ts's
+   * `ResolvedSkillSet.missing`) forbids exactly that. Announced once per live
+   * session per skill: every later send re-resolves and would otherwise re-fire the
+   * same advisory as duplicate noise (keyed on the session INSTANCE, so a revived
+   * idle-evicted session honestly announces again to its fresh stream).
+   */
+  #announceMissingSkills(sessionId: string, missing: readonly string[]): void {
+    if (missing.length === 0) return;
+    const session = this.#registry.get(sessionId);
+    if (session === undefined) return;
+    let announced = this.#announcedMissing.get(session);
+    if (announced === undefined) {
+      announced = new Set();
+      this.#announcedMissing.set(session, announced);
+    }
+    for (const name of missing) {
+      if (announced.has(name)) continue;
+      announced.add(name);
+      session.announce({
+        kind: 'turn',
+        sessionId,
+        worktree: session.worktree ?? '',
+        seq: this.#nextLiveSeq(sessionId),
+        frame: {
+          t: 'error',
+          origin: 'daemon',
+          message: `library skill "${name}" is configured for this agent but did not resolve (unknown, disabled, or broken source) — it was not injected`,
+        },
+      });
+    }
   }
 
   /**
@@ -270,7 +523,18 @@ export class SessionService {
     // model asked for would silently never happen). The result is a deliberate orphan: no
     // live ancestor is left to ever cascade a stop through it, but it still runs its one
     // assigned turn to completion and self-cleans via the ordinary idle-eviction timer.
-    const { session } = this.#registry.getOrCreate(id, { parent: parentId, root });
+    // F2: the spawned child inherits ITS agent's configured default mode (not the
+    // parent's live/current mode — a subagent's caution level is a property of
+    // what it IS, not of whatever the parent happened to be set to).
+    // The child's library facts come from ITS agent definition, resolved fresh —
+    // the same registry-dispatch posture as its model/roles/packages below.
+    const library = this.#libraryTurnFields(agent?.skills);
+    const { session } = this.#registry.getOrCreate(
+      id,
+      { parent: parentId, root },
+      this.#resolveDefaultMode(agent?.ref),
+    );
+    this.#announceMissingSkills(id, library.missing);
     store.create({
       id,
       agentRef: req.agentRef,
@@ -278,6 +542,10 @@ export class SessionService {
       scope,
       parent: parentId,
       root,
+      // Persisted (not just carried on this founding turn's QueuedTurn) so a later
+      // daemon restart can still tell `#wake` this child owns its own worktree —
+      // see `SessionMeta.isolated`'s doc.
+      isolate: req.isolate === true,
     });
 
     const turn: QueuedTurn = {
@@ -302,6 +570,23 @@ export class SessionService {
       ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
       ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
       ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      ...library.fields,
+      ...(req.isolate !== undefined ? { isolate: req.isolate } : {}),
+      // Announce the spawn to the PARENT's own live transcript once the child's worktree
+      // is bound (the earliest point the announcement has anything real to say) — a
+      // best-effort live annotation (`#announceSubagent` no-ops if the parent isn't
+      // currently subscribed), never awaited, so it cannot delay `startChild`'s own
+      // non-blocking return below.
+      onReady: (started) => {
+        this.#announceSubagent(parentId, {
+          t: 'subagent-spawn',
+          childSessionId: id,
+          childWorktree: started.worktree,
+          agentRef: req.agentRef,
+          description: req.description,
+          isolate: req.isolate === true,
+        });
+      },
     };
 
     // Non-blocking (the design's re-entrancy retirement): start the loop and return
@@ -341,6 +626,10 @@ export class SessionService {
 
   #emitStatus(session: LiveSession, worktree: string, state: TerminalState, detail?: string): void {
     session.emit({ kind: 'status', sessionId: session.id, worktree, state });
+    // Recorded for every session that ends a turn this way, not only a child — the
+    // roster's graded-confidence liveness (`#roster`) reads it for ANY tree member, not
+    // just parent/child pairs, so this cannot be scoped to the child-only branch below.
+    this.#lastEnd.set(session.id, { reason: toEndReason(state), at: new Date().toISOString() });
     this.#notifyParentIfChild(session, state, detail);
   }
 
@@ -360,8 +649,23 @@ export class SessionService {
     const meta = this.#store?.getMeta(session.id);
     if (meta?.parent === undefined) return;
     const parentSession = this.#registry.get(meta.parent);
-    const reason: SessionEndReason =
-      state === 'done' ? 'completed' : state === 'error' ? 'errored' : 'stopped';
+    const reason: SessionEndReason = toEndReason(state);
+    // The result only matters (and is only worth the extra read) for a genuine
+    // completion — an errored/stopped child has no answer to quote, just `detail`.
+    const result = reason === 'completed' ? this.#childResultText(session.id) : undefined;
+    // The live announcement (for the console's own card) and the delivery (what the
+    // model actually reads) carry the exact same facts — computed once, above, and
+    // fanned out to both. `#announceSubagent` no-ops for an already-gone parent
+    // exactly like the delivery push below does.
+    this.#announceSubagent(meta.parent, {
+      t: 'subagent-completion',
+      childSessionId: session.id,
+      childWorktree: session.worktree ?? '',
+      agentRef: meta.agentRef,
+      reason,
+      ...(detail !== undefined ? { detail } : {}),
+      ...(result !== undefined ? { result } : {}),
+    });
     // A sealed queue silently drops this — the cancel-guard doing its job after a
     // cascade stop (delivery.ts), not an error to handle. An already-gone parent
     // (`registry.get` returns undefined) is the same: nothing left to notify.
@@ -371,7 +675,263 @@ export class SessionService {
         agentRef: meta.agentRef,
         reason,
         ...(detail !== undefined ? { detail } : {}),
+        ...(result !== undefined ? { result } : {}),
       }),
     );
+  }
+
+  /**
+   * Push a live-only announcement onto `sessionId`'s own turn stream — a
+   * `subagent-spawn`/`subagent-completion`/`subagent-message` frame (docs/adr/0039),
+   * or a daemon advisory like a missing configured skill (`#announceMissingSkills`),
+   * for the console to render as a dedicated block (the next phase's job; this only
+   * emits the frame correctly). Never persisted to the append-only event log (unlike
+   * every other `TurnFrame` this daemon emits) — a per-session counter distinct from the
+   * turn's own persisted `seq`, exactly like the existing `status`/`cost`/`mode` pushes
+   * are already live-only. A no-op for a session with no live entry (torn down, or never
+   * subscribed to) — `session.emit` itself is a no-op with zero subscribers regardless,
+   * so this is belt-and-braces, not load-bearing.
+   */
+  #announceSubagent(sessionId: string, frame: TurnFrame): void {
+    const session = this.#registry.get(sessionId);
+    if (session === undefined) return;
+    session.emit({
+      kind: 'turn',
+      sessionId,
+      worktree: session.worktree ?? '',
+      seq: this.#nextLiveSeq(sessionId),
+      frame,
+    });
+  }
+
+  #nextLiveSeq(sessionId: string): number {
+    const n = this.#liveSeq.get(sessionId) ?? 0;
+    this.#liveSeq.set(sessionId, n + 1);
+    return n;
+  }
+
+  /**
+   * This session's messaging port, bound to `sessionId` as the sender every dispatched
+   * message is stamped with (unforgeable: `session.ts`'s `sessionId` is the daemon's
+   * own, never model-supplied — see docs/adr/0039). Needs a persistent store (mesh
+   * membership and a recipient's agent/role/scope all come from `SessionMeta`) and the
+   * durable message log; absent either, messaging stays unavailable rather than
+   * half-working — the same absent-port floor `spawnFor` already establishes.
+   */
+  messagingFor(sessionId: string): MessagingDeps | undefined {
+    const store = this.#store;
+    const messageLog = this.#messageLog;
+    if (store === undefined || messageLog === undefined) return undefined;
+    return {
+      send: (args) => this.#sendMessage(sessionId, args, store, messageLog),
+      roster: () => this.#roster(sessionId, store),
+    };
+  }
+
+  /**
+   * Dispatch one message from `fromId`: validate + resolve via the pure
+   * `dispatchMessage` (mesh membership, thread identity, delivery plan), append it to
+   * the durable log, then realize the plan — push onto the recipient's in-flight turn's
+   * delivery queue (`mid-turn`) or wake a fresh one (`wake`; see {@link #wake}). Reachable
+   * only through {@link messagingFor}, which is what proves the store + log exist.
+   */
+  #sendMessage(
+    fromId: string,
+    args: { to: string; body: string; replyTo?: string },
+    store: ConversationStore,
+    messageLog: MessageLog,
+  ) {
+    const lookup = (id: string): MeshLookup | undefined => {
+      const meta = store.getMeta(id);
+      if (meta === undefined) return undefined;
+      return { agentRef: meta.agentRef, ...(meta.root !== undefined ? { root: meta.root } : {}) };
+    };
+    const liveState = (id: string): LiveState => {
+      const session = this.#registry.get(id);
+      if (session === undefined) return 'not-registered';
+      return session.state === 'running' ? 'running' : 'idle';
+    };
+    const deps: DispatchDeps = {
+      lookup,
+      liveState,
+      resolveThread: (replyTo) => {
+        const root = lookup(args.to)?.root ?? args.to;
+        return messageLog.get(root, replyTo)?.threadId;
+      },
+      newId: () => randomUUID(),
+      now: () => new Date().toISOString(),
+    };
+    const outcome = dispatchMessage(
+      {
+        from: fromId,
+        to: args.to,
+        body: args.body,
+        ...(args.replyTo !== undefined ? { replyTo: args.replyTo } : {}),
+      },
+      deps,
+    );
+    if (!outcome.applied) return outcome;
+    messageLog.append(outcome.message);
+    this.#realizeDelivery(outcome.message, outcome.plan.kind, outcome.fromAgentRef, store);
+    return outcome;
+  }
+
+  /** Realize a dispatched message's delivery plan, and announce it (live-only) on
+   *  BOTH sides of the send — the sender's own transcript sees "I sent X", the
+   *  recipient's sees "I received X", exactly mirroring how a person watching either
+   *  session would want to see the exchange happen. */
+  #realizeDelivery(
+    message: AgentMessage,
+    plan: 'mid-turn' | 'wake',
+    fromAgentRef: string,
+    store: ConversationStore,
+  ): void {
+    const base = {
+      messageId: message.id,
+      threadId: message.threadId,
+      ...(message.replyTo !== undefined ? { replyTo: message.replyTo } : {}),
+      from: message.from,
+      to: message.to,
+      body: message.body,
+    } as const;
+    this.#announceSubagent(message.from, { t: 'subagent-message', direction: 'sent', ...base });
+    if (plan === 'mid-turn') {
+      this.#registry
+        .get(message.to)
+        ?.deliveries.push(
+          renderMidTurnDelivery({ fromAgentRef, from: message.from, body: message.body }),
+        );
+    } else {
+      this.#wake(
+        message.to,
+        store,
+        renderWakeInput({ fromAgentRef, from: message.from, body: message.body }),
+      );
+    }
+    this.#announceSubagent(message.to, { t: 'subagent-message', direction: 'received', ...base });
+  }
+
+  /**
+   * Start (or resume) `to`'s drive loop with `input` as a fresh turn — the ONLY way to
+   * reach a session that is not currently mid-turn, since a plain queue push
+   * (`session.deliveries`) is drained only from INSIDE an already-running turn (nothing
+   * is parked reading it while a session idles at `nextTurn()`). Covers three of the
+   * design doc's four receiver states at once (idle / finished / not-yet-started — see
+   * `message-dispatch.ts`'s `DeliveryPlan` doc for why coa's turn model collapses them):
+   * `getOrCreate` transparently revives an idle-evicted session (reconstructing its
+   * lineage from the STORE's permanent `parent`/`root`, since the live registry has no
+   * record of it) or joins the queue an already-registered one is parked on. `to` is
+   * assumed already validated by `dispatchMessage` (an unknown id never reaches here);
+   * a `store.getMeta` miss is defensive-only. Mirrors `#startChild`'s own
+   * agent-definition-to-role/model/roles/packageIds/exclude derivation, since a woken
+   * session's next turn needs the exact same facts a spawn's founding turn does —
+   * INCLUDING `isolate`: `meta.isolated` is what `#startChild` persisted at spawn
+   * time. Re-supplying it here is belt-and-braces, not load-bearing —
+   * `WorktreeManager.bind` reconciles against disk whenever it has no in-memory
+   * record for a session regardless of this flag (docs/adr/0037), which is what
+   * actually lets a woken turn (or an ordinary `send()` continuation turn, which
+   * carries no `isolate` field at all) rebind its own worktree correctly after a
+   * daemon restart.
+   */
+  #wake(to: string, store: ConversationStore, input: string): void {
+    const meta = store.getMeta(to);
+    if (meta === undefined) return;
+    const lineage =
+      meta.parent !== undefined
+        ? { parent: meta.parent, root: meta.root ?? meta.parent }
+        : meta.root !== undefined
+          ? { root: meta.root }
+          : undefined;
+    const { session, created } = this.#registry.getOrCreate(
+      to,
+      lineage,
+      this.#resolveDefaultMode(meta.agentRef),
+    );
+    if (created) {
+      void runLiveSession(session, this.#makeRunTurn(store));
+    }
+    const agent = this.#listAgents?.().find((a) => a.ref === meta.agentRef);
+    // Same library derivation as `#startChild`: a woken turn needs the exact same
+    // facts a spawn's founding turn does.
+    const library = this.#libraryTurnFields(agent?.skills);
+    this.#announceMissingSkills(to, library.missing);
+    const turn: QueuedTurn = {
+      input,
+      scope: meta.scope,
+      role: agent?.roles?.[0] ?? '',
+      ...(agent?.provider !== undefined ||
+      agent?.model !== undefined ||
+      agent?.reasoning !== undefined
+        ? {
+            model: {
+              ...(agent?.provider !== undefined ? { provider: agent.provider } : {}),
+              ...(agent?.model !== undefined ? { model: agent.model } : {}),
+              ...(agent?.reasoning !== undefined ? { reasoning: agent.reasoning } : {}),
+            },
+          }
+        : {}),
+      ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
+      ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
+      ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      ...library.fields,
+      // Re-supply the session's isolation decision from persisted `SessionMeta` —
+      // see this method's doc — rather than trusting `WorktreeManager` to still
+      // remember it, which it will not across a daemon restart.
+      ...(meta.isolated === true ? { isolate: true } : {}),
+    };
+    session.enqueue(turn);
+    this.#registry.touch(to);
+  }
+
+  /**
+   * `selfId`'s live roster: every member of its family tree (itself included),
+   * relationship-labeled and liveness-graded (`message-dispatch.ts`'s `buildRoster`).
+   * `store.list()` is scanned and filtered by shared root — an O(all-sessions) read,
+   * the same accepted-at-today's-scale tradeoff `descendantsOf` already documents
+   * (docs/adr/0034) — rather than a maintained tree index.
+   */
+  #roster(selfId: string, store: ConversationStore) {
+    const selfRoot = store.getMeta(selfId)?.root ?? selfId;
+    const members: RosterMember[] = store
+      .list()
+      .filter((m) => (m.root ?? m.id) === selfRoot)
+      .map((m: SessionMeta) =>
+        m.parent !== undefined
+          ? { id: m.id, agentRef: m.agentRef, parent: m.parent }
+          : { id: m.id, agentRef: m.agentRef },
+      );
+    const liveState = (id: string): LiveState => {
+      const session = this.#registry.get(id);
+      if (session === undefined) return 'not-registered';
+      return session.state === 'running' ? 'running' : 'idle';
+    };
+    return buildRoster(selfId, members, liveState, (id) => this.#lastEnd.get(id));
+  }
+
+  /**
+   * A completed child's own final answer, for `#notifyParentIfChild`'s notice.
+   * Folds the child's event log — and, if it spawned any children of its own,
+   * theirs too — via `foldTreeToTranscript` (a read-time join, never a second
+   * writer) rather than re-deriving transcript joining here, then takes the
+   * last assistant message via `latestAssistantText`. `descendantsOf` walks the
+   * STORE's session list (not the live registry): a completed child's own
+   * children may have already been torn down, but their durable event logs are
+   * exactly what a full answer needs. `undefined` when there is no store, the
+   * child produced no assistant text, or its events could not be read — the
+   * caller's fallback sentence covers all three identically (SC-1: this never
+   * throws and never blocks the notice on a read that didn't pan out).
+   */
+  #childResultText(childId: string): string | undefined {
+    const store = this.#store;
+    if (store === undefined) return undefined;
+    const rootEvents = store.getEvents(childId).events;
+    const descendantIds = descendantsOf(
+      childId,
+      store.list().map((m) => ({ id: m.id, parent: m.parent })),
+    );
+    const descendants = new Map(
+      descendantIds.map((id) => [id, store.getEvents(id).events] as const),
+    );
+    return latestAssistantText(foldTreeToTranscript(rootEvents, descendants));
   }
 }

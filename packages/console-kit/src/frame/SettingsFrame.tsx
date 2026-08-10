@@ -16,7 +16,7 @@ export function DialogSearchHead({
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2.5 border-b border-s3 px-4 py-2.5">
-      <span className="text-body text-s7">⌕</span>
+      <span className="text-icon text-s7">⌕</span>
       <input
         autoFocus
         value={value}
@@ -56,7 +56,7 @@ export function TocRail({
           type="button"
           onClick={() => onJump(s.id)}
           className={cx(
-            'slip flex w-full cursor-pointer items-center px-4 py-[5px] text-left text-sec',
+            'slip flex w-full cursor-pointer items-center px-4 py-1.5 text-left text-sec',
             s.id === activeId ? 'bg-s3 text-s12' : 'text-s10 hover:bg-s3 hover:text-s11',
           )}
         >
@@ -81,8 +81,7 @@ export function SettingRow({
     <div className="flex items-center gap-4 py-2">
       <div className="min-w-0 flex-1">
         <div className="text-sec text-s11">{name}</div>
-        {/* 11px sits between text-code and text-meta — candidate seventh type token */}
-        <div className="mt-0.5 text-[11px] leading-[1.4] text-s7">{desc}</div>
+        <div className="mt-0.5 text-fine leading-[1.4] text-s7">{desc}</div>
       </div>
       {children}
     </div>

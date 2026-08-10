@@ -3,16 +3,33 @@ import { Transcript } from '@coa/console-transcript';
 import { PaneOverlayProvider } from '@coa/console-kit';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
-import type { ModelDescriptor, TurnFrame } from '@coa/console-viewmodel';
-import { effortOptions, reasoningValue, toReasoning } from '@coa/console-viewmodel';
+import type {
+  Attachment,
+  AttachControlVm,
+  InvocableSkill,
+  ModelDescriptor,
+  ModelMetadata,
+  PermissionMode,
+  SessionUsage,
+  TurnFrame,
+} from '@coa/console-viewmodel';
+import {
+  attachControlState,
+  effortOptions,
+  findModelMetadata,
+  providerCarriesAttachments,
+  reasoningValue,
+  toReasoning,
+} from '@coa/console-viewmodel';
 import { DeferredCanvas, Freeze } from '../shell/deferredMount.js';
 import { reportFailure } from '../shell/failures.js';
 import { matchesFind } from '../shell/keys.js';
 import { useShell } from '../shell/store.js';
 import { modelPickerLabel } from './AgentsPanel.js';
-import { computeChatBanners, type ChatNotice } from './banners.js';
+import { computeChatBanners, resolvableSkillSelection, type ChatNotice } from './banners.js';
 import { Composer } from './Composer.js';
-import type { ConsoleState } from './state.js';
+import { useLibraryStore } from './libraryStore.js';
+import type { ConsoleState, Remote } from './state.js';
 
 // Keep-alive tab caches (module scope — they outlive renders): the last frames
 // and send-nonce each session rendered with, so a hidden tab keeps its DOM
@@ -63,8 +80,39 @@ export type ChatVm =
       effortOptions: { value: string; label: string }[];
       effortValue: string;
       onPickEffort: (v: string) => void;
+      /** Per-model catalog rows (context window/pricing/modalities) — the picker's
+       *  hover card resolves any hovered model's row from this. Empty while the
+       *  read is loading/failed (the surfaces degrade to their honest unknowns). */
+      modelMetadata: ModelMetadata[];
+      /** The ACTIVE model's row — the context ring's window; absent ⇒ unknown. */
+      activeModelMetadata?: ModelMetadata | undefined;
+      /** The active session's last settled usage (the daemon's `usage` push). */
+      ringUsage?: SessionUsage | undefined;
+      /** The attach control's capability matrix for the active model/backend. */
+      attach: AttachControlVm;
       onRespond: RespondFn;
-      onSend: (text: string) => void;
+      /** F2: the active session's CONFIGURED permission mode (what was picked/the
+       *  agent's default) — undefined session ⇒ the system floor `manual`. */
+      mode: PermissionMode;
+      /** F2: the mode actually enforced right now — differs from `mode` only when
+       *  the active backend has no approval seam (SC-1: never claim an enforcement
+       *  the backend can't deliver). The chip renders off THIS, not `mode`. */
+      effectiveMode: PermissionMode;
+      /** F2: present only when `effectiveMode !== mode` — the honest reason why. */
+      modeDegraded?: string | undefined;
+      /** F2: live-switch the active session's permission mode. No-op with no active
+       *  session. */
+      onSetMode: (mode: PermissionMode) => void;
+      /** The invocable library skills the composer's slash popover offers, states-first:
+       *  loading and error are the popover's own rows, never rendered as "empty". */
+      skills: Remote<InvocableSkill[]>;
+      /** Send, with any staged attachments and explicit skill invocations riding the
+       *  same governed send. */
+      onSend: (
+        text: string,
+        attachments?: readonly Attachment[],
+        invokeSkills?: readonly string[],
+      ) => void;
       /** The Stop/Esc affordance — cooperatively interrupts the active session's running
        *  turn (a user stop, never a governance block; unpressed, nothing
        *  changes). A no-op with no active session (Composer only surfaces Stop while
@@ -85,6 +133,9 @@ export type ChatVm =
        *  identity (from `state.actions`) so it threads into the memoized transcript rows;
        *  resolves an advisory result the view toasts on failure. */
       openExternal: (url: string) => Promise<{ ok: boolean; reason?: string }>;
+      /** Jump to another session's own tab/thread (a subagent card's affordance) —
+       *  `state.actions.selectSession`, stable identity for the memoized rows. */
+      onOpenSession: (sessionId: string) => void;
       toggleRaw: () => void;
       /** The active session id, if any — drives the composer's disabled/hint state
        *  (no session means nothing to send a message into). Session switching itself
@@ -191,6 +242,46 @@ export function toGovernedFrame(f: TurnFrame): TranscriptFrame {
         depth: f.depth,
         rollup: f.rollup,
       };
+    // The three subagent announcement cards pass through field-for-field; the agent
+    // identity color + resolved display labels are ui-state overlays layered on in
+    // `selectChatVm` (they read the agents/sessions lists), same as `resolved` on
+    // approvals — never baked into the cached base frame.
+    case 'subagent-spawn':
+      return {
+        id: f.id,
+        kind: 'subagent-spawn',
+        childSessionId: f.childSessionId,
+        childWorktree: f.childWorktree,
+        agentRef: f.agentRef,
+        description: f.description,
+        isolate: f.isolate,
+        depth: f.depth,
+      };
+    case 'subagent-completion':
+      return {
+        id: f.id,
+        kind: 'subagent-completion',
+        childSessionId: f.childSessionId,
+        childWorktree: f.childWorktree,
+        agentRef: f.agentRef,
+        reason: f.reason,
+        detail: f.detail,
+        result: f.result,
+        depth: f.depth,
+      };
+    case 'subagent-message':
+      return {
+        id: f.id,
+        kind: 'subagent-message',
+        messageId: f.messageId,
+        threadId: f.threadId,
+        replyTo: f.replyTo,
+        from: f.from,
+        to: f.to,
+        direction: f.direction,
+        body: f.body,
+        depth: f.depth,
+      };
   }
 }
 
@@ -218,6 +309,12 @@ export function frameToRawLine(f: TurnFrame): string {
       return `> ${f.role}: plan ${f.items.map((i) => `[${i.status}] ${i.text}`).join('; ')}`;
     case 'subagent':
       return `> control: subagent ${f.event} ${f.childWorktree}`;
+    case 'subagent-spawn':
+      return `> control: subagent spawn ${f.agentRef} (${f.childSessionId}) ${f.description}`;
+    case 'subagent-completion':
+      return `> control: subagent ${f.reason} ${f.agentRef} (${f.childSessionId})${f.result !== undefined ? ` ${f.result}` : ''}`;
+    case 'subagent-message':
+      return `> control: message ${f.direction} ${f.from} -> ${f.to} ${f.body}`;
   }
 }
 
@@ -282,12 +379,35 @@ export function interleaveNotes(
  *  In raw mode every frame becomes its verbatim line (raw is the verbatim, unfiltered projection); "switched model" notes are
  *  a console-local synthetic frame (never sent to the agent) interleaved only in
  *  governed mode — raw stays the verbatim, unfiltered projection. */
-export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOString()): ChatVm {
+export function selectChatVm(
+  state: ConsoleState,
+  nowIso = new Date().toISOString(),
+  skillsRead: Remote<InvocableSkill[]> = { status: 'loading' },
+): ChatVm {
   const r = state.data.turns;
   if (r.status !== 'ok') return r;
   const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
   const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const { rawMode, resolvedApprovals, activeSessionId } = state.ui;
+  const { rawMode, resolvedApprovals, activeSessionId, modeBySession, pendingApprovalsBySession } =
+    state.ui;
+  // F2: the LIVE ask queue (real daemon `approval` pushes / the `sessionMode` reattach
+  // read) — the actual F2 ask/response round trip, oldest-first (FIFO: the
+  // longest-waiting request is what's blocking the session). Distinct from, and takes
+  // priority over, the transcript-frame-derived `pendingApproval` below (dev/test data
+  // only — the wire never emits an `approval`-kind turn frame in production).
+  const liveApproval =
+    rawMode || activeSessionId === undefined
+      ? undefined
+      : (pendingApprovalsBySession[activeSessionId] ?? [])[0];
+  // Identity/label lookups for the subagent-card overlays below: the agent's
+  // identity color keys off the frame's own agentRef; a message's from/to session
+  // ids resolve to their session titles (the raw id is the honest fallback).
+  const agentByRef = new Map(agents.map((a) => [a.ref, a] as const));
+  const sessionById = new Map(sessions.map((s) => [s.id, s] as const));
+  const messageColor = (sessionId: string): string | undefined => {
+    const ref = sessionById.get(sessionId)?.agentRef;
+    return ref !== undefined ? agentByRef.get(ref)?.color : undefined;
+  };
   const governedFrames = r.value.map((f) => {
     let base = governedFrameCache.get(f);
     if (base === undefined) {
@@ -298,6 +418,25 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     // time (never cached) — every other frame reuses its cached, stable identity.
     if (base.kind === 'approval' && resolvedApprovals[base.requestId] !== undefined) {
       return { ...base, resolved: resolvedApprovals[base.requestId] };
+    }
+    // The subagent cards' identity color + display labels read the live agents/
+    // sessions lists, so they are layered on fresh too (same rationale as the
+    // approval overlay; these frames are rare, so the re-render cost is nil).
+    if (base.kind === 'subagent-spawn' || base.kind === 'subagent-completion') {
+      const color = agentByRef.get(base.agentRef)?.color;
+      return color !== undefined ? { ...base, color } : base;
+    }
+    if (base.kind === 'subagent-message') {
+      const color = messageColor(base.from);
+      const fromLabel = sessionById.get(base.from)?.title;
+      const toLabel = sessionById.get(base.to)?.title;
+      if (color === undefined && fromLabel === undefined && toLabel === undefined) return base;
+      return {
+        ...base,
+        ...(color !== undefined ? { color } : {}),
+        ...(fromLabel !== undefined ? { fromLabel } : {}),
+        ...(toLabel !== undefined ? { toLabel } : {}),
+      };
     }
     return base;
   });
@@ -357,7 +496,12 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       ...(activeAgent?.roles !== undefined ? { roles: activeAgent.roles } : {}),
       ...(activeAgent?.packageIds !== undefined ? { packageIds: activeAgent.packageIds } : {}),
       ...(activeAgent?.exclude !== undefined ? { exclude: activeAgent.exclude } : {}),
+      // The skill slice a send would compile: configured skills narrowed to the ones
+      // the effective library still serves (their disappearance IS drift — the daemon
+      // excludes them from the frozen selection the same way).
+      skills: resolvableSkillSelection(activeAgent?.skills, skillsRead),
     },
+    skillsRead,
     ...(activeSessionId !== undefined && state.ui.dismissedDrift[activeSessionId] !== undefined
       ? { dismissedDriftKey: state.ui.dismissedDrift[activeSessionId] }
       : {}),
@@ -371,26 +515,68 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
   const currentModelId = override?.model ?? activeSession?.model ?? activeAgent?.model;
   const currentModel = models.find((m) => m.id === currentModelId);
   const effortOpts = effortOptions(currentModel);
+  // The per-model info surfaces: the ACTIVE model's catalog row drives the context
+  // ring's window and the attach gate; the full entry list feeds the picker's hover
+  // card. The provider resolves the same way the send itself does — the descriptor's
+  // own tag first, then the override/pin/agent chain, then the claude default.
+  const metadataEntries =
+    state.data.modelMetadata.status === 'ok' ? state.data.modelMetadata.value : [];
+  const activeProvider =
+    currentModel?.provider ??
+    override?.provider ??
+    activeSession?.provider ??
+    activeAgent?.provider;
+  const activeModelMetadata = findModelMetadata(metadataEntries, activeProvider, currentModelId);
+  const attach = attachControlState(activeModelMetadata, {
+    backendCarriesAttachments: providerCarriesAttachments(activeProvider),
+  });
+  const ringUsage =
+    activeSessionId !== undefined ? state.ui.usageBySession[activeSessionId] : undefined;
   const effortVal = reasoningValue(
     override?.reasoning ?? activeSession?.reasoning ?? activeAgent?.reasoning,
   );
   const active = activeSessionId ? state.ui.runStatus[activeSessionId] : undefined;
+  // F2: the active session's permission-mode reflection. Undefined ⇒ not yet
+  // hydrated (a fresh mount before its `sessionMode` read/first `mode` push lands)
+  // — falls back to the active agent's configured default (the system floor,
+  // `manual`, when the agent has none), mirroring the daemon's own resolution so
+  // the chip never shows a value it will immediately have to correct itself.
+  const modeState = activeSessionId !== undefined ? modeBySession[activeSessionId] : undefined;
+  const fallbackMode: PermissionMode = activeAgent?.defaultMode ?? 'manual';
+  const mode = modeState?.mode ?? fallbackMode;
+  const effectiveMode = modeState?.effectiveMode ?? fallbackMode;
   return {
     status: 'ready',
     rawMode,
     frames,
-    ...(pendingApproval !== undefined
+    // The LIVE ask (a real daemon push) always wins over the transcript-frame-derived
+    // one — the latter is dev/test data only (see `liveApproval`'s own note above).
+    ...(liveApproval !== undefined
       ? {
           approval: {
-            id: pendingApproval.requestId,
-            tool: pendingApproval.tool,
-            summary: pendingApproval.summary,
-            ...(pendingApproval.diffStat !== undefined
-              ? { diffStat: pendingApproval.diffStat }
-              : {}),
+            id: liveApproval.requestId,
+            tool: liveApproval.tool,
+            summary: liveApproval.summary,
           },
         }
-      : {}),
+      : pendingApproval !== undefined
+        ? {
+            approval: {
+              id: pendingApproval.requestId,
+              tool: pendingApproval.tool,
+              summary: pendingApproval.summary,
+              ...(pendingApproval.diffStat !== undefined
+                ? { diffStat: pendingApproval.diffStat }
+                : {}),
+            },
+          }
+        : {}),
+    mode,
+    effectiveMode,
+    ...(modeState?.degraded !== undefined ? { modeDegraded: modeState.degraded } : {}),
+    onSetMode: (next) => {
+      if (activeSessionId !== undefined) state.actions.setPermissionMode(activeSessionId, next);
+    },
     banners,
     onBannerAction: (bannerId, actionId) => {
       if (activeSessionId !== undefined)
@@ -413,6 +599,11 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       if (activeSessionId !== undefined)
         state.actions.setSessionModel(activeSessionId, { reasoning: toReasoning(v) });
     },
+    modelMetadata: metadataEntries,
+    ...(activeModelMetadata !== undefined ? { activeModelMetadata } : {}),
+    ...(ringUsage !== undefined ? { ringUsage } : {}),
+    attach,
+    skills: skillsRead,
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
     onInterrupt: () => {
@@ -423,6 +614,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     },
     openPath: state.actions.openPath,
     openExternal: state.actions.openExternal,
+    onOpenSession: state.actions.selectSession,
     toggleRaw: state.actions.toggleRaw,
     activeSessionId,
     ...(activeAgent?.name !== undefined ? { agentName: activeAgent.name } : {}),
@@ -609,9 +801,11 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   // just lets one stable closure always see the current session.
   const openPathRef = useRef(vm.status === 'ready' ? vm.openPath : undefined);
   const openUrlRef = useRef(vm.status === 'ready' ? vm.openExternal : undefined);
+  const openSessionRef = useRef(vm.status === 'ready' ? vm.onOpenSession : undefined);
   const sessionIdRef = useRef<string | undefined>(undefined);
   openPathRef.current = vm.status === 'ready' ? vm.openPath : undefined;
   openUrlRef.current = vm.status === 'ready' ? vm.openExternal : undefined;
+  openSessionRef.current = vm.status === 'ready' ? vm.onOpenSession : undefined;
   sessionIdRef.current = vm.status === 'ready' ? vm.activeSessionId : undefined;
 
   const onOpenPath = useCallback((path: string, line?: number): void => {
@@ -633,6 +827,12 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
     void open(url).then((res) => {
       if (!res.ok) reportFailure('open that link', res.reason ?? 'the link could not be opened.');
     });
+  }, []);
+
+  // A subagent card's jump-to-thread — session switching via the console action.
+  // Stable identity (ref pattern, mirrors onOpenPath) for the memoized rows.
+  const onOpenSession = useCallback((sessionId: string): void => {
+    openSessionRef.current?.(sessionId);
   }, []);
 
   // Measure the floating composer's rendered height (it grows as the textarea does)
@@ -761,6 +961,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
                           findMatch={matchesFind}
                           onOpenPath={onOpenPath}
                           onOpenUrl={onOpenUrl}
+                          onOpenSession={onOpenSession}
                           label="Conversation"
                           busy={isActive && vm.sessionStatus === 'running'}
                           busySince={isActive ? vm.runningSince : undefined}
@@ -795,14 +996,24 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               onNoticeAction={vm.onBannerAction}
               running={vm.sessionStatus === 'running'}
               disabled={vm.activeSessionId === undefined}
+              activeSessionId={vm.activeSessionId}
               queued={queuedMessages}
               approval={vm.approval}
+              mode={vm.mode}
+              effectiveMode={vm.effectiveMode}
+              modeDegraded={vm.modeDegraded}
+              onSetMode={vm.onSetMode}
               models={vm.models}
               currentModelId={vm.currentModelId}
               onPickModel={vm.onPickModel}
               effortOptions={vm.effortOptions}
               effortValue={vm.effortValue}
               onPickEffort={vm.onPickEffort}
+              modelMetadata={vm.modelMetadata}
+              activeModelMetadata={vm.activeModelMetadata}
+              ringUsage={vm.ringUsage}
+              attach={vm.attach}
+              skills={vm.skills}
               onSend={vm.onSend}
               onQueue={handleQueue}
               onSteer={handleSteer}
@@ -822,7 +1033,16 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   );
 }
 
-/** State-fed surface: computes the vm from console state and renders the chat pane. */
+/** State-fed surface: computes the vm from console state and renders the chat pane.
+ *  Also mounts the library read (idempotent, the auth-store convention): the slash
+ *  popover's invocable rows and the drift compare's skill slice both come from it. */
 export function ChatSurface({ state }: { state: ConsoleState }): React.JSX.Element {
-  return <ChatView vm={selectChatVm(state)} />;
+  const invocable = useLibraryStore((s) => s.invocable);
+  useEffect(() => {
+    void useLibraryStore
+      .getState()
+      .hydrate()
+      .catch(() => {});
+  }, []);
+  return <ChatView vm={selectChatVm(state, undefined, invocable)} />;
 }

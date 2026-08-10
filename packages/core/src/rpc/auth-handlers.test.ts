@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -18,6 +18,10 @@ import { LoginManager } from '../auth/login-manager.js';
 import type { BrowserSessionView } from '../auth/browser-session.js';
 
 let home: string;
+/** Where `os.homedir()` resolves during these tests — deliberately a DIFFERENT dir than
+ *  `home`, so any call site that fell back to the ambient homedir() instead of reading
+ *  `deps.home` would write there and every existing assertion against `home` would fail. */
+let decoyHome: string;
 let originalHome: string | undefined;
 let originalUserProfile: string | undefined;
 const call = (handlers: ReturnType<typeof buildAuthHandlers>, method: string, params?: unknown) =>
@@ -30,6 +34,7 @@ function freshDeps(home: string): AuthHandlerDeps {
     web: new WebConfigStore(home),
     keys: new KeyStateStore(home),
     console: new ConsoleStateStore(home),
+    home,
   };
 }
 
@@ -58,17 +63,20 @@ function fakeLoginDriver(home: string): LoginDriverPort & {
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'coa-authrpc-'));
-  // The write verbs (addCredential/renameCredential/etc.) key their web-service file
-  // writes off `os.homedir()`, exactly like the real daemon composition (session/daemon.ts
-  // roots all four stores at homedir()). Point homedir() at the same temp dir the stores
-  // above are rooted at, so the handler and the test observe the same files.
+  decoyHome = mkdtempSync(join(tmpdir(), 'coa-authrpc-decoy-'));
+  // Every store below is rooted explicitly at `home` via `deps.home`/its constructor arg —
+  // never at the ambient `os.homedir()`. Point `homedir()` at a DIFFERENT temp dir
+  // (`decoyHome`) so a call site that regressed to reading it directly writes there
+  // instead, and gets caught either by a path assertion against `home` failing or by the
+  // "never touches the ambient homedir()" test below.
   originalHome = process.env.HOME;
   originalUserProfile = process.env.USERPROFILE;
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
+  process.env.HOME = decoyHome;
+  process.env.USERPROFILE = decoyHome;
 });
 afterEach(() => {
   rmSync(home, { recursive: true, force: true });
+  rmSync(decoyHome, { recursive: true, force: true });
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
   if (originalUserProfile === undefined) delete process.env.USERPROFILE;
@@ -513,6 +521,30 @@ describe('auth write verbs', () => {
     const h = buildAuthHandlers(d);
     const view = (await h.refresh!.handle(undefined)) as AuthView;
     expect(view.credentials.map((c) => c.label)).toContain('a');
+  });
+
+  // Q11: every one of these verbs used to resolve secret key-file / managed-login paths
+  // off `os.homedir()` directly, bypassing `deps.home`. `process.env.HOME`/`USERPROFILE`
+  // point at a DIFFERENT temp dir (`decoyHome`) than `home` for the whole file, so a
+  // regressed call site would either write under `decoyHome` (caught here) or read back
+  // nothing where `home`-relative assertions above expect a file (caught by those tests).
+  it('never touches the ambient homedir() — every path stays under the injected home', async () => {
+    const d = freshDeps(home);
+    const h = buildAuthHandlers(d);
+
+    await h.addCredential!.handle({ providerId: 'deepseek', label: 'a', secret: 'k-a' });
+    await h.addCredential!.handle({ providerId: 'tavily', label: 'k1', secret: 'tv-key' });
+    await h.renameCredential!.handle({ id: credentialId('tavily', 'k1'), label: 'k2' });
+    await h.replaceSecret!.handle({ id: credentialId('deepseek', 'a'), secret: 'k-a-2' });
+    await h.setCredentialDisabled!.handle({ id: credentialId('tavily', 'k2'), disabled: true });
+    await h.clearCooldown!.handle({ id: credentialId('tavily', 'k2') });
+    const managedDir = join(home, '.coa', 'logins', 'managed');
+    mkdirSync(managedDir, { recursive: true });
+    d.accounts.add('m', { type: 'config-dir', dir: managedDir }, 'claude');
+    await h.removeCredential!.handle({ id: credentialId('claude', 'm') });
+    await h.removeProvider!.handle({ providerId: 'tavily' });
+
+    expect(readdirSync(decoyHome)).toEqual([]);
   });
 });
 

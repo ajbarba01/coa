@@ -1,32 +1,43 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { ModelDescriptor, RpcParams } from '@coa/shared';
-import { pushSchema } from '@coa/shared';
+import type { ModelDescriptor, PermissionMode, RpcParams, ToolCall, ToolClass } from '@coa/shared';
+import { modelImageInputSupport, pushSchema } from '@coa/shared';
 import {
   AgentRegistry,
   bindDaemon,
   buildAgentRegistryHandlers,
   buildConversationHandlers,
+  buildLibraryHandlers,
   buildModelHandlers,
+  buildModelMetadataHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
+  buildWorktreeHandlers,
+  classifyTool,
   connectClient,
   createConversationStore,
+  createMessageLog,
+  createSessionLibraryPort,
   defaultDaemonPath,
   effectiveModels,
+  LibraryService,
+  listInvocableSkills,
   LiveSessionRegistry,
   MODEL_PROVIDERS,
   ModelCatalogStore,
+  ModelMetadataCatalog,
   packageSummaries,
   roleSummaries,
   SessionService,
+  type ModeDeps,
   type ModelCache,
   type ModelCacheAccount,
   type RpcServer,
 } from '@coa/core';
 import { runAuthCommand } from './auth-cli.js';
 import { runWebCommand } from './web-cli.js';
+import { supportsApproval, supportsAttachments } from './adapter-factory.js';
 import { buildDaemonConsoleHandlers } from './console-handlers.js';
 import { buildClaudeLoginDriver } from './login-driver.js';
 import { buildSessionDeps } from './session-deps.js';
@@ -74,7 +85,10 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   }
 
   const { method, params } = build(args);
-  const client = await connectClient(io.path ?? defaultDaemonPath());
+  // No explicit endpoint: resolve the SAME project-keyed pipe/socket a `coa serve`
+  // launched from this same cwd would bind (see `defaultDaemonPath`) — a terminal
+  // `cd`'d into a project reaches that project's daemon with no extra config.
+  const client = await connectClient(io.path ?? defaultDaemonPath(process.cwd()));
   try {
     const response = await client.request(method, params);
     if ('error' in response) {
@@ -106,7 +120,7 @@ export async function runSession(args: string[], io: CliIo): Promise<number> {
   let settle!: (failed: boolean) => void;
   const finished = new Promise<boolean>((resolve) => (settle = resolve));
 
-  const client = await connectClient(io.path ?? defaultDaemonPath(), (note) => {
+  const client = await connectClient(io.path ?? defaultDaemonPath(process.cwd()), (note) => {
     if (note.method !== 'push') return;
     const push = pushSchema.safeParse(note.params);
     if (!push.success) return;
@@ -155,6 +169,13 @@ export interface DaemonOptions {
    * over the whole checkout, so its cost grows with the repo rather than with the test.
    */
   root?: string;
+  /**
+   * The home the user-global `~/.coa` stores (agents, models, web/account config, the
+   * driven-login manager) live under; defaults to the real `os.homedir()`. Overridable
+   * for the same reason as `root`: a daemon-per-project future (and any test that leaves
+   * this at the default) must not read or write the operator's actual home directory.
+   */
+  home?: string;
   /** How the `shutdown` verb tears the process down (injected for tests); defaults to close-then-exit. */
   onShutdown?: (server: RpcServer) => void;
 }
@@ -219,8 +240,45 @@ export async function listEffectiveModels(
   return lists.flat();
 }
 
+/**
+ * F2: assemble a session's mode-aware permission deps (`permission.ts`'s
+ * `ModeDeps`) from its live session — the exact glue `startDaemon`'s
+ * `resolveMode` closure hands `buildCanUseTool`. Pulled out as its own
+ * exported function so this composition point has a test binding it to a
+ * REAL session (a `LiveSessionRegistry`-issued one) and the REAL
+ * `supportsApproval`/`classifyTool`, not the fake `resolveMode` `session.ts`'s
+ * own unit tests use — those cover `session.ts`'s *consumption* of
+ * `resolveMode`, not this, its actual construction.
+ */
+export function buildModeDeps(
+  session: {
+    mode: PermissionMode;
+    approvalSeam: boolean;
+    setApprovalSeam: (seam: boolean) => void;
+    requestApproval: (call: ToolCall, toolClass: ToolClass) => Promise<'allow' | 'deny'>;
+  },
+  provider: string,
+): ModeDeps {
+  session.setApprovalSeam(supportsApproval(provider));
+  return {
+    getMode: () => session.mode,
+    hasApprovalSeam: () => session.approvalSeam,
+    classify: classifyTool,
+    requestApproval: (call, toolClass) => session.requestApproval(call, toolClass),
+  };
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
-  const path = options.path ?? defaultDaemonPath();
+  // The one root/home resolution for this daemon instance — every store built below
+  // (the path included) reuses these two `const`s rather than reaching for
+  // `process.cwd()`/`homedir()` ambiently, so a caller that overrides either gets a
+  // daemon fully scoped to it.
+  const root = options.root ?? process.cwd();
+  const home = options.home ?? homedir();
+  // F11: the endpoint is keyed by PROJECT (a hash of `root`), not one fixed app-wide
+  // name — a daemon spawned for project X and a client resolving X's endpoint later
+  // (a desktop window, a CLI `cd`'d into X) always agree on where to find it.
+  const path = options.path ?? defaultDaemonPath(root);
   const walPath = options.walPath ?? join('.coa', 'wal', 'log.ndjson');
   mkdirSync(dirname(walPath), { recursive: true });
   if (process.platform !== 'win32') mkdirSync(dirname(path), { recursive: true });
@@ -233,25 +291,64 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // once a session is actually running a turn, long after every `const` below has
   // initialized, since no session can exist before `bindDaemon` at the end of this
   // function even accepts a connection.
-  const { deps, handle, models, modelAccounts } = buildSessionDeps({
+  const { deps, handle, models, modelAccounts, worktrees } = buildSessionDeps({
     walPath,
-    root: options.root ?? process.cwd(),
+    root,
+    home,
     resolveSpawn: (sessionId) => sessions.spawnFor(sessionId),
+    resolveMessaging: (sessionId) => sessions.messagingFor(sessionId),
+    // F2: same forward-reference-safe-closure trick as `resolveSpawn` above —
+    // `registry` is declared further down this same scope, but this closure only
+    // ever fires once a real tool call needs a permission decision, long after
+    // `registry` has initialized. `buildModeDeps` reads the LIVE `LiveSession`
+    // `registry.get(sessionId)` resolves, so a mid-session `setMode`/
+    // `setApprovalSeam` is reflected on the very next call.
+    resolveMode: (sessionId, provider) => {
+      const session = registry.get(sessionId);
+      return session === undefined ? undefined : buildModeDeps(session, provider);
+    },
   });
+  // Idle-cleanup: reap whatever isolated worktree this fresh process has no record
+  // of yet (by construction, everything a prior run — crashed, or just not cleanly
+  // shut down — left behind) and is past its idle window. Run once, here, before
+  // any session gets the chance to bind a worktree of its own.
+  worktrees.sweepStale();
   // The driven-login plumbing imports the backend package, so it is built here (the
   // composition root) and injected into the login manager the handler map constructs.
   const consoleHandlers = buildDaemonConsoleHandlers(handle, {
-    loginDriver: buildClaudeLoginDriver(homedir()),
+    loginDriver: buildClaudeLoginDriver(home),
+    home,
   });
   // The editable per-provider model list (models.yaml) — the SOT `listModels` projects.
-  const modelCatalog = new ModelCatalogStore(homedir());
+  const modelCatalog = new ModelCatalogStore(home);
+  // The per-model info catalog (context window/pricing/modalities/reasoning) the
+  // console's context ring, model-picker hover card, and attach-control gating read.
+  // Construction is synchronous and network-free (static floor + last-good disk
+  // cache); `refresh()` runs off the critical path — daemon startup never waits on
+  // models.dev/OpenRouter, and a failed refresh just keeps today's data.
+  const modelMetadata = new ModelMetadataCatalog({ home });
+  void modelMetadata.refresh().catch(() => {
+    // refresh() itself never rejects (each fetch tier is independently fault-tolerant) —
+    // this catch is belt-and-suspenders against a future regression breaking that contract.
+  });
   // The agent-assembly catalogue the console picker reads (starter registry today).
   const registryHandlers = buildRegistryHandlers({
     listRoles: () => roleSummaries(),
     listPackages: () => packageSummaries(),
   });
+  // The skills/MCP library: declarative stores (~/.coa/library + <repo>/.coa/library)
+  // over on-disk discovery, all through the injected root/home — never ambient paths.
+  const library = new LibraryService({ home, projectRoot: root });
+  const libraryHandlers = buildLibraryHandlers({
+    list: () => library.list(),
+    link: (args) => library.link(args),
+    copy: (args) => library.copy(args),
+    unlink: (ref) => library.unlink(ref),
+    setEnabled: (ref, enabled) => library.setEnabled(ref, enabled),
+    invocable: () => listInvocableSkills(library.list()),
+  });
   // The agent-definition registry: built-in ∪ ~/.coa/agents ∪ <repo>/.coa/agents.
-  const agentRegistry = new AgentRegistry(homedir(), process.cwd());
+  const agentRegistry = new AgentRegistry(home, root);
   const agentHandlers = buildAgentRegistryHandlers({
     listAgents: () => agentRegistry.list(),
     saveAgent: (ref, file, scope) => agentRegistry.save(ref, file, scope),
@@ -261,17 +358,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
   // Reads there never throw — they return what they could read — so anything they had to
   // drop is logged here. Otherwise a conversation that lost part of its record comes back
   // looking whole, both to the console and to the model being handed its own memory.
-  const store = createConversationStore(
-    join(process.cwd(), '.coa', 'local', 'conversation'),
-    undefined,
-    {
-      reportUnreadable: ({ sessionId, file, count }) =>
-        console.error(
-          `conversation store: session ${sessionId} — ${count} unreadable record(s) in ${file}, skipped`,
-        ),
-    },
-  );
+  const store = createConversationStore(join(root, '.coa', 'local', 'conversation'), undefined, {
+    reportUnreadable: ({ sessionId, file, count }) =>
+      console.error(
+        `conversation store: session ${sessionId} — ${count} unreadable record(s) in ${file}, skipped`,
+      ),
+  });
   const conversationHandlers = buildConversationHandlers(store);
+  // The durable inter-agent message log (docs/adr/0039) — one file per family-tree
+  // root, beside the conversation store under the same gitignored `.coa/local/` tree.
+  const messageLog = createMessageLog(join(root, '.coa', 'local', 'messages'));
   // The daemon-authoritative home for every conversation's live session (the daemon,
   // not any client, owns a live session across turns),
   // constructed once — same lifetime as `store` — so two connections sharing a
@@ -298,6 +394,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     registry,
     store,
     listAgents: () => agentRegistry.list().agents,
+    messageLog,
+    // Skill injection + slash invocation + external MCP delivery, resolved fresh per
+    // turn from the same declarative library the verbs above manage. Resolved skill
+    // Pieces are also registered into the kernel piece store, which is what makes a
+    // disclosure skill's body genuinely pullable via the governed `get_piece` tool.
+    library: createSessionLibraryPort({
+      list: () => library.list(),
+      registerPiece: (piece) => handle.kernel.registerPiece(piece),
+    }),
   });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
@@ -323,10 +428,27 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...consoleHandlers,
     ...registryHandlers,
     ...agentHandlers,
+    ...libraryHandlers,
     ...conversationHandlers,
+    // The Worktree dock's read + reap seam. `isRunning` consults the live registry's
+    // own state (never client tracking) so a reap can't delete a working directory
+    // out from under an in-flight turn.
+    ...buildWorktreeHandlers({
+      worktrees,
+      isRunning: (sessionId) => registry.get(sessionId)?.state === 'running',
+    }),
     ...shutdownHandlers,
-    ...buildSessionHandlers(sessions, connection),
+    ...buildSessionHandlers(sessions, connection, {
+      // The provider→backend capability facts live beside the adapter factory (one
+      // source of truth); the vision fact is the metadata catalog's tri-state
+      // collapsed honestly — only a verified 'supported' opens the image gate.
+      attachmentsSupported: supportsAttachments,
+      visionSupported: (provider, modelId) =>
+        modelId !== undefined &&
+        modelImageInputSupport(modelMetadata.get(provider, modelId)) === 'supported',
+    }),
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
+    ...buildModelMetadataHandlers(modelMetadata),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.
     listModels: {

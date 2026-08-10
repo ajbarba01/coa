@@ -14,7 +14,7 @@ export interface ToolDiffViewProps {
  *  intact. */
 export function ToolDiffView({ lines, language }: ToolDiffViewProps): React.JSX.Element {
   return (
-    <div className="overflow-x-auto py-1 font-mono text-[11px] leading-[1.65]">
+    <div className="overflow-x-auto py-2 font-mono text-code leading-[1.7]">
       {lines.map((line, i) => (
         <DiffRow key={i} line={line} language={language} />
       ))}

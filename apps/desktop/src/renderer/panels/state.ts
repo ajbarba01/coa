@@ -1,15 +1,21 @@
 import type {
   AgentDiagnostic,
   AgentSummary,
+  Attachment,
   CapState,
   Checkpoint,
   FeedView,
   ModelDescriptor,
+  ModelMetadata,
   ModelSelection,
   PackageSummary,
+  PermissionMode,
   RoleSummary,
   SessionSummary,
+  SessionUsage,
+  ToolClass,
   TurnFrame,
+  WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
@@ -45,11 +51,40 @@ export interface ConsoleData {
    *  to the empty list. */
   agentDiagnostics: AgentDiagnostic[];
   sessions: Remote<SessionSummary[]>;
+  /** Every session running in its own isolated git worktree (the daemon's
+   *  `listWorktrees` read) — the Worktree dock floor's rows. */
+  worktrees: Remote<WorktreeView[]>;
   /** The active account's available models + per-model reasoning capabilities (live, cached). */
   models: Remote<ModelDescriptor[]>;
+  /** The per-model info catalog (context window/pricing/modalities/reasoning) — the
+   *  context ring, the model-picker hover card, and attach gating all read this.
+   *  Absent fields on a row are genuine unknowns, never fabricated. */
+  modelMetadata: Remote<ModelMetadata[]>;
   /** The agent-assembly catalogue the picker draws from (live: `listRoles`/`listPackages`). */
   roles: Remote<RoleSummary[]>;
   packages: Remote<PackageSummary[]>;
+}
+
+/** F2 — a still-pending approval request, as the live `approval` push (or the
+ *  `sessionMode` reattach read) carries it. `toolClass` rides only the push (the
+ *  reattach snapshot doesn't carry it — see the daemon's `PendingApprovalSnapshot`). */
+export interface PendingApprovalItem {
+  requestId: string;
+  tool: string;
+  summary: string;
+  input?: Record<string, unknown>;
+  toolClass?: ToolClass;
+}
+
+/** F2 — a session's live permission-mode reflection: the CONFIGURED `mode`, the
+ *  `effectiveMode` actually enforced right now, and `degraded` (present only when
+ *  they differ — SC-1 honesty: the backend has no approval seam, so enforcement
+ *  fell back to bypass). Never decided by the console — always the daemon's `mode`
+ *  push, or the `sessionMode` reattach read. */
+export interface SessionModeState {
+  mode: PermissionMode;
+  effectiveMode: PermissionMode;
+  degraded?: string;
 }
 
 /** Local view state (not daemon data). */
@@ -57,8 +92,11 @@ export interface ConsoleUi {
   settings: ConsoleSettings;
   /** When true the conversation renders the unfiltered loop (raw is always available). */
   rawMode: boolean;
-  /** Inert local record of mock approvals the operator resolved (advisory: surfacing
-   *  only — the daemon owns the real decision). */
+  /** A local record of resolved approvals, keyed by requestId — overlays a `resolved`
+   *  receipt onto a transcript-derived approval frame once answered (advisory: surfacing
+   *  only, never the decision itself). Distinct from {@link pendingApprovalsBySession}:
+   *  a LIVE F2 ask is never a transcript frame, so it never reads this map — it clears by
+   *  being removed from the pending queue instead. */
   resolvedApprovals: Record<string, 'approved' | 'denied'>;
   /** The agent open in the Agents editor (not the chat's — that follows the session). */
   selectedAgentRef?: string;
@@ -93,6 +131,25 @@ export interface ConsoleUi {
    *  describes. Never sent to the agent; a `ChatVm`/`interleaveNotes` concern, not the wire
    *  `TurnFrame` buffer. */
   notesBySession: Record<string, { afterCount: number; text: string }[]>;
+  /** F2: this session's live permission-mode reflection, keyed by sessionId — the
+   *  daemon's own `mode` push / `sessionMode` hydration read. Absent ⇒ not yet
+   *  hydrated (the vm falls back to the active agent's configured default). */
+  modeBySession: Record<string, SessionModeState>;
+  /** F2: every approval request still awaiting a reply, per session, oldest first
+   *  (FIFO — the longest-waiting ask is what's blocking the session). The
+   *  daemon's own live `approval` push queue / `sessionMode` hydration read;
+   *  never invented locally. */
+  pendingApprovalsBySession: Record<string, PendingApprovalItem[]>;
+  /** The last settled turn's usage per session — the daemon's `usage` push (the
+   *  adapters' own settlement numbers; never invented locally). The context ring
+   *  reads it against the active model's window. */
+  usageBySession: Record<string, SessionUsage>;
+  /** Live child status keyed by CHILD session id, mirrored from the parent-stream
+   *  `subagent-spawn`/`subagent-completion` announcements (live-only frames — a
+   *  reload does not replay them, so an absent entry means "not observed", never
+   *  "idle"). The Subagents dock floor reads it beside `runStatus` (which only
+   *  covers sessions THIS console subscribed to). */
+  subagentStatus: Record<string, { state: 'running' | 'completed' | 'errored' | 'stopped' }>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -103,7 +160,15 @@ export interface ConsoleActions {
   switchAccount: (label: string, provider?: string) => void;
   setSettings: (patch: Partial<ConsoleSettings>) => void;
   toggleRaw: () => void;
+  /** F2: answer a pending ask docked to the composer for the active session — the
+   *  real ask/response round trip (proxies the daemon `respondApproval`), never a
+   *  local-only decision. */
   respondApproval: (requestId: string, decision: 'approve' | 'deny') => void;
+  /** F2: live-switch a session's permission mode (proxies the daemon `setMode`).
+   *  Visibility IS the guardrail — no confirmation gate on switching to a riskier
+   *  mode. Fire-and-forget; the chip's own reflection updates from the daemon's
+   *  `mode` push, not optimistically here. */
+  setPermissionMode: (sessionId: string, mode: PermissionMode) => void;
   /** Agents-surface editor selection + mock-inert writes (future writeRole funnel). */
   selectAgent: (ref: string) => void;
   createAgent: (scope: 'project' | 'personal') => void;
@@ -114,8 +179,16 @@ export interface ConsoleActions {
   selectSession: (id: string) => void;
   newSession: (agentRef: string) => void;
   deleteSession: (id: string) => void;
-  /** Send a prompt to the active session's agent (starts a governed daemon session). */
-  sendMessage: (text: string) => void;
+  /** Send a prompt to the active session's agent (starts a governed daemon session).
+   *  `attachments` ride the same send (images/text files, the shared wire shape);
+   *  `invokeSkills` are the composer's explicit one-turn `/skill` loads (the daemon
+   *  refuses an unknown name before anything mutates); omitted/empty ⇒ byte-identical
+   *  to a plain text send. */
+  sendMessage: (
+    text: string,
+    attachments?: readonly Attachment[],
+    invokeSkills?: readonly string[],
+  ) => void;
   /** Resolve a system banner action (e.g. the drift banner's `recompile`/`keep`).
    *  Always dismisses the banner; `recompile` also refreshes the running prompt. */
   onBannerAction: (sessionId: string, bannerId: string, actionId: string) => void;
@@ -142,6 +215,10 @@ export interface ConsoleActions {
    *  nothing (advisory — a user redirect, never a block). Fire-and-forget; the transcript updates
    *  from the daemon's own turn Push. Queue-mode follow-ups are held console-side by the panel. */
   steerSession: (sessionId: string, text: string) => void;
+  /** Reap a session's isolated worktree (the Worktree dock's explicit cleanup —
+   *  nothing else ever removes one). The daemon refuses while that session's turn
+   *  is running; a refusal surfaces as a notice, never a block. */
+  reapWorktree: (sessionId: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -163,7 +240,9 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       agents: { status: 'loading' },
       agentDiagnostics: [],
       sessions: { status: 'loading' },
+      worktrees: { status: 'loading' },
       models: { status: 'loading' },
+      modelMetadata: { status: 'loading' },
       roles: { status: 'loading' },
       packages: { status: 'loading' },
     },
@@ -177,6 +256,10 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       runStatus: {},
       sendNonce: {},
       notesBySession: {},
+      modeBySession: {},
+      pendingApprovalsBySession: {},
+      usageBySession: {},
+      subagentStatus: {},
     },
     actions,
   };

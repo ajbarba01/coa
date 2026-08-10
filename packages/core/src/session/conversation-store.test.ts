@@ -305,6 +305,34 @@ describe('conversation store', () => {
     expect(store.loadBackendMessages('c2')).toEqual({ messages: [], skipped: 0 });
   });
 
+  it('getEvents returns the raw stream with `full` intact, unlike reload', () => {
+    store.create({ id: 'c3', agentRef: 'r', title: 't', scope: '' });
+    store.append('c3', [
+      { seq: 0, frame: { t: 'text', text: 'hi', role: 'user' } },
+      {
+        seq: 1,
+        frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' },
+        full: 'FULLBODY',
+      },
+    ]);
+    expect(store.getEvents('c3')).toEqual({
+      events: [
+        { seq: 0, frame: { t: 'text', text: 'hi', role: 'user' } },
+        {
+          seq: 1,
+          frame: { t: 'tool_result', handle: 'h1', ok: true, pointer: 'ptr' },
+          full: 'FULLBODY',
+        },
+      ],
+      skipped: 0,
+    });
+  });
+
+  it('getEvents is empty for a session with no events, same floor as loadBackendMessages', () => {
+    store.create({ id: 'c4', agentRef: 'r', title: 't', scope: '' });
+    expect(store.getEvents('c4')).toEqual({ events: [], skipped: 0 });
+  });
+
   it('freezes and reloads a session compilation; a corrupt one reads as none', () => {
     store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
     expect(store.getCompilation('c1')).toBeUndefined();
@@ -328,5 +356,32 @@ describe('conversation store', () => {
     // Corrupt ⇒ undefined (the session recompiles fresh), never throws.
     writeFileSync(join(dir, 'c1', 'compilation.json'), '{ not json', 'utf8');
     expect(store.getCompilation('c1')).toBeUndefined();
+  });
+
+  it('round-trips the injected skill selection on the stored compilation (the drift key survives a reopen)', () => {
+    store.create({ id: 'c1', agentRef: 'r', title: 't', scope: '' });
+    store.setCompilation('c1', {
+      neutral: {
+        prefixHead: [],
+        systemReminders: [],
+        onDemandPullable: ['review'],
+        scopePushed: [],
+        toolIntents: { allow: [], deny: [] },
+      },
+      frame: { allow: [], deny: [] },
+      promptVersion: 'pv',
+      configHash: 'cfg',
+      config: {
+        role: 'swe',
+        skills: [
+          { name: 'commits', delivery: 'auto' },
+          { name: 'review', delivery: 'disclosure' },
+        ],
+      },
+    });
+    expect(createConversationStore(dir, fakeClock()).getCompilation('c1')?.config.skills).toEqual([
+      { name: 'commits', delivery: 'auto' },
+      { name: 'review', delivery: 'disclosure' },
+    ]);
   });
 });

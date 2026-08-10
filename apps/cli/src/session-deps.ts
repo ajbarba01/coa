@@ -11,6 +11,7 @@ import {
   roleRegistry,
   shellLabel,
   WebConfigStore,
+  WorktreeManager,
   type ActiveAccountResolution,
   type DaemonCoreHandle,
   type ModelCacheAccount,
@@ -37,6 +38,10 @@ export interface DaemonSessionOptions {
   walPath: string;
   /** The worktree root for the session; defaults to the process cwd. */
   root?: string;
+  /** The home the user-global `~/.coa` stores (web config, accounts) live under;
+   *  defaults to the real `os.homedir()`. A test seam so a session can be built without
+   *  touching the operator's actual home directory. */
+  home?: string;
   /** The session's configured tool baseline for the sandbox policy. */
   allowedTools?: string[];
   /** Resolve a session's subagent-dispatch port (parent = sessionId); absent ⇒ spawning
@@ -44,6 +49,15 @@ export interface DaemonSessionOptions {
    *  registry exist, which is after this function returns (see `cli.ts`'s late-bound
    *  holder). */
   resolveSpawn?: SessionWiring['resolveSpawn'];
+  /** Resolve a session's messaging port (sender = sessionId, docs/adr/0039); absent ⇒
+   *  messaging unavailable — the same forward-reference-safe-closure trick as
+   *  `resolveSpawn` (see `cli.ts`). */
+  resolveMessaging?: SessionWiring['resolveMessaging'];
+  /** F2: resolve a session's mode-aware permission layer; absent ⇒ mode
+   *  enforcement unavailable — the daemon host wires this once `registry` exists,
+   *  the same forward-reference-safe-closure trick `resolveSpawn` uses (see
+   *  `cli.ts`). */
+  resolveMode?: SessionWiring['resolveMode'];
 }
 
 export interface BuiltSession {
@@ -53,15 +67,20 @@ export interface BuiltSession {
   models: ModelCache;
   /** The active account to fetch models from, per provider — the merged model list's sources. */
   modelAccounts: () => ModelCacheAccount[];
+  /** The real worktree binder `bindWorktree` is wired to — the callable seam the
+   *  `listWorktrees`/`reapWorktree` verbs (the Worktree dock's floor) reach through;
+   *  the daemon host also calls `sweepStale()` on this once, at startup. */
+  worktrees: WorktreeManager;
 }
 
 /** Construct the daemon core and bind it (plus the Claude backend) into session deps. */
 export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
   const root = options.root ?? process.cwd();
+  const home = options.home ?? homedir();
   // Load the user-global web-key config (`~/.coa/web.yaml`); offer the web tools only
   // when at least one provider is configured (an unconfigured user gets today's
   // behavior). Credentials resolve at chain assembly from env vars / coa-saved key files.
-  const web = new WebConfigStore(homedir()).read();
+  const web = new WebConfigStore(home).read();
   const hasWeb = (web.search?.providers.length ?? 0) > 0 || (web.fetch?.providers.length ?? 0) > 0;
   const handle = createDaemonCore({
     walPath: options.walPath,
@@ -71,17 +90,25 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     // are composed HERE and injected — the daemon core stays backend-blind and never
     // reads the process environment. With no summarizer the chains still assemble, so
     // WebFetch degrades to raw markdown rather than disappearing.
-    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost) } : {}),
+    ...(hasWeb ? { webTools: ({ recordCost }) => buildWebTools(web, recordCost, home) } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
-  const registry = new AccountsRegistry(homedir());
+  const registry = new AccountsRegistry(home);
   // Session auth: the model names its provider; that provider's active account authenticates.
   const activeAccount = (provider: string): ActiveAccountResolution =>
     resolveActiveAccount(registry, provider);
+  // Bound at spawn time, ONLY when a child asks for isolation (`spawn_agent`'s `isolate`
+  // flag) — every other session keeps today's shared-root behavior exactly. A real git
+  // repo gets a real `git worktree add`; a non-git project degrades to the shared root
+  // honestly (strict-superset: isolation is an enhancement, never a requirement).
+  const worktrees = new WorktreeManager({
+    repoRoot: root,
+    onWarn: (message) => console.error(`worktree manager: ${message}`),
+  });
   const deps = composeSessionDeps(handle.core, {
     createAdapter,
     sessionStrategy,
-    bindWorktree: () => root,
+    bindWorktree: (sessionId, scope, opts) => worktrees.bind(sessionId, scope, opts),
     assemblePieces: createRegistryAssemblePieces({
       roles: roleRegistry(),
       packages: packageRegistry(),
@@ -92,10 +119,14 @@ export function buildSessionDeps(options: DaemonSessionOptions): BuiltSession {
     }),
     activeAccount,
     ...(options.resolveSpawn !== undefined ? { resolveSpawn: options.resolveSpawn } : {}),
+    ...(options.resolveMessaging !== undefined
+      ? { resolveMessaging: options.resolveMessaging }
+      : {}),
+    ...(options.resolveMode !== undefined ? { resolveMode: options.resolveMode } : {}),
   });
   const models = new ModelCache({ fetch: fetchModels });
   const modelAccounts = (): ModelCacheAccount[] => activeModelAccounts(registry);
-  return { deps, handle, models, modelAccounts };
+  return { deps, handle, models, modelAccounts, worktrees };
 }
 
 /** Resolve a provider's active account into the session's login pointer + label (ambient ⇒ no pointer). */

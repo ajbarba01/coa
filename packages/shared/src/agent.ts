@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { claudeReasoningSchema } from './config.js';
+import { agentSkillConfigSchema } from './library.js';
+import { permissionModeSchema } from './permission.js';
 import { pieceSchema } from './piece.js';
 
 /**
@@ -129,6 +131,16 @@ export const agentFileSchema = z.object({
   roles: z.array(z.string()).optional(),
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
+  /** Library skills this agent carries, each with its delivery choice
+   *  (`auto` = inject the body; `disclosure` = advertise, pull on demand).
+   *  Absent ⇒ no library skills — byte-identical to before the library existed. */
+  skills: z.array(agentSkillConfigSchema).optional(),
+  /** F2: the permission mode a session spawned from this agent starts in
+   *  (`newSession`'s pre-created record for a top-level session, or a spawn's
+   *  `agentRef` for a child — see `SessionService`). Absent ⇒ the system floor,
+   *  `manual` (ask before writes/commands) — the same balanced default every
+   *  other agent without an opinion gets. */
+  defaultMode: permissionModeSchema.optional(),
 });
 export type AgentFile = z.infer<typeof agentFileSchema>;
 

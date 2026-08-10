@@ -2,23 +2,35 @@ import {
   AccountsSchema,
   ActiveAccountSchema,
   agentFileSchema,
+  agentSkillConfigSchema,
+  approvalDecisionSchema,
+  attachmentSchema,
   AuthViewSchema,
   CapStateSchema,
   FeedViewSchema,
+  librarySummarySchema,
+  LibraryViewResultSchema,
   ListAgentsResultSchema,
+  ListSkillsResultSchema,
   LoginSnapshotSchema,
   ModelCatalogViewSchema,
+  ModelMetadataViewSchema,
   PackageSummaryListSchema,
+  permissionModeSchema,
+  ReapWorktreeResultSchema,
   ReasoningProfileSchema,
   RoleSummaryListSchema,
   SessionListSchema,
   TimelineSchema,
+  UnlinkLibraryResultSchema,
+  WorktreeListSchema,
   modelSelectionSchema,
   modelDescriptorSchema,
   reloadedConversationSchema,
 } from '@coa/console-viewmodel';
 import { z } from 'zod';
 import { ConsoleSettingsSchema } from './settings.js';
+import { RecentProjectSchema } from './projects.js';
 
 /** Params/result for starting a governed session from the console (proxies the daemon `createSession`). */
 export const StartSessionParamsSchema = z.object({
@@ -31,6 +43,15 @@ export const StartSessionParamsSchema = z.object({
   /** Assembly selection: opt-in packages added / default packages excluded (role-gated). */
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
+  /** Attachments on this send's user message (the one shared wire shape). The daemon
+   *  refuses them for a backend whose adapter has no seam — never a silent drop. */
+  attachments: z.array(attachmentSchema).optional(),
+  /** Explicit per-send library-skill selection ({name, delivery} each), overriding the
+   *  agent definition's `skills` list for this turn; absent ⇒ the agent's own. */
+  skills: z.array(agentSkillConfigSchema).optional(),
+  /** Library skills invoked explicitly on THIS turn (the composer's `/skill`). An
+   *  unknown name refuses the send with an error reply before anything mutates. */
+  invokeSkills: z.array(z.string().min(1)).optional(),
 });
 export const StartSessionResultSchema = z.object({ sessionId: z.string(), worktree: z.string() });
 
@@ -97,6 +118,77 @@ export const PickDirectoryParamsSchema = z.object({
   defaultPath: z.string().optional(),
 });
 export const PickDirectoryResultSchema = z.object({ path: z.string().optional() });
+
+/**
+ * F11 — open (or switch to) a project. `target: 'new'` opens a fresh window;
+ * `target: 'current'` swaps the CALLING window to `root` in place. Either way, if
+ * `root` is ALREADY open in some window, that window is focused instead — coa
+ * never runs two daemons over the same project (a concurrent-write hazard on its
+ * `.coa/local/` state), so "already open" always wins over the requested target.
+ *
+ * The CALLER owns confirming with the user before calling this with
+ * `target: 'current'` while its own project has a turn actively running — main
+ * performs the swap unconditionally once called; it does not itself gate on
+ * in-flight work (only the calling window knows whether one is running).
+ */
+export const OpenProjectParamsSchema = z.object({
+  root: z.string(),
+  target: z.enum(['current', 'new']),
+});
+export const OpenProjectResultSchema = z.object({
+  /** What actually happened: a fresh window was opened, the CALLING window was
+   *  rebound to this project, or a window ALREADY open on this exact project was
+   *  focused instead (never a second window/daemon for the same project). */
+  opened: z.enum(['new', 'current', 'focused-existing']),
+  workspace: z.object({ name: z.string(), root: z.string() }),
+});
+
+/** The recent-projects list (the picker's MRU), each entry decorated with whether
+ *  it's open in some window RIGHT NOW — computed live from the window registry,
+ *  never persisted — so the picker can show an "already open" affordance instead
+ *  of a redundant open control. */
+export const RecentProjectViewSchema = RecentProjectSchema.extend({ open: z.boolean() });
+export const ListRecentProjectsResultSchema = z.array(RecentProjectViewSchema);
+
+/** F2 — a pending approval request as replayed by `sessionMode`'s snapshot read
+ *  (the live `approval` push's own fields minus `sessionId`/`toolClass`, which the
+ *  snapshot read does not carry — see the daemon's `PendingApprovalSnapshot`). */
+const PendingApprovalSnapshotSchema = z.object({
+  requestId: z.string(),
+  tool: z.string(),
+  summary: z.string(),
+  input: z.record(z.string(), z.unknown()),
+});
+
+/** F2 — live-switch a session's permission mode, proxies the daemon `setMode`.
+ *  `set: false` ⇒ unknown session id, nothing changed. */
+export const SetModeParamsSchema = z.object({ id: z.string(), mode: permissionModeSchema });
+export const SetModeResultSchema = z.object({ set: z.boolean() });
+
+/** F2 — answer a pending ask, proxies the daemon `respondApproval`. `resolved: false`
+ *  ⇒ unknown session id, or no pending request with that id (a harmless no-op, not
+ *  an error — answering an already-answered/stale id twice never fails). */
+export const RespondApprovalParamsSchema = z.object({
+  id: z.string(),
+  requestId: z.string(),
+  decision: approvalDecisionSchema,
+});
+export const RespondApprovalResultSchema = z.object({ resolved: z.boolean() });
+
+/** F2 — a plain synchronous read of a session's current permission-mode state
+ *  (mode, the mode actually enforced, and every ask still awaiting a reply),
+ *  proxies the daemon `sessionMode`. Used to hydrate a reattach (e.g. a console
+ *  reload while a manual-mode ask is still blocking the session) without waiting
+ *  on the next live push. `found: false` ⇒ unknown session id. */
+export const SessionModeResultSchema = z.union([
+  z.object({ found: z.literal(false) }),
+  z.object({
+    found: z.literal(true),
+    mode: permissionModeSchema,
+    effectiveMode: permissionModeSchema,
+    pending: z.array(PendingApprovalSnapshotSchema),
+  }),
+]);
 
 /** The one-way main→renderer event channel carrying the daemon's CON-PUSH stream. */
 export const PUSH_CHANNEL = 'coa:push';
@@ -189,14 +281,20 @@ export type MethodName =
   | 'startSession'
   | 'newSession'
   | 'listSessions'
+  | 'listWorktrees'
+  | 'reapWorktree'
   | 'reloadConversation'
   | 'deleteSession'
   | 'recompilePrompt'
   | 'interruptSession'
   | 'steerSession'
   | 'subscribeSession'
+  | 'setMode'
+  | 'respondApproval'
+  | 'sessionMode'
   | 'listModels'
   | 'modelCatalog'
+  | 'modelMetadata'
   | 'addModels'
   | 'addCustomModel'
   | 'editModel'
@@ -207,6 +305,8 @@ export type MethodName =
   | 'openPath'
   | 'openExternal'
   | 'pickDirectory'
+  | 'openProject'
+  | 'listRecentProjects'
   | 'editCommand'
   | 'getWorkspace'
   | 'getLayout'
@@ -216,6 +316,13 @@ export type MethodName =
   | 'listAgents'
   | 'saveAgent'
   | 'deleteAgent'
+  | 'listLibrary'
+  | 'rescanLibrary'
+  | 'listSkills'
+  | 'linkLibrary'
+  | 'copyLibrary'
+  | 'unlinkLibrary'
+  | 'setLibraryEnabled'
   | 'startLogin'
   | 'loginState'
   | 'submitLoginCode'
@@ -276,6 +383,16 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
+  /** Every isolated session worktree (path + cheap dirty summary + liveness) — the
+   *  Worktree dock floor's read. Proxies the daemon `listWorktrees`. */
+  listWorktrees: { result: WorktreeListSchema },
+  /** The explicit reap (docs/adr/0037: nothing else ever removes an isolated
+   *  worktree). Proxies the daemon `reapWorktree`, which refuses a session whose
+   *  turn is running right now rather than deleting the directory under it. */
+  reapWorktree: {
+    params: z.object({ sessionId: z.string() }),
+    result: ReapWorktreeResultSchema,
+  },
   reloadConversation: { params: z.object({ id: z.string() }), result: reloadedConversationSchema },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   recompilePrompt: {
@@ -303,8 +420,25 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     params: z.object({ id: z.string() }),
     result: z.object({ subscribed: z.boolean() }),
   },
+  /** F2 — live-switch a session's permission mode. Proxies the daemon `setMode`;
+   *  the chip's own reflection updates from the resulting `mode` push, not this
+   *  response (see {@link SetModeResultSchema}). */
+  setMode: { params: SetModeParamsSchema, result: SetModeResultSchema },
+  /** F2 — answer a pending ask (the composer's docked approve/deny gate). Proxies
+   *  the daemon `respondApproval`. */
+  respondApproval: { params: RespondApprovalParamsSchema, result: RespondApprovalResultSchema },
+  /** F2 — a session's current permission-mode snapshot (mode/effectiveMode/every
+   *  pending ask), for reattach hydration. Proxies the daemon `sessionMode`. */
+  sessionMode: { params: z.object({ id: z.string() }), result: SessionModeResultSchema },
   listModels: { result: z.array(modelDescriptorSchema) },
   modelCatalog: { result: ModelCatalogViewSchema },
+  /** Per-model info (context window/pricing/modalities/reasoning) — the context
+   *  ring, the model-picker hover card, and attach-control capability gating all
+   *  read this. Proxies the daemon `modelMetadata`. */
+  modelMetadata: {
+    params: z.object({ provider: z.string().optional() }).optional(),
+    result: ModelMetadataViewSchema,
+  },
   addModels: {
     params: z.object({ providerId: z.string(), ids: z.array(z.string()) }),
     result: ModelCatalogViewSchema,
@@ -340,9 +474,14 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   openPath: { params: OpenPathParamsSchema, result: OpenPathResultSchema },
   openExternal: { params: OpenExternalParamsSchema, result: OpenExternalResultSchema },
   pickDirectory: { params: PickDirectoryParamsSchema, result: PickDirectoryResultSchema },
+  /** Open/switch/focus a project window — see {@link OpenProjectParamsSchema}. */
+  openProject: { params: OpenProjectParamsSchema, result: OpenProjectResultSchema },
+  /** The recent-projects MRU, each entry live-annotated with whether it's open. */
+  listRecentProjects: { result: ListRecentProjectsResultSchema },
   editCommand: { params: EditCommandParamsSchema, result: z.void() },
-  /** The open project (name + root), derived by main from the daemon's cwd —
-   *  the renderer never guesses a workspace. */
+  /** The CALLING window's open project (name + root), derived by main from which
+   *  project that specific window is bound to (F11: one daemon/root per window,
+   *  never one app-wide workspace) — the renderer never guesses a workspace. */
   getWorkspace: { result: z.object({ name: z.string(), root: z.string() }) },
   getLayout: { result: z.unknown() },
   saveLayout: { params: z.unknown(), result: z.void() },
@@ -361,6 +500,60 @@ export const METHODS: Record<MethodName, MethodSpec> = {
    *  error); a remove that actually failed comes back as an RPC error, not as a
    *  successful `removed: false`. */
   deleteAgent: { params: DeleteAgentParamsSchema, result: DeleteAgentResultSchema },
+  /** The skills/MCP library, the ONE read the Library surface renders (entries +
+   *  discovered + diagnostics, drift computed inside). Proxies the daemon `listLibrary`. */
+  listLibrary: { result: LibraryViewResultSchema },
+  /** The same fresh read as `listLibrary` — the surface's explicit refresh gesture
+   *  (drift is hash-on-demand, no watcher). Proxies the daemon `rescanLibrary`. */
+  rescanLibrary: { result: LibraryViewResultSchema },
+  /** The effective (enabled, resolvable, project-shadows-personal) skill rows the
+   *  composer's slash popover and the agent editor draw from. Proxies the daemon
+   *  `listSkills`. */
+  listSkills: { result: ListSkillsResultSchema },
+  /** Link a discovered skill/MCP server into a store as a live reference (the default
+   *  mode). Proxies the daemon `linkLibrary`; a bad source is an error reply, not a
+   *  half-written record. */
+  linkLibrary: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      scope: z.enum(['personal', 'project']),
+      source: z.object({ path: z.string(), serverName: z.string().optional() }),
+      name: z.string().optional(),
+    }),
+    result: librarySummarySchema,
+  },
+  /** Materialize a skill/MCP server into the PROJECT store (committable, with
+   *  provenance). Calling it again on an existing copy IS the one-click re-sync.
+   *  Proxies the daemon `copyLibrary`. */
+  copyLibrary: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      source: z.object({ path: z.string(), serverName: z.string().optional() }),
+      name: z.string().optional(),
+    }),
+    result: librarySummarySchema,
+  },
+  /** Remove a library record (and a skill copy's materialized files). `removed: false`
+   *  ⇒ nothing was there (a second unlink is a no-op). Proxies the daemon `unlinkLibrary`. */
+  unlinkLibrary: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      scope: z.enum(['personal', 'project']),
+      name: z.string(),
+    }),
+    result: UnlinkLibraryResultSchema,
+  },
+  /** Surfacing-only enable/disable: a disabled entry stays listed; consumers exclude
+   *  it (a pass-through, never a cage). Proxies the daemon `setLibraryEnabled`. */
+  setLibraryEnabled: {
+    params: z.object({
+      kind: z.enum(['skill', 'mcp']),
+      scope: z.enum(['personal', 'project']),
+      name: z.string(),
+      enabled: z.boolean(),
+    }),
+    result: librarySummarySchema,
+  },
   startLogin: {
     params: z.object({ email: z.string(), credentialId: z.string().optional() }),
     result: LoginSnapshotSchema,

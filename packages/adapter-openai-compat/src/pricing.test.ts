@@ -131,4 +131,36 @@ describe('toRuntimeUsage (per-provider cache-token shapes)', () => {
     };
     expect(toRuntimeUsage(deepseekSpec, nested, 'm', {}).cacheReadTokens).toBeUndefined();
   });
+
+  /**
+   * `tokensIn` must mean FRESH input everywhere, matching the Claude SDK adapter's
+   * `input_tokens` (reported separately from `cache_read_input_tokens`). Every
+   * OpenAI-compatible wire reports `prompt_tokens` as fresh+cached COMBINED, so a
+   * naive passthrough would double-count the cache read once a consumer adds
+   * `tokensIn + cacheReadTokens` (as the console's context ring does) — regression
+   * for the ring inflating usage and falsely tripping its risk-ramp colors.
+   */
+  it('subtracts the cache hit out of tokensIn so it is FRESH input, not fresh+cached', () => {
+    const cached: WireUsage = {
+      prompt_tokens: 42_000,
+      completion_tokens: 900,
+      prompt_cache_hit_tokens: 38_000,
+    };
+    const result = toRuntimeUsage(deepseekSpec, cached, 'm', {});
+    expect(result.tokensIn).toBe(4_000); // 42_000 - 38_000 fresh, not the raw 42_000
+    expect(result.cacheReadTokens).toBe(38_000);
+    // The additive contract every consumer relies on: fresh + cache-read + out ==
+    // the true tokens the model was handed (42_900), never fresh+cached+cache-read.
+    expect(result.tokensIn + (result.cacheReadTokens ?? 0) + result.tokensOut).toBe(42_900);
+  });
+
+  it('never reports a negative tokensIn when a cache hit reads larger than prompt_tokens', () => {
+    // Defensive: a malformed/edge wire report should clamp, not go negative.
+    const odd: WireUsage = {
+      prompt_tokens: 100,
+      completion_tokens: 1,
+      prompt_cache_hit_tokens: 150,
+    };
+    expect(toRuntimeUsage(deepseekSpec, odd, 'm', {}).tokensIn).toBe(0);
+  });
 });
