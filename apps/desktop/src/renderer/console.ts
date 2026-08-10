@@ -6,12 +6,16 @@ import {
   reconcileStreaming,
   reloadToViewFrames,
   type AgentFile,
+  type AgentSkillConfig,
   type AgentSummary,
   type ApprovalDecision,
   type AuthView,
   type CapState,
   type Checkpoint,
   type FeedView,
+  type InvocableSkill,
+  type LibrarySummary,
+  type LibraryView,
   type LoginSnapshot,
   type Attachment,
   type ModelCatalogView,
@@ -29,10 +33,13 @@ import {
   type WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
-import { modelLabel } from './panels/AgentsPanel.js';
+// From the picker module directly, NOT via AgentsPanel's re-export: the agents
+// surface reads the library store, which reads this module's rpc wrappers, so an
+// AgentsPanel import here would close a static module cycle.
+import { modelLabel } from './panels/ModelPicker.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
-import { cacheKey, configKey } from './panels/banners.js';
+import { cacheKey, configKey, resolvableSkillSelection } from './panels/banners.js';
 import {
   initialState,
   type ConsoleState,
@@ -99,6 +106,8 @@ export interface ConsoleBridge {
     model?: ModelSelection;
     packageIds?: string[];
     exclude?: string[];
+    skills?: AgentSkillConfig[];
+    invokeSkills?: string[];
   }): Promise<{ sessionId: string; worktree: string }>;
   listModels(): Promise<ModelDescriptor[]>;
   /** The per-model info catalog (context window/pricing/modalities/reasoning) —
@@ -266,6 +275,47 @@ export const rpcSetModelHidden = (p: {
   id: string;
   hidden: boolean;
 }): Promise<ModelCatalogView> => window.coa.setModelHidden(p);
+
+/**
+ * The skills/MCP library's RPC callers, mirroring the `rpcAuthView` block above — the
+ * `libraryStore` (`panels/libraryStore.ts`) reaches the preload bridge only through these.
+ */
+export const rpcListLibrary = (): Promise<LibraryView> => window.coa.listLibrary();
+export const rpcRescanLibrary = (): Promise<LibraryView> => window.coa.rescanLibrary();
+export const rpcListSkills = (): Promise<{ skills: InvocableSkill[] }> => window.coa.listSkills();
+export const rpcLinkLibrary = (p: {
+  kind: 'skill' | 'mcp';
+  scope: 'personal' | 'project';
+  source: { path: string; serverName?: string };
+  name?: string;
+}): Promise<LibrarySummary> => window.coa.linkLibrary(p);
+export const rpcCopyLibrary = (p: {
+  kind: 'skill' | 'mcp';
+  source: { path: string; serverName?: string };
+  name?: string;
+}): Promise<LibrarySummary> => window.coa.copyLibrary(p);
+export const rpcUnlinkLibrary = (p: {
+  kind: 'skill' | 'mcp';
+  scope: 'personal' | 'project';
+  name: string;
+}): Promise<{ removed: boolean }> => window.coa.unlinkLibrary(p);
+export const rpcSetLibraryEnabled = (p: {
+  kind: 'skill' | 'mcp';
+  scope: 'personal' | 'project';
+  name: string;
+  enabled: boolean;
+}): Promise<LibrarySummary> => window.coa.setLibraryEnabled(p);
+
+/** The effective-skills hook, mirroring `onAuthFailure` above: the library store
+ *  registers its own invocable-list getter so the drift-dismissal key can fold in the
+ *  SAME resolvable skill slice the chat banner compares — without this module importing
+ *  the store, which imports these rpc wrappers (a static cycle the dependency ruleset
+ *  forbids). `undefined` until the store's first successful `listSkills` read — the
+ *  selection then passes through unfiltered, matching the banner side's posture. */
+let invocableSkillsSource: () => InvocableSkill[] | undefined = () => undefined;
+export const onInvocableSkills = (fn: () => InvocableSkill[] | undefined): void => {
+  invocableSkillsSource = fn;
+};
 
 /** What an auth-shaped failure LOOKS like in an error frame. Advisory on purpose:
  *  a false hit costs an amber dot the next probe clears, never a block — so the net is
@@ -970,13 +1020,16 @@ export async function startConsole(
     }
     if (bannerId === 'drift' && actionId === 'dismiss') {
       // Suppress the drift banner for the config it currently reflects; a further config
-      // change is a new key, so it re-shows. Keyed off the active agent's config.
+      // change is a new key, so it re-shows. Keyed off the active agent's config —
+      // including the resolvable skill slice, the same fold the banner itself compares
+      // (the key must match the banner's or dismissal would never suppress it).
       const session = sessions.find((s) => s.id === sessionId);
       const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
       const key = configKey({
         roles: agent?.roles,
         packageIds: agent?.packageIds,
         exclude: agent?.exclude,
+        skills: resolvableSkillSelection(agent?.skills, invocableSkillsSource()),
       });
       state = {
         ...state,
@@ -1253,7 +1306,11 @@ export async function startConsole(
     }
   });
 
-  const sendMessage = (text: string, attachments?: readonly Attachment[]): void => {
+  const sendMessage = (
+    text: string,
+    attachments?: readonly Attachment[],
+    invokeSkills?: readonly string[],
+  ): void => {
     const body = text.trim();
     const id = state.ui.activeSessionId;
     if (body === '' || id === undefined) return;
@@ -1293,6 +1350,26 @@ export async function startConsole(
           notesBySession: {
             ...state.ui.notesBySession,
             [id]: [...(state.ui.notesBySession[id] ?? []), { afterCount, text: noteText }],
+          },
+        },
+      };
+    }
+    // Invoked skills leave a console-local note beside the send (same mechanism as the
+    // "switched model" note): the daemon persists each invocation as its own `system`
+    // frame but never pushes it live, so without this the live view would show no trace
+    // the invocation ever rode along (a reload shows the persisted frame instead).
+    if (invokeSkills !== undefined && invokeSkills.length > 0) {
+      const afterCount = turnsBySession.get(id)?.length ?? 0;
+      state = {
+        ...state,
+        ui: {
+          ...state.ui,
+          notesBySession: {
+            ...state.ui.notesBySession,
+            [id]: [
+              ...(state.ui.notesBySession[id] ?? []),
+              { afterCount, text: `invoked ${invokeSkills.map((n) => `/${n}`).join(', ')}` },
+            ],
           },
         },
       };
@@ -1356,6 +1433,11 @@ export async function startConsole(
         ...(Object.keys(model).length > 0 ? { model } : {}),
         ...(attachments !== undefined && attachments.length > 0
           ? { attachments: [...attachments] }
+          : {}),
+        // Explicit one-turn skill loads (the composer's `/skill`). The daemon refuses
+        // an unknown name with an error reply, which lands in the catch below.
+        ...(invokeSkills !== undefined && invokeSkills.length > 0
+          ? { invokeSkills: [...invokeSkills] }
           : {}),
       })
       // The first send auto-titles the session server-side; reflect it in the rail.

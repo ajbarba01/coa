@@ -2,12 +2,16 @@ import type {
   Accounts,
   ActiveAccount,
   AgentFile,
+  AgentSkillConfig,
   ApprovalDecision,
   Attachment,
   AuthView,
   CapState,
   Checkpoint,
   FeedView,
+  InvocableSkill,
+  LibrarySummary,
+  LibraryView,
   LoginSnapshot,
   ModelCatalogView,
   ModelDescriptor,
@@ -80,6 +84,12 @@ declare global {
         /** Attachments on this send's user message; the daemon refuses them for a
          *  backend with no attachment seam (never a silent drop). */
         attachments?: Attachment[];
+        /** Explicit per-send skill selection, overriding the agent definition's
+         *  `skills` list for this turn. */
+        skills?: AgentSkillConfig[];
+        /** Library skills invoked explicitly on THIS turn (the composer's `/skill`).
+         *  An unknown name refuses the send before anything mutates. */
+        invokeSkills?: string[];
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
@@ -205,6 +215,45 @@ declare global {
         ref: string;
         scope: 'personal' | 'project';
       }): Promise<{ removed: boolean }>;
+      /** The skills/MCP library, the ONE read the Library surface renders — proxies
+       *  the daemon `listLibrary` (entries + discovered + diagnostics, drift inside). */
+      listLibrary(): Promise<LibraryView>;
+      /** The same fresh read, as the surface's explicit refresh gesture (drift is
+       *  hash-on-demand, no watcher) — proxies the daemon `rescanLibrary`. */
+      rescanLibrary(): Promise<LibraryView>;
+      /** The effective (enabled, resolvable, project-shadows-personal) skill rows —
+       *  the composer's slash popover and the agent editor's picker read this. */
+      listSkills(): Promise<{ skills: InvocableSkill[] }>;
+      /** Link a discovered skill/MCP server into a store as a live reference —
+       *  proxies the daemon `linkLibrary` (a bad source is an error reply). */
+      linkLibrary(params: {
+        kind: 'skill' | 'mcp';
+        scope: 'personal' | 'project';
+        source: { path: string; serverName?: string };
+        name?: string;
+      }): Promise<LibrarySummary>;
+      /** Materialize into the PROJECT store (committable, with provenance). Calling
+       *  it again on an existing copy IS the one-click re-sync — proxies `copyLibrary`. */
+      copyLibrary(params: {
+        kind: 'skill' | 'mcp';
+        source: { path: string; serverName?: string };
+        name?: string;
+      }): Promise<LibrarySummary>;
+      /** Remove a library record (and a skill copy's materialized files). `removed:
+       *  false` ⇒ nothing was there — proxies the daemon `unlinkLibrary`. */
+      unlinkLibrary(params: {
+        kind: 'skill' | 'mcp';
+        scope: 'personal' | 'project';
+        name: string;
+      }): Promise<{ removed: boolean }>;
+      /** Surfacing-only enable/disable (a disabled entry stays listed; consumers
+       *  exclude it) — proxies the daemon `setLibraryEnabled`. */
+      setLibraryEnabled(params: {
+        kind: 'skill' | 'mcp';
+        scope: 'personal' | 'project';
+        name: string;
+        enabled: boolean;
+      }): Promise<LibrarySummary>;
       /** Kick off the driven-login flow (a fresh add, or a relogin against an
        *  existing credential) — proxies the daemon `startLogin`. */
       startLogin(params: { email: string; credentialId?: string }): Promise<LoginSnapshot>;

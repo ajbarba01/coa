@@ -1,13 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AgentSkillConfig,
   Attachment,
+  McpServerEntry,
   ModelSelection,
   PermissionMode,
+  Piece,
   Push,
   ToolCall,
   ToolClass,
 } from '@coa/shared';
 import { DeliveryQueue } from './delivery.js';
+import type { InvokedSkill } from './skill-invocation.js';
 import type { TurnLifecycle } from './turn-lifecycle.js';
 
 /** The system-wide mode floor a session with no agent-resolved default falls back
@@ -72,6 +76,20 @@ export interface TurnRequest {
    *  from the model-metadata catalog at the RPC edge (never client-claimed), and
    *  consumed by the adapter's image gate. Absent ⇒ unverified, treated as no. */
   visionSupported?: boolean;
+  /** The library-resolved skill selection this turn's agent carries ({name, delivery}
+   *  per resolved skill) — the drift key's skill slice (prompt-freeze.ts). Resolved
+   *  DAEMON-side per turn (`SessionService`'s library port), so a library change
+   *  surfaces as drift on the very next send. */
+  skillSelection?: AgentSkillConfig[];
+  /** The resolved skill Pieces (delivery-mapped push/pull) the assembly injects on a
+   *  fresh compile — the same facts `skillSelection` records, in injectable form. */
+  skillPieces?: Piece[];
+  /** Explicit slash invocations riding THIS turn: each skill's body reaches this one
+   *  turn's context even in disclosure mode (see skill-invocation.ts). */
+  invokedSkills?: InvokedSkill[];
+  /** The library-resolved external MCP servers (name → config) delivered to this
+   *  turn's backend adapter (native on the Claude SDK; a surfaced degrade elsewhere). */
+  mcpServers?: Record<string, McpServerEntry>;
 }
 
 /** A subscriber callback that receives every push fanned out by a session. */
@@ -186,6 +204,9 @@ export class LiveSession {
   approvalSeam = true;
 
   #sinks = new Set<Sink>();
+  /** Daemon advisories announced before anyone subscribed — held for the first
+   *  subscriber (see {@link announce}), because `emit` reaches CURRENT sinks only. */
+  #pendingAnnouncements: Push[] = [];
   #queue: QueuedTurn[] = [];
   #waiter: ((turn: QueuedTurn | undefined) => void) | undefined;
   #closed = false;
@@ -378,6 +399,7 @@ export class LiveSession {
   }
 
   /** Add `sink` to the fan-out set, hydrate it with the current status push,
+   *  then deliver any advisories held for the first subscriber ({@link announce}),
    *  and return an unsubscribe function. */
   subscribe(sink: Sink): () => void {
     this.#sinks.add(sink);
@@ -389,7 +411,33 @@ export class LiveSession {
     } catch {
       this.#sinks.delete(sink);
     }
+    // Held advisories flush AFTER hydration, so the subscriber still joins at the
+    // session's current status first. A sink dropped by its own hydration throw
+    // leaves the buffer intact for whoever attaches next.
+    if (this.#sinks.size > 0 && this.#pendingAnnouncements.length > 0) {
+      const pending = this.#pendingAnnouncements;
+      this.#pendingAnnouncements = [];
+      for (const push of pending) this.emit(push);
+    }
     return () => this.#sinks.delete(sink);
+  }
+
+  /**
+   * Emit a daemon advisory that must reach SOMEONE: delivered like any push when a
+   * subscriber is attached, otherwise held for the FIRST subscriber and flushed on
+   * attach (once — later subscribers see only live traffic, like every live-only
+   * frame). Plain `emit` fans out to current sinks only, which silently drops an
+   * advisory raised in the founding-turn / child-spawn window where the caller's
+   * subscription is still deferred to the turn's first status — exactly what an
+   * advisory's never-silently-dropped contract forbids.
+   */
+  announce(push: Push): void {
+    if (this.#sinks.size > 0) {
+      this.emit(push);
+      return;
+    }
+    if (this.#closed) return;
+    this.#pendingAnnouncements.push(push);
   }
 
   /** Fan `push` out to every subscribed sink. A sink that throws (e.g. a dropped
@@ -436,6 +484,8 @@ export class LiveSession {
   close(): void {
     this.#closed = true;
     this.deliveries.seal();
+    // Advisories still waiting for a first subscriber have no one left to reach.
+    this.#pendingAnnouncements = [];
     // A turn already queued but not yet drained must not outlive the session:
     // left in place, the NEXT `nextTurn()` call (once the loop's current turn
     // finishes) would still find it and hand it to `runTurn`, dispatching a

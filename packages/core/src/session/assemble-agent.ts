@@ -1,6 +1,6 @@
 import type { AgentPackage, CapabilityFrame, Piece, Role } from '@coa/shared';
 import {
-  baselinePieces,
+  baselineStablePieces,
   baselineVolatilePieces,
   modelPromptOf,
   type BaselineContext,
@@ -129,7 +129,11 @@ export function createRegistryAssemblePieces(deps: {
   platform: string;
   shell: string;
   now?: () => Date;
-}): (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame } {
+}): (ctx: AssemblePiecesContext) => {
+  pieces: Piece[];
+  frame: CapabilityFrame;
+  mcpServers: string[];
+} {
   const now = deps.now ?? ((): Date => new Date());
   return (ctx) => {
     const baselineCtx: BaselineContext = {
@@ -141,7 +145,19 @@ export function createRegistryAssemblePieces(deps: {
     const ids = ctx.roles ?? (ctx.role !== undefined && ctx.role !== '' ? [ctx.role] : []);
     const roles = ids.map((id) => deps.roles.get(id)).filter((r): r is Role => r !== undefined);
     if (roles.length === 0) {
-      return { pieces: baselinePieces(baselineCtx), frame: { allow: [], deny: [] } };
+      // The permissive floor still injects user-added skills — a roleless session
+      // (an agent with no role) must not silently drop what the library resolved
+      // for it. Skills sit between the stable head and the volatile tail, the same
+      // position `assembleAgent` gives them, so the cache-warm ordering holds.
+      return {
+        pieces: [
+          ...baselineStablePieces(),
+          ...(ctx.skills ?? []),
+          ...baselineVolatilePieces(baselineCtx),
+        ],
+        frame: { allow: [], deny: [] },
+        mcpServers: [],
+      };
     }
     const spec: AgentSpec = {
       roles,
@@ -149,7 +165,7 @@ export function createRegistryAssemblePieces(deps: {
       ...(ctx.exclude !== undefined ? { exclude: ctx.exclude } : {}),
       ...(ctx.skills !== undefined ? { skills: ctx.skills } : {}),
     };
-    const { pieces, frame } = assembleAgent(spec, deps.packages, baselineCtx);
-    return { pieces, frame };
+    const { pieces, frame, mcpServers } = assembleAgent(spec, deps.packages, baselineCtx);
+    return { pieces, frame, mcpServers };
   };
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  agentSkillConfigSchema,
   approvalDecisionSchema,
   attachmentSchema,
   modelSelectionSchema,
@@ -36,6 +37,13 @@ const createParams = z.object({
   exclude: z.array(z.string()).optional(),
   /** Attachments on this send's user message (the one shared wire shape). */
   attachments: z.array(attachmentSchema).optional(),
+  /** Explicit per-send library-skill selection ({name, delivery} each), overriding
+   *  the agent definition's `skills` list; absent ⇒ the agent's own. */
+  skills: z.array(agentSkillConfigSchema).optional(),
+  /** Library skills to invoke explicitly on THIS turn (the composer's `/skill`) —
+   *  each body reaches this turn's context even in disclosure mode. An unknown
+   *  name refuses the send with an ordinary error reply. */
+  invokeSkills: z.array(z.string().min(1)).optional(),
   /** The persistent conversation to run within; absent ⇒ an ephemeral one-shot. */
   conversationId: z.string().optional(),
 });
@@ -125,6 +133,8 @@ export function buildSessionHandlers(
         ...(params.roles !== undefined ? { roles: params.roles } : {}),
         ...(params.packageIds !== undefined ? { packageIds: params.packageIds } : {}),
         ...(params.exclude !== undefined ? { exclude: params.exclude } : {}),
+        ...(params.skills !== undefined ? { skills: params.skills } : {}),
+        ...(params.invokeSkills !== undefined ? { invokeSkills: params.invokeSkills } : {}),
         ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
         ...(visionSupported !== undefined ? { visionSupported } : {}),
         ...(attaching

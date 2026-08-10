@@ -86,6 +86,12 @@ core/src/
   workbench/     M6 — the Mutate producer + the outer-ring tool surface
   governance/    M7 — cost ledger, provenance, decision log, policy
   models/        model catalog + effective-model resolution
+  library/       skills + MCP-server library — SKILL.md/.mcp.json discovery across the surrounding
+                 tools' conventions, declarative link/copy stores (`~/.coa/library` +
+                 `<root>/.coa/library`, the committable project store materializes copied skills as
+                 real files), on-demand hash drift, and the session-injection fold (effective
+                 scope-precedence sets, skill configs → Pieces, slash-invocation + external-MCP
+                 resolution); served over `rpc/library-handlers.ts`
   console/       console state store
   session/       M8, P1b — daemon host, session/worktree managers, JSON-RPC server, agent registry
     agent-defs.ts     the scope loader (personal + project), precedence merge, AgentRegistry store

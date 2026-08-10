@@ -181,8 +181,14 @@ export interface ConsoleActions {
   deleteSession: (id: string) => void;
   /** Send a prompt to the active session's agent (starts a governed daemon session).
    *  `attachments` ride the same send (images/text files, the shared wire shape);
-   *  omitted/empty ⇒ byte-identical to a plain text send. */
-  sendMessage: (text: string, attachments?: readonly Attachment[]) => void;
+   *  `invokeSkills` are the composer's explicit one-turn `/skill` loads (the daemon
+   *  refuses an unknown name before anything mutates); omitted/empty ⇒ byte-identical
+   *  to a plain text send. */
+  sendMessage: (
+    text: string,
+    attachments?: readonly Attachment[],
+    invokeSkills?: readonly string[],
+  ) => void;
   /** Resolve a system banner action (e.g. the drift banner's `recompile`/`keep`).
    *  Always dismisses the banner; `recompile` also refreshes the running prompt. */
   onBannerAction: (sessionId: string, bannerId: string, actionId: string) => void;

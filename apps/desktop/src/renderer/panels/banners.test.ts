@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cacheKey, computeChatBanners, configKey } from './banners.js';
+import { cacheKey, computeChatBanners, configKey, resolvableSkillSelection } from './banners.js';
 
 const NOW = '2026-07-02T12:00:00Z';
 const base = { agentConfig: { roles: ['swe'] }, hasRun: true, now: NOW } as const;
@@ -23,6 +23,67 @@ describe('configKey', () => {
     expect(configKey({ roles: ['swe'] })).not.toBe(
       configKey({ roles: ['swe'], packageIds: ['x'] }),
     );
+  });
+
+  it('treats an absent skill selection as empty, so a pre-library config never drifts', () => {
+    expect(configKey({ roles: ['swe'] })).toBe(configKey({ roles: ['swe'], skills: [] }));
+  });
+
+  it('folds the skill selection in as a case-insensitive, order-independent set', () => {
+    expect(
+      configKey({
+        roles: ['swe'],
+        skills: [
+          { name: 'commits', delivery: 'auto' },
+          { name: 'review', delivery: 'disclosure' },
+        ],
+      }),
+    ).toBe(
+      configKey({
+        roles: ['swe'],
+        skills: [
+          { name: 'review', delivery: 'disclosure' },
+          { name: 'commits', delivery: 'auto' },
+          // A case-folded duplicate: the first occurrence wins, mirroring the resolver.
+          { name: 'Commits', delivery: 'disclosure' },
+        ],
+      }),
+    );
+  });
+
+  it('counts adding a skill AND flipping its delivery as a config change', () => {
+    const none = configKey({ roles: ['swe'] });
+    const auto = configKey({ roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] });
+    const pull = configKey({
+      roles: ['swe'],
+      skills: [{ name: 'commits', delivery: 'disclosure' }],
+    });
+    expect(auto).not.toBe(none);
+    expect(auto).not.toBe(pull);
+  });
+});
+
+describe('resolvableSkillSelection', () => {
+  const configured = [
+    { name: 'commits', delivery: 'auto' as const },
+    { name: 'Review', delivery: 'disclosure' as const },
+  ];
+
+  it('passes the configured list through while the library read has not settled', () => {
+    expect(resolvableSkillSelection(configured, undefined)).toEqual(configured);
+  });
+
+  it('narrows to the effective set with canonical library names (case-insensitive)', () => {
+    const invocable = [{ name: 'review' }];
+    // `commits` no longer resolves ⇒ excluded (its disappearance IS drift); `Review`
+    // matches case-insensitively and takes the library's own casing.
+    expect(resolvableSkillSelection(configured, invocable)).toEqual([
+      { name: 'review', delivery: 'disclosure' },
+    ]);
+  });
+
+  it('is empty for an agent with no skills configured', () => {
+    expect(resolvableSkillSelection(undefined, [{ name: 'commits' }])).toEqual([]);
   });
 });
 
@@ -138,6 +199,34 @@ describe('computeChatBanners — drift', () => {
         pinned,
         frozenConfig: { roles: ['swe', 'researcher'] },
         agentConfig: { roles: ['researcher', 'swe'] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('flags a skill added after the prompt compiled, and a delivery flip', () => {
+    const added = computeChatBanners({
+      ...base,
+      pinned,
+      frozenConfig: { roles: ['swe'] },
+      agentConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] },
+    });
+    expect(added.some((b) => b.kind === 'drift')).toBe(true);
+    const flipped = computeChatBanners({
+      ...base,
+      pinned,
+      frozenConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] },
+      agentConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'disclosure' }] },
+    });
+    expect(flipped.some((b) => b.kind === 'drift')).toBe(true);
+  });
+
+  it('is silent when the frozen and current skill selections agree (order/case aside)', () => {
+    expect(
+      computeChatBanners({
+        ...base,
+        pinned,
+        frozenConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] },
+        agentConfig: { roles: ['swe'], skills: [{ name: 'commits', delivery: 'auto' }] },
       }),
     ).toEqual([]);
   });

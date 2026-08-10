@@ -19,6 +19,7 @@ export * from './piece.js';
 export * from './slots.js';
 export * from './render-sections.js';
 export * from './agent.js';
+export * from './library.js';
 export * from './context.js';
 export * from './config.js';
 export * from './change-event.js';

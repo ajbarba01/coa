@@ -3,6 +3,7 @@ import type { ConversationStore } from './conversation-store.js';
 import type { PersistIn, SeqBox } from './frame-recorder.js';
 import type { LiveSession, TurnRequest } from './live-session.js';
 import { planMemory, type MemoryPlan } from './memory-plan.js';
+import { renderInvokedSkill } from './skill-invocation.js';
 import {
   configHashOf,
   frozenModelMatches,
@@ -84,6 +85,9 @@ export function prepareTurnPersistence(
     ...(turn.roles !== undefined ? { roles: [...turn.roles].sort() } : {}),
     ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
     ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+    // The RESOLVED skill selection — what actually shaped (or would shape) the
+    // prompt, so a skill appearing/vanishing in the library reads as drift.
+    ...(turn.skillSelection !== undefined ? { skills: turn.skillSelection } : {}),
   };
   let plan: MemoryPlan = { history: [], deliverHistoryAsPreamble: false };
   let frozen: FrozenCompilation | undefined;
@@ -140,7 +144,12 @@ export function prepareTurnPersistence(
       ...(model !== undefined ? { model } : {}),
       ...(turn.model?.reasoning !== undefined ? { reasoning: turn.model.reasoning } : {}),
     });
-    // Persist (but never push — the console already showed it optimistically) the user turn.
+    // Persist (but never push — the console already showed it optimistically) the user
+    // turn — preceded by any invoked skill's payload as its OWN `system` frame, so the
+    // durable log carries exactly what the model was handed (skill block above the
+    // user's words) while the user's raw text stays the canonical user turn (titles,
+    // pins, and the console's optimistic echo all read `input` unaugmented).
+    appendInvokedSkills(turn, persistIn, seqBox);
     cs.append(id, [{ seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } }]);
     seqBox.value += 1;
   }
@@ -156,6 +165,30 @@ export function prepareTurnPersistence(
     frozen,
     promptVersion,
   };
+}
+
+/**
+ * Persist a turn's invoked-skill payloads (slash invocation) as `system` text
+ * frames ABOVE the turn's user frame — the same order the composed model input
+ * uses (skill-invocation.ts), so replay and live delivery agree. Shared by the
+ * per-turn/establish prelude ({@link prepareTurnPersistence}) and the held-open
+ * continue path, which appends its own user frame.
+ */
+export function appendInvokedSkills(
+  turn: TurnRequest,
+  persistIn: PersistIn | undefined,
+  seqBox: SeqBox,
+): void {
+  if (persistIn === undefined) return;
+  const invoked = turn.invokedSkills ?? [];
+  if (invoked.length === 0) return;
+  persistIn.store.append(
+    persistIn.convId,
+    invoked.map((skill) => ({
+      seq: seqBox.value++,
+      frame: { t: 'text' as const, text: renderInvokedSkill(skill), role: 'system' as const },
+    })),
+  );
 }
 
 /**

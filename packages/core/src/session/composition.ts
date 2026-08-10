@@ -95,8 +95,14 @@ export interface SessionWiring {
   bindWorktree: (sessionId: string, scope: string, opts?: { isolate?: boolean }) => string;
   /** Release the session's worktree at close (defaults to a no-op floor). */
   releaseWorktree?: (worktree: string) => void;
-  /** Gather the session's pieces + frame (baseline + assembled context; defaults to the empty/vanilla floor). */
-  assemblePieces?: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
+  /** Gather the session's pieces + frame (baseline + assembled context; defaults to the
+   *  empty/vanilla floor). `mcpServers` (optional) is the assembly's package-referenced
+   *  external-server name list — see {@link SessionDeps.assemblePieces}. */
+  assemblePieces?: (ctx: AssemblePiecesContext) => {
+    pieces: Piece[];
+    frame: CapabilityFrame;
+    mcpServers?: string[];
+  };
   /** Session id source (defaults to a ULID). */
   newSessionId?: () => string;
   trust?: 'local' | 'imported';

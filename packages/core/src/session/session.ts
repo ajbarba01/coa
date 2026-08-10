@@ -4,6 +4,7 @@ import type {
   CapabilityFrame,
   CapabilitySet,
   Locator,
+  McpServerEntry,
   ModelSelection,
   NeutralConfig,
   Piece,
@@ -64,6 +65,14 @@ export interface SessionAdapterInit {
    * pointer frame; the session layer persists it alongside the frame, never on the wire.
    */
   onTurn?: (frame: TurnFrame, full?: string) => void;
+  /**
+   * The library-resolved external MCP servers for this session (name → config).
+   * A backend with native MCP support (the Claude SDK) composes them alongside
+   * its own in-process `coa` server; a backend without one surfaces a typed
+   * degrade notice on the turn stream instead of silently pretending
+   * (strict-superset — never a lie). Absent/empty ⇒ byte-identical to before.
+   */
+  mcpServers?: Record<string, McpServerEntry>;
   /** The active account's login pointer (backend resolves the token); absent ⇒ ambient (today's auth). */
   locator?: Locator;
   /** A prior backend session id to resume (conversation continuity); absent ⇒ a fresh conversation. */
@@ -156,8 +165,15 @@ export interface SessionDeps {
    *  action (`WorktreeManager.reap`) or the daemon-start staleness sweep, never a
    *  session ending. */
   releaseWorktree: (worktree: string) => void;
-  /** Gather the session's pieces + capability frame (baseline scaffold + assembled context → compiler input). */
-  assemblePieces: (ctx: AssemblePiecesContext) => { pieces: Piece[]; frame: CapabilityFrame };
+  /** Gather the session's pieces + capability frame (baseline scaffold + assembled context →
+   *  compiler input). `mcpServers`, when returned, is the assembly's package-referenced
+   *  external-server NAME list — resolved against the session's library-supplied configs
+   *  in {@link createSession}, with an unresolved name surfaced, never silently dropped. */
+  assemblePieces: (ctx: AssemblePiecesContext) => {
+    pieces: Piece[];
+    frame: CapabilityFrame;
+    mcpServers?: string[];
+  };
   /** Compile pieces → backend-neutral config. */
   compile: (pieces: Piece[], frame: CapabilityFrame) => NeutralConfig;
   /** The per-session capability set. */
@@ -283,6 +299,13 @@ export async function createSession(
     packageIds?: string[];
     /** Default packages the user turned off (assembly selection). */
     exclude?: string[];
+    /** Library-resolved skill Pieces to inject (delivery-mapped push/pull); ride the
+     *  existing {@link AgentSpec.skills} seam via `assemblePieces`. Unused on a frozen
+     *  turn (the frozen prompt already carries them byte-stably). */
+    skills?: Piece[];
+    /** The library-resolved external MCP servers delivered to the backend adapter
+     *  (see {@link SessionAdapterInit.mcpServers}). */
+    mcpServers?: Record<string, McpServerEntry>;
     onTurn?: (frame: TurnFrame, full?: string) => void;
     /** Fired once the id + worktree are bound, before the loop runs — lets a caller respond/stream before the loop settles. */
     onStart?: (started: { id: string; worktree: string }) => void;
@@ -339,10 +362,24 @@ export async function createSession(
       worktree,
       ...(req.packageIds !== undefined ? { packageIds: req.packageIds } : {}),
       ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
+      ...(req.skills !== undefined ? { skills: req.skills } : {}),
     });
     frame = assembled.frame;
     neutral = deps.compile(assembled.pieces, frame);
     req.onCompile?.({ neutral, frame });
+    // A package-referenced external MCP server the library did not resolve gets a
+    // visible line, never a silent drop (SC-1). Only a compile turn can know the
+    // assembly's name list; a frozen turn already surfaced it when it compiled.
+    const unresolvedMcp = (assembled.mcpServers ?? []).filter(
+      (name) => req.mcpServers?.[name] === undefined,
+    );
+    if (unresolvedMcp.length > 0) {
+      req.onTurn?.({
+        t: 'error',
+        origin: 'daemon',
+        message: `MCP server(s) not resolvable from the library and unavailable this session: ${unresolvedMcp.join(', ')} (link and enable them in the library)`,
+      });
+    }
   }
   const sandbox = deps.sandboxPolicy({ sessionId, trust: deps.trust ?? 'local', worktree });
   // The chosen model names its provider (from the merged model list); that provider's
@@ -373,6 +410,7 @@ export async function createSession(
     ...(req.attachments !== undefined ? { attachments: req.attachments } : {}),
     ...(req.visionSupported !== undefined ? { visionSupported: req.visionSupported } : {}),
     ...(req.model ? { model: req.model } : {}),
+    ...(req.mcpServers !== undefined ? { mcpServers: req.mcpServers } : {}),
     ...(req.onTurn ? { onTurn: req.onTurn } : {}),
     observeChanges: deps.observeChanges,
     ...(account?.locator ? { locator: account.locator } : {}),

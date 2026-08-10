@@ -268,6 +268,42 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   withheld). Changes and the session-cost roll-up stay honestly floored (the cost producer is
   parked, below).
 
+- **Skills/MCP library** — Substrate done (2026-08-09). Skills and MCP servers are first-class
+  library citizens managed through declarative Zod-validated stores (`~/.coa/library` personal,
+  `<root>/.coa/library` project — the store IS the source of truth, surfaces render it) over
+  on-disk discovery: user/project Claude Code skill dirs + `~/.codex/skills`, and the three Claude
+  MCP config layers (`~/.claude.json` local/user + project `.mcp.json`, precedence local > project
+  > user with shadowing surfaced, never dropped). Link-as-reference is the default (live pointer,
+  reads re-resolve the source); copy-into-project materializes a committable copy with provenance
+  `{sourcePath, contentHash}` and shows hash-on-demand drift (no file watcher) with re-copy as the
+  one-click re-sync. Served by the `listLibrary`/`rescanLibrary`/`linkLibrary`/`copyLibrary`/
+  `unlinkLibrary`/`setLibraryEnabled` RPC verbs (see M8's catalogue) off `packages/core/src/library/`,
+  wired in `apps/cli`'s daemon composition with injected root/home. `agentFileSchema` gained an
+  optional per-agent `skills` list (auto-inject vs progressive disclosure) and `skillToPiece`
+  compiles a stored skill onto the Piece axes (`push`/`pull`) for coa-native injection on ALL
+  backends. **Injection + resolution wired (2026-08-09):** an agent's configured skills resolve
+  per turn (fresh library read, project shadowing personal) into Pieces riding the existing
+  `AgentSpec.skills` seam — `auto` bodies compile into the prompt, `disclosure` skills get one
+  aggregated index Piece advertising name+description with the body registered in the kernel
+  piece store (pullable via the governed `get_piece` tool); the resolved selection joins the
+  drift key (`PromptConfig.skills`) + the stored compilation, so a library change under a frozen
+  prompt raises the banner. Slash invocation: `listSkills` verb + `createSession`'s
+  `invokeSkills` (an explicit one-turn body load, persisted as a `system` frame above the user
+  turn). MCP: enabled library entries are delivered per turn — the Claude SDK gets them on its
+  native `mcpServers` option beside the in-process `coa` server (which wins a name collision;
+  `strictMcpConfig` still blocks ambient config), pure-API backends surface a typed error-frame
+  degrade naming the unavailable servers. **Console UI wired (2026-08-10):** a Library nav
+  surface (Skills/MCP tabs; Personal/Project/Discovered sections; link-to-scope/copy/unlink +
+  per-entry enable; drift marked on copies with one-click re-sync; scan diagnostics surfaced)
+  renders `listLibrary` through a daemon-fed renderer store, the seven library verbs ride the
+  desktop IPC bridge, the composer gained the `/` slash popover (invocable skills, keyboard
+  navigable; invocations ride `createSession.invokeSkills` with staged chips + a console-local
+  transcript note), the agent editor gained a per-agent Skills panel (add from the effective
+  set, auto vs on-demand delivery, honest "not in the library" mark), and the console's
+  predictive drift compare folds in the resolvable skill slice (absent == empty, so pre-library
+  sessions never spuriously drift). **Remaining:** Codex `config.toml` MCP parsing, still
+  parked (TOML dependency; skills dir is scanned, its MCP layer is not).
+
 ## Remaining work (keystones first)
 
 These are candidate directions, not a committed backlog. Two items, if picked up, unblock the

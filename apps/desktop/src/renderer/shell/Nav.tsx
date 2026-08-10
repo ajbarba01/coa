@@ -45,6 +45,10 @@ export const SURFACES: readonly SurfaceSpec[] = [
   { id: 'auth', glyph: '⬡', label: 'Auth' },
   { id: 'usage', glyph: '$', label: 'Usage' },
   { id: 'agents', glyph: '◇', label: 'Agents' },
+  // The skills/MCP-server library: what capabilities exist on this machine and which
+  // are linked into which scope — app-scoped management, distinct from `agents`
+  // (which picks from it per agent).
+  { id: 'library', glyph: '▤', label: 'Library' },
   // The kit showcase is a development gallery, not product: dev builds only. This
   // array is the one registry — gating it here also gates the palette's "Go to"
   // entry and the name-strip label, which both derive from it.

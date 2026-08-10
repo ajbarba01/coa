@@ -3,6 +3,7 @@ import { createFrameRecorder, type SeqBox, type StartedRef } from './frame-recor
 import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
+import { composeTurnInput } from './skill-invocation.js';
 import { attachSubscriber, emitUsage, type TurnDriverDeps } from './turn-driver.js';
 import { TurnLifecycle } from './turn-lifecycle.js';
 import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
@@ -45,12 +46,16 @@ export async function runPerTurn(
         role: prep.role,
         ...(turn.roles !== undefined ? { roles: turn.roles } : {}),
         scope: turn.scope ?? '',
-        input: turn.input,
+        // Invoked skill payloads ride above the user's text (skill-invocation.ts);
+        // the prelude persisted the same blocks as their own `system` frames.
+        input: composeTurnInput(turn),
         ...(turn.attachments !== undefined ? { attachments: turn.attachments } : {}),
         ...(turn.visionSupported !== undefined ? { visionSupported: turn.visionSupported } : {}),
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
         ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+        ...(turn.skillPieces !== undefined ? { skills: turn.skillPieces } : {}),
+        ...(turn.mcpServers !== undefined ? { mcpServers: turn.mcpServers } : {}),
         ...(turn.isolate !== undefined ? { isolate: turn.isolate } : {}),
         sessionId: session.id,
         // A root session's own spend carries no `root` (byte-identical to

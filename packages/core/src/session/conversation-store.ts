@@ -10,6 +10,7 @@ import {
 import { join } from 'node:path';
 import { z } from 'zod';
 import {
+  agentSkillConfigSchema,
   capabilityFrameSchema,
   claudeReasoningSchema,
   neutralConfigSchema,
@@ -78,6 +79,9 @@ const promptConfigSchema = z.object({
   roles: z.array(z.string()).optional(),
   packageIds: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
+  /** The injected library-skill selection (part of the drift key — see
+   *  prompt-freeze.ts's `PromptConfig`); absent ⇒ a pre-library compilation. */
+  skills: z.array(agentSkillConfigSchema).optional(),
 });
 
 /** The model facts the frozen `## Model` line was compiled with — gates freeze REUSE

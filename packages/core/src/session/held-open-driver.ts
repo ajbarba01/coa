@@ -11,9 +11,14 @@ import { InputChannel } from './input-channel.js';
 import type { LiveSession, QueuedTurn } from './live-session.js';
 import { describeLoopFailure } from './loop-failure.js';
 import { createSession } from './session.js';
+import { composeTurnInput } from './skill-invocation.js';
 import { attachSubscriber, emitUsage, type TurnDriverDeps } from './turn-driver.js';
 import { TurnLifecycle } from './turn-lifecycle.js';
-import { buildPersistenceHooks, prepareTurnPersistence } from './turn-persistence.js';
+import {
+  appendInvokedSkills,
+  buildPersistenceHooks,
+  prepareTurnPersistence,
+} from './turn-persistence.js';
 
 /**
  * The held-open drive strategy (docs/adr/0012): ONE session-creation call stays open across
@@ -97,8 +102,12 @@ function deferred(): Deferred {
  * whose key differs (a mid-conversation model/role/scope switch) cannot ride the open
  * query — the prompt/model were fixed when it was created — so the driver re-establishes.
  * The model IS part of the key (unlike the drift hash), since the held query pinned it.
+ * The skill selection and the MCP server set are part of it too: the query pinned the
+ * compiled prompt AND the adapter's external servers, so a library change (a skill
+ * recompile after the drift banner, a server enabled mid-conversation) must
+ * re-establish rather than ride a query that cannot honor it.
  */
-function configKeyOf(turn: QueuedTurn): string {
+export function configKeyOf(turn: QueuedTurn): string {
   return JSON.stringify({
     provider: turn.model?.provider ?? 'claude',
     model: turn.model?.model ?? null,
@@ -108,6 +117,14 @@ function configKeyOf(turn: QueuedTurn): string {
     packageIds: turn.packageIds ?? null,
     exclude: turn.exclude ?? null,
     scope: turn.scope ?? '',
+    skills: turn.skillSelection
+      ? [...turn.skillSelection].map((s) => `${s.name.toLowerCase()}:${s.delivery}`).sort()
+      : null,
+    mcp: turn.mcpServers
+      ? Object.keys(turn.mcpServers)
+          .sort()
+          .map((name) => [name, turn.mcpServers?.[name]])
+      : null,
   });
 }
 
@@ -299,6 +316,8 @@ async function establishHeldQuery(
       ...(turn.model ? { model: turn.model } : {}),
       ...(turn.packageIds !== undefined ? { packageIds: turn.packageIds } : {}),
       ...(turn.exclude !== undefined ? { exclude: turn.exclude } : {}),
+      ...(turn.skillPieces !== undefined ? { skills: turn.skillPieces } : {}),
+      ...(turn.mcpServers !== undefined ? { mcpServers: turn.mcpServers } : {}),
       ...(turn.isolate !== undefined ? { isolate: turn.isolate } : {}),
       sessionId: session.id,
       // See the per-turn call site's identical spread: a root session's own spend
@@ -397,7 +416,9 @@ async function establishHeldQuery(
   session.onClose(() => query.close());
 
   query.pendingTurns += 1;
-  channel.push(turn.input);
+  // Invoked skill payloads ride above the user's text (skill-invocation.ts); the
+  // prelude persisted the same blocks as their own `system` frames.
+  channel.push(composeTurnInput(turn));
   await boundary.promise;
 }
 
@@ -428,6 +449,9 @@ async function continueHeldQuery(
   // re-arm it exists for.
   query.lifecycle.beginTurn();
   if (query.persistIn !== undefined) {
+    // Same order as the establish prelude: invoked skill payloads (system frames)
+    // above the turn's user frame — replay and live delivery agree.
+    appendInvokedSkills(turn, query.persistIn, seqBox);
     query.persistIn.store.append(query.persistIn.convId, [
       { seq: seqBox.value, frame: { t: 'text', text: turn.input, role: 'user' } },
     ]);
@@ -444,7 +468,7 @@ async function continueHeldQuery(
   const boundary = deferred();
   query.boundary = boundary;
   query.pendingTurns += 1; // a normal continue expects one boundary
-  query.channel.push(turn.input);
+  query.channel.push(composeTurnInput(turn));
   await boundary.promise;
 }
 

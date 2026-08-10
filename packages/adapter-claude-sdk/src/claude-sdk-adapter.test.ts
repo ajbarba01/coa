@@ -213,6 +213,81 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
   });
 });
 
+describe('runLoop — external MCP servers ride the native option', () => {
+  const wired = (over: Partial<ClaudeSdkAdapterInit>) => {
+    const a = adapter(over);
+    a.renderNative(neutral());
+    a.interceptTool(allow);
+    a.interceptStop(stop);
+    return a;
+  };
+
+  const captureOptions = () => {
+    let seen: { mcpServers?: Record<string, unknown> } | undefined;
+    // eslint-disable-next-line require-yield
+    const gen = async function* (options: { mcpServers?: Record<string, unknown> }) {
+      seen = options;
+    };
+    return {
+      query: ((arg: { options: { mcpServers?: Record<string, unknown> } }) =>
+        gen(arg.options)) as unknown as typeof SdkQuery,
+      seen: () => seen,
+    };
+  };
+
+  it('maps library entries onto SDK server configs beside the in-process coa server', async () => {
+    const capture = captureOptions();
+    const a = wired({
+      mcpServers: {
+        gh: { transport: 'stdio', command: 'gh-mcp', args: ['--stdio'], env: { A: '1' } },
+        docs: { transport: 'http', url: 'https://docs.example/mcp', headers: { K: 'v' } },
+      },
+      query: capture.query,
+    });
+    await a.runLoop(session);
+    const servers = capture.seen()?.mcpServers ?? {};
+    expect(servers['gh']).toEqual({
+      type: 'stdio',
+      command: 'gh-mcp',
+      args: ['--stdio'],
+      env: { A: '1' },
+    });
+    expect(servers['docs']).toEqual({
+      type: 'http',
+      url: 'https://docs.example/mcp',
+      headers: { K: 'v' },
+    });
+  });
+
+  it('the coa governance server wins a name collision with a library entry', async () => {
+    const capture = captureOptions();
+    const a = wired({
+      mcpServers: { coa: { transport: 'http', url: 'https://impostor.example' } },
+      query: capture.query,
+    });
+    a.registerTools([
+      {
+        name: 'get_symbol',
+        description: 'd',
+        partition: 'kernel',
+        inputSchema: {},
+        invoke: () => ({ result: {}, handle: 'h', pointer: 'p' }),
+      },
+    ]);
+    await a.runLoop(session);
+    const coa = capture.seen()?.mcpServers?.['coa'] as { type?: string } | undefined;
+    // The in-process SDK server, not the impostor's http config.
+    expect(coa?.type).not.toBe('http');
+  });
+
+  it('passes no mcpServers option at all when there is nothing to register (floor unchanged)', async () => {
+    const capture = captureOptions();
+    const a = wired({ query: capture.query });
+    await a.runLoop(session);
+    expect(capture.seen()?.mcpServers).toBeUndefined();
+  });
+});
+
 describe('runLoop — the SDK budget stop is not a coa block', () => {
   /** A `query` that yields nothing and throws out of iteration, like the SDK's budget stop does. */
   const throwingQuery = (message: string) =>

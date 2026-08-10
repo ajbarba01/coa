@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AgentSkillConfig,
   AgentSummary,
   ApprovalDecision,
   Attachment,
@@ -7,6 +8,7 @@ import type {
   PermissionMode,
   TurnFrame,
 } from '@coa/shared';
+import type { SessionLibraryPort } from '../library/injection.js';
 import type { MessagingDeps } from '../workbench/messaging.js';
 import type { SpawnDeps } from '../workbench/spawn.js';
 import type { ConversationStore, SessionMeta } from './conversation-store.js';
@@ -90,6 +92,13 @@ export interface SessionServiceOptions {
    * `store`/`listAgents` already establish for spawning.
    */
   messageLog?: MessageLog;
+  /**
+   * The skills/MCP library port (library/injection.ts), read FRESH per turn — a
+   * skill or server enabled moments ago rides the very next send. Absent ⇒ no
+   * skill injection, no slash invocation, no external MCP delivery — byte-identical
+   * to before the library existed (the strict-superset floor).
+   */
+  library?: SessionLibraryPort;
 }
 
 /** One send against a conversation: the turn's own content plus the two one-shot
@@ -108,6 +117,13 @@ export interface SendRequest {
   attachments?: readonly Attachment[];
   /** Daemon-resolved image-input capability for this send's model (see `TurnRequest`). */
   visionSupported?: boolean;
+  /** Explicit per-send skill selection, overriding the agent definition's `skills`
+   *  for this conversation's turns; absent ⇒ the agent's own configured list. */
+  skills?: AgentSkillConfig[];
+  /** Skills to invoke explicitly on THIS turn (the composer's `/skill`): each body
+   *  reaches this turn's context even in disclosure mode. An unknown name REFUSES
+   *  the send (an explicit ask must never silently vanish). */
+  invokeSkills?: string[];
   /** Join this session's fan-out at the turn's true first status; absent ⇒ the caller is
    *  already attached (or wants nothing pushed to it). */
   subscribe?: TurnSubscription;
@@ -130,6 +146,7 @@ export class SessionService {
   readonly #store: ConversationStore | undefined;
   readonly #listAgents: (() => readonly AgentSummary[]) | undefined;
   readonly #messageLog: MessageLog | undefined;
+  readonly #library: SessionLibraryPort | undefined;
   readonly #driverDeps: TurnDriverDeps;
   /** The last `SessionEndReason` this process itself observed for a session, keyed by
    *  id — populated in `#emitStatus`, read by the roster's graded-confidence liveness
@@ -142,6 +159,10 @@ export class SessionService {
    *  own `seq` (these frames are never appended to it; see `push.ts`'s doc comment on
    *  the three `subagent-*` kinds). */
   readonly #liveSeq = new Map<string, number>();
+  /** Which missing-skill names each LIVE session already announced (`#announceMissingSkills`
+   *  — once per session instance, not per send). Weak so an evicted session's set goes
+   *  with it, and a revived session announces afresh. */
+  readonly #announcedMissing = new WeakMap<LiveSession, Set<string>>();
 
   constructor(options: SessionServiceOptions) {
     this.#deps = options.deps;
@@ -149,6 +170,7 @@ export class SessionService {
     this.#store = options.store;
     this.#listAgents = options.listAgents;
     this.#messageLog = options.messageLog;
+    this.#library = options.library;
     this.#driverDeps = {
       deps: this.#deps,
       registry: this.#registry,
@@ -172,8 +194,16 @@ export class SessionService {
     // resolves through the SAME live agent list a spawn uses; an ephemeral send
     // with no store, or a conversation record with no agentRef, falls back to the
     // system floor. Ignored by `getOrCreate` when the session already exists.
-    const defaultMode = this.#resolveDefaultMode(this.#store?.getMeta(id)?.agentRef);
+    const agentRef = this.#store?.getMeta(id)?.agentRef;
+    const defaultMode = this.#resolveDefaultMode(agentRef);
+    // Resolve the library facts BEFORE creating the live session: an unknown
+    // invoked skill throws here (an honest RPC refusal), and nothing was mutated.
+    const library = this.#libraryTurnFields(
+      req.skills ?? this.#agentSkills(agentRef),
+      req.invokeSkills,
+    );
     const { session, created } = this.#registry.getOrCreate(id, undefined, defaultMode);
+    this.#announceMissingSkills(id, library.missing);
 
     const turn: QueuedTurn = {
       input: req.input,
@@ -185,6 +215,7 @@ export class SessionService {
       ...(req.exclude !== undefined ? { exclude: req.exclude } : {}),
       ...(req.attachments !== undefined ? { attachments: req.attachments } : {}),
       ...(req.visionSupported !== undefined ? { visionSupported: req.visionSupported } : {}),
+      ...library.fields,
       ...(req.subscribe !== undefined ? { subscribe: req.subscribe } : {}),
     };
 
@@ -336,6 +367,89 @@ export class SessionService {
     return agent?.defaultMode ?? DEFAULT_PERMISSION_MODE;
   }
 
+  /** An agent definition's configured skill list, via the LIVE agent set (never cached). */
+  #agentSkills(agentRef: string | undefined): AgentSkillConfig[] | undefined {
+    if (agentRef === undefined) return undefined;
+    return this.#listAgents?.().find((a) => a.ref === agentRef)?.skills;
+  }
+
+  /**
+   * Resolve one turn's library facts — the skill selection + Pieces, any explicit
+   * invocations, and the external MCP server map — against a FRESH library read.
+   * Returns the QueuedTurn fields plus the configured-but-unresolved skill names
+   * (surfaced by the caller). Throws on an unknown INVOKED skill only: an explicit
+   * `/skill` ask must refuse loudly, while a configured skill that stopped
+   * resolving degrades to a surfaced absence (help, never cage).
+   */
+  #libraryTurnFields(
+    skills: readonly AgentSkillConfig[] | undefined,
+    invokeSkills?: readonly string[],
+  ): { fields: Partial<QueuedTurn>; missing: string[] } {
+    const library = this.#library;
+    if (library === undefined) {
+      if (invokeSkills !== undefined && invokeSkills.length > 0) {
+        throw new Error('skill invocation is unavailable: no skill library is wired');
+      }
+      return { fields: {}, missing: [] };
+    }
+    const resolved = library.resolveSkills(skills ?? []);
+    const invoked = (invokeSkills ?? []).map((name) => {
+      const skill = library.invoke(name);
+      if (skill === undefined) {
+        throw new Error(`unknown skill "${name}" — not linked and enabled in the library`);
+      }
+      return skill;
+    });
+    const mcpServers = library.mcpServers();
+    return {
+      fields: {
+        ...(resolved.selection.length > 0 ? { skillSelection: resolved.selection } : {}),
+        ...(resolved.pieces.length > 0 ? { skillPieces: resolved.pieces } : {}),
+        ...(invoked.length > 0 ? { invokedSkills: invoked } : {}),
+        ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+      },
+      missing: resolved.missing,
+    };
+  }
+
+  /**
+   * Surface configured-but-unresolved skills on the session's live stream (never
+   * persisted, never a block). Unlike the `#announceSubagent` annotations this rides
+   * `LiveSession.announce`, which HOLDS the frame for the first subscriber when none
+   * is attached yet — the founding send defers the caller's subscription to the
+   * turn's first status, and a spawned child has no subscriber at all at spawn, so a
+   * plain emit would silently drop the one advisory whose contract (injection.ts's
+   * `ResolvedSkillSet.missing`) forbids exactly that. Announced once per live
+   * session per skill: every later send re-resolves and would otherwise re-fire the
+   * same advisory as duplicate noise (keyed on the session INSTANCE, so a revived
+   * idle-evicted session honestly announces again to its fresh stream).
+   */
+  #announceMissingSkills(sessionId: string, missing: readonly string[]): void {
+    if (missing.length === 0) return;
+    const session = this.#registry.get(sessionId);
+    if (session === undefined) return;
+    let announced = this.#announcedMissing.get(session);
+    if (announced === undefined) {
+      announced = new Set();
+      this.#announcedMissing.set(session, announced);
+    }
+    for (const name of missing) {
+      if (announced.has(name)) continue;
+      announced.add(name);
+      session.announce({
+        kind: 'turn',
+        sessionId,
+        worktree: session.worktree ?? '',
+        seq: this.#nextLiveSeq(sessionId),
+        frame: {
+          t: 'error',
+          origin: 'daemon',
+          message: `library skill "${name}" is configured for this agent but did not resolve (unknown, disabled, or broken source) — it was not injected`,
+        },
+      });
+    }
+  }
+
   /**
    * Delegates entirely to `registry.close` — the SINGLE teardown path: checkpoint +
    * worktree-release happen exactly once, via the registry's `onClose` hook (wired at
@@ -412,11 +526,15 @@ export class SessionService {
     // F2: the spawned child inherits ITS agent's configured default mode (not the
     // parent's live/current mode — a subagent's caution level is a property of
     // what it IS, not of whatever the parent happened to be set to).
+    // The child's library facts come from ITS agent definition, resolved fresh —
+    // the same registry-dispatch posture as its model/roles/packages below.
+    const library = this.#libraryTurnFields(agent?.skills);
     const { session } = this.#registry.getOrCreate(
       id,
       { parent: parentId, root },
       this.#resolveDefaultMode(agent?.ref),
     );
+    this.#announceMissingSkills(id, library.missing);
     store.create({
       id,
       agentRef: req.agentRef,
@@ -452,6 +570,7 @@ export class SessionService {
       ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
       ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
       ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      ...library.fields,
       ...(req.isolate !== undefined ? { isolate: req.isolate } : {}),
       // Announce the spawn to the PARENT's own live transcript once the child's worktree
       // is bound (the earliest point the announcement has anything real to say) — a
@@ -564,6 +683,7 @@ export class SessionService {
   /**
    * Push a live-only announcement onto `sessionId`'s own turn stream — a
    * `subagent-spawn`/`subagent-completion`/`subagent-message` frame (docs/adr/0039),
+   * or a daemon advisory like a missing configured skill (`#announceMissingSkills`),
    * for the console to render as a dedicated block (the next phase's job; this only
    * emits the frame correctly). Never persisted to the append-only event log (unlike
    * every other `TurnFrame` this daemon emits) — a per-session counter distinct from the
@@ -731,6 +851,10 @@ export class SessionService {
       void runLiveSession(session, this.#makeRunTurn(store));
     }
     const agent = this.#listAgents?.().find((a) => a.ref === meta.agentRef);
+    // Same library derivation as `#startChild`: a woken turn needs the exact same
+    // facts a spawn's founding turn does.
+    const library = this.#libraryTurnFields(agent?.skills);
+    this.#announceMissingSkills(to, library.missing);
     const turn: QueuedTurn = {
       input,
       scope: meta.scope,
@@ -749,6 +873,7 @@ export class SessionService {
       ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
       ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
       ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      ...library.fields,
       // Re-supply the session's isolation decision from persisted `SessionMeta` —
       // see this method's doc — rather than trusting `WorktreeManager` to still
       // remember it, which it will not across a daemon restart.

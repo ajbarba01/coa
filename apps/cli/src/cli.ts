@@ -8,6 +8,7 @@ import {
   bindDaemon,
   buildAgentRegistryHandlers,
   buildConversationHandlers,
+  buildLibraryHandlers,
   buildModelHandlers,
   buildModelMetadataHandlers,
   buildRegistryHandlers,
@@ -17,8 +18,11 @@ import {
   connectClient,
   createConversationStore,
   createMessageLog,
+  createSessionLibraryPort,
   defaultDaemonPath,
   effectiveModels,
+  LibraryService,
+  listInvocableSkills,
   LiveSessionRegistry,
   MODEL_PROVIDERS,
   ModelCatalogStore,
@@ -332,6 +336,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     listRoles: () => roleSummaries(),
     listPackages: () => packageSummaries(),
   });
+  // The skills/MCP library: declarative stores (~/.coa/library + <repo>/.coa/library)
+  // over on-disk discovery, all through the injected root/home — never ambient paths.
+  const library = new LibraryService({ home, projectRoot: root });
+  const libraryHandlers = buildLibraryHandlers({
+    list: () => library.list(),
+    link: (args) => library.link(args),
+    copy: (args) => library.copy(args),
+    unlink: (ref) => library.unlink(ref),
+    setEnabled: (ref, enabled) => library.setEnabled(ref, enabled),
+    invocable: () => listInvocableSkills(library.list()),
+  });
   // The agent-definition registry: built-in ∪ ~/.coa/agents ∪ <repo>/.coa/agents.
   const agentRegistry = new AgentRegistry(home, root);
   const agentHandlers = buildAgentRegistryHandlers({
@@ -380,6 +395,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     store,
     listAgents: () => agentRegistry.list().agents,
     messageLog,
+    // Skill injection + slash invocation + external MCP delivery, resolved fresh per
+    // turn from the same declarative library the verbs above manage. Resolved skill
+    // Pieces are also registered into the kernel piece store, which is what makes a
+    // disclosure skill's body genuinely pullable via the governed `get_piece` tool.
+    library: createSessionLibraryPort({
+      list: () => library.list(),
+      registerPiece: (piece) => handle.kernel.registerPiece(piece),
+    }),
   });
   // The console's daemon control (title-bar Stop/Restart) stops the process over the
   // pipe rather than by PID, so it also cleans up a daemon this app didn't spawn. The
@@ -405,6 +428,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...consoleHandlers,
     ...registryHandlers,
     ...agentHandlers,
+    ...libraryHandlers,
     ...conversationHandlers,
     // The Worktree dock's read + reap seam. `isRunning` consults the live registry's
     // own state (never client tracking) so a reap can't delete a working directory

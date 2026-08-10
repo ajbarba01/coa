@@ -6,6 +6,7 @@ import type { RespondFn, TranscriptFrame } from '@coa/console-transcript';
 import type {
   Attachment,
   AttachControlVm,
+  InvocableSkill,
   ModelDescriptor,
   ModelMetadata,
   PermissionMode,
@@ -25,8 +26,9 @@ import { reportFailure } from '../shell/failures.js';
 import { matchesFind } from '../shell/keys.js';
 import { useShell } from '../shell/store.js';
 import { modelPickerLabel } from './AgentsPanel.js';
-import { computeChatBanners, type ChatNotice } from './banners.js';
+import { computeChatBanners, resolvableSkillSelection, type ChatNotice } from './banners.js';
 import { Composer } from './Composer.js';
+import { useLibraryStore } from './libraryStore.js';
 import type { ConsoleState } from './state.js';
 
 // Keep-alive tab caches (module scope — they outlive renders): the last frames
@@ -101,8 +103,16 @@ export type ChatVm =
       /** F2: live-switch the active session's permission mode. No-op with no active
        *  session. */
       onSetMode: (mode: PermissionMode) => void;
-      /** Send, with any staged attachments riding the same governed send. */
-      onSend: (text: string, attachments?: readonly Attachment[]) => void;
+      /** The invocable library skills the composer's slash popover offers; absent ⇒
+       *  the library read hasn't settled (the popover states that, never "empty"). */
+      skills?: InvocableSkill[] | undefined;
+      /** Send, with any staged attachments and explicit skill invocations riding the
+       *  same governed send. */
+      onSend: (
+        text: string,
+        attachments?: readonly Attachment[],
+        invokeSkills?: readonly string[],
+      ) => void;
       /** The Stop/Esc affordance — cooperatively interrupts the active session's running
        *  turn (a user stop, never a governance block; unpressed, nothing
        *  changes). A no-op with no active session (Composer only surfaces Stop while
@@ -369,7 +379,11 @@ export function interleaveNotes(
  *  In raw mode every frame becomes its verbatim line (raw is the verbatim, unfiltered projection); "switched model" notes are
  *  a console-local synthetic frame (never sent to the agent) interleaved only in
  *  governed mode — raw stays the verbatim, unfiltered projection. */
-export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOString()): ChatVm {
+export function selectChatVm(
+  state: ConsoleState,
+  nowIso = new Date().toISOString(),
+  invocableSkills?: InvocableSkill[],
+): ChatVm {
   const r = state.data.turns;
   if (r.status !== 'ok') return r;
   const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
@@ -482,6 +496,10 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
       ...(activeAgent?.roles !== undefined ? { roles: activeAgent.roles } : {}),
       ...(activeAgent?.packageIds !== undefined ? { packageIds: activeAgent.packageIds } : {}),
       ...(activeAgent?.exclude !== undefined ? { exclude: activeAgent.exclude } : {}),
+      // The skill slice a send would compile: configured skills narrowed to the ones
+      // the effective library still serves (their disappearance IS drift — the daemon
+      // excludes them from the frozen selection the same way).
+      skills: resolvableSkillSelection(activeAgent?.skills, invocableSkills),
     },
     ...(activeSessionId !== undefined && state.ui.dismissedDrift[activeSessionId] !== undefined
       ? { dismissedDriftKey: state.ui.dismissedDrift[activeSessionId] }
@@ -584,6 +602,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
     ...(activeModelMetadata !== undefined ? { activeModelMetadata } : {}),
     ...(ringUsage !== undefined ? { ringUsage } : {}),
     attach,
+    ...(invocableSkills !== undefined ? { skills: invocableSkills } : {}),
     onRespond: state.actions.respondApproval,
     onSend: state.actions.sendMessage,
     onInterrupt: () => {
@@ -993,6 +1012,7 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
               activeModelMetadata={vm.activeModelMetadata}
               ringUsage={vm.ringUsage}
               attach={vm.attach}
+              skills={vm.skills}
               onSend={vm.onSend}
               onQueue={handleQueue}
               onSteer={handleSteer}
@@ -1012,7 +1032,16 @@ function ChatView({ vm }: { vm: ChatVm }): React.JSX.Element {
   );
 }
 
-/** State-fed surface: computes the vm from console state and renders the chat pane. */
+/** State-fed surface: computes the vm from console state and renders the chat pane.
+ *  Also mounts the library read (idempotent, the auth-store convention): the slash
+ *  popover's invocable rows and the drift compare's skill slice both come from it. */
 export function ChatSurface({ state }: { state: ConsoleState }): React.JSX.Element {
-  return <ChatView vm={selectChatVm(state)} />;
+  const invocable = useLibraryStore((s) => s.invocable);
+  useEffect(() => {
+    void useLibraryStore
+      .getState()
+      .hydrate()
+      .catch(() => {});
+  }, []);
+  return <ChatView vm={selectChatVm(state, undefined, invocable)} />;
 }

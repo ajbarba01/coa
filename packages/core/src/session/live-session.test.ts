@@ -68,6 +68,57 @@ describe('LiveSession', () => {
     return expect(s.nextTurn()).resolves.toBeUndefined();
   });
 
+  it('holds an announcement until the FIRST subscriber attaches, then delivers it once', () => {
+    const s = new LiveSession('c1');
+    const advisory: Push = {
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '',
+      seq: 0,
+      frame: { t: 'error', origin: 'daemon', message: 'skill "ghost" did not resolve' },
+    };
+    // No subscriber yet — the exact founding-turn / child-spawn window.
+    s.announce(advisory);
+    const first: Push[] = [];
+    s.subscribe((p) => first.push(p));
+    // Hydration status first (the subscribe contract), then the held advisory.
+    expect(first.map((p) => p.kind)).toEqual(['status', 'turn']);
+    expect(first[1]).toEqual(advisory);
+    // Delivered once: a later subscriber gets only its own hydration.
+    const late: Push[] = [];
+    s.subscribe((p) => late.push(p));
+    expect(late.map((p) => p.kind)).toEqual(['status']);
+  });
+
+  it('announce delivers immediately when a subscriber is already attached', () => {
+    const s = new LiveSession('c1');
+    const got: Push[] = [];
+    s.subscribe((p) => got.push(p));
+    s.announce({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '',
+      seq: 0,
+      frame: { t: 'error', origin: 'daemon', message: 'now' },
+    });
+    expect(got.filter((p) => p.kind === 'turn')).toHaveLength(1);
+  });
+
+  it('drops held announcements at close — nothing left to deliver to', () => {
+    const s = new LiveSession('c1');
+    s.announce({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: '',
+      seq: 0,
+      frame: { t: 'error', origin: 'daemon', message: 'never seen' },
+    });
+    s.close();
+    const got: Push[] = [];
+    s.subscribe((p) => got.push(p));
+    expect(got.filter((p) => p.kind === 'turn')).toHaveLength(0);
+  });
+
   it('unsubscribe stops delivery', () => {
     const s = new LiveSession('c1');
     const got: Push[] = [];
