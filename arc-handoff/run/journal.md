@@ -2242,3 +2242,23 @@ silently became Fable, contradicting the standing Fable-for-UX-only rule and bur
 limit twice (two mid-run interruptions at 1:30am and 6:30am resets, both resumed loss-free via
 run-ID resume + cached stages). Every subsequent workflow pins models explicitly: `opus` for
 core/verify/fix stages, `fable` pinned only for UI/design halves.
+
+## [close-out caught a lost bug fix] — 2026-08-10
+
+Maintainer ruled: cut the arc short after the library feature — defer the remaining features to
+the ROADMAP in full detail, squash per stage onto `main`, close everything out; the console-store
+port and the docs re-run become the first post-arc work. During the close-out's branch-cleanup
+ancestry sweep (verify every candidate is contained in the tagged final tip before deletion),
+`arc/f3-model-info-attachments` FAILED the containment check — and the two dangling commits
+turned out to be `2ef458a` (the verified cache-wipe Major: a 200-OK-but-malformed catalog body
+silently wiping a good disk cache) and `c94f029` (the ADR 0036 stale-prose correction). **The
+2026-08-09 journal entry recording "F3 is DONE, merged (cf117c7)" was premature**: the bug-4
+fix+verify pair finished AFTER that merge, its result was journaled ("passed clean, landed as
+2ef458a"), and the re-merge into `arc/stage3` never happened — a sequencing miss by the prior
+orchestration, invisible to every later gate because the fix lived only on the feature branch.
+Caught ONLY because the close-out refused to delete any branch that failed `merge-base
+--is-ancestor` against the close tag, before `main` was pushed. Remedied immediately: merged the
+pair into `arc/stage3` clean (`merge: the model-metadata cache-wipe fix and its design-doc
+correction`), full gate re-running; the `arc-close/stage3` tag and `main`'s feature squash commit
+will be rebuilt from the corrected tip. Standing lesson for any future arc: "a fix pair reported
+back green" is not "the fix is on the integration branch" — verify containment, not reports.
