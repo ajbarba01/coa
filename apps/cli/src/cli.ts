@@ -8,6 +8,7 @@ import {
   bindDaemon,
   buildAgentRegistryHandlers,
   buildConversationHandlers,
+  buildLibraryHandlers,
   buildModelHandlers,
   buildModelMetadataHandlers,
   buildRegistryHandlers,
@@ -19,6 +20,7 @@ import {
   createMessageLog,
   defaultDaemonPath,
   effectiveModels,
+  LibraryService,
   LiveSessionRegistry,
   MODEL_PROVIDERS,
   ModelCatalogStore,
@@ -332,6 +334,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     listRoles: () => roleSummaries(),
     listPackages: () => packageSummaries(),
   });
+  // The skills/MCP library: declarative stores (~/.coa/library + <repo>/.coa/library)
+  // over on-disk discovery, all through the injected root/home — never ambient paths.
+  const library = new LibraryService({ home, projectRoot: root });
+  const libraryHandlers = buildLibraryHandlers({
+    list: () => library.list(),
+    link: (args) => library.link(args),
+    copy: (args) => library.copy(args),
+    unlink: (ref) => library.unlink(ref),
+    setEnabled: (ref, enabled) => library.setEnabled(ref, enabled),
+  });
   // The agent-definition registry: built-in ∪ ~/.coa/agents ∪ <repo>/.coa/agents.
   const agentRegistry = new AgentRegistry(home, root);
   const agentHandlers = buildAgentRegistryHandlers({
@@ -405,6 +417,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...consoleHandlers,
     ...registryHandlers,
     ...agentHandlers,
+    ...libraryHandlers,
     ...conversationHandlers,
     // The Worktree dock's read + reap seam. `isRunning` consults the live registry's
     // own state (never client tracking) so a reap can't delete a working directory

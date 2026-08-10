@@ -268,6 +268,25 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   withheld). Changes and the session-cost roll-up stay honestly floored (the cost producer is
   parked, below).
 
+- **Skills/MCP library** — Substrate done (2026-08-09). Skills and MCP servers are first-class
+  library citizens managed through declarative Zod-validated stores (`~/.coa/library` personal,
+  `<root>/.coa/library` project — the store IS the source of truth, surfaces render it) over
+  on-disk discovery: user/project Claude Code skill dirs + `~/.codex/skills`, and the three Claude
+  MCP config layers (`~/.claude.json` local/user + project `.mcp.json`, precedence local > project
+  > user with shadowing surfaced, never dropped). Link-as-reference is the default (live pointer,
+  reads re-resolve the source); copy-into-project materializes a committable copy with provenance
+  `{sourcePath, contentHash}` and shows hash-on-demand drift (no file watcher) with re-copy as the
+  one-click re-sync. Served by the `listLibrary`/`rescanLibrary`/`linkLibrary`/`copyLibrary`/
+  `unlinkLibrary`/`setLibraryEnabled` RPC verbs (see M8's catalogue) off `packages/core/src/library/`,
+  wired in `apps/cli`'s daemon composition with injected root/home. `agentFileSchema` gained an
+  optional per-agent `skills` list (auto-inject vs progressive disclosure) and `skillToPiece`
+  compiles a stored skill onto the Piece axes (`push`/`pull`) for coa-native injection on ALL
+  backends. **Remaining:** the injection wiring itself (library skills → `AgentSpec.skills` →
+  frozen compilation/drift key), MCP config handed to the backend seam (compose with the SDK's
+  native `mcpServers` where present; typed honest degrade elsewhere), composer slash invocation,
+  and the Library UI. Codex `config.toml` MCP parsing is parked (TOML dependency; skills dir is
+  scanned, its MCP layer is not).
+
 ## Remaining work (keystones first)
 
 These are candidate directions, not a committed backlog. Two items, if picked up, unblock the
