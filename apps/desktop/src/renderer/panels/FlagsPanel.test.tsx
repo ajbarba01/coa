@@ -1,29 +1,34 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { FlagsSurface, selectFlagsVm } from './FlagsPanel.js';
-import { makeState } from '../testing/fixtures.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import type { ConsoleState } from './state.js';
 
-const stateWith = (flags: ConsoleState['data']['flags']): ConsoleState =>
-  makeState({ data: { flags } });
+const seed = (flags: ConsoleState['data']['flags']): void => {
+  seedStores({ data: { flags } });
+};
+
+beforeEach(() => resetStores());
 
 describe('selectFlagsVm', () => {
   it('passes loading/error through', () => {
-    expect(selectFlagsVm(stateWith({ status: 'loading' }))).toEqual({ status: 'loading' });
+    expect(selectFlagsVm({ data: { flags: { status: 'loading' } } })).toEqual({
+      status: 'loading',
+    });
   });
 });
 
 describe('FlagsSurface states-first', () => {
   it('skeletons while loading', () => {
-    const { container } = render(<FlagsSurface state={stateWith({ status: 'loading' })} />);
+    seed({ status: 'loading' });
+    const { container } = render(<FlagsSurface />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
   });
 
   it('empty state when there are no flags', () => {
-    render(
-      <FlagsSurface state={stateWith({ status: 'ok', value: { expanded: [], collapsed: [] } })} />,
-    );
+    seed({ status: 'ok', value: { expanded: [], collapsed: [] } });
+    render(<FlagsSurface />);
     expect(screen.getByText(/no flags/i)).toBeTruthy();
   });
 
@@ -43,14 +48,16 @@ describe('FlagsSurface states-first', () => {
       ],
       collapsed: [{ concernKey: 'k2', count: 4, severity: 'low' }],
     };
-    render(<FlagsSurface state={stateWith({ status: 'ok', value })} />);
+    seed({ status: 'ok', value });
+    render(<FlagsSurface />);
     expect(screen.getByText('generated stale')).toBeTruthy();
     expect(screen.getByText('pay.ts:10')).toBeTruthy();
     expect(screen.getByText(/4 more/i)).toBeTruthy();
   });
 
   it('announces an error via role=alert', () => {
-    render(<FlagsSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
+    seed({ status: 'error', message: 'daemon down' });
+    render(<FlagsSurface />);
     expect(screen.getByRole('alert').textContent).toContain('daemon down');
   });
 });

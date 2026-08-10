@@ -2,7 +2,9 @@ import type { Keybind } from '@coa/console-kit';
 import { hasOpenLayers } from '@coa/console-kit';
 import { useEffect } from 'react';
 import { useAgentsUi } from '../panels/agentsUi.js';
-import { useConsoleState } from './consoleStore.js';
+import { consoleActions } from '../store/actions.js';
+import { useSessions } from '../store/sessions.js';
+import { useConsoleUi } from '../store/ui.js';
 import {
   chordFromEvent,
   commandFor,
@@ -18,13 +20,13 @@ import { useShell } from './store.js';
  *  the shortcuts editor and every tooltip read this same list, so a bind can't exist
  *  without being discoverable, and a rebinding can't fail to reach one of them. */
 export function useKeybinds(): Keybind[] {
-  const overrides = useConsoleState((s) => s?.ui.settings.keybinds) as KeybindOverrides | undefined;
+  const overrides = useConsoleUi((s) => s.settings.keybinds) as KeybindOverrides | undefined;
   return effectiveKeybinds(DEFAULT_KEYBINDS, overrides ?? {});
 }
 
 /** Non-reactive read of the same list (for dispatch, which runs off an event). */
 function currentKeybinds(): Keybind[] {
-  const overrides = useConsoleState.getState()?.ui.settings.keybinds ?? {};
+  const overrides = useConsoleUi.getState().settings.keybinds ?? {};
   return effectiveKeybinds(DEFAULT_KEYBINDS, overrides);
 }
 
@@ -39,12 +41,11 @@ export function bindFor(id: string): string[] | undefined {
  *  session survives (it's still in the browser, and ctrl+shift+t brings the tab back). */
 export function closeTab(id: string): void {
   const shell = useShell.getState();
-  const cs = useConsoleState.getState();
   const rest = shell.tabs.filter((t) => t !== id);
   shell.closeTab(id);
-  if (id === cs?.ui.activeSessionId) {
+  if (id === useSessions.getState().activeSessionId) {
     const next = rest.at(-1);
-    if (next !== undefined) cs.actions.selectSession(next);
+    if (next !== undefined) consoleActions.selectSession(next);
   }
 }
 
@@ -52,8 +53,7 @@ export function closeTab(id: string): void {
 export function closeOtherTabs(id: string): void {
   const shell = useShell.getState();
   for (const t of shell.tabs.filter((t) => t !== id)) shell.closeTab(t);
-  const cs = useConsoleState.getState();
-  if (cs !== undefined && cs.ui.activeSessionId !== id) cs.actions.selectSession(id);
+  if (useSessions.getState().activeSessionId !== id) consoleActions.selectSession(id);
 }
 
 /** Close every tab AFTER this one (strip order). The selection only moves if it was
@@ -64,16 +64,15 @@ export function closeTabsRight(id: string): void {
   if (at === -1) return;
   const victims = shell.tabs.slice(at + 1);
   for (const t of victims) shell.closeTab(t);
-  const cs = useConsoleState.getState();
-  if (cs?.ui.activeSessionId !== undefined && victims.includes(cs.ui.activeSessionId))
-    cs.actions.selectSession(id);
+  const active = useSessions.getState().activeSessionId;
+  if (active !== undefined && victims.includes(active)) consoleActions.selectSession(id);
 }
 
 /** Reopen the most recently closed tab and make it active — ctrl+shift+t and the tab
  *  menu run this same command. */
 export function reopenLastTab(): void {
   const id = useShell.getState().reopenTab();
-  if (id !== undefined) useConsoleState.getState()?.actions.selectSession(id);
+  if (id !== undefined) consoleActions.selectSession(id);
 }
 
 /** The command table: one entry per registry id. Dispatch is a lookup, never a branch on
@@ -107,7 +106,7 @@ export const COMMANDS: Record<string, () => void> = {
   'new-session': () => useShell.getState().setNewSessionOpen(true),
   'reopen-tab': reopenLastTab,
   'close-tab': () => {
-    const active = useConsoleState.getState()?.ui.activeSessionId;
+    const active = useSessions.getState().activeSessionId;
     // No active tab is a no-op: ctrl+w never closes the window (that's the window's own
     // control), so a reflex press can't lose the app.
     if (active !== undefined && useShell.getState().tabs.includes(active)) closeTab(active);
@@ -116,7 +115,7 @@ export const COMMANDS: Record<string, () => void> = {
   'prev-tab': () => cycleTab(-1),
   // the mask comes off: the same toggle the title bar and the palette drive, so the
   // three can never disagree about what raw mode is.
-  'toggle-raw': () => useConsoleState.getState()?.actions.toggleRaw(),
+  'toggle-raw': () => consoleActions.toggleRaw(),
   'filter-agents': () => useAgentsUi.getState().focusFilter(),
 };
 
@@ -125,8 +124,8 @@ export const COMMANDS: Record<string, () => void> = {
  *  aren't there. What you can see is what the keyboard can reach. */
 export function stripTabs(): string[] {
   const { tabs } = useShell.getState();
-  const sessions = useConsoleState.getState()?.data.sessions;
-  if (sessions?.status !== 'ok') return [];
+  const sessions = useSessions.getState().list;
+  if (sessions.status !== 'ok') return [];
   const known = new Set(sessions.value.map((s) => s.id));
   return tabs.filter((id) => known.has(id));
 }
@@ -135,11 +134,10 @@ export function stripTabs(): string[] {
  *  the keyboard walks the tabs you can see. */
 function cycleTab(step: number): void {
   const tabs = stripTabs();
-  const cs = useConsoleState.getState();
-  if (cs === undefined || tabs.length === 0) return;
-  const at = tabs.indexOf(cs.ui.activeSessionId ?? '');
+  if (tabs.length === 0) return;
+  const at = tabs.indexOf(useSessions.getState().activeSessionId ?? '');
   const next = tabs[((((at === -1 ? 0 : at) + step) % tabs.length) + tabs.length) % tabs.length];
-  if (next !== undefined) cs.actions.selectSession(next);
+  if (next !== undefined) consoleActions.selectSession(next);
 }
 
 /** Is the user typing into something, or on a control that owns Enter for itself? Both are
@@ -188,10 +186,11 @@ export function useGlobalKeys(): void {
           shell.setSurface('chat');
           return;
         }
-        const cs = useConsoleState.getState();
-        const id = cs?.ui.activeSessionId;
-        if (cs !== undefined && id !== undefined && cs.ui.runStatus[id] !== undefined) {
-          cs.actions.interruptSession(id);
+        // Two reads of one slice, taken together on a synchronous keystroke — nothing
+        // can land between them, so this is the same snapshot the whole-state read was.
+        const { activeSessionId: id, runStatus } = useSessions.getState();
+        if (id !== undefined && runStatus[id] !== undefined) {
+          consoleActions.interruptSession(id);
         }
         return;
       }
@@ -229,7 +228,7 @@ export function useGlobalKeys(): void {
       if (at !== undefined) {
         e.preventDefault();
         const id = strip[at];
-        if (id !== undefined) useConsoleState.getState()?.actions.selectSession(id);
+        if (id !== undefined) consoleActions.selectSession(id);
         return;
       }
 

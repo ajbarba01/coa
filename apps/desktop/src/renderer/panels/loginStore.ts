@@ -74,10 +74,10 @@ export const useLogin = create<LoginState>((set, get) => {
 /** The live-session signal — the strongest health evidence there is (stronger than any
  *  probe: the loop just FAILED to authenticate). Flags the active claude login daemon-side
  *  and reprojects the auth store so the badges light in the same breath. Fire-and-forget:
- *  mis-detection costs an amber dot, never a block. Lives HERE (not console.ts, whose push
- *  consumer calls it through the `onAuthFailure` registration) because this module already
- *  owns the auth-store reach — importing the store from console.ts would close a static
- *  import cycle the dependency ruleset forbids. */
+ *  mis-detection costs an amber dot, never a block. Lives HERE (not the console controller,
+ *  whose push consumer calls it through the `onAuthFailure` registration) because this module
+ *  already owns the auth-store reach — importing the store from the controller would close a
+ *  static import cycle the dependency ruleset forbids. */
 export function reportActiveClaudeAuthFailure(): void {
   const report = (id: string): Promise<void> =>
     rpcReportAuthFailure(id).then(() => useAuthStore.getState().hydrate());

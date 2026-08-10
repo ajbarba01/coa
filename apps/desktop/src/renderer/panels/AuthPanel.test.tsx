@@ -50,7 +50,7 @@ vi.mock('./rpc.js', () => ({
   rpcProbeHealth: vi.fn(),
   rpcReportAuthFailure: vi.fn(),
 }));
-vi.mock('../console.js', () => ({
+vi.mock('../store/notices.js', () => ({
   notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
   onModelsChanged: vi.fn(),
 }));

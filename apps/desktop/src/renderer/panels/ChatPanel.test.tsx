@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptFrame } from '@coa/console-transcript';
@@ -15,17 +15,21 @@ import {
   toGovernedFrame,
 } from './ChatPanel.js';
 import { useShell } from '../shell/store.js';
-import { makeState, type StateOverrides } from '../testing/fixtures.js';
+import { setActiveSession } from '../store/sessions.js';
+import { appendFrames, useTranscripts } from '../store/transcripts.js';
+import { makeState, resetStores, seedState, type StateOverrides } from '../testing/fixtures.js';
 import { MOCK_AGENTS, MOCK_SESSIONS } from '../testing/mockAgents.js';
 import type { ConsoleState } from './state.js';
 
 const NOW = '2026-07-01T16:00:00Z';
 
-// The keep-alive tab list derives from the shell store — reset it per test so
-// one test's open tabs never leave extra (hidden) transcripts mounted in the next.
+// The open-tab list derives from the shell store, and every mounted tab draws from the
+// transcript slice — reset both per test so one test's tabs never leave extra (hidden)
+// transcripts mounted in the next.
 const initialShell = useShell.getState();
 beforeEach(() => {
   useShell.setState(initialShell, true);
+  resetStores();
 });
 
 const stateWith = (
@@ -646,7 +650,8 @@ describe('F2 — live permission mode + pending approval', () => {
           },
         },
       );
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       expect(screen.getByRole('button', { name: /^approve:/i })).toBeTruthy();
       expect(screen.getByRole('button', { name: /^deny:/i })).toBeTruthy();
     });
@@ -662,7 +667,8 @@ describe('F2 — live permission mode + pending approval', () => {
         },
         { respondApproval },
       );
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       await userEvent.click(screen.getByRole('button', { name: /^approve:/i }));
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('live-1', 'approve');
     });
@@ -678,7 +684,8 @@ describe('F2 — live permission mode + pending approval', () => {
         },
         { respondApproval },
       );
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       await userEvent.click(screen.getByRole('button', { name: /^deny:/i }));
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('live-1', 'deny');
     });
@@ -698,7 +705,8 @@ describe('F2 — live permission mode + pending approval', () => {
           },
         },
       );
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       expect(screen.getByRole('button', { name: 'Bypass' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull();
     });
@@ -706,7 +714,8 @@ describe('F2 — live permission mode + pending approval', () => {
     it('switching mode via the chip calls setPermissionMode for the active session', async () => {
       const setPermissionMode = vi.fn();
       const state = stateWith({ status: 'ok', value: [] }, {}, { setPermissionMode });
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       // s-audit-auth's agent (roles/reviewer) sets no default — the trigger starts on manual.
       await userEvent.click(screen.getByRole('button', { name: 'Manual' }));
       await userEvent.click(screen.getByText('Plan'));
@@ -726,31 +735,57 @@ describe('composerMeasure', () => {
   });
 });
 
-describe('ChatSurface keep-alive tabs', () => {
-  it("keeps the previous session's transcript mounted (hidden) after switching", () => {
-    useShell.setState({ tabs: ['s-audit-auth', 's-auth-refactor'] });
-    const turn = (id: string, text: string): TurnFrame => ({
-      id,
-      role: 'agent',
-      kind: 'text',
-      text,
-    });
-    const { rerender } = render(
-      <ChatSurface state={stateWith({ status: 'ok', value: [turn('t1', 'alpha-transcript')] })} />,
-    );
-    expect(screen.getByText('alpha-transcript')).toBeInTheDocument();
+describe('ChatSurface materialized tabs', () => {
+  const turn = (id: string, text: string): TurnFrame => ({
+    id,
+    role: 'agent',
+    kind: 'text',
+    text,
+  });
 
-    rerender(
-      <ChatSurface
-        state={stateWith(
-          { status: 'ok', value: [turn('t2', 'beta-transcript')] },
-          { activeSessionId: 's-auth-refactor' },
-        )}
-      />,
-    );
-    expect(screen.getByText('beta-transcript')).toBeInTheDocument();
-    // the tab model: the first session is still in the DOM, just hidden
+  /** Two open tabs, each with its own materialized transcript. */
+  const twoOpenTabs = (): void => {
+    useShell.setState({ tabs: ['s-audit-auth', 's-auth-refactor'] });
+    seedState(stateWith({ status: 'ok', value: [turn('t1', 'alpha-transcript')] }));
+    useTranscripts.setState((t) => ({
+      bySession: {
+        ...t.bySession,
+        's-auth-refactor': { status: 'ok', value: [turn('t2', 'beta-transcript')] },
+      },
+    }));
+  };
+
+  it('mounts every open tab, so the hidden one is real DOM rather than a snapshot', () => {
+    twoOpenTabs();
+    render(<ChatSurface />);
     expect(screen.getByText('alpha-transcript')).toBeInTheDocument();
+    expect(screen.getByText('beta-transcript')).toBeInTheDocument();
+  });
+
+  it('switching to an already-materialized tab paints it with nothing awaited', () => {
+    twoOpenTabs();
+    render(<ChatSurface />);
+    const alphaHost = screen.getByText('alpha-transcript').closest('div.h-full');
+    expect(alphaHost).not.toBeNull();
+
+    // The only thing a switch does: flip the active id. No reload, no await — the tab it
+    // moves to is already drawn, so this is a display swap (the instant-navigation rule).
+    act(() => setActiveSession('s-auth-refactor'));
+
+    expect(screen.getByText('beta-transcript').closest('div.h-full')).not.toBeNull();
+    expect(screen.getByText('alpha-transcript').closest('div.hidden')).not.toBeNull();
+  });
+
+  it('a hidden tab keeps streaming: output for a background session lands in ITS host', async () => {
+    twoOpenTabs();
+    render(<ChatSurface />);
+    await act(async () => {
+      appendFrames('s-auth-refactor', [turn('t3', 'beta-kept-streaming')]);
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    });
+    const beta = screen.getByText('beta-kept-streaming');
+    expect(beta).toBeInTheDocument();
+    expect(beta.closest('div.hidden')).not.toBeNull();
   });
 });
 
@@ -759,17 +794,20 @@ describe('ChatSurface states-first', () => {
     stateWith({ status: 'ok', value: turns }, ui);
 
   it('shows the loading circle while the transcript loads cold', () => {
-    render(<ChatSurface state={stateWith({ status: 'loading' })} />);
+    seedState(stateWith({ status: 'loading' }));
+    render(<ChatSurface />);
     expect(screen.getByRole('status', { name: /^loading conversation$/i })).toBeTruthy();
   });
 
   it('shows an error inline', () => {
-    render(<ChatSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
+    seedState(stateWith({ status: 'error', message: 'daemon down' }));
+    render(<ChatSurface />);
     expect(screen.getByText('daemon down')).toBeTruthy();
   });
 
   it('empty state teaches the register: agent, model/effort, and the key hints', () => {
-    render(<ChatSurface state={readyState([])} />);
+    seedState(readyState([]));
+    render(<ChatSurface />);
     // "{agent} is ready" — the reviewer session's agent.
     expect(screen.getByText(/is ready/i)).toBeTruthy();
     expect(
@@ -784,16 +822,14 @@ describe('ChatSurface states-first', () => {
   });
 
   it('renders the transcript log when there are frames', () => {
-    render(
-      <ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />,
-    );
+    seedState(readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }]));
+    render(<ChatSurface />);
     expect(screen.getByRole('log')).toBeTruthy();
   });
 
   it('carries no duplicate session-switching chrome — the shell owns that now', () => {
-    render(
-      <ChatSurface state={readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }])} />,
-    );
+    seedState(readyState([{ id: '1', role: 'you', kind: 'text', text: 'hi' }]));
+    render(<ChatSurface />);
     // No pane title bar naming the surface "Chat" (the shell's tab strip already does).
     expect(screen.queryByText('Chat')).toBeNull();
     // No in-pane session switcher trigger.
@@ -806,7 +842,8 @@ describe('ChatSurface states-first', () => {
   });
 
   it('renders the shared model picker, not the retired console-ui select', () => {
-    render(<ChatSurface state={readyState([])} />);
+    seedState(readyState([]));
+    render(<ChatSurface />);
     // The composer now wears the SAME picker as the agent editor: the kit's combobox
     // trigger, filterable, rather than the flat menu it used to grow.
     const picker = screen.getByRole('combobox', { name: 'Model' });
@@ -860,7 +897,8 @@ describe('ChatSurface states-first', () => {
   it('derives the drift notice when the config diverges, offering recompile + dismiss', async () => {
     pinClock();
     const onBannerAction = vi.fn();
-    render(<ChatSurface state={driftState({}, { onBannerAction })} />);
+    seedState(driftState({}, { onBannerAction }));
+    render(<ChatSurface />);
     expect(screen.getByText('Configuration drift')).toBeTruthy();
     // Drift-only scenario: the session ran on this config just now, so no cache notice —
     // exactly one notice line renders.
@@ -889,7 +927,8 @@ describe('ChatSurface states-first', () => {
       ui: { activeSessionId: 's-audit-auth' },
       actions: { setSessionModel },
     });
-    render(<ChatSurface state={state} />);
+    seedState(state);
+    render(<ChatSurface />);
     // The reviewer session's agent default (sonnet) seeds the trigger.
     await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
     await userEvent.click(screen.getByRole('option', { name: /opus/ }));
@@ -901,13 +940,12 @@ describe('ChatSurface states-first', () => {
 
   it('derives a passive cache notice on a staged switch, dismissable but with no fix', () => {
     pinClock();
-    const { container } = render(
-      <ChatSurface
-        state={driftState({
-          modelOverride: { s1: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
-        })}
-      />,
+    seedState(
+      driftState({
+        modelOverride: { s1: { provider: 'deepseek', model: 'deepseek-v4-pro' } },
+      }),
     );
+    const { container } = render(<ChatSurface />);
     // The cache notice is informational: there is nothing to recompile, because an idle
     // cache cannot be un-cooled. Dismiss is therefore its ONLY control — unlike the drift
     // notice riding alongside it, which also offers Recompile.
@@ -926,7 +964,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { interruptSession },
     );
-    render(<ChatSurface state={state} />);
+    seedState(state);
+    render(<ChatSurface />);
     const stop = screen.getByRole('button', { name: /stop/i });
     // The Stop control is a clean-stop affordance, not the danger tone an error surface would
     // use (a user stop, never a governance block).
@@ -942,7 +981,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    render(<ChatSurface state={state} />);
+    seedState(state);
+    render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'go check the tests instead');
     expect(screen.queryByRole('button', { name: /barge/i })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
@@ -978,7 +1018,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'use the JSON one');
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
 
@@ -993,7 +1034,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={delivered} />);
+    seedState(delivered);
+    rerender(<ChatSurface />);
     expect(screen.getAllByText('use the JSON one')).toHaveLength(1);
     expect(document.querySelector('[data-pending="true"]')).toBeNull();
   });
@@ -1005,13 +1047,15 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'never delivered');
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
     expect(screen.getByText('never delivered')).toBeInTheDocument();
 
     const idle = stateWith({ status: 'ok', value: [] }, {}, { steerSession });
-    rerender(<ChatSurface state={idle} />);
+    seedState(idle);
+    rerender(<ChatSurface />);
     expect(screen.queryByText('never delivered')).toBeNull();
   });
 
@@ -1025,7 +1069,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'wait');
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
     expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
@@ -1040,7 +1085,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={midStream} />);
+    seedState(midStream);
+    rerender(<ChatSurface />);
     expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
 
     // The real delivery lands (a SECOND 'wait' turn, after the pin was created) — now it clears.
@@ -1056,7 +1102,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={delivered} />);
+    seedState(delivered);
+    rerender(<ChatSurface />);
     expect(document.querySelector('[data-pending="true"]')).toBeNull();
   });
 
@@ -1067,7 +1114,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'retry');
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
     await userEvent.type(screen.getByRole('textbox'), 'retry');
@@ -1084,7 +1132,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={delivered} />);
+    seedState(delivered);
+    rerender(<ChatSurface />);
     expect(screen.getAllByText('retry')).toHaveLength(2);
     expect(document.querySelectorAll('[data-pending="true"]')).toHaveLength(0);
   });
@@ -1096,7 +1145,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'first pin');
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
     await userEvent.type(screen.getByRole('textbox'), 'second pin');
@@ -1110,7 +1160,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={delivered} />);
+    seedState(delivered);
+    rerender(<ChatSurface />);
     expect(screen.getByText('second pin')).toBe(secondNode);
   });
 
@@ -1130,20 +1181,22 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'use the JSON one');
     await userEvent.click(screen.getByRole('button', { name: 'Steer' }));
     expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
 
-    // openSession's mid-run reload (console.ts) replaces the frame array OUTRIGHT — a
-    // different identity AND, here, a different (shorter, consolidated) length — with no
-    // matching delivery yet. The pin must survive this untouched.
+    // A mid-run reattach folds the durable log back in, handing the surface a frame array
+    // of a different identity AND, here, a different (shorter, consolidated) length — with
+    // no matching delivery yet. The pin must survive this untouched.
     const reloaded = stateWith(
       { status: 'ok', value: [agentTextFrame('working…', 'a3')] },
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={reloaded} />);
+    seedState(reloaded);
+    rerender(<ChatSurface />);
     expect(document.querySelector('[data-pending="true"]')).not.toBeNull();
 
     // The real delivery lands in the RELOADED (shorter) array — an index tied to the
@@ -1156,7 +1209,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession },
     );
-    rerender(<ChatSurface state={delivered} />);
+    seedState(delivered);
+    rerender(<ChatSurface />);
     expect(document.querySelector('[data-pending="true"]')).toBeNull();
   });
 
@@ -1168,7 +1222,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { steerSession, sendMessage },
     );
-    const { rerender } = render(<ChatSurface state={running} />);
+    seedState(running);
+    const { rerender } = render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), 'also add a test');
     await userEvent.click(screen.getByRole('button', { name: /queue/i }));
     // queued: pinned in the UI, not sent to the daemon yet
@@ -1177,12 +1232,16 @@ describe('ChatSurface states-first', () => {
     expect(screen.getByText('also add a test')).toBeInTheDocument();
     // the turn ends → the session goes idle → the queued message is released as a normal send
     const idle = stateWith({ status: 'ok', value: [] }, {}, { steerSession, sendMessage });
-    rerender(<ChatSurface state={idle} />);
-    expect(sendMessage).toHaveBeenCalledWith('also add a test');
+    seedState(idle);
+    rerender(<ChatSurface />);
+    // The action delegate forwards all three positions, so a plain send carries the two
+    // absent ones explicitly (the daemon call itself omits them — pinned store-side).
+    expect(sendMessage).toHaveBeenCalledWith('also add a test', undefined, undefined);
   });
 
   it('shows Send (not Queue/Steer/Stop) while idle', () => {
-    render(<ChatSurface state={readyState([])} />);
+    seedState(readyState([]));
+    render(<ChatSurface />);
     expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /queue/i })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Steer' })).toBeNull();
@@ -1196,7 +1255,8 @@ describe('ChatSurface states-first', () => {
       { runStatus: { 's-audit-auth': { since: 1000 } } },
       { interruptSession },
     );
-    render(<ChatSurface state={state} />);
+    seedState(state);
+    render(<ChatSurface />);
     await userEvent.type(screen.getByRole('textbox'), '{Escape}');
     expect(interruptSession).toHaveBeenCalledExactlyOnceWith('s-audit-auth');
   });
@@ -1208,7 +1268,8 @@ describe('ChatSurface states-first', () => {
     ];
 
     it('never renders a pending-approval card in the transcript — the composer owns it', () => {
-      render(<ChatSurface state={stateWith({ status: 'ok', value: approvalStream })} />);
+      seedState(stateWith({ status: 'ok', value: approvalStream }));
+      render(<ChatSurface />);
       // The old transcript card used capitalized "Approve"/"Deny" buttons; those are gone.
       expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
@@ -1220,7 +1281,8 @@ describe('ChatSurface states-first', () => {
     it('approving via the composer calls onRespond(requestId, "approve")', async () => {
       const respondApproval = vi.fn();
       const state = stateWith({ status: 'ok', value: approvalStream }, {}, { respondApproval });
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       await userEvent.click(screen.getByRole('button', { name: /^approve:/i }));
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'approve');
     });
@@ -1228,7 +1290,8 @@ describe('ChatSurface states-first', () => {
     it('denying via the composer calls onRespond(requestId, "deny")', async () => {
       const respondApproval = vi.fn();
       const state = stateWith({ status: 'ok', value: approvalStream }, {}, { respondApproval });
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       await userEvent.click(screen.getByRole('button', { name: /^deny:/i }));
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'deny');
     });
@@ -1241,10 +1304,11 @@ describe('ChatSurface states-first', () => {
         {},
         { respondApproval, sendMessage },
       );
-      render(<ChatSurface state={state} />);
+      seedState(state);
+      render(<ChatSurface />);
       await userEvent.type(screen.getByRole('textbox'), 'do this instead{Enter}');
       expect(respondApproval).toHaveBeenCalledExactlyOnceWith('r1', 'deny');
-      expect(sendMessage).toHaveBeenCalledExactlyOnceWith('do this instead');
+      expect(sendMessage).toHaveBeenCalledExactlyOnceWith('do this instead', undefined, undefined);
     });
   });
 });
@@ -1365,9 +1429,8 @@ describe('subagent announcement cards — producer→renderer round trip', () =>
       }),
     );
     const selectSession = vi.fn();
-    const { container } = render(
-      <ChatSurface state={stateWith({ status: 'ok', value: frames }, {}, { selectSession })} />,
-    );
+    seedState(stateWith({ status: 'ok', value: frames }, {}, { selectSession }));
+    const { container } = render(<ChatSurface />);
     expect(screen.getByText('review the ledger diff')).toBeInTheDocument();
     expect(screen.getByText('Spawned')).toBeInTheDocument();
     // The identity color overlay resolves roles/reviewer → teal from the agents list.
@@ -1387,7 +1450,8 @@ describe('subagent announcement cards — producer→renderer round trip', () =>
         result: 'Two findings, both minor.',
       }),
     );
-    render(<ChatSurface state={stateWith({ status: 'ok', value: frames })} />);
+    seedState(stateWith({ status: 'ok', value: frames }));
+    render(<ChatSurface />);
     expect(screen.getByText('Done')).toBeInTheDocument();
     expect(screen.getByText('Two findings, both minor.')).toBeInTheDocument();
   });
@@ -1403,7 +1467,8 @@ describe('subagent announcement cards — producer→renderer round trip', () =>
         detail: 'rate limited',
       }),
     );
-    render(<ChatSurface state={stateWith({ status: 'ok', value: frames })} />);
+    seedState(stateWith({ status: 'ok', value: frames }));
+    render(<ChatSurface />);
     expect(screen.getByText('Errored')).toBeInTheDocument();
     expect(screen.getByText('rate limited')).toBeInTheDocument();
   });
@@ -1421,9 +1486,8 @@ describe('subagent announcement cards — producer→renderer round trip', () =>
       }),
     );
     const selectSession = vi.fn();
-    render(
-      <ChatSurface state={stateWith({ status: 'ok', value: frames }, {}, { selectSession })} />,
-    );
+    seedState(stateWith({ status: 'ok', value: frames }, {}, { selectSession }));
+    render(<ChatSurface />);
     // The label overlay resolves both session ids to their rail titles.
     expect(screen.getByText('audit auth flow')).toBeInTheDocument();
     expect(screen.getByText('harden ledger tests')).toBeInTheDocument();

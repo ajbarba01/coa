@@ -10,9 +10,12 @@ import { CapsLabel, cx, StatusDot, Tooltip } from '@coa/console-kit';
 import { useState } from 'react';
 import { usd } from '../panels/format.js';
 import { SurfaceEmpty } from '../panels/surfaceStates.js';
-import type { ConsoleState, Remote } from '../panels/state.js';
+import type { Remote } from '../panels/state.js';
+import { consoleActions } from '../store/actions.js';
+import { useDaemonData } from '../store/data.js';
+import { useSessions, type SubagentState } from '../store/sessions.js';
+import { useTranscripts } from '../store/transcripts.js';
 import { DRAG } from './appRegion.js';
-import { useConsoleState } from './consoleStore.js';
 import { bindFor } from './keys.js';
 import { useShell } from './store.js';
 import { AppWindowControls } from './windowControls.js';
@@ -31,12 +34,17 @@ export function Work(): React.JSX.Element {
   const toggleWork = useShell((s) => s.toggleWork);
   // In search mode the column previews whichever session the browser hovers.
   const previewId = useShell((s) => s.previewId);
-  const state = useConsoleState((s) => s);
-  const activeId = previewId ?? state?.ui.activeSessionId;
-  const sessions = state?.data.sessions.status === 'ok' ? state.data.sessions.value : [];
+  const activeSessionId = useSessions((s) => s.activeSessionId);
+  const activeId = previewId ?? activeSessionId;
+  const list = useSessions((s) => s.list);
+  const sessions = list.status === 'ok' ? list.value : [];
   const session = sessions.find((s) => s.id === activeId);
-  const running = activeId !== undefined && state?.ui.runStatus[activeId] !== undefined;
-  const turns = state?.data.turns.status === 'ok' ? state.data.turns.value : [];
+  const runStatus = useSessions((s) => s.runStatus);
+  const running = activeId !== undefined && runStatus[activeId] !== undefined;
+  // The plan reads the SHOWN session's own transcript entry — per-session materialization
+  // means a hovered (previewed) session shows ITS plan, not the active conversation's.
+  const entry = useTranscripts((s) => (activeId === undefined ? undefined : s.bySession[activeId]));
+  const turns = entry?.status === 'ok' ? entry.value : [];
   // The session's LAST plan frame (the agent replaces the whole checklist as it works).
   const planItems = (() => {
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -54,7 +62,10 @@ export function Work(): React.JSX.Element {
   // `undefined` ⇒ nothing in the tree is tracked yet, the same "not tracked
   // yet" floor as before this existed.
   const treeCostUsd = group?.costUsd;
-  const agents = state?.data.agents.status === 'ok' ? state.data.agents.value : [];
+  const agentsRemote = useDaemonData((s) => s.agents);
+  const agents = agentsRemote.status === 'ok' ? agentsRemote.value : [];
+  const worktrees = useDaemonData((s) => s.worktrees);
+  const subagentStatus = useSessions((s) => s.subagentStatus);
 
   return (
     <div className="flex flex-none flex-col border-l border-s4 bg-s2" style={{ width: workWidth }}>
@@ -118,13 +129,18 @@ export function Work(): React.JSX.Element {
             </Section>
           )}
 
-          <SubagentsSection group={group} agents={agents} state={state} />
+          <SubagentsSection
+            group={group}
+            agents={agents}
+            runStatus={runStatus}
+            subagentStatus={subagentStatus}
+          />
           <FloorSection title="Changes" />
           <WorktreeSection
-            remote={state?.data.worktrees}
+            remote={worktrees}
             group={group}
             sessions={sessions}
-            onReap={(id) => state?.actions.reapWorktree(id)}
+            onReap={(id) => consoleActions.reapWorktree(id)}
           />
           {treeCostUsd === undefined ? (
             <FloorSection title="Cost" />
@@ -190,14 +206,15 @@ const AGENT_TEXT: Record<string, string> = {
 
 /** A child row's live status, honestly sourced: the console's own run map first
  *  (sessions THIS console subscribed to), then the parent-stream announcements'
- *  mirror (`ui.subagentStatus`). Absent from both ⇒ idle ground — "not observed",
- *  never a claimed state. Exported for unit testing. */
+ *  mirror. Absent from both ⇒ idle ground — "not observed", never a claimed
+ *  state. Pure, so it is unit-testable without a rendered dock. */
 export function childDotStatus(
   sessionId: string,
-  state: ConsoleState | undefined,
+  runStatus: Record<string, { since: number }>,
+  subagentStatus: Record<string, { state: SubagentState }>,
 ): 'running' | 'done' | 'critical' | 'idle' {
-  if (state?.ui.runStatus[sessionId] !== undefined) return 'running';
-  const observed = state?.ui.subagentStatus[sessionId]?.state;
+  if (runStatus[sessionId] !== undefined) return 'running';
+  const observed = subagentStatus[sessionId]?.state;
   if (observed === 'running') return 'running';
   if (observed === 'completed') return 'done';
   if (observed === 'errored') return 'critical';
@@ -209,11 +226,13 @@ export function childDotStatus(
 function SubagentsSection({
   group,
   agents,
-  state,
+  runStatus,
+  subagentStatus,
 }: {
   group: SessionTreeGroup | undefined;
   agents: AgentSummary[];
-  state: ConsoleState | undefined;
+  runStatus: Record<string, { since: number }>;
+  subagentStatus: Record<string, { state: SubagentState }>;
 }): React.JSX.Element {
   const rows = group?.rows ?? [];
   if (rows.length === 0) {
@@ -234,13 +253,13 @@ function SubagentsSection({
           <button
             key={session.id}
             type="button"
-            onClick={() => state?.actions.selectSession(session.id)}
+            onClick={() => consoleActions.selectSession(session.id)}
             aria-label={`Open ${session.title}`}
             className="slip flex w-full cursor-pointer items-center gap-2 py-0.75 pr-3.5 text-left hover:bg-s3"
             // Nesting indent: one step per depth beyond the direct child.
             style={{ paddingLeft: 14 + (depth - 1) * 12 }}
           >
-            <StatusDot status={childDotStatus(session.id, state)} size={5} />
+            <StatusDot status={childDotStatus(session.id, runStatus, subagentStatus)} size={5} />
             <span className={cx('flex-none font-mono text-meta font-[550]', color)}>
               {agent?.name ?? session.agentRef}
             </span>
@@ -269,7 +288,7 @@ function WorktreeSection({
   sessions,
   onReap,
 }: {
-  remote: Remote<WorktreeView[]> | undefined;
+  remote: Remote<WorktreeView[]>;
   group: SessionTreeGroup | undefined;
   sessions: SessionSummary[];
   onReap: (sessionId: string) => void;
@@ -277,7 +296,7 @@ function WorktreeSection({
   // Two-step confirm for a DIRTY tree only: arming is per-row, so a second
   // click elsewhere re-arms there instead of firing here.
   const [armed, setArmed] = useState<string | undefined>(undefined);
-  if (remote === undefined || remote.status === 'loading') {
+  if (remote.status === 'loading') {
     return (
       <Section title="Worktree">
         <div className="mx-3.5 my-1 h-3 w-2/3 animate-pulse rounded-r2 bg-s3" />

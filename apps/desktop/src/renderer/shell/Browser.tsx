@@ -2,7 +2,9 @@ import { groupSessionTree, withAncestors, type SessionSummary } from '@coa/conso
 import { cx, Icon, Select, StatusDot } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import { relativeTime } from '../panels/ChatPanel.js';
-import type { ConsoleState } from '../panels/state.js';
+import { consoleActions } from '../store/actions.js';
+import { useDaemonData } from '../store/data.js';
+import { useSessions } from '../store/sessions.js';
 import { useShell } from './store.js';
 
 type SortKey = 'recent' | 'title';
@@ -114,18 +116,21 @@ export function arrangeSessions(
 
 /** The search state's canvas: the real session list, filtered by the query,
  *  sorted and grouped by the toolbar pickers (recency/title; agent/status/flat). */
-export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
+export function Browser(): React.JSX.Element {
   const query = useShell((s) => s.query);
   const setPreview = useShell((s) => s.setPreview);
   const closeSearch = useShell((s) => s.closeSearch);
-  const sessions = state.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
+  const list = useSessions((s) => s.list);
+  const sessions = list.status === 'ok' ? list.value : [];
+  const agentsRemote = useDaemonData((s) => s.agents);
+  const agents = agentsRemote.status === 'ok' ? agentsRemote.value : [];
+  const runStatus = useSessions((s) => s.runStatus);
   const nowIso = new Date().toISOString();
   const [sort, setSort] = useState<SortKey>('recent');
   const [group, setGroup] = useState<GroupKey>('none');
 
   const agentName = (ref: string): string => agents.find((a) => a.ref === ref)?.name ?? ref;
-  const isRunning = (id: string): boolean => state.ui.runStatus[id] !== undefined;
+  const isRunning = (id: string): boolean => runStatus[id] !== undefined;
   const q = query.trim().toLowerCase();
   const hits = sessions.filter(
     (s) =>
@@ -153,7 +158,7 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
   const cursorRef = useRef<HTMLDivElement>(null);
 
   const open = (id: string): void => {
-    state.actions.selectSession(id);
+    consoleActions.selectSession(id);
     closeSearch();
   };
 
@@ -161,7 +166,7 @@ export function Browser({ state }: { state: ConsoleState }): React.JSX.Element {
     // A deleted session has nothing to come back to: drop it from the working set AND the
     // reopen stack, so ctrl+shift+t can't resurrect a tab whose session is gone.
     useShell.getState().forgetTab(id);
-    state.actions.deleteSession(id);
+    consoleActions.deleteSession(id);
   };
 
   // Keys land on the window because focus stays in the search field (which lives in the

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import type { RecentProject } from '../../shared/projects.js';
 import { surfaceWrite } from './failures.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
-import { useConsoleState } from './consoleStore.js';
+import { useSessions } from '../store/sessions.js';
 import { useShell } from './store.js';
 
 type RecentProjectView = RecentProject & { open: boolean };
@@ -69,7 +69,7 @@ async function performOpenProject(root: string, target: 'current' | 'new'): Prom
  *  `'new'` window never touches this window's own turn, so it always proceeds directly. */
 function requestOpen(root: string, target: 'current' | 'new'): void {
   if (target === 'current') {
-    const running = Object.keys(useConsoleState.getState()?.ui.runStatus ?? {}).length;
+    const running = Object.keys(useSessions.getState().runStatus).length;
     const currentRoot = useShell.getState().workspace?.root;
     if (shouldConfirmSwap(running, root, currentRoot, window.coa.platform)) {
       useShell.getState().setConfirmSwapProject({ root, name: baseName(root) });

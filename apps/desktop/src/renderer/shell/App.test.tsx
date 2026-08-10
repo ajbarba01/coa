@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 import { App } from '../App.js';
-import { useConsoleState } from './consoleStore.js';
+import { resetStores } from '../testing/fixtures.js';
 import { useShell } from './store.js';
 
 const initialShell = useShell.getState();
@@ -23,9 +23,10 @@ function stubCoa(
     listTimeline: vi.fn().mockResolvedValue([]),
     listAccounts: vi.fn().mockResolvedValue({ accounts: [], active: {} }),
     listModels: vi.fn().mockResolvedValue([]),
+    modelMetadata: vi.fn().mockResolvedValue({ entries: [] }),
     listRoles: vi.fn().mockResolvedValue([]),
     listPackages: vi.fn().mockResolvedValue([]),
-    listAgents: vi.fn().mockResolvedValue([]),
+    listAgents: vi.fn().mockResolvedValue({ agents: [], diagnostics: [] }),
     listSessions: vi.fn().mockResolvedValue([]),
     listWorktrees: vi.fn().mockResolvedValue({ worktrees: [] }),
     getSettings: () => Promise.resolve(DEFAULT_SETTINGS),
@@ -58,7 +59,7 @@ function stubCoa(
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
 describe('App', () => {

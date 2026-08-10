@@ -1,6 +1,7 @@
 import { StatusDot } from '@coa/console-kit';
 import type { Checkpoint } from '@coa/console-viewmodel';
-import type { ConsoleState } from './state.js';
+import { useDaemonData } from '../store/data.js';
+import type { ConsoleData } from './state.js';
 import { SkeletonLines, SurfaceError, SurfaceEmpty } from './surfaceStates.js';
 
 export type TimelineVm =
@@ -8,7 +9,12 @@ export type TimelineVm =
   | { status: 'error'; message: string }
   | { status: 'ok'; value: Checkpoint[] };
 
-export function selectTimelineVm(state: ConsoleState): TimelineVm {
+/** The subset of the console shape this surface reads (assembled from the data slice). */
+export interface TimelineVmState {
+  data: Pick<ConsoleData, 'timeline'>;
+}
+
+export function selectTimelineVm(state: TimelineVmState): TimelineVm {
   return state.data.timeline;
 }
 
@@ -34,7 +40,8 @@ function TimelineView({ vm }: { vm: TimelineVm }): React.JSX.Element {
   );
 }
 
-/** State-fed surface: computes the vm from console state and renders the timeline pane. */
-export function TimelineSurface({ state }: { state: ConsoleState }): React.JSX.Element {
-  return <TimelineView vm={selectTimelineVm(state)} />;
+/** Slice-fed surface: subscribes to the timeline feed alone. */
+export function TimelineSurface(): React.JSX.Element {
+  const timeline = useDaemonData((s) => s.timeline);
+  return <TimelineView vm={selectTimelineVm({ data: { timeline } })} />;
 }

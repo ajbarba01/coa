@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ModelCatalogView, ModelEntry, ReasoningProfile } from '@coa/console-viewmodel';
-import { notifyModelsChanged } from '../console.js';
+import { notifyModelsChanged } from '../store/notices.js';
 import {
   rpcAddCustomModel,
   rpcAddModels,
