@@ -13,7 +13,13 @@ const LADDER = claudeEffortSchema.options;
 
 /** The four reasoning-cap fields a profile override replaces wholesale. */
 function strippedCaps(base: ModelDescriptor): ModelDescriptor {
-  const { supportsEffort: _supportsEffort, supportedEffortLevels: _supportedEffortLevels, supportsAdaptiveThinking: _supportsAdaptiveThinking, supportsThinking: _supportsThinking, ...rest } = base;
+  const {
+    supportsEffort: _supportsEffort,
+    supportedEffortLevels: _supportedEffortLevels,
+    supportsAdaptiveThinking: _supportsAdaptiveThinking,
+    supportsThinking: _supportsThinking,
+    ...rest
+  } = base;
   return rest;
 }
 

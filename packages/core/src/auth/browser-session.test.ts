@@ -1,4 +1,4 @@
-import { sep } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   BrowserSession,
@@ -76,7 +76,9 @@ describe('profile keying', () => {
    *  email is what lets a relogin reuse a signed-in session, lets Claude and a future Codex
    *  account share one jar, and stops a deleted row from stranding its directory. */
   it('derives the same key for the same identity however it was typed', () => {
-    expect(profileKey('  Wormsegment1000@Gmail.COM ')).toBe(profileKey('wormsegment1000@gmail.com'));
+    expect(profileKey('  Wormsegment1000@Gmail.COM ')).toBe(
+      profileKey('wormsegment1000@gmail.com'),
+    );
   });
 
   /** The reason a bare slug could not be the key: `emailSlug` collapses every non-alphanumeric
@@ -87,7 +89,9 @@ describe('profile keying', () => {
   });
 
   it('stays readable, so the profile root can be inspected by a human', () => {
-    expect(profileKey('wormsegment1000@gmail.com')).toMatch(/^wormsegment1000-gmail-com-[0-9a-f]+$/);
+    expect(profileKey('wormsegment1000@gmail.com')).toMatch(
+      /^wormsegment1000-gmail-com-[0-9a-f]+$/,
+    );
   });
 
   it('has no key for an identity that is not one', () => {
@@ -212,6 +216,7 @@ describe('browser args', () => {
 });
 
 const CHROME = 'C:\\Users\\z\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe';
+const HOME = 'C:\\home';
 
 function harness(
   settings: BrowserSessionSettings,
@@ -223,7 +228,7 @@ function harness(
   const launched: { command: string; args: string[] }[] = [];
   const renamed: { from: string; to: string }[] = [];
   const session = new BrowserSession({
-    home: 'C:\\home',
+    home: HOME,
     platform: 'win32',
     env: WIN_ENV,
     settings: () => settings,
@@ -244,13 +249,14 @@ function harness(
 
 const EMAIL = 'a.b@c.com';
 const KEY = profileKey(EMAIL)!;
-const ROOT = 'C:\\home\\.coa\\browser-session';
-/** The jar sits inside the shared user-data-dir; the shim and url beside it (docs/adr/0024). */
-const PROFILE = `${ROOT}\\profiles\\${KEY}`;
-const SHIM = `${ROOT}\\${KEY}.cmd`;
-const COURIER = `${ROOT}\\${KEY}.url`;
+/** The jar sits inside the shared user-data-dir; the shim and url beside it (docs/adr/0024).
+ *  Built with the same path helpers the session uses, so the expected strings carry the
+ *  separator of whatever host runs the suite, exactly as the session's own paths do. */
+const PROFILE = browserProfileDir(HOME, KEY);
+const SHIM = launcherPath(HOME, KEY, 'win32');
+const COURIER = courierPath(HOME, KEY);
 /** A directory from the layout before the shared root — reclaim's business, not the launcher's. */
-const LEGACY_DIR = 'C:\\home\\.coa\\browser-profiles\\9f2c1ab30d44';
+const LEGACY_DIR = join(HOME, '.coa', 'browser-profiles', '9f2c1ab30d44');
 
 describe('BrowserSession', () => {
   it('writes a courier launcher for a capable provider when the setting is on', () => {
@@ -339,7 +345,7 @@ describe('BrowserSession', () => {
 
   it('degrades instead of throwing when the launcher cannot be written', () => {
     const session = new BrowserSession({
-      home: 'C:\\home',
+      home: HOME,
       platform: 'win32',
       env: WIN_ENV,
       settings: () => ({ enabled: true }),
@@ -398,7 +404,7 @@ describe('BrowserSession.openUrl', () => {
   /** What the CLI hands `BROWSER`: same handshake, localhost callback, so it completes
    *  itself and no code is ever shown. */
   const RELAYED = 'https://claude.com/cai/oauth/authorize?code=true&redirect_uri=localhost&state=2';
-  const argsFor = (url: string): string[] => browserArgs(`${ROOT}\\profiles`, KEY, url);
+  const argsFor = (url: string): string[] => browserArgs(browserUserDataDir(HOME), KEY, url);
 
   it('prefers the relayed url, so the sign-in completes without a pasted code', async () => {
     const files = new Map([[COURIER, `"\\"${RELAYED}\\""`]]);
@@ -446,7 +452,7 @@ describe('BrowserSession.openUrl', () => {
 
   it('swallows a launch failure instead of throwing into the login flow', async () => {
     const session = new BrowserSession({
-      home: 'C:\\home',
+      home: HOME,
       platform: 'win32',
       env: WIN_ENV,
       settings: () => ({ enabled: true }),
@@ -461,7 +467,7 @@ describe('BrowserSession.openUrl', () => {
 
   it('swallows a read failure and still opens the printed url', async () => {
     const session = new BrowserSession({
-      home: 'C:\\home',
+      home: HOME,
       platform: 'win32',
       env: WIN_ENV,
       settings: () => ({ enabled: true }),

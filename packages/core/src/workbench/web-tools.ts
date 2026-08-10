@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ToolResponse } from '@coa/shared';
 import { wrap } from './base-tools.js';
-import { spec, type ToolSpec, type GovernedToolDeps } from './governed-tools.js';
+import { spec, type ToolSpec } from './tool-spec.js';
 import type { ToolManifestEntry } from './catalogue.js';
 import type { ProviderOutcome, ChainResult } from './web/routing.js';
 
@@ -140,7 +140,7 @@ export const WEB_TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
  * Each spec dispatches into the injected {@link WebToolDeps} (asserted present by
  * `buildGovernedTools` when `includeWebTools` is set).
  */
-export function webToolSpecs(): Record<string, ToolSpec> {
+export function webToolSpecs(): Record<string, ToolSpec<{ web?: WebToolDeps }>> {
   const w = (deps: { web?: WebToolDeps }): WebToolDeps => {
     if (deps.web === undefined) throw new Error('web tools require GovernedToolDeps.web');
     return deps.web;
@@ -152,9 +152,9 @@ export function webToolSpecs(): Record<string, ToolSpec> {
         allowed_domains: z.array(z.string()).optional(),
         blocked_domains: z.array(z.string()).optional(),
       },
-      (a, d: GovernedToolDeps) => webSearch(a, { searchChain: w(d).searchChain }),
+      (a, d) => webSearch(a, { searchChain: w(d).searchChain }),
     ),
-    WebFetch: spec({ url: z.string(), prompt: z.string() }, (a, d: GovernedToolDeps) => {
+    WebFetch: spec({ url: z.string(), prompt: z.string() }, (a, d) => {
       const wd = w(d);
       return webFetch(a, {
         fetchChain: wd.fetchChain,

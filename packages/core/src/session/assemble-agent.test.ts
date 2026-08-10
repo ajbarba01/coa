@@ -27,7 +27,7 @@ function mini(...packages: AgentPackage[]): Map<string, AgentPackage> {
 describe('assembleAgent — inclusion', () => {
   it('includes default packages (core scaffold) for an empty role', () => {
     const { frame, pieces } = assembleAgent({ roles: [emptyRole] }, registry, CTX);
-    expect(frame.allow).toContain('get_symbol'); // core toolRefs
+    expect(frame.allow).toContain('spawn_agent'); // core toolRefs
     expect(frame.allow).toContain('Read');
     expect(pieces.some((p) => p.name === 'baseline-identity')).toBe(true); // core pieces
   });
@@ -43,7 +43,7 @@ describe('assembleAgent — inclusion', () => {
     expect(frame.allow).toEqual(
       expect.arrayContaining(['edit_symbol', 'apply_patch', 'context_status']),
     );
-    expect(frame.allow).toContain('get_symbol'); // still gets core
+    expect(frame.allow).toContain('spawn_agent'); // still gets core
     expect(frame.allow.length).toBe(new Set(frame.allow).size); // deduped
   });
 
@@ -240,7 +240,7 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
 
   it('a known role restricts the frame to its packages’ tools', () => {
     const { frame, pieces } = assemble({ role: 'swe', scope: 'src', worktree: '/w' });
-    expect(frame.allow).toEqual(expect.arrayContaining(['edit_symbol', 'Bash', 'get_symbol']));
+    expect(frame.allow).toEqual(expect.arrayContaining(['edit_symbol', 'Bash', 'spawn_agent']));
     expect(pieces.some((p) => p.name === 'pkg-coding')).toBe(true);
     expect(pieces.some((p) => p.name === 'baseline-environment')).toBe(true);
   });
@@ -277,7 +277,7 @@ describe('createRegistryAssemblePieces (the live assemblePieces)', () => {
       exclude: ['core'],
     });
     expect(frame.allow).toContain('WebSearch'); // the added research package
-    expect(frame.allow).not.toContain('get_symbol'); // core excluded ⇒ its tools gone
+    expect(frame.allow).not.toContain('spawn_agent'); // core excluded ⇒ its tools gone
   });
 
   it('assembles multiple roles passed via ctx.roles', () => {

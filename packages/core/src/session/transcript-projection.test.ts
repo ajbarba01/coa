@@ -3,7 +3,6 @@ import type { TurnFrame } from '@coa/shared';
 import {
   foldEventsToTranscript,
   foldTreeToTranscript,
-  repairUnpairedToolCalls,
   type PersistedEvent,
 } from './transcript-projection.js';
 

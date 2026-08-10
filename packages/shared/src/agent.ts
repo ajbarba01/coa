@@ -83,14 +83,35 @@ export type PackageSummary = z.infer<typeof packageSummarySchema>;
  */
 
 export const AGENT_ICON_NAMES = [
-  'bot', 'hammer', 'wrench', 'flask', 'shield', 'book', 'bug', 'search',
-  'pen', 'branch', 'terminal', 'database', 'layers', 'eye', 'compass', 'sparkles',
+  'bot',
+  'hammer',
+  'wrench',
+  'flask',
+  'shield',
+  'book',
+  'bug',
+  'search',
+  'pen',
+  'branch',
+  'terminal',
+  'database',
+  'layers',
+  'eye',
+  'compass',
+  'sparkles',
 ] as const;
 export const agentIconSchema = z.enum(AGENT_ICON_NAMES).catch('bot');
 export type AgentIcon = z.infer<typeof agentIconSchema>;
 
 export const AGENT_COLOR_NAMES = [
-  'slate', 'sky', 'blue', 'teal', 'green', 'mauve', 'violet', 'coral',
+  'slate',
+  'sky',
+  'blue',
+  'teal',
+  'green',
+  'mauve',
+  'violet',
+  'coral',
 ] as const;
 export const agentColorSchema = z.enum(AGENT_COLOR_NAMES).catch('slate');
 export type AgentColor = z.infer<typeof agentColorSchema>;

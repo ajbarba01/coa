@@ -24,7 +24,7 @@ export type OpenPathFn = (path: string, line?: number) => void;
 export type OpenUrlFn = (url: string) => void;
 
 export type { TranscriptFrame, TranscriptRole } from './frames.js';
-import type { TranscriptFrame, TranscriptRole } from './frames.js';
+import type { TranscriptFrame } from './frames.js';
 
 /** The approval-decision callback the composer's docked gate uses (SC-1 — surfacing only;
  *  the daemon owns the real decision). Lives here as the shared type for `ChatVm`; the
@@ -1019,7 +1019,6 @@ export function Transcript({
     if (scrollKey !== undefined) scrollMemory.set(scrollKey, { top: 0, pinned: true });
     sentinel.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
     // scrollKey is identity, not a trigger — only a jumpNonce bump re-pins.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpNonce, active]);
 
   const onScroll = (): void => {

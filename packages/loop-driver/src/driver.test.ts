@@ -159,7 +159,6 @@ describe('runGovernedLoop', () => {
 
   it('emits text-delta and thinking-delta frames as the generator yields, then the settled frames', async () => {
     const frames: TurnFrame[] = [];
-    // eslint-disable-next-line @typescript-eslint/require-await
     async function* streamingComplete(): AsyncGenerator<CompletionDelta, CompletionResult> {
       yield { kind: 'reasoning', text: 'th' };
       yield { kind: 'reasoning', text: 'ink' };
@@ -196,7 +195,6 @@ describe('runGovernedLoop', () => {
   it('on interrupt mid-stream, streams the partial as deltas and settles NOTHING (M8 owns the closure)', async () => {
     const controller = new AbortController();
     const frames: TurnFrame[] = [];
-    // eslint-disable-next-line @typescript-eslint/require-await
     async function* streamThenAbort(): AsyncGenerator<CompletionDelta, CompletionResult> {
       yield { kind: 'text', text: 'Par' };
       yield { kind: 'text', text: 'tial' };

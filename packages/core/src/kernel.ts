@@ -2,7 +2,6 @@ import { ulid } from 'ulid';
 import type {
   ChangeEvent,
   EdgeType,
-  GovernancePayload,
   GraphEdge,
   Piece,
   PieceRef,
@@ -37,16 +36,11 @@ import { matchGlob } from './scope/glob.js';
 import type { EdgeProvenance, ScopeRef, ScopeResolution } from '@coa/shared';
 import { ProjectionDb } from './projection.js';
 import { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
-import { SignalBus, type SignalEvent } from './signal-bus.js';
-import { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
-
-const PROJECTOR_VERSION = 1;
+import { Timeline, type Checkpoint } from './checkpoint.js';
 
 export interface ChangeKernelOptions {
   walPath: string;
   worktree?: string;
-  root?: string;
-  projectionPath?: string;
 }
 
 /**
@@ -66,13 +60,11 @@ export class ChangeKernel {
   readonly graph = new TypedGraph();
   private readonly wal: Wal;
   private readonly worktree: string;
-  private readonly root: string;
   private readonly symbols = new SymbolTable();
   private readonly fuzzy = new FuzzyIndex();
   private readonly pieces = new PieceStore();
   private readonly projection: ProjectionDb;
   private readonly idle = new IdleScheduler();
-  private readonly signals = new SignalBus();
   private readonly timeline = new Timeline();
   private readonly frames: ChangeEvent[] = [];
   private readonly consumers: ((event: ChangeEvent) => void)[] = [];
@@ -88,9 +80,8 @@ export class ChangeKernel {
 
   constructor(options: ChangeKernelOptions) {
     this.worktree = options.worktree ?? 'main';
-    this.root = options.root ?? process.cwd();
     this.wal = new Wal(options.walPath);
-    this.projection = new ProjectionDb(options.projectionPath ?? ':memory:', PROJECTOR_VERSION);
+    this.projection = new ProjectionDb();
     for (const extractor of STARTER_EXTRACTORS) this.extractors.register(extractor);
 
     for (const frame of this.wal.read().frames) {
@@ -157,18 +148,6 @@ export class ChangeKernel {
       cause: null,
       kind: 'declare-symbols',
       payload: { symbols, from },
-    });
-  }
-
-  appendGovernance(payload: GovernancePayload): number {
-    return this.emit({
-      worktree: this.worktree,
-      actor: 'session',
-      op_id: ulid(),
-      provenance: 'declared',
-      cause: null,
-      kind: 'governance',
-      payload,
     });
   }
 
@@ -300,7 +279,7 @@ export class ChangeKernel {
     return resolvePiece(ref, { store: this.pieces, graph: this.graph });
   }
 
-  // --- idle / signals / timeline ----------------------------------------------
+  // --- idle / timeline ------------------------------------------------------------
 
   scheduleIdle(job: () => void, options: IdleOptions): IdleHandle {
     return this.idle.scheduleIdle(job, options);
@@ -310,34 +289,12 @@ export class ChangeKernel {
     this.idle.flush();
   }
 
-  signalsView(predicate?: (event: SignalEvent) => boolean): SignalEvent[] {
-    return this.signals.query(predicate);
-  }
-
   checkpoint(): Checkpoint {
     return this.timeline.checkpoint(this.nextSeq, this.worktree);
   }
 
   listTimeline(): Checkpoint[] {
     return this.timeline.listTimeline();
-  }
-
-  pin(id: string): void {
-    this.timeline.pin(id);
-  }
-
-  unpin(id: string): void {
-    this.timeline.unpin(id);
-  }
-
-  /** Scoped rewind: a git pathspec re-materialization (working tree only — D97). */
-  rewind(scope: { source: string; pathspecs: string[] }): void {
-    rewindPathspec(this.root, scope.source, scope.pathspecs);
-  }
-
-  /** The retention floor (compaction safety, D94). */
-  retentionFloor(consumerCursors: number[]): number {
-    return this.timeline.retentionFloor(consumerCursors);
   }
 
   /** The replayed/live frame log (test + introspection read). */
@@ -364,8 +321,6 @@ export class ChangeKernel {
         this.symbols.indexFile(frame.payload.from, frame.payload.symbols);
         this.fuzzyDirty = true;
         break;
-      case 'governance':
-        break;
       default:
         this.graph.setNode(frame.path, 'file');
         this.projection.applyEvent(frame);
@@ -374,7 +329,6 @@ export class ChangeKernel {
         this.materialVersion++;
         break;
     }
-    this.signals.record(signalOf(frame));
   }
 
   private rebuildFuzzy(): void {
@@ -426,16 +380,4 @@ function edgeOf(frame: {
 }): GraphEdge {
   const { from, to, type, why } = frame.payload;
   return { from, to, type, provenance: frame.provenance, ...(why !== undefined ? { why } : {}) };
-}
-
-function signalOf(frame: ChangeEvent): SignalEvent {
-  return {
-    name: 'coa.change',
-    ts: frame.ts,
-    attributes: {
-      'coa.kind': frame.kind,
-      'coa.seq': frame.seq,
-      ...('path' in frame ? { 'coa.path': frame.path } : {}),
-    },
-  };
 }

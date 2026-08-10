@@ -26,7 +26,6 @@ describe('runCli — client read commands over a live daemon', () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'coa-cli-'));
     const handle = createDaemonCore({ walPath: join(dir, 'log.ndjson'), root: dir });
-    handle.governance.decisionLog.append('pay.ts', 'use decimal');
     path = testPath();
     server = await listen(path, buildDaemonConsoleHandlers(handle));
   });
@@ -48,20 +47,9 @@ describe('runCli — client read commands over a live daemon', () => {
     expect(JSON.parse(out)).toMatchObject({ capHit: false });
   });
 
-  it('why prints the decisions governing a target', async () => {
-    const { out } = await run(['why', 'pay.ts']);
-    expect(JSON.parse(out)).toMatchObject([{ target: 'pay.ts', entry: 'use decimal' }]);
-  });
-
   it('flags prints the user feed', async () => {
     const { out } = await run(['flags']);
     expect(JSON.parse(out)).toEqual({ expanded: [], collapsed: [] });
-  });
-
-  it('decision prints null for an unknown id (exit 0)', async () => {
-    const { code, out } = await run(['decision', '999']);
-    expect(code).toBe(0);
-    expect(out).toBe('null');
   });
 
   it('an unknown command exits non-zero with an error', async () => {
@@ -135,7 +123,12 @@ describe('listEffectiveModels', () => {
   it('a failed live fetch degrades to the catalog tier, never empty', async () => {
     const store = new ModelCatalogStore(home);
     const cache = { list: vi.fn().mockRejectedValue(new Error('down')) } as unknown as ModelCache;
-    const out = await listEffectiveModels(store, cache, [{ label: 'a', provider: 'claude' }], () => {});
+    const out = await listEffectiveModels(
+      store,
+      cache,
+      [{ label: 'a', provider: 'claude' }],
+      () => {},
+    );
     expect(out.length).toBeGreaterThan(0);
   });
 

@@ -557,15 +557,15 @@ describe('ChatSurface states-first', () => {
     expect(screen.getByText('daemon down')).toBeTruthy();
   });
 
-  it('empty state teaches the register: agent, model/effort/permission, and the key hints', () => {
+  it('empty state teaches the register: agent, model/effort, and the key hints', () => {
     render(<ChatSurface state={readyState([])} />);
     // "{agent} is ready" — the reviewer session's agent.
     expect(screen.getByText(/is ready/i)).toBeTruthy();
     expect(
       screen.getByText((_, el) => el?.tagName === 'B' && el.textContent === 'reviewer'),
     ).toBeTruthy();
-    // model · effort · permission line.
-    expect(screen.getByText(/sonnet.*ask edits/)).toBeTruthy();
+    // model · effort line.
+    expect(screen.getByText(/sonnet · /)).toBeTruthy();
     // send / newline / commands hints.
     expect(screen.getByText('send')).toBeTruthy();
     expect(screen.getByText('newline')).toBeTruthy();

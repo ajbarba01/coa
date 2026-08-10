@@ -79,7 +79,10 @@ function SurfaceHost({
     case 'agents':
       return <AgentsSurface state={state} />;
     case 'showcase':
-      return <ShowcaseSurface />;
+      // Dev-gated here as well as in the nav registry: a persisted layout restores the
+      // raw surface id, so a production build must fall to the floor even when an old
+      // layout still carries `showcase`.
+      return import.meta.env.DEV ? <ShowcaseSurface /> : <EmptySurface name={surface} />;
     default:
       return <EmptySurface name={surface} />;
   }
@@ -291,7 +294,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
   };
 
   const onTabDragStart =
-    (id: string, visualIndex: number): React.DragEventHandler =>
+    (id: string): React.DragEventHandler =>
     (e) => {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id);
@@ -357,7 +360,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
                   ref={on ? activeRef : undefined}
                   type="button"
                   draggable
-                  onDragStart={onTabDragStart(tid, visualIndex)}
+                  onDragStart={onTabDragStart(tid)}
                   onDragOver={onTabDragOver(visualIndex)}
                   onDragEnd={onDragEnd}
                   onClick={() => select(tid)}

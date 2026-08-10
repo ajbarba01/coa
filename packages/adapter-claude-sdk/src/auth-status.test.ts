@@ -2,16 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { parseAuthStatus, probeAuthStatus } from './auth-status.js';
 
 const LIVE = JSON.stringify({
-  loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty',
-  email: 'alex@barba.org', orgId: 'b9d…', orgName: "alex@barba.org's Organization",
+  loggedIn: true,
+  authMethod: 'claude.ai',
+  apiProvider: 'firstParty',
+  email: 'alex@barba.org',
+  orgId: 'b9d…',
+  orgName: "alex@barba.org's Organization",
   subscriptionType: 'pro',
 });
 
 describe('parseAuthStatus', () => {
   it('parses the live shape, stripping fields coa does not consume', () => {
     expect(parseAuthStatus(LIVE)).toEqual({
-      loggedIn: true, email: 'alex@barba.org',
-      orgName: "alex@barba.org's Organization", subscriptionType: 'pro',
+      loggedIn: true,
+      email: 'alex@barba.org',
+      orgName: "alex@barba.org's Organization",
+      subscriptionType: 'pro',
     });
   });
 
@@ -30,7 +36,8 @@ describe('probeAuthStatus', () => {
     const run = vi.fn().mockResolvedValue(LIVE);
     const status = await probeAuthStatus('/managed/dir', run);
     expect(run).toHaveBeenCalledWith(
-      'claude', ['auth', 'status', '--json'],
+      'claude',
+      ['auth', 'status', '--json'],
       expect.objectContaining({ CLAUDE_CONFIG_DIR: '/managed/dir' }),
     );
     expect(status?.loggedIn).toBe(true);

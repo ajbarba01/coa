@@ -58,7 +58,10 @@ const ALL_BACKENDS = '*';
  *  intact — "V4 Pro", "LongCat-2.0", "GPT" are all fixed points. Presentation only: the id
  *  is what travels, and this never touches it. */
 function titleCase(label: string): string {
-  return label.replace(/(^|\s)(\S)/g, (_, lead: string, first: string) => lead + first.toUpperCase());
+  return label.replace(
+    /(^|\s)(\S)/g,
+    (_, lead: string, first: string) => lead + first.toUpperCase(),
+  );
 }
 
 /**
@@ -246,17 +249,13 @@ export function ModelPicker({
         triggerLabel={triggerLabel}
         {...(currentModel !== undefined
           ? {
-              triggerLeading: (
-                <BrandMark spec={providerMark(providerOf(currentModel))} size={14} />
-              ),
+              triggerLeading: <BrandMark spec={providerMark(providerOf(currentModel))} size={14} />,
             }
           : {})}
         // The chip sits in a right-packed control row, so its LEFT edge moves whenever its
         // own label changes width — the popup hangs from the edge that holds still.
         align={variant === 'chip' ? 'end' : 'start'}
-        {...(variant === 'chip'
-          ? { tooltip: { label: 'Model', side: 'top' as const } }
-          : {})}
+        {...(variant === 'chip' ? { tooltip: { label: 'Model', side: 'top' as const } } : {})}
         onChange={(id) => {
           // The empty-list "Backend default" row is a statement, not a value — picking it
           // must not write an empty model id onto the caller.

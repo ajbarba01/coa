@@ -9,34 +9,34 @@ describe('TOOL_CATALOGUE', () => {
 });
 
 describe('kernelTools', () => {
-  it('returns the always-loaded common edit/retrieve verbs', () => {
+  it('returns the always-loaded common edit verbs', () => {
     const names = kernelTools().map((t) => t.name);
     expect(names).toContain('edit_symbol');
-    expect(names).toContain('get_symbol');
+    expect(names).toContain('apply_patch');
   });
 
   it('excludes the on-demand verbs from the always-loaded set', () => {
     const names = kernelTools().map((t) => t.name);
-    expect(names).not.toContain('get_decision');
-    expect(names).not.toContain('why');
+    expect(names).not.toContain('get_spec');
+    expect(names).not.toContain('run_checks');
   });
 });
 
 describe('findTools', () => {
   it('discovers an on-demand tool by a query over name and description', () => {
-    const names = findTools('decision').map((t) => t.name);
-    expect(names).toContain('get_decision');
+    const names = findTools('spec').map((t) => t.name);
+    expect(names).toContain('get_spec');
   });
 
   it('does not surface always-loaded kernel tools (they are already present)', () => {
     const names = findTools('symbol').map((t) => t.name);
-    expect(names).not.toContain('get_symbol');
+    expect(names).not.toContain('edit_symbol');
   });
 });
 
 describe('loadTool', () => {
   it('pulls an on-demand tool entry by name', () => {
-    expect(loadTool('why')?.partition).toBe('on-demand');
+    expect(loadTool('run_checks')?.partition).toBe('on-demand');
   });
 
   it('returns undefined for an unknown tool', () => {

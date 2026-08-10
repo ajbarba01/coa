@@ -154,7 +154,11 @@ export function spawnLogin(opts: {
   void (async () => {
     try {
       const pty = await import('node-pty');
-      const child = pty.spawn(claudeCommand(), LOGIN_ARGS(opts.email), { env: env as Record<string, string>, cols: 120, rows: 30 });
+      const child = pty.spawn(claudeCommand(), LOGIN_ARGS(opts.email), {
+        env: env as Record<string, string>,
+        cols: 120,
+        rows: 30,
+      });
       proc.ptyCaptured = true;
       proc.write = (d) => child.write(d);
       proc.kill = () => child.kill();

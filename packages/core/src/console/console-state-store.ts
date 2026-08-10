@@ -8,23 +8,36 @@ export function consoleStatePath(home: string): string {
   return join(home, '.coa', 'console.yaml');
 }
 
-const EMPTY: ConsoleState = { version: 1, addedProviders: [], disabledProviders: [], isolatedBrowserLogins: false };
+const EMPTY: ConsoleState = {
+  version: 1,
+  addedProviders: [],
+  disabledProviders: [],
+  isolatedBrowserLogins: false,
+};
 
 export class ConsoleStateStore {
   readonly #home: string;
-  constructor(home: string) { this.#home = home; }
+  constructor(home: string) {
+    this.#home = home;
+  }
 
   read(): ConsoleState {
     let raw: unknown;
-    try { raw = parse(readFileSync(consoleStatePath(this.#home), 'utf8')); }
-    catch { return structuredClone(EMPTY); }
+    try {
+      raw = parse(readFileSync(consoleStatePath(this.#home), 'utf8'));
+    } catch {
+      return structuredClone(EMPTY);
+    }
     const parsed = consoleStateSchema.safeParse(raw);
     return parsed.success ? parsed.data : structuredClone(EMPTY);
   }
 
   addProvider(id: string): void {
     const s = this.read();
-    if (!s.addedProviders.includes(id)) { s.addedProviders.push(id); this.#write(s); }
+    if (!s.addedProviders.includes(id)) {
+      s.addedProviders.push(id);
+      this.#write(s);
+    }
   }
 
   removeProvider(id: string): void {

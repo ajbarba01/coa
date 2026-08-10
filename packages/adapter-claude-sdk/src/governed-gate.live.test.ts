@@ -216,8 +216,7 @@ describe.skipIf(!live)('the gate that ADR-0029 rests on, live', () => {
     const adapter = new ClaudeSdkAdapter({
       sessionId: 'live-gate-deny',
       sandbox: barebonesSandbox(),
-      input:
-        'Read the file secret.txt in the current directory and reply with its exact contents.',
+      input: 'Read the file secret.txt in the current directory and reply with its exact contents.',
       locator: resolveLiveLocator(),
       maxBudgetUsd: 0.25,
       onTurn: (frame) => frames.push(frame),

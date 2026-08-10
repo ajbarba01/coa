@@ -3,11 +3,11 @@ import {
   diffSpecSchema,
   symbolRefSchema,
   type CoaError,
-  type SymbolRef,
   type ToolCall,
   type ToolResponse,
 } from '@coa/shared';
 import type { RegisteredTool } from '@coa/spi';
+import { spec, type ToolSpec } from './tool-spec.js';
 import { BASE_TOOL_CATALOGUE, baseToolSpecs, type BaseToolDeps } from './base-tools.js';
 import { renderToolResult, toolResultOk } from './render-result.js';
 import { WEB_TOOL_CATALOGUE, webToolSpecs, type WebToolDeps } from './web-tools.js';
@@ -15,21 +15,18 @@ import { TOOL_CATALOGUE } from './catalogue.js';
 import { enrich, type EnrichDeps } from './enrich.js';
 import { findReferences, getPiece, getSymbol, outline, type RetrieveDeps } from './retrieve.js';
 import { applyPatch, editSymbol, type WorkbenchDeps } from './mutate.js';
-import {
-  contextStatus,
-  getDecision,
-  getSpec,
-  runChecks,
-  why,
-  type InspectDeps,
-} from './inspect.js';
+import { contextStatus, getSpec, runChecks, type InspectDeps } from './inspect.js';
 import { sanitizeEchoedText, spawnAgent, type SpawnDeps } from './spawn.js';
+
+// The dispatch primitives moved to their own leaf module; re-exported so
+// existing importers of this module keep working unchanged.
+export { spec, type ToolSpec } from './tool-spec.js';
 
 /**
  * M6 — the governed tool-dispatch boundary. This is the seam M9 registers into
  * the rented loop: it turns M6's pure handlers into the {@link RegisteredTool}
  * port shape by wiring each to its live M1/M3/M4/M7 read/write ports and
- * decorating every return with `enrich` (grounding + gated flags). The dispatch
+ * decorating every return with `enrich` (gated flags). The dispatch
  * is where the two cross-cutting invariants land — inputs are Zod-validated
  * before a handler touches shared state (D141(c)), and every return is enriched
  * (F6) — so the backend adapter (M9) only has to wrap each as an SDK MCP tool.
@@ -47,7 +44,7 @@ export interface GovernedToolDeps {
   mutate: WorkbenchDeps;
   /** M6 Inspect ports (M3/M4/M7 reads). */
   inspect: InspectDeps;
-  /** The cross-cutting return enrichment (M4.ground + M3.flagsForAgent). */
+  /** The cross-cutting return enrichment (gated agent-audience flags). */
   enrich: EnrichDeps;
   /** The pure-API base-tool ports; present only when built with includeBaseTools. */
   base?: BaseToolDeps;
@@ -57,38 +54,8 @@ export interface GovernedToolDeps {
   spawn?: SpawnDeps;
 }
 
-/**
- * One tool's input schema + its dispatch into the M6 handler, typed against the shape.
- * Dispatch may be sync (the retrieve/mutate/inspect handlers) or async (the egress web
- * tools) — `invokeSpec` awaits either uniformly before `enrich` sees the response.
- */
-export interface ToolSpec {
-  shape: z.ZodRawShape;
-  dispatch: (
-    args: unknown,
-    deps: GovernedToolDeps,
-  ) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>;
-  refOf?: (args: unknown) => SymbolRef | undefined;
-}
-
-/** Bind a tool spec, preserving the parsed-args type from the Zod shape. */
-export function spec<S extends z.ZodRawShape>(
-  shape: S,
-  dispatch: (
-    args: z.infer<z.ZodObject<S>>,
-    deps: GovernedToolDeps,
-  ) => ToolResponse<unknown> | Promise<ToolResponse<unknown>>,
-  refOf?: (args: z.infer<z.ZodObject<S>>) => SymbolRef | undefined,
-): ToolSpec {
-  return {
-    shape,
-    dispatch: (args, deps) => dispatch(args as z.infer<z.ZodObject<S>>, deps),
-    ...(refOf ? { refOf: (args: unknown) => refOf(args as z.infer<z.ZodObject<S>>) } : {}),
-  };
-}
-
 /** The buildable v1 catalogue's dispatch table, keyed by the manifest tool name. */
-const SPECS: Record<string, ToolSpec> = {
+const SPECS: Record<string, ToolSpec<GovernedToolDeps>> = {
   get_symbol: spec(
     { ref: symbolRefSchema },
     (a, d) => getSymbol(a.ref, d.retrieve),
@@ -109,33 +76,28 @@ const SPECS: Record<string, ToolSpec> = {
     runChecks(a.scope !== undefined ? { scope: a.scope } : {}, d.inspect),
   ),
   context_status: spec({}, (_a, d) => contextStatus(d.inspect)),
-  why: spec({ target: z.string() }, (a, d) => why(a, d.inspect)),
   get_spec: spec({ ref: z.string() }, (a, d) => getSpec(a, d.inspect)),
-  get_decision: spec({ id: z.number() }, (a, d) => getDecision(a, d.inspect)),
-  spawn_agent: spec(
-    { agent: z.string(), description: z.string(), prompt: z.string() },
-    (a, d) => {
-      if (d.spawn !== undefined) return spawnAgent(a, d.spawn);
-      // `a.agent` is model-chosen text with no format guarantee on this branch
-      // either (the port is absent, so nothing has resolved it against the
-      // registry yet) — sanitize before it rides `pointer` back to the model.
-      const safeRef = sanitizeEchoedText(a.agent);
-      return {
-        result: {
-          applied: false,
-          error: { code: 'unavailable', message: 'subagent dispatch is not wired here' },
-        },
-        handle: 'spawn_agent:unavailable',
-        pointer: safeRef,
-      };
-    },
-  ),
+  spawn_agent: spec({ agent: z.string(), description: z.string(), prompt: z.string() }, (a, d) => {
+    if (d.spawn !== undefined) return spawnAgent(a, d.spawn);
+    // `a.agent` is model-chosen text with no format guarantee on this branch
+    // either (the port is absent, so nothing has resolved it against the
+    // registry yet) — sanitize before it rides `pointer` back to the model.
+    const safeRef = sanitizeEchoedText(a.agent);
+    return {
+      result: {
+        applied: false,
+        error: { code: 'unavailable', message: 'subagent dispatch is not wired here' },
+      },
+      handle: 'spawn_agent:unavailable',
+      pointer: safeRef,
+    };
+  }),
 };
 
 /** Validate, dispatch, and enrich one tool call (SC-1: never throws, never denies). */
 async function invokeSpec(
   name: string,
-  toolSpec: ToolSpec,
+  toolSpec: ToolSpec<GovernedToolDeps>,
   raw: unknown,
   deps: GovernedToolDeps,
 ): Promise<ToolResponse<unknown>> {

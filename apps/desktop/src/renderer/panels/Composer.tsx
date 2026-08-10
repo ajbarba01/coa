@@ -1,4 +1,4 @@
-import { Button, Icon, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
+import { Button, Icon, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import { useEffect, useRef, useState } from 'react';
 import type { ModelDescriptor } from '@coa/console-viewmodel';
 import { useShell } from '../shell/store.js';
@@ -81,9 +81,7 @@ export interface ComposerProps {
  *  / deny / or type to redirect) · no-session (everything rests). Queued
  *  messages pin above the shell, removable, released FIFO.
  *
- *  Permission mode is a presentational placeholder only (local state) — a
- *  future M3 permission gate owns real enforcement (SC-1: surfacing only).
- *  The mic is a permanently-disabled coming-soon affordance. */
+ *  The mic and attach buttons are permanently-disabled coming-soon affordances. */
 export function Composer({
   running,
   disabled = false,
@@ -108,8 +106,6 @@ export function Composer({
   onNoticeAction,
 }: ComposerProps): React.JSX.Element {
   const [text, setText] = useState('');
-  const [perm, setPerm] = useState<string>('ask edits');
-  const [attachments, setAttachments] = useState<string[]>([]);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   // Multi-line growth: the field grows with its content to ~6 lines, then
@@ -134,7 +130,6 @@ export function Composer({
     const t = text.trim();
     if (t === '') return undefined;
     setText('');
-    setAttachments([]);
     return t;
   };
 
@@ -269,26 +264,6 @@ export function Composer({
             </div>
           </div>
         )}
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
-            {attachments.map((a) => (
-              <span
-                key={a}
-                className="slip-enter flex items-center gap-1.5 rounded-r1 border border-s5 bg-s4 px-1.5 py-0.5 font-mono text-meta text-s9"
-              >
-                {a}
-                <button
-                  type="button"
-                  aria-label={`remove ${a}`}
-                  onClick={() => setAttachments((list) => list.filter((x) => x !== a))}
-                  className="slip cursor-pointer text-s7 hover:text-s10"
-                >
-                  <Icon name="close" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
         <textarea
           ref={areaRef}
           rows={1}
@@ -332,13 +307,9 @@ export function Composer({
         />
         {/* the control shelf: same rect, its own hairline */}
         <div className="flex items-center gap-1 border-t border-s4 px-2 py-1.5">
-          <AttachButton
-            disabled={disabled}
-            onAttach={(name) => setAttachments((a) => (a.includes(name) ? a : [...a, name]))}
-          />
+          <AttachButton disabled={disabled} />
           <MicButton disabled={disabled} />
           <div className="flex-1" />
-          <PermissionChip value={perm} onPick={setPerm} disabled={disabled} />
           {/* The two axes of a turn, side by side and each its own control: WHICH model,
               then how hard it thinks. Burying the second inside the first's popup made the
               more frequent of the two the harder to reach. */}
@@ -403,73 +374,30 @@ export function Composer({
 }
 
 /* ------------------------------------------------------------------ */
-/* chips (search-field skin; disabled states included)                  */
+/* shelf controls (search-field skin; disabled states included)         */
 /* ------------------------------------------------------------------ */
 
-// The glyph is an autonomy meter — the circle fills as the agent's leash lengthens.
-// Presentational only (SC-1): a future M3 permission gate owns real enforcement.
-// `id` is the VALUE and travels; `label` is what a person reads. Keeping them
-// separate is what lets copy change without moving the mode a session is in.
-const PERMISSIONS = [
-  { id: 'read only', label: 'Read only', glyph: '○', desc: 'Nothing is written' },
-  { id: 'ask edits', label: 'Ask edits', glyph: '◔', desc: 'Writes are held for approval' },
-  {
-    id: 'auto edits',
-    label: 'Auto edits',
-    glyph: '◑',
-    desc: 'Writes land; commands still need approval',
-  },
-  { id: 'full auto', label: 'Full auto', glyph: '●', desc: 'Only the cost cap can block' },
-] as const;
-
-function AttachButton({
-  onAttach,
-  disabled = false,
-}: {
-  onAttach: (name: string) => void;
-  disabled?: boolean;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-
+/** File attachment — a coming-soon affordance: it renders permanently disabled
+ *  with no handler, so the shelf's final shape is already in place for whenever
+ *  real attachments land. Mirrors the mic (tooltip on a wrapper, see below). */
+function AttachButton({ disabled = false }: { disabled?: boolean }): React.JSX.Element {
   return (
-    <PopoverCard
-      open={open}
-      onOpenChange={(o) => {
-        if (!disabled) setOpen(o);
-      }}
-      side="top"
-      align="start"
-      className="w-48"
-      tooltip={{ label: 'Attach a file', side: 'top' }}
-      trigger={
+    <Tooltip label="Attach a file (unavailable)" side="top">
+      <span className="flex">
         <button
           type="button"
-          aria-label="Attach"
-          disabled={disabled}
+          aria-label="Attach a file"
+          disabled
+          aria-disabled="true"
           className={cx(
-            'flex h-7 w-7 items-center justify-center rounded-r2 border',
-            disabled
-              ? 'cursor-default border-s4 bg-s3 text-s6'
-              : cx(
-                  'slip slip-press cursor-pointer text-s10 active:scale-[0.95]',
-                  open ? 'border-s6 bg-s5 text-s12' : 'border-s5 bg-s4 hover:bg-s5 hover:text-s12',
-                ),
+            'flex h-7 w-7 cursor-default items-center justify-center rounded-r2 border border-s4 bg-s3 text-s6',
+            disabled && 'opacity-70',
           )}
         >
           <Icon name="attach" />
         </button>
-      }
-    >
-      <MenuItem
-        onClick={() => {
-          onAttach('screenshot.png');
-          setOpen(false);
-        }}
-      >
-        <span className="w-4 text-center font-mono text-code text-s8">⇪</span>
-        Upload File…
-      </MenuItem>
-    </PopoverCard>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -498,109 +426,5 @@ function MicButton({ disabled = false }: { disabled?: boolean }): React.JSX.Elem
         </button>
       </span>
     </Tooltip>
-  );
-}
-
-/** A composer chip that grows a floating card above itself. */
-function ChipMenu({
-  chip,
-  label,
-  hint,
-  open,
-  setOpen,
-  disabled = false,
-  children,
-}: {
-  chip: string;
-  /** The control's accessible name — the chip's own text is a VALUE, not a name. */
-  label: string;
-  /** What the control does, on hover. The kit's tooltip, never a native `title`: that one
-   *  is drawn by the OS outside the page, so no CSS can give it the console's skin. */
-  hint: string;
-  open: boolean;
-  setOpen: (o: boolean) => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <PopoverCard
-      open={open}
-      onOpenChange={(o) => {
-        if (!disabled) setOpen(o);
-      }}
-      tooltip={{ label: hint, side: 'top' }}
-      trigger={
-        <button
-          type="button"
-          aria-label={label}
-          disabled={disabled}
-          className={cx(
-            'rounded-r2 px-2 py-1 font-mono text-meta',
-            disabled
-              ? 'cursor-default text-s6'
-              : cx(
-                  'slip cursor-pointer',
-                  open ? 'bg-s4 text-s11' : 'text-s9 hover:bg-s4 hover:text-s11',
-                ),
-          )}
-        >
-          {chip}
-        </button>
-      }
-    >
-      {children}
-    </PopoverCard>
-  );
-}
-
-function PermissionChip({
-  value,
-  onPick,
-  disabled = false,
-}: {
-  value: string;
-  onPick: (v: string) => void;
-  disabled?: boolean;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  const current = PERMISSIONS.find((p) => p.id === value);
-  return (
-    <ChipMenu
-      chip={`${current?.glyph ?? ''} ${current?.label ?? value}`}
-      label="Permission mode"
-      hint="Permission mode"
-      open={open}
-      setOpen={setOpen}
-      disabled={disabled}
-    >
-      <div className="w-60">
-        {PERMISSIONS.map((p) => (
-          <MenuItem
-            key={p.id}
-            selected={p.id === value}
-            className="items-start"
-            onClick={() => {
-              onPick(p.id);
-              setOpen(false);
-            }}
-          >
-            <span
-              className={cx(
-                'w-4 pt-px text-center font-mono text-[12px]',
-                p.id === value ? 'text-s11' : 'text-s8',
-              )}
-            >
-              {p.glyph}
-            </span>
-            <span className="flex flex-col gap-px">
-              <span className={cx('text-[12px]', p.id === value ? 'text-s12' : 'text-s10')}>
-                {p.label}
-              </span>
-              <span className="text-meta text-s7">{p.desc}</span>
-            </span>
-          </MenuItem>
-        ))}
-      </div>
-    </ChipMenu>
   );
 }

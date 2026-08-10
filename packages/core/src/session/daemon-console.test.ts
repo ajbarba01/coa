@@ -17,23 +17,6 @@ describe('buildDaemonConsoleHandlers — inspector reads served over the live da
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('serves a seeded decision back through getDecision and why', async () => {
-    const id = handle.governance.decisionLog.append('pay.ts', 'use decimal money');
-    const handlers = buildDaemonConsoleHandlers(handle);
-
-    const byId = await dispatch(
-      { jsonrpc: '2.0', id: 1, method: 'getDecision', params: { id } },
-      handlers,
-    );
-    const byTarget = await dispatch(
-      { jsonrpc: '2.0', id: 2, method: 'why', params: { target: 'pay.ts' } },
-      handlers,
-    );
-
-    expect(byId).toMatchObject({ result: { id, target: 'pay.ts', entry: 'use decimal money' } });
-    expect(byTarget).toMatchObject({ result: [{ target: 'pay.ts', entry: 'use decimal money' }] });
-  });
-
   it('serves the live cost-cap state', async () => {
     const res = await dispatch(
       { jsonrpc: '2.0', id: 1, method: 'capState' },

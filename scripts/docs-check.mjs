@@ -8,13 +8,16 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY_POINTS = ['AGENTS.md', 'README.md']; // roots of the reachability graph
 // Dir prefixes and exact files excluded from the indexed set (the `rel === ig` check handles exact files):
-// DEV-NOTES.md is the maintainer's personal scratch notes, kept out of the indexed set.
+// DEV-NOTES.md is the maintainer's personal scratch notes; CLAUDE.local.md is the
+// gitignored per-machine instructions file — both live outside the indexed set.
 const IGNORE = [
   'docs/superpowers',
   'docs/design/research',
   'docs/archive',
+  'archive',
   'node_modules',
   'DEV-NOTES.md',
+  'CLAUDE.local.md',
 ];
 const LINK_RE = /\[[^\]]*\]\(([^)]+)\)/g;
 

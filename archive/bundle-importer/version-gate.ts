@@ -1,3 +1,4 @@
+// Archived from packages/core/src/compiler/version-gate.ts
 import type { BundleManifest } from '@coa/shared';
 
 /**

@@ -82,7 +82,10 @@ describe('WebConfigStore', () => {
 
   it('setCredentialDisabled benches a key-file credential by its label id', () => {
     const store = new WebConfigStore(home);
-    store.addCredential('search', 'firecrawl', { type: 'key-file', path: webKeyFilePath(home, 'fc1') });
+    store.addCredential('search', 'firecrawl', {
+      type: 'key-file',
+      path: webKeyFilePath(home, 'fc1'),
+    });
     store.setCredentialDisabled('search', 'fc1', true);
     expect(store.read().search?.providers[0]?.credentials[0]?.disabled).toBe(true);
   });

@@ -32,6 +32,8 @@ describe('modelsFileSchema', () => {
   });
 
   it('rejects a budget without a positive integer token count', () => {
-    expect(modelEntrySchema.safeParse({ id: 'x', reasoning: { kind: 'budget', tokens: 0 } }).success).toBe(false);
+    expect(
+      modelEntrySchema.safeParse({ id: 'x', reasoning: { kind: 'budget', tokens: 0 } }).success,
+    ).toBe(false);
   });
 });

@@ -50,7 +50,10 @@ const noParams = z.unknown().optional();
 
 // --- the driven-login verbs: params ------------------------------------------------
 const IDLE = { phase: 'idle' } as const;
-const startLoginParams = z.object({ email: z.string().min(3), credentialId: z.string().optional() });
+const startLoginParams = z.object({
+  email: z.string().min(3),
+  credentialId: z.string().optional(),
+});
 const codeParams = z.object({ code: z.string().min(1) });
 const mismatchParams = z.object({ action: z.enum(['keep', 'retry']) });
 const failureParams = z.object({ credentialId: z.string().min(1) });
@@ -270,7 +273,10 @@ function accountsView(registry: AccountsRegistry): {
 
 /** The `buildAuthHandlers` deps — the four-store shape `assembleAuthView` reads, plus the
  * optional driven-login manager (absent ⇒ every login verb degrades to idle/plain view, SC-1). */
-export type AuthHandlerDeps = AuthViewDeps & { loginManager?: LoginManager; browser?: BrowserSessionView };
+export type AuthHandlerDeps = AuthViewDeps & {
+  loginManager?: LoginManager;
+  browser?: BrowserSessionView;
+};
 
 export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
   const registry = deps.accounts;
@@ -384,7 +390,9 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       const { providerId, label } = splitId(p.id);
       const group = providerGroup(providerId);
       if (group === 'backend') {
-        const account = deps.accounts.listByProvider(providerId as Provider).find((a) => a.label === label);
+        const account = deps.accounts
+          .listByProvider(providerId as Provider)
+          .find((a) => a.label === label);
         if (account !== undefined && account.locator.type === 'key-file') {
           mkdirSync(dirname(account.locator.path), { recursive: true });
           writeFileSync(account.locator.path, p.secret, { mode: 0o600 });
@@ -454,7 +462,8 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       if (group === 'backend') {
         deps.console.setProviderDisabled(p.providerId, !p.on);
       } else if (group === 'service') {
-        for (const chain of chainOf(p.providerId)) deps.web.setProviderDisabled(chain, p.providerId, !p.on);
+        for (const chain of chainOf(p.providerId))
+          deps.web.setProviderDisabled(chain, p.providerId, !p.on);
       }
       return assembleAuthView(viewDeps);
     }),
@@ -473,7 +482,8 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
         }
         // no account at this label — graceful no-op (SC-1: help, never crash)
       } else if (group === 'service') {
-        for (const chain of chainOf(providerId)) deps.web.setCredentialDisabled(chain, label, p.disabled);
+        for (const chain of chainOf(providerId))
+          deps.web.setCredentialDisabled(chain, label, p.disabled);
       }
       return assembleAuthView(viewDeps);
     }),
@@ -518,8 +528,9 @@ export function buildAuthHandlers(deps: AuthHandlerDeps): RpcHandlers {
       deps.loginManager?.cancelLogin();
       return IDLE;
     }),
-    resolveLoginMismatch: rpcMethod(mismatchParams, (p) =>
-      deps.loginManager?.resolveMismatch(p.action) ?? IDLE,
+    resolveLoginMismatch: rpcMethod(
+      mismatchParams,
+      (p) => deps.loginManager?.resolveMismatch(p.action) ?? IDLE,
     ),
     probeHealth: rpcMethod(noParams, async () => {
       await deps.loginManager?.probeAll();

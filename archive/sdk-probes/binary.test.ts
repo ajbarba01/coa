@@ -1,3 +1,4 @@
+// Archived from packages/adapter-claude-sdk/src/control/binary.test.ts.
 import { createHash } from 'node:crypto';
 import {
   createReadStream,

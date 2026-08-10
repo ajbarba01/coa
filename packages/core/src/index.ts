@@ -2,8 +2,8 @@
  * @coa/core (M1) — the Change Kernel: the narrow waist and only shared mutable
  * substrate. Producers and consumers point only here. This is the floor (WAL +
  * typed graph + symbol/fuzzy/piece index + reconciler + projections +
- * checkpoint/rewind + signal bus); the GRF-* graph hardening and SCO-* scope
- * tier are a follow-up batch.
+ * checkpoint/rewind); the GRF-* graph hardening and SCO-* scope tier are a
+ * follow-up batch.
  */
 
 export { ChangeKernel, type ChangeKernelOptions } from './kernel.js';
@@ -71,7 +71,6 @@ export {
   type FeedbackRecord,
   type FeedbackResolution,
 } from './flags/feedback.js';
-export { ReminderPolicy, type AuthorityRule } from './flags/reminder.js';
 export {
   groupSelection,
   contextKeyOf,
@@ -81,18 +80,9 @@ export {
   type ValidatorVerdict,
   type ValidatorRun,
 } from './flags/validator.js';
-export { AutoPatcher, type AutoPatchPlan } from './flags/autopatch.js';
 export { Governance, type GovernanceOptions } from './governance/governance.js';
 export { CostCap, type CapState, type CostCapOptions } from './governance/cost-cap.js';
 export { Ledger, redactLedgerEvent, type LedgerRecord } from './governance/ledger.js';
-export {
-  GovernanceLog,
-  type GovernanceSpine,
-  type DecisionEntry,
-  type VouchEntry,
-  type SubtractiveEntry,
-  type Principal,
-} from './governance/governance-log.js';
 export {
   sandboxPolicy,
   DENY_READ_GLOBS,
@@ -100,14 +90,7 @@ export {
   type SessionTrustCtx,
   type SandboxOptions,
 } from './governance/sandbox.js';
-export {
-  selfModGuard,
-  type SelfModVerdict,
-  type Promotion,
-  type EvalResult,
-} from './governance/selfmod.js';
 export { compile } from './compiler/compile.js';
-export { importBundle } from './compiler/import-bundle.js';
 export { dispatch, rpcMethod, type RpcMethod, type RpcHandlers } from './rpc/router.js';
 export {
   buildAgentRegistryHandlers,
@@ -128,13 +111,6 @@ export {
 export { listen, defaultDaemonPath, type RpcServer } from './rpc/transport.js';
 export { connectClient, type RpcClient } from './rpc/client.js';
 export { bindDaemon, probeDaemon } from './rpc/lifecycle.js';
-export {
-  versionGate,
-  type SemverBump,
-  type VersionGateDeps,
-  type VersionGateResult,
-} from './compiler/version-gate.js';
-export { ground, type SymbolOracle } from './context/grounding.js';
 export {
   governanceFor,
   type GovernanceCoverage,
@@ -203,13 +179,9 @@ export {
 export {
   runChecks,
   contextStatus,
-  why,
-  getDecision,
   getSpec,
   type InspectDeps,
   type ContextStatusResult,
-  type WhyResult,
-  type GetDecisionResult,
   type GetSpecResult,
 } from './workbench/inspect.js';
 export {
@@ -289,10 +261,8 @@ export {
   type DaemonCoreOptions,
   type DaemonCoreHandle,
 } from './session/daemon.js';
-export { ProjectionDb, type FileState } from './projection.js';
 export { IdleScheduler, type IdleHandle, type IdleOptions } from './idle.js';
-export { SignalBus, type SignalEvent } from './signal-bus.js';
-export { Timeline, rewindPathspec, type Checkpoint } from './checkpoint.js';
+export { type Checkpoint } from './checkpoint.js';
 export { AccountsRegistry, accountsPath, type ActiveAccount } from './auth/registry.js';
 export {
   LoginManager,
@@ -313,7 +283,11 @@ export { buildAuthHandlers } from './rpc/auth-handlers.js';
 export { ModelCatalogStore, modelsPath } from './models/model-catalog-store.js';
 export { defaultCatalog, catalogDescriptor } from './models/default-catalog.js';
 export { effectiveModels } from './models/effective-models.js';
-export { buildModelHandlers, MODEL_PROVIDERS, type ModelCatalogView } from './rpc/model-handlers.js';
+export {
+  buildModelHandlers,
+  MODEL_PROVIDERS,
+  type ModelCatalogView,
+} from './rpc/model-handlers.js';
 export { type WebConfig } from './workbench/web/web-config.js';
 export {
   WebConfigStore,

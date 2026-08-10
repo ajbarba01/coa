@@ -173,7 +173,6 @@ export type MethodName =
   | 'newSession'
   | 'listSessions'
   | 'reloadConversation'
-  | 'renameSession'
   | 'deleteSession'
   | 'recompilePrompt'
   | 'interruptSession'
@@ -228,28 +227,39 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     params: z.object({ providerId: z.string(), label: z.string(), secret: z.string() }),
     result: AuthViewSchema,
   },
-  replaceSecret: { params: z.object({ id: z.string(), secret: z.string() }), result: AuthViewSchema },
-  renameCredential: { params: z.object({ id: z.string(), label: z.string() }), result: AuthViewSchema },
+  replaceSecret: {
+    params: z.object({ id: z.string(), secret: z.string() }),
+    result: AuthViewSchema,
+  },
+  renameCredential: {
+    params: z.object({ id: z.string(), label: z.string() }),
+    result: AuthViewSchema,
+  },
   removeCredential: {
     params: z.object({ id: z.string(), removeProfile: z.boolean().optional() }),
     result: AuthViewSchema,
   },
-  setProviderEnabled: { params: z.object({ providerId: z.string(), on: z.boolean() }), result: AuthViewSchema },
-  setCredentialDisabled: { params: z.object({ id: z.string(), disabled: z.boolean() }), result: AuthViewSchema },
+  setProviderEnabled: {
+    params: z.object({ providerId: z.string(), on: z.boolean() }),
+    result: AuthViewSchema,
+  },
+  setCredentialDisabled: {
+    params: z.object({ id: z.string(), disabled: z.boolean() }),
+    result: AuthViewSchema,
+  },
   makeActive: { params: z.object({ id: z.string() }), result: AuthViewSchema },
   clearCooldown: { params: z.object({ id: z.string() }), result: AuthViewSchema },
   setIsolatedBrowserLogins: { params: z.object({ on: z.boolean() }), result: AuthViewSchema },
   setBrowserPath: { params: z.object({ path: z.string() }), result: AuthViewSchema },
-  reclaimBrowserProfiles: { params: z.object({ names: z.array(z.string()) }), result: AuthViewSchema },
+  reclaimBrowserProfiles: {
+    params: z.object({ names: z.array(z.string()) }),
+    result: AuthViewSchema,
+  },
   refresh: { result: AuthViewSchema },
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
   reloadConversation: { params: z.object({ id: z.string() }), result: persistedTurnsSchema },
-  renameSession: {
-    params: z.object({ id: z.string(), title: z.string() }),
-    result: OkResultSchema,
-  },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   recompilePrompt: {
     params: z.object({ sessionId: z.string() }),
@@ -300,7 +310,10 @@ export const METHODS: Record<MethodName, MethodSpec> = {
     }),
     result: ModelCatalogViewSchema,
   },
-  removeModel: { params: z.object({ providerId: z.string(), id: z.string() }), result: ModelCatalogViewSchema },
+  removeModel: {
+    params: z.object({ providerId: z.string(), id: z.string() }),
+    result: ModelCatalogViewSchema,
+  },
   setModelHidden: {
     params: z.object({ providerId: z.string(), id: z.string(), hidden: z.boolean() }),
     result: ModelCatalogViewSchema,

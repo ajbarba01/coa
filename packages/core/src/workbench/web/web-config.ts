@@ -15,13 +15,7 @@ import { makeParallelSearch } from './parallel.js';
 import { makeFirecrawlFetch, makeFirecrawlSearch } from './firecrawl.js';
 import { makeTavilyFetch, makeTavilySearch } from './tavily.js';
 import { makePlainFetch } from './plain-fetch.js';
-import {
-  runChain,
-  nextLocalMidnight,
-  type ChainEntry,
-  type CooldownStore,
-  type ProviderOutcome,
-} from './routing.js';
+import { runChain, nextLocalMidnight, type ChainEntry, type CooldownStore } from './routing.js';
 import { KeyStateStore, locatorId } from './key-state-store.js';
 
 /**

@@ -26,6 +26,6 @@ export function markErrors(text: string): ReactNode {
     last = m.index + m[0].length;
     if (m[0].length === 0) MARKERS.lastIndex++; // guard against a zero-width match looping
   }
-  if (last < text.length) out.push(<Fragment key={key++}>{text.slice(last)}</Fragment>);
+  if (last < text.length) out.push(<Fragment key={key}>{text.slice(last)}</Fragment>);
   return out;
 }

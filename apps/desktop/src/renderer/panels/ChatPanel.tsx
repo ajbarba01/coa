@@ -434,9 +434,7 @@ export function selectChatVm(state: ConsoleState, nowIso = new Date().toISOStrin
 /** A fresh session: teach the register in three quiet lines — who is ready, on
  *  what, and how to speak. Sits above center so the composer's floor doesn't
  *  crowd it. Ported from the proto's `EmptyConversation` (apps/workbench-proto/
- *  src/chat/Transcript.tsx). Permission is a presentational placeholder (SC-1 —
- *  a future M3 permission gate owns real enforcement), matching the composer's
- *  own default. */
+ *  src/chat/Transcript.tsx). */
 function EmptyConversation({
   agent,
   model,
@@ -455,7 +453,7 @@ function EmptyConversation({
         <b className="font-[550] text-s10">{agent}</b> is ready
       </div>
       <div className="font-mono text-meta text-s6">
-        {model} · {effort} · ask edits
+        {model} · {effort}
       </div>
       <div className="mt-3 flex items-center gap-4 font-mono text-meta text-s6">
         <span>

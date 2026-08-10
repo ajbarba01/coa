@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   HOOK_EVENTS,
   type HookEvent,
@@ -13,6 +13,11 @@ import type { CapabilitySet } from '@coa/shared';
 import { captureSpawn } from './probe-kit.js';
 import { toSdkPermission, toStopHookOutput } from '../sdk-options.js';
 import { assembleSessionOptions } from '../session-options.js';
+
+// These probes spawn real child processes; under a fully loaded suite run the
+// default 5s can lapse before a child even boots. One file-wide ceiling, same
+// contract as the live suites' setConfig convention.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
  * Control-spike stages 3-4 — per-call interception and the turn boundary.

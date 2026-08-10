@@ -56,7 +56,7 @@ shippable apps.
 | M1 Change Kernel             | `packages/core` → the **spine** ring   | WAL, bus, in-mem graph, symbol table / fuzzy index / piece-resolver, projections. |
 | M2 Code Lens                 | `packages/code-intel`                  | Byte→structure; the parser runs as a **separate child process** (isolation seam).  |
 | M3 Constraint & Flag         | `packages/core` → a **consumer** + gate | Flags projection + the one close-gate service.                                     |
-| M4 Context Engine            | `packages/core` → **consumer/services** | Staleness consumer + generation/assembly/grounding/detection services.            |
+| M4 Context Engine            | `packages/core` → **consumer/services** | Staleness consumer + generation/assembly/detection services.                      |
 | M5 Config Compiler           | `packages/core/compiler/`              | `compile(pieces) -> NeutralConfig`; **promotable to a standalone `compiler` package if it grows.** |
 | M6 Workbench                 | `packages/core` → **producer** + `mcp/` | The precise Mutate producer + the outer-ring tool surface; `workbench/base-tools.ts` (Read/Glob/Grep/Write/Edit/Bash for non-`claude` providers) pulls in `@vscode/ripgrep` + `tinyglobby`; `workbench/render-result.ts` renders each tool's structured result to human-readable display text (+ a success predicate) for the pure-API loop, which has no SDK-provided result text; `workbench/web/` (credential-gated WebSearch/WebFetch) pulls in `turndown` and routes BOTH tools through cooldown-aware provider chains (`routing.ts` + `key-state-store.ts` → `~/.coa/web-keys.json`, shared `limits.ts` classifiers): fetch = `firecrawl.ts`/`tavily.ts` scrape+extract → `plain-fetch.ts` free floor; search = `tavily.ts`/`firecrawl.ts`/`parallel.ts`; the WebFetch summarizer is composed at the daemon root over `@coa/adapter-deepseek`. Keys are managed user-global via `workbench/web/web-config-store.ts` (`~/.coa/web.yaml` pointers + `~/.coa/keys/` secrets), driven by the `coa websearch`/`coa webfetch` CLI (`apps/cli/src/web-cli.ts`) and loaded into the daemon by `apps/cli/src/session-deps.ts`. |
 | M7 Governance & Audit        | `packages/core` → **consumers** + policy | Cost ledger, provenance, decision log, sandbox/process-isolation posture.          |
@@ -74,9 +74,9 @@ not by package splits.
 ```
 core/src/
   spine/         M1 — emit/subscribe, WAL writer, in-mem graph, symbol table, fuzzy index, piece-resolver,
-                      reconciler (producer ②), checkpoint/rewind, signal bus, idle scheduler
+                      reconciler (producer ②), checkpoint timeline, idle scheduler
   flags/         M3 — the one pipeline (registerProducer/ingest), dedup, the two audiences, the close-gate
-  context/       M4 — generation, assembly, grounding, detection/staleness services
+  context/       M4 — generation, assembly, detection/staleness services
   compiler/      M5 — compile(pieces) -> NeutralConfig (its own service boundary)
   workbench/     M6 — the Mutate producer + mcp/ tool surface
   governance/    M7 — cost ledger, provenance, decision log, policy
@@ -141,7 +141,7 @@ packages/<name>/
   Native addons are rebuilt deterministically for the **daemon's Node ABI**, never Electron's.
 - **Supply-chain hygiene** — commit `pnpm-lock.yaml`; verify integrity (lockfile + content hashes); default
   **`--ignore-scripts`** with an explicit native-addon allowlist for packages that legitimately need build scripts
-  (`better-sqlite3`, `@parcel/watcher`, the tree-sitter binding). Install-time `postinstall` runs _before_ any
+  (`better-sqlite3`, the tree-sitter binding). Install-time `postinstall` runs _before_ any
   sandbox, so this is the highest-leverage supply-chain control.
 - **CI gates** — `pnpm audit` / `osv-scanner` on the committed lockfile, plus the standard gates (typecheck, lint,
   format, tests, dependency-cruiser). See [WORKFLOW.md](WORKFLOW.md).

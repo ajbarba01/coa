@@ -410,7 +410,8 @@ function InlineEditName({
 
 /** The description's display/edit face — secondary prose, not the bold name face
  *  (`NAME_FACE`); same click-to-edit contract as `InlineEditName` otherwise. */
-const DESCRIPTION_FACE = 'w-full min-w-0 rounded-r2 border px-1.5 py-0.5 text-sec leading-5 text-s9';
+const DESCRIPTION_FACE =
+  'w-full min-w-0 rounded-r2 border px-1.5 py-0.5 text-sec leading-5 text-s9';
 
 /** What a parent agent reads to choose between agents (SPEC CON-1) — the one field
  *  this whole change exists to add a UI for. Click-to-edit like `InlineEditName`,
@@ -1090,7 +1091,11 @@ function AgentEditor({ vm }: { vm: Extract<AgentsVm, { status: 'ready' }> }): Re
             />
             <div className="flex items-center gap-2">
               <Pill>
-                {a.scope === 'builtin' ? 'Built-in' : a.scope === 'project' ? 'Project' : 'Personal'}
+                {a.scope === 'builtin'
+                  ? 'Built-in'
+                  : a.scope === 'project'
+                    ? 'Project'
+                    : 'Personal'}
               </Pill>
               <span className="font-mono text-meta text-s7">{a.ref}</span>
             </div>
@@ -1396,7 +1401,11 @@ function AgentDiagnosticsBanner({
   return (
     <div className="flex flex-col gap-1 border-b border-s3 px-5 py-2.5">
       {diagnostics.map((d) => (
-        <InlineMessage key={`${d.scope}/${d.ref}/${d.problem}`} tone="warning" className="text-code">
+        <InlineMessage
+          key={`${d.scope}/${d.ref}/${d.problem}`}
+          tone="warning"
+          className="text-code"
+        >
           <span className="font-mono">{d.ref}</span> ({d.scope}) — {diagnosticReason(d.problem)}:{' '}
           {d.detail}
         </InlineMessage>

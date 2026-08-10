@@ -108,7 +108,7 @@ arrow = a runtime injection wired by M8 · ⬡ = the one deny channel. Layout to
    producers feeding the waist ("Mutate (precise, M6)" and "Reconciler (git-centric, authoritative)"), then the
    double-line spine "one canonical change-event · WAL writer," then the commit-point outputs "append-log (WAL) ·
    in-mem graph · SQLite projections," then the consumer fan-out "graph · **symbol table · fuzzy index ·
-   piece-resolver** · flags · staleness · cost · provenance · checkpoint · signal-bus · idle-scheduler." Every
+   piece-resolver** · flags · staleness · cost · provenance · checkpoint · idle-scheduler." Every
    band-3 box and M7 draws a solid arrow *into* the waist (consume) or *up from* a producer (emit) — never sideways.
 5. **Left margin — M7 Governance & Audit** (cost cap ⬡ · ledger · visibility floor · sandbox + process-isolation
    posture · Decision log), a solid arrow into M1, dashed arrows to M8 (cap/sandbox at launch) and M3

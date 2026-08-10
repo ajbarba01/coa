@@ -361,9 +361,8 @@ export async function startConsole(
     applySettings(next);
     state = { ...state, ui: { ...state.ui, settings: next } };
     push();
-    // Persisting also recolors the native window chrome (main's saveSettings handler).
-    // Defer it until the renderer has painted the new theme (two frames), so the
-    // OS-drawn caption controls follow the window instead of flipping ahead of it.
+    // Defer the disk write until the renderer has painted the change (two frames) —
+    // persisting is bookkeeping, never on the interaction path.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         void bridge.saveSettings(next);

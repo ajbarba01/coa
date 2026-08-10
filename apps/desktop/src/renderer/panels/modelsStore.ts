@@ -80,7 +80,8 @@ export const useModels = create<ModelsState>((set) => {
     lists: {},
     catalog: {},
     hydrate: async () => apply(await rpcModelCatalog()),
-    addFromDefaults: async (providerId, ids) => applyAndNotify(await rpcAddModels({ providerId, ids })),
+    addFromDefaults: async (providerId, ids) =>
+      applyAndNotify(await rpcAddModels({ providerId, ids })),
     addCustom: async (providerId, entry) =>
       applyAndNotify(await rpcAddCustomModel({ providerId, ...entry })),
     editModel: async (providerId, id, patch) =>

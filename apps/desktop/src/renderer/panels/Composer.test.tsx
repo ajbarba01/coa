@@ -63,7 +63,9 @@ describe('Composer — resting', () => {
     // backend wearing one mark.
     const row = screen.getByRole('option', { name: /V4 Flash/ });
     expect(within(row).getByRole('img', { name: 'DeepSeek' })).toBeInTheDocument();
-    expect(within(screen.getByRole('listbox', { name: 'Model' })).getByText('DeepSeek')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('listbox', { name: 'Model' })).getByText('DeepSeek'),
+    ).toBeInTheDocument();
   });
 
   it('gives reasoning its own shelf control, off the model chip', async () => {
@@ -88,9 +90,9 @@ describe('Composer — resting', () => {
     expect(titled.map((el) => el.getAttribute('title'))).toEqual([]);
   });
 
-  it('names its three model-and-turn controls through the kit tooltip', async () => {
+  it('names its model-and-turn controls through the kit tooltip', async () => {
     render(<Composer {...baseProps()} />);
-    for (const name of ['Permission mode', 'Model', 'Reasoning']) {
+    for (const name of ['Model', 'Reasoning']) {
       await userEvent.hover(screen.getByRole(name === 'Model' ? 'combobox' : 'button', { name }));
       expect(await screen.findByRole('tooltip')).toBeInTheDocument();
       await userEvent.unhover(screen.getByRole(name === 'Model' ? 'combobox' : 'button', { name }));
@@ -193,6 +195,20 @@ describe('Composer — mic', () => {
   });
 });
 
+describe('Composer — attach', () => {
+  it('renders permanently disabled, and says on hover that it is unavailable', async () => {
+    render(<Composer {...baseProps()} />);
+    const attach = screen.getByRole('button', { name: /attach a file/i });
+    expect(attach).toBeDisabled();
+    expect(attach).toHaveAttribute('aria-disabled', 'true');
+    // Same contract as the mic: the control explains its own unavailability through
+    // the kit's tooltip, hovered via the wrapper because a disabled button dispatches
+    // no pointer events.
+    await userEvent.hover(attach.parentElement as HTMLElement);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/unavailable/i);
+  });
+});
+
 describe('Composer — model picker', () => {
   it('fires onPickModel when a model is picked', () => {
     const onPickModel = vi.fn();
@@ -230,18 +246,6 @@ describe('Composer — queued', () => {
     expect(screen.getByText('next up')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /remove queued message/i }));
     expect(onRemoveQueued).toHaveBeenCalledWith('q1');
-  });
-
-  /** The attachment chip's removal control is icon-ONLY too, and it is the one migrated
-   *  site the shell never shows without an attachment already staged — so it earns a test
-   *  that walks the real path in rather than trusting its twin above. */
-  it('draws the attachment removal mark rather than typing one', () => {
-    render(<Composer {...baseProps()} />);
-    fireEvent.click(screen.getByRole('button', { name: /^attach$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
-    const remove = screen.getByRole('button', { name: 'remove screenshot.png' });
-    expect(remove.querySelector('svg')).not.toBeNull();
-    expect(remove.textContent).toBe('');
   });
 
   /** Label-adjacency law (UI.md): the removal control is icon-ONLY, so its mark is drawn.

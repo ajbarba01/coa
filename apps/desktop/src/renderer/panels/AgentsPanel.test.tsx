@@ -822,9 +822,7 @@ describe('AgentsSurface — the description field', () => {
   it('edits in place, committing on Enter', async () => {
     const updateAgent = vi.fn();
     render(<AgentsSurface state={readyState({}, { updateAgent })} />);
-    await userEvent.click(
-      screen.getByRole('button', { name: /Edit agent description/ }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /Edit agent description/ }));
     const input = screen.getByRole('textbox', { name: 'Agent description' });
     await userEvent.clear(input);
     await userEvent.type(input, 'Finds and fixes flaky tests.{Enter}');
@@ -836,9 +834,7 @@ describe('AgentsSurface — the description field', () => {
   it('degrades an emptied draft by reverting instead of saving — the schema requires a non-empty description', async () => {
     const updateAgent = vi.fn();
     render(<AgentsSurface state={readyState({}, { updateAgent })} />);
-    await userEvent.click(
-      screen.getByRole('button', { name: /Edit agent description/ }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /Edit agent description/ }));
     const input = screen.getByRole('textbox', { name: 'Agent description' });
     await userEvent.clear(input);
     await userEvent.click(document.body);

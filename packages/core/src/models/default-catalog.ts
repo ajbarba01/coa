@@ -14,22 +14,51 @@ interface CatalogRow {
   id: string;
   label: string;
   /** Shipped caps — the assembler's lowest tier. Omitted ⇒ no reasoning control. */
-  caps?: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels' | 'supportsAdaptiveThinking' | 'supportsThinking'>;
+  caps?: Pick<
+    ModelDescriptor,
+    'supportsEffort' | 'supportedEffortLevels' | 'supportsAdaptiveThinking' | 'supportsThinking'
+  >;
 }
 
-const FULL_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = { supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] as ClaudeEffort[] };
+const FULL_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = {
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] as ClaudeEffort[],
+};
 
 /** The pre-xhigh range: xhigh arrived with opus 4.7, so 4.6-era models stop at max. */
-const PRE_XHIGH_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = { supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'max'] as ClaudeEffort[] };
+const PRE_XHIGH_EFFORT: Pick<ModelDescriptor, 'supportsEffort' | 'supportedEffortLevels'> = {
+  supportsEffort: true,
+  supportedEffortLevels: ['low', 'medium', 'high', 'max'] as ClaudeEffort[],
+};
 
 const CATALOG: Record<string, CatalogRow[]> = {
   claude: [
-    { id: 'claude-fable-5', label: 'Fable 5', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
-    { id: 'claude-opus-4-8', label: 'Opus 4.8', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
+    {
+      id: 'claude-fable-5',
+      label: 'Fable 5',
+      caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true },
+    },
+    {
+      id: 'claude-opus-4-8',
+      label: 'Opus 4.8',
+      caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true },
+    },
+    {
+      id: 'claude-sonnet-5',
+      label: 'Sonnet 5',
+      caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true },
+    },
     { id: 'claude-haiku-4-5', label: 'Haiku 4.5', caps: { supportsThinking: true } },
-    { id: 'claude-opus-4-7', label: 'Opus 4.7', caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true } },
-    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', caps: { ...PRE_XHIGH_EFFORT, supportsAdaptiveThinking: true } },
+    {
+      id: 'claude-opus-4-7',
+      label: 'Opus 4.7',
+      caps: { ...FULL_EFFORT, supportsAdaptiveThinking: true },
+    },
+    {
+      id: 'claude-sonnet-4-6',
+      label: 'Sonnet 4.6',
+      caps: { ...PRE_XHIGH_EFFORT, supportsAdaptiveThinking: true },
+    },
     { id: 'claude-opus-4-1', label: 'Opus 4.1', caps: { supportsThinking: true } },
     { id: 'claude-sonnet-4-0', label: 'Sonnet 4', caps: { supportsThinking: true } },
   ],
@@ -46,7 +75,11 @@ const CATALOG: Record<string, CatalogRow[]> = {
 
 /** The default entries a provider's list seeds from (fresh copies every call). */
 export function defaultCatalog(providerId: string): ModelEntry[] {
-  return (CATALOG[providerId] ?? []).map((row) => ({ id: row.id, label: row.label, origin: 'default' }));
+  return (CATALOG[providerId] ?? []).map((row) => ({
+    id: row.id,
+    label: row.label,
+    origin: 'default',
+  }));
 }
 
 /** The shipped-caps descriptor for a catalog id — the assembler's lowest tier. */

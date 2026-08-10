@@ -810,12 +810,10 @@ describe('startConsole (publishes ConsoleState through the injected sink)', () =
       });
     const saveAgent = vi
       .fn()
-      .mockImplementation(
-        (p: { ref: string; scope: 'personal' | 'project'; file: AgentFile }) => {
-          disk.set(p.ref, { scope: p.scope, file: p.file });
-          return Promise.resolve({ ok: true });
-        },
-      );
+      .mockImplementation((p: { ref: string; scope: 'personal' | 'project'; file: AgentFile }) => {
+        disk.set(p.ref, { scope: p.scope, file: p.file });
+        return Promise.resolve({ ok: true });
+      });
 
     // --- Bridge 1 (first launch): empty registry, create writes through to the daemon ---
     const bridge1 = fakeBridge({ listAgents: vi.fn().mockImplementation(readDisk), saveAgent });

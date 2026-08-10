@@ -1,3 +1,4 @@
+// Archived from packages/core/src/compiler/import-bundle.test.ts
 import { describe, expect, it } from 'vitest';
 import { importBundle } from './import-bundle.js';
 

@@ -127,7 +127,11 @@ function coolingSec(
  * web-config entry for it is benched (service bench — see console-state.ts's doc note:
  * backend bench lives on console.yaml, service bench lives on the web.yaml entry).
  */
-function isDisabledProvider(id: string, disabledProviders: readonly string[], web: WebConfig): boolean {
+function isDisabledProvider(
+  id: string,
+  disabledProviders: readonly string[],
+  web: WebConfig,
+): boolean {
   if (disabledProviders.includes(id)) return true;
   const entries = [...(web.search?.providers ?? []), ...(web.fetch?.providers ?? [])].filter(
     (p) => p.kind === id,
@@ -153,7 +157,9 @@ export function assembleAuthView(deps: AuthViewDeps, now = Date.now()): AuthView
       const live = deps.login?.identityOf(id);
       const identity =
         live?.email !== undefined
-          ? live.plan !== undefined ? `${live.email} · ${live.plan}` : live.email
+          ? live.plan !== undefined
+            ? `${live.email} · ${live.plan}`
+            : live.email
           : undefined;
       credentials.push({
         id,

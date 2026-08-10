@@ -101,7 +101,7 @@ describe('ClaudeSdkAdapter — runLoop preconditions', () => {
     const a = adapter({
       signal: controller.signal,
       query: ((arg: { options: { abortController?: AbortController } }) =>
-        gen(arg.options)) as unknown as typeof import('@anthropic-ai/claude-agent-sdk').query,
+        gen(arg.options)) as unknown as typeof SdkQuery,
     });
     a.renderNative(neutral());
     a.interceptTool(() => ({ behavior: 'allow' }));
@@ -234,7 +234,6 @@ describe('runLoop — the cost cap is a block, not a fault', () => {
     (() => ({
       async *[Symbol.asyncIterator]() {
         throw new Error(message);
-        // eslint-disable-next-line no-unreachable
         yield undefined as never;
       },
       interrupt: () => Promise.resolve(),

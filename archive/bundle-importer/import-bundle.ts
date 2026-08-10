@@ -1,3 +1,4 @@
+// Archived from packages/core/src/compiler/import-bundle.ts
 import { type Piece, pieceSchema } from '@coa/shared';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';

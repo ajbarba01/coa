@@ -55,7 +55,7 @@ describe('managedLoginDir', () => {
 describe('extractOauthUrl', () => {
   it('captures the printed authorize URL from CLI output', () => {
     const chunk =
-      'If the browser didn\'t open, visit:\r\n  https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&scope=user%3Ainference\r\n';
+      "If the browser didn't open, visit:\r\n  https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&scope=user%3Ainference\r\n";
     expect(extractOauthUrl(chunk)).toBe(
       'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&scope=user%3Ainference',
     );
@@ -107,9 +107,7 @@ describe('resolveClaudeCommand', () => {
 
   it('resolves the bare name on posix', () => {
     const exists = (p: string): boolean => p === '/usr/local/bin/claude';
-    expect(resolveClaudeCommand('linux', ['/usr/local/bin'], exists)).toBe(
-      '/usr/local/bin/claude',
-    );
+    expect(resolveClaudeCommand('linux', ['/usr/local/bin'], exists)).toBe('/usr/local/bin/claude');
   });
 
   /** Never throw and never block: an unresolvable binary degrades to the bare name so the

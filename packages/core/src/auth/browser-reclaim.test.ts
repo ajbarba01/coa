@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   browserProfileDir,
@@ -41,7 +42,7 @@ function harness(
       home: HOME,
       platform: 'win32',
       exists: (path) =>
-        dirs.some((dir) => !withoutMarker.has(dir) && path === `${UDD}\\${dir}\\Preferences`),
+        dirs.some((dir) => !withoutMarker.has(dir) && path === join(UDD, dir, 'Preferences')),
       listDirs: (path) => (path === UDD ? dirs : []),
       rename: (from, to) => {
         if (options.renameThrows === true) throw new Error('EBUSY');
@@ -103,7 +104,7 @@ describe('listReclaimable', () => {
     const trash = trashName(BOB_KEY, 1000);
     const { deps, removed } = harness([ALICE_KEY, trash]);
     expect(listReclaimable(deps, [ALICE])).toEqual([]);
-    expect(removed).toEqual([`${UDD}\\${trash}`]);
+    expect(removed).toEqual([join(UDD, trash)]);
   });
 
   it('survives trash that is still locked, leaving it for the next pass', () => {
@@ -128,7 +129,7 @@ describe('reclaimProfile', () => {
   it('moves the jar aside before deleting it', () => {
     const { deps, renamed, removed } = harness([BOB_KEY]);
     reclaimProfile(deps, BOB_KEY);
-    const trash = `${UDD}\\${trashName(BOB_KEY, 1000)}`;
+    const trash = join(UDD, trashName(BOB_KEY, 1000));
     expect(renamed).toEqual([{ from: browserProfileDir(HOME, BOB_KEY), to: trash }]);
     expect(removed[0]).toBe(trash);
   });
@@ -166,10 +167,7 @@ describe('reclaimProfile', () => {
       },
       BOB_KEY,
     );
-    expect(removed).toEqual([
-      launcherPath(HOME, BOB_KEY, 'win32'),
-      courierPath(HOME, BOB_KEY),
-    ]);
+    expect(removed).toEqual([launcherPath(HOME, BOB_KEY, 'win32'), courierPath(HOME, BOB_KEY)]);
   });
 
   it('refuses a key that could escape the profile root', () => {

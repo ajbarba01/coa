@@ -37,27 +37,8 @@ export const toolRequestSchema = z.discriminatedUnion('tool', [
   z.object({ tool: z.literal('apply_patch'), target: z.string(), diff: diffSpecSchema }),
   z.object({ tool: z.literal('run_checks'), scope: z.string().optional() }),
   z.object({ tool: z.literal('invoke_asset'), bundleRef: z.string() }),
-  z.object({ tool: z.literal('why'), target: z.string() }),
 ]);
 export type ToolRequest = z.infer<typeof toolRequestSchema>;
-
-/** The in-flight grounding block appended on a tool-boundary miss (L-GND). */
-export const groundingBlockSchema = z.object({
-  status: z.enum(['new', 'weak', 'stale']),
-  named: z.string(),
-  checkedAgainst: z.string(),
-  suggestions: z.array(
-    z.object({
-      symbol: z.string(),
-      signature: z.string().optional(),
-      definedIn: z.string(),
-      confidence: z.number(),
-      why: z.string(),
-    }),
-  ),
-  ifIntentional: z.string(),
-});
-export type GroundingBlock = z.infer<typeof groundingBlockSchema>;
 
 /**
  * The enriched tool return (generic over the result payload `R`). A plain type,
@@ -65,7 +46,6 @@ export type GroundingBlock = z.infer<typeof groundingBlockSchema>;
  */
 export type ToolResponse<R> = {
   result: R;
-  grounding?: GroundingBlock;
   flags?: InjectionBundle;
   handle: string;
   pointer: string;

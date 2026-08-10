@@ -1,3 +1,4 @@
+// Archived from packages/core/src/compiler/version-gate.test.ts
 import type { BundleManifest } from '@coa/shared';
 import { describe, expect, it } from 'vitest';
 import { versionGate, type VersionGateDeps } from './version-gate.js';

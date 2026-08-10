@@ -1,3 +1,4 @@
+// Archived from packages/core/src/governance/governance-log.ts
 import type { ChangeEvent, GovernancePayload } from '@coa/shared';
 
 /**

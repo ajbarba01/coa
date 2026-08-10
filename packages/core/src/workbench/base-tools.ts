@@ -6,7 +6,7 @@ import type { CoaError, ToolResponse } from '@coa/shared';
 import type { ChangeEventDraft } from '../event.js';
 import { confinePath, type ConfineResult } from './confine.js';
 import type { ToolManifestEntry } from './catalogue.js';
-import { spec, type ToolSpec } from './governed-tools.js';
+import { spec, type ToolSpec } from './tool-spec.js';
 
 /**
  * The pure-API base tools (Read/Glob/Grep/Write/Edit/Bash). These are the
@@ -201,7 +201,7 @@ export function numberLines(text: string, offset?: number, limit?: number): stri
   return numbered;
 }
 
-/** Build a distilled-handle tool return (grounding/flags are added by the enrich decorator). */
+/** Build a distilled-handle tool return (flags are added by the enrich decorator). */
 export function wrap<R>(result: R, handle: string, pointer: string): ToolResponse<R> {
   return { result, handle, pointer };
 }
@@ -376,7 +376,7 @@ export const BASE_TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
  * Each spec dispatches into the injected {@link BaseToolDeps} (asserted present by
  * `buildGovernedTools` when `includeBaseTools` is set).
  */
-export function baseToolSpecs(): Record<string, ToolSpec> {
+export function baseToolSpecs(): Record<string, ToolSpec<{ base?: BaseToolDeps }>> {
   const b = (deps: { base?: BaseToolDeps }): BaseToolDeps => {
     if (deps.base === undefined) throw new Error('base tools require GovernedToolDeps.base');
     return deps.base;

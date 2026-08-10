@@ -19,10 +19,10 @@ export interface ToolManifestEntry {
 
 /** The buildable v1 catalogue, partitioned by the D99 four-gate / D100 schema-budget test. */
 export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
-  // Kernel set — the common verbs worth their standing schema cost.
-  { name: 'get_symbol', partition: 'kernel', description: 'distilled symbol slice by name or ref' },
-  { name: 'outline', partition: 'kernel', description: 'structural outline of a file' },
-  { name: 'find_references', partition: 'kernel', description: 'reference sites of a symbol' },
+  // Kernel set — the common verbs worth their standing schema cost. The symbol-read
+  // verbs (get_symbol / outline / find_references) are implemented but deliberately
+  // unregistered: the symbol index they read has no producers yet, so they could only
+  // return empty results. They rejoin the catalogue when the symbol layer is fed.
   {
     name: 'edit_symbol',
     partition: 'kernel',
@@ -44,9 +44,7 @@ export const TOOL_CATALOGUE: readonly ToolManifestEntry[] = [
     partition: 'on-demand',
     description: 'assembled-context and cap state',
   },
-  { name: 'why', partition: 'on-demand', description: 'rationale for a constraint or decision' },
   { name: 'get_spec', partition: 'on-demand', description: 'governing spec for a symbol or scope' },
-  { name: 'get_decision', partition: 'on-demand', description: 'a numbered decision-log entry' },
 ];
 
 /** The always-loaded kernel set (D100) — the only schemas that cost standing context. */

@@ -16,8 +16,7 @@ import type { SessionAdapterInit } from './session.js';
 
 /** A real M3/M5/M6/M7 core (only M1.checkpoint stubbed — its FS construction is the daemon host's job). */
 function realCore(ceilingUsd?: number): DaemonCore & { governance: Governance } {
-  const spine = { appendGovernance: () => 0, subscribe: () => {} };
-  const governance = new Governance(spine, ceilingUsd !== undefined ? { ceilingUsd } : {});
+  const governance = new Governance(ceilingUsd !== undefined ? { ceilingUsd } : {});
   const flags = new FlagPipeline();
   return {
     governance,

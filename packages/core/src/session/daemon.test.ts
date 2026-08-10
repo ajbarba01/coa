@@ -121,8 +121,7 @@ describe('createDaemonCore', () => {
     // at all — the exact case producer ② exists for. Creates still worked, which is why
     // a "does not throw" test could not catch it.
     const repo = mkdtempSync(join(tmpdir(), 'coa-recon-'));
-    const git = (...args: string[]) =>
-      execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
     git('init', '-q');
     git('config', 'user.email', 'probe@example.com');
     git('config', 'user.name', 'probe');
@@ -213,13 +212,17 @@ describe('createDaemonCore', () => {
 
   it('catalogueFor/baseCatalogueFor degrade to the unavailable branch with no spawn wired (D85)', async () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
-    const claudeTool = handle
-      .core.catalogueFor!('sess-a', undefined)
-      .find((t) => t.name === 'spawn_agent');
-    const baseTool = handle
-      .core.baseCatalogueFor!('sess-a', undefined)
-      .find((t) => t.name === 'spawn_agent');
-    const claudeResult = await claudeTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
+    const claudeTool = handle.core.catalogueFor!('sess-a', undefined).find(
+      (t) => t.name === 'spawn_agent',
+    );
+    const baseTool = handle.core.baseCatalogueFor!('sess-a', undefined).find(
+      (t) => t.name === 'spawn_agent',
+    );
+    const claudeResult = await claudeTool!.invoke({
+      agent: 'explorer',
+      description: 'd',
+      prompt: 'p',
+    });
     const baseResult = await baseTool!.invoke({ agent: 'explorer', description: 'd', prompt: 'p' });
     expect(JSON.stringify(claudeResult)).toContain('unavailable');
     expect(JSON.stringify(baseResult)).toContain('unavailable');
@@ -366,13 +369,18 @@ describe('createDaemonCore', () => {
     expect(handle.flags.flagsForUser().expanded).toHaveLength(0);
   });
 
-  it('wires the catalogue to the real kernel: get_symbol resolves a declared symbol', async () => {
+  it('wires the catalogue to the real kernel: get_piece resolves a registered piece', async () => {
     handle = createDaemonCore({ walPath: join(dir, 'log.ndjson') });
-    const record = { name: 'parseConfig', definedIn: 'src/config.ts' };
-    handle.kernel.declareSymbols([record], 'src/config.ts');
-    const getSymbol = handle.core.catalogue.find((t) => t.name === 'get_symbol');
-    const res = await getSymbol!.invoke({ ref: { name: 'parseConfig' } });
-    expect(res.result).toEqual({ found: true, symbol: record });
+    const piece = {
+      name: 'style-guide',
+      description: 'd',
+      body: 'b',
+      axes: { delivery: 'pull', salience: 'never', provenance: 'authored' },
+    } as const;
+    handle.kernel.registerPiece(piece);
+    const getPiece = handle.core.catalogue.find((t) => t.name === 'get_piece');
+    const res = await getPiece!.invoke({ ref: 'style-guide' });
+    expect(res.result).toEqual({ found: true, piece });
   });
 
   it('offers WebSearch/WebFetch in baseCatalogue when a web config + resolvable key are present', () => {

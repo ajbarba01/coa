@@ -162,7 +162,9 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
       capabilityFrame: { allow: [], deny: [] },
     });
 
-    const rootText = collectText(allFrames.filter((e) => e.sessionId === rootId).map((e) => e.frame));
+    const rootText = collectText(
+      allFrames.filter((e) => e.sessionId === rootId).map((e) => e.frame),
+    );
     const diagnostic = () =>
       `seenTools=${JSON.stringify(seenTools)}; childStarted=${childStarted}; ` +
       `rootText=${JSON.stringify(rootText)}; costBySession=${JSON.stringify([...costBySession])}`;
@@ -170,9 +172,14 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
     // An unattempted spawn proves nothing about the rest of this test — fail loudly
     // rather than let a model that never called the tool read as a pass.
     if (!childStarted) {
-      throw new Error(`SPAWN NEVER ATTEMPTED — the model never called spawn_agent. ${diagnostic()}`);
+      throw new Error(
+        `SPAWN NEVER ATTEMPTED — the model never called spawn_agent. ${diagnostic()}`,
+      );
     }
-    expect(seenTools.some((t) => t.includes('spawn_agent')), diagnostic()).toBe(true);
+    expect(
+      seenTools.some((t) => t.includes('spawn_agent')),
+      diagnostic(),
+    ).toBe(true);
     // The non-blocking contract: the orchestrator's OWN turn settles without waiting for
     // the child (spawn_agent's handler above never awaits `child.runLoop`).
     expect(rootText.toUpperCase(), diagnostic()).toContain('DONE');
@@ -183,8 +190,14 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
     const id = childId as string;
 
     // --- "one projected transcript" ---------------------------------------------------
-    expect(allFrames.some((e) => e.sessionId === rootId), diagnostic()).toBe(true);
-    expect(allFrames.some((e) => e.sessionId === id), diagnostic()).toBe(true);
+    expect(
+      allFrames.some((e) => e.sessionId === rootId),
+      diagnostic(),
+    ).toBe(true);
+    expect(
+      allFrames.some((e) => e.sessionId === id),
+      diagnostic(),
+    ).toBe(true);
 
     // --- "cost from both lands under one root" (see the file header's scope note) -----
     // This is as far as this level can honestly check. Both numbers are real, non-zero,
@@ -244,7 +257,12 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
         child.interceptTool(() => ({ behavior: 'allow' }));
         child.interceptStop(neverStop);
         childLoopPromise = child
-          .runLoop({ role: 'child', scope: '.', worktree, capabilityFrame: { allow: [], deny: [] } })
+          .runLoop({
+            role: 'child',
+            scope: '.',
+            worktree,
+            capabilityFrame: { allow: [], deny: [] },
+          })
           .catch(() => undefined); // aborting is expected to reject; this test asserts TERMINATION, not the shape of the rejection
 
         return {
@@ -270,7 +288,12 @@ describe.skipIf(!live)('subagent orchestration, live (cross-provider)', () => {
     orchestrator.interceptStop(neverStop);
 
     const runLoopPromise = orchestrator
-      .runLoop({ role: 'orchestrator', scope: '.', worktree, capabilityFrame: { allow: [], deny: [] } })
+      .runLoop({
+        role: 'orchestrator',
+        scope: '.',
+        worktree,
+        capabilityFrame: { allow: [], deny: [] },
+      })
       .catch(() => undefined); // same reasoning as the child: this test asserts TERMINATION
 
     queue.push(

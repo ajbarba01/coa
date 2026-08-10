@@ -36,6 +36,17 @@ interface Captured {
   body?: Record<string, unknown>;
 }
 
+/** An async-iterable body of raw SSE event strings (what `Response.body` yields as bytes). */
+function sseBody(...events: string[]): AsyncIterable<Uint8Array> {
+  const enc = new TextEncoder();
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const e of events) yield enc.encode(e);
+    },
+  };
+}
+
+/** A fake transport that captures the request and streams a one-word reply plus usage as SSE. */
 function textFetch(captured: Captured): FetchLike {
   return async (_url, init) => {
     captured.body = init.body !== undefined ? JSON.parse(init.body) : undefined;
@@ -43,10 +54,13 @@ function textFetch(captured: Captured): FetchLike {
       ok: true,
       status: 200,
       text: async () => '',
-      json: async () => ({
-        choices: [{ message: { content: 'done' } }],
-        usage: { prompt_tokens: 3, completion_tokens: 2 },
-      }),
+      json: async () => ({}),
+      // The real wire carries `usage: null` on every chunk until the final usage frame.
+      body: sseBody(
+        'data: {"choices":[{"delta":{"content":"done"}}],"usage":null}\n\n',
+        'data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\n',
+        'data: [DONE]\n\n',
+      ),
     };
   };
 }

@@ -359,8 +359,7 @@ export class BrowserSession implements BrowserSessionView {
   async #relayedUrl(key: string): Promise<string | undefined> {
     const path = courierPath(this.#deps.home, key);
     const read = this.#deps.read ?? readIfPresent;
-    const delay =
-      this.#deps.delay ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    const delay = this.#deps.delay ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     for (let attempt = 0; attempt < COURIER_ATTEMPTS; attempt += 1) {
       try {
         const raw = read(path);

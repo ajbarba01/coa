@@ -119,7 +119,7 @@ describe('mergeAgentScopes', () => {
     expect(merged.agents[0]?.scope).toBe('project');
   });
 
-  it('carries every scope\'s diagnostics through', () => {
+  it("carries every scope's diagnostics through", () => {
     const merged = mergeAgentScopes([
       { agents: [], diagnostics: [] },
       {
@@ -149,12 +149,21 @@ describe('AgentRegistry', () => {
 
   it('lists the built-ins when nothing is on disk', () => {
     const { reg } = registry();
-    expect(reg.list().agents.map((a) => a.ref).sort()).toEqual(['explorer', 'general-purpose']);
+    expect(
+      reg
+        .list()
+        .agents.map((a) => a.ref)
+        .sort(),
+    ).toEqual(['explorer', 'general-purpose']);
   });
 
   it('round-trips a saved personal agent', () => {
     const { reg } = registry();
-    reg.save('reviewer', { name: 'Reviewer', description: 'reviews code', icon: 'eye', color: 'teal' }, 'personal');
+    reg.save(
+      'reviewer',
+      { name: 'Reviewer', description: 'reviews code', icon: 'eye', color: 'teal' },
+      'personal',
+    );
     const found = reg.list().agents.find((a) => a.ref === 'reviewer');
     expect(found?.description).toBe('reviews code');
     expect(found?.scope).toBe('personal');
@@ -162,7 +171,11 @@ describe('AgentRegistry', () => {
 
   it('lets a project agent override a built-in ref', () => {
     const { reg } = registry();
-    reg.save('explorer', { name: 'Our explorer', description: 'ours', icon: 'bot', color: 'slate' }, 'project');
+    reg.save(
+      'explorer',
+      { name: 'Our explorer', description: 'ours', icon: 'bot', color: 'slate' },
+      'project',
+    );
     const found = reg.list().agents.find((a) => a.ref === 'explorer');
     expect(found?.name).toBe('Our explorer');
     expect(found?.scope).toBe('project');
@@ -170,7 +183,11 @@ describe('AgentRegistry', () => {
 
   it('removes an agent and reports whether anything was removed', () => {
     const { reg } = registry();
-    reg.save('temp', { name: 'Temp', description: 'temporary', icon: 'bot', color: 'slate' }, 'project');
+    reg.save(
+      'temp',
+      { name: 'Temp', description: 'temporary', icon: 'bot', color: 'slate' },
+      'project',
+    );
     expect(reg.remove('temp', 'project')).toBe(true);
     expect(reg.remove('temp', 'project')).toBe(false);
     expect(reg.list().agents.some((a) => a.ref === 'temp')).toBe(false);
@@ -179,7 +196,11 @@ describe('AgentRegistry', () => {
   it('refuses a ref that would escape its scope directory', () => {
     const { reg } = registry();
     expect(() =>
-      reg.save('../escape', { name: 'X', description: 'x', icon: 'bot', color: 'slate' }, 'project'),
+      reg.save(
+        '../escape',
+        { name: 'X', description: 'x', icon: 'bot', color: 'slate' },
+        'project',
+      ),
     ).toThrow();
   });
 });

@@ -74,7 +74,6 @@ declare global {
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
       reloadConversation(params: { id: string }): Promise<PersistedTurnWire[]>;
-      renameSession(params: { id: string; title: string }): Promise<{ ok: boolean }>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;
       /** The Stop/Esc affordance — proxies the daemon's cooperative `interruptSession`.
@@ -102,7 +101,11 @@ declare global {
         reasoning?: ReasoningProfile;
       }): Promise<ModelCatalogView>;
       removeModel(params: { providerId: string; id: string }): Promise<ModelCatalogView>;
-      setModelHidden(params: { providerId: string; id: string; hidden: boolean }): Promise<ModelCatalogView>;
+      setModelHidden(params: {
+        providerId: string;
+        id: string;
+        hidden: boolean;
+      }): Promise<ModelCatalogView>;
       listRoles(): Promise<RoleSummary[]>;
       listPackages(): Promise<PackageSummary[]>;
       /** Reveal a touched file in the editor/OS at an optional line (a tool card's path

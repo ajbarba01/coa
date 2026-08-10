@@ -1,5 +1,5 @@
 // packages/console-ui/src/dense/toolRegistry.test.ts
-import { Braces, FileText, Gavel, Pencil, ShieldCheck, Terminal, Wrench } from 'lucide-react';
+import { Braces, FileText, Pencil, ShieldCheck, Terminal, Wrench } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import { describeTool, toolPath, toolTarget } from './toolRegistry.js';
 
@@ -57,16 +57,6 @@ describe('describeTool — coa governed tools', () => {
     expect(describeTool('run_checks', '{"scope":"src/auth.ts"}').icon).toBe(ShieldCheck);
     expect(describeTool('run_checks', '{"scope":"src/auth.ts"}').summary).toBe('src/auth.ts');
     expect(describeTool('run_checks', '{}').summary).toBe('all');
-  });
-
-  it('describes get_decision with its number', () => {
-    const d = describeTool('get_decision', '{"id":85}');
-    expect(d.icon).toBe(Gavel);
-    expect(d.summary).toBe('#85');
-  });
-
-  it('describes why with its target', () => {
-    expect(describeTool('why', '{"target":"D85"}').summary).toBe('D85');
   });
 });
 

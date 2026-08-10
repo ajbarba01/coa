@@ -30,13 +30,17 @@ import { ConsoleStateStore } from '../console/console-state-store.js';
 import { BrowserSession } from '../auth/browser-session.js';
 import type { RpcHandlers } from '../rpc/router.js';
 import type { DaemonCore } from './composition.js';
-import { managedLoginDir, probeAuthStatus, spawnLogin, extractOauthUrl } from '@coa/adapter-claude-sdk';
+import {
+  managedLoginDir,
+  probeAuthStatus,
+  spawnLogin,
+  extractOauthUrl,
+} from '@coa/adapter-claude-sdk';
 
 /**
  * M8 composition root (R-1) — construct the daemon-singleton core once, in
  * dependency order (M1 the kernel → M3 flags → M7 governance, with M5 compile +
- * M6 catalogue bound by reference). The kernel is the governance producer spine
- * (M7 writes through `appendGovernance`). Returns the {@link DaemonCore} the
+ * M6 catalogue bound by reference). Returns the {@link DaemonCore} the
  * session wiring consumes plus the live singletons, so the daemon host can read
  * projections and drive the worktree/conversation layers as they are built. The
  * backend (M9) is constructed per session, outside this root.
@@ -46,8 +50,6 @@ export interface DaemonCoreOptions {
   walPath: string;
   /** The worktree root for git operations; defaults to the process cwd. */
   root?: string;
-  /** The SQLite projection path; defaults to in-memory. */
-  projectionPath?: string;
   /** The API-route hard ceiling in USD; omitted ⇒ subscription model (no ceiling). */
   ceilingUsd?: number;
   /** The session's configured tool baseline for the sandbox policy. */
@@ -71,12 +73,8 @@ export interface DaemonCoreHandle {
 
 /** Construct the daemon singletons and bind them into a {@link DaemonCore}. */
 export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
-  const kernel = new ChangeKernel({
-    walPath: options.walPath,
-    ...(options.root !== undefined ? { root: options.root } : {}),
-    ...(options.projectionPath !== undefined ? { projectionPath: options.projectionPath } : {}),
-  });
-  const governance = new Governance(kernel, {
+  const kernel = new ChangeKernel({ walPath: options.walPath });
+  const governance = new Governance({
     ...(options.ceilingUsd !== undefined ? { ceilingUsd: options.ceilingUsd } : {}),
     ...(options.allowedTools !== undefined ? { allowedTools: options.allowedTools } : {}),
   });
@@ -159,7 +157,7 @@ export function createDaemonCore(options: DaemonCoreOptions): DaemonCoreHandle {
  * Bind the daemon's live singletons to the read-only inspector handler map the
  * JSON-RPC router serves — the seam between the daemon core and the console's
  * CON-CAT reads. Pure projection wiring: each port reads an existing surface
- * (M7 cap + Decision log, M3 user feed), no new behavior. The transport layer
+ * (M7 cap, M3 user feed), no new behavior. The transport layer
  * (socket/pipe + peer-cred) calls `dispatch(message, handlers)` with this map.
  */
 export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandlers {
@@ -193,7 +191,9 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
         return {
           loggedIn: status.loggedIn,
           ...(status.email !== undefined ? { email: status.email } : {}),
-          ...(status.subscriptionType !== undefined ? { subscriptionType: status.subscriptionType } : {}),
+          ...(status.subscriptionType !== undefined
+            ? { subscriptionType: status.subscriptionType }
+            : {}),
         };
       },
       start: ({ dir, email, browserLauncher }) => {
@@ -231,8 +231,6 @@ export function buildDaemonConsoleHandlers(handle: DaemonCoreHandle): RpcHandler
     ...buildConsoleHandlers({
       capState: (sessionId) => handle.governance.capState(sessionId),
       flagsForUser: (scope) => handle.flags.flagsForUser(scope),
-      readDecision: (id) => handle.governance.decisionLog.read(id),
-      decisionsByTarget: (target) => handle.governance.decisionLog.findByTarget(target),
       listTimeline: () => handle.kernel.listTimeline(),
     }),
     ...buildAuthHandlers({
@@ -309,8 +307,8 @@ function resolvePieceSafely(kernel: ChangeKernel, ref: PieceRef) {
 /**
  * Wire M6's governed tools to the live daemon singletons: Retrieve/enrich read
  * the resident kernel index/graph, Mutate routes writes through the kernel spine
- * (producer ①) and the worktree's disk, and Inspect reads M7's cap + Decision
- * log and M3's flag pipeline. The not-yet-built halves degrade to a floor (D85):
+ * (producer ①) and the worktree's disk, and Inspect reads M7's cap and M3's
+ * flag pipeline. The not-yet-built halves degrade to a floor (D85):
  * the graph outline/dependents reads, the M4 assembled-context/spec store, and
  * the reconciler's precise-write expectation. The worktree is the configured root
  * (the per-session worktree manager is later); confinement runs in POSIX path
@@ -352,15 +350,8 @@ function governedToolDeps(
     inspect: {
       runChecks: (scope) => flags.flagsForUser(scope),
       capState: () => governance.capState(),
-      decisionsByTarget: (target) => governance.decisionLog.findByTarget(target),
-      readDecision: (id) => governance.decisionLog.read(id),
     },
     enrich: {
-      oracle: {
-        lookup: (name) => kernel.lookup(name),
-        fuzzyMatch: (name, limit) => kernel.fuzzyMatch(name, limit),
-        walPosition: () => kernel.walPosition(),
-      },
       flagsForAgent: (scope) => flags.flagsForAgent(scope),
     },
   };

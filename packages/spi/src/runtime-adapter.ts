@@ -119,7 +119,7 @@ export type ToolPartition = 'kernel' | 'on-demand';
  * and decorating each return with `enrich`; M9 turns each into an SDK
  * `tool(name, description, inputSchema, handler)` inside a `createSdkMcpServer`.
  * The handler dispatch is the boundary at which `enrich` is applied (every return
- * carries grounding + gated flags) and at which inputs are Zod-validated before
+ * carries gated flags) and at which inputs are Zod-validated before
  * the handler touches shared state (D141(c)). `invoke` never throws and never
  * denies (SC-1): a bad input or a confinement/diff failure comes back as an
  * unapplied result the agent can retry.

@@ -40,7 +40,7 @@ import { parseRunArgs, renderPush } from './run-render.js';
  * over a real daemon; the thin `bin` shim wires them to the process.
  *
  * This is the in-process-free, single-process-pair product: one `coa serve`, then
- * `coa cap` / `coa flags` / `coa why` / `coa decision` from another invocation.
+ * `coa cap` / `coa flags` / `coa timeline` from another invocation.
  */
 
 export interface CliIo {
@@ -57,15 +57,13 @@ const READS: Record<string, (args: string[]) => { method: string; params?: RpcPa
     method: 'flagsForUser',
     ...(args[0] !== undefined ? { params: { scope: args[0] } } : {}),
   }),
-  why: (args) => ({ method: 'why', params: { target: args[0] ?? '' } }),
-  decision: (args) => ({ method: 'getDecision', params: { id: Number(args[0]) } }),
   timeline: () => ({ method: 'listTimeline' }),
 };
 
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   const [command, ...args] = argv;
   if (command === undefined) {
-    io.err('usage: coa <run|auth|websearch|webfetch|cap|flags|why|decision|timeline> [args]');
+    io.err('usage: coa <run|auth|websearch|webfetch|cap|flags|timeline> [args]');
     return 1;
   }
   if (command === 'auth') return runAuthCommand(args, io);
@@ -322,7 +320,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...buildModelHandlers(modelCatalog, MODEL_PROVIDERS),
     // The SOT projection: the user's editable list, enriched (never defined) by
     // each provider's live fetch — both pickers read this one feed.
-    listModels: { handle: () => listEffectiveModels(modelCatalog, models, modelAccounts(), options.err) },
+    listModels: {
+      handle: () => listEffectiveModels(modelCatalog, models, modelAccounts(), options.err),
+    },
   }));
   options.out(`coa daemon listening on ${path}`);
   return bound.server;

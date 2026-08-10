@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/*.cjs',
       '**/*.d.ts',
       '.claude/**',
+      // Parked feature code kept for reference — never compiled, linted, or imported.
+      'archive/**',
     ],
   },
   eslint.configs.recommended,
@@ -21,7 +23,7 @@ export default tseslint.config(
     // Repo-maintenance scripts run directly under Node, not bundled — they need
     // the Node CLI globals (console, process) that the rest of the monorepo
     // never references directly.
-    files: ['scripts/**/*.mjs'],
+    files: ['**/scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         console: 'readonly',

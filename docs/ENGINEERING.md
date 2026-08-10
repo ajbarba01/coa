@@ -125,7 +125,7 @@ process, not the daemon. When a defensive guard exists for a real race/recovery 
 
 ### 11. Events/subscriptions over polling
 
-Prefer the WAL-fed subscription model (`subscribe(cursor, fn)`, the signal bus, the idle scheduler) over polling
+Prefer the WAL-fed subscription model (`subscribe(cursor, fn)`, the idle scheduler) over polling
 loops. Consumers react to change-events; they do not busy-wait on disk.
 
 - **Why:** the daemon is resident precisely so it can pre-compute on idle and react to events — polling wastes that.

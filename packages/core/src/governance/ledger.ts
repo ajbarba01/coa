@@ -7,9 +7,8 @@
  * network-exposed) — the ledger-sync tripwire stays un-tripped.
  *
  * **DT-5 (non-negotiable):** prose-bearing fields (flag messages, the D131
- * feedback reason, the D137 vouch note, the D73 Decision-log entry text) NEVER
- * enter this ledger — they stay WAL-local. `record()` structurally excludes them by
- * keeping only the allow-listed keys.
+ * feedback reason) NEVER enter this ledger — they stay WAL-local. `record()`
+ * structurally excludes them by keeping only the allow-listed keys.
  */
 
 /** The ONLY permitted attributes (D135 allow-list). Anything else is dropped. */

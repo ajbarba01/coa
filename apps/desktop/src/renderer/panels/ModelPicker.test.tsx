@@ -184,12 +184,11 @@ describe('ModelPicker — backend rail', () => {
 
   it('lists only the backends the models actually come from, under an all-backends row', async () => {
     const rail = await open();
-    expect(within(rail).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'All backends',
-      'Claude',
-      'DeepSeek',
-      'LongCat',
-    ]);
+    expect(
+      within(rail)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['All backends', 'Claude', 'DeepSeek', 'LongCat']);
   });
 
   it('narrows the list to the backend picked', async () => {

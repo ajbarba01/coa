@@ -15,7 +15,13 @@ const AGENTS = [
 
 const AGENTS_WITH_BUILTIN = [
   ...AGENTS,
-  { ref: 'general-purpose', name: 'General purpose', icon: 'bot', color: 'slate', scope: 'builtin' as const },
+  {
+    ref: 'general-purpose',
+    name: 'General purpose',
+    icon: 'bot',
+    color: 'slate',
+    scope: 'builtin' as const,
+  },
 ];
 
 beforeEach(() => {
@@ -56,7 +62,9 @@ describe('NewSessionDialog', () => {
   });
 
   it('labels a built-in agent "Built-in", not "Personal" — the three-scope picker', () => {
-    publishConsoleState(makeState({ data: { agents: { status: 'ok', value: AGENTS_WITH_BUILTIN } } }));
+    publishConsoleState(
+      makeState({ data: { agents: { status: 'ok', value: AGENTS_WITH_BUILTIN } } }),
+    );
     useShell.getState().setNewSessionOpen(true);
     render(<NewSessionDialog />);
 
