@@ -137,6 +137,62 @@ describe('loadStoreFile / saveStoreFile', () => {
     expect(loaded.diagnostics[0]?.problem).toBe('invalid');
   });
 
+  it('carries the user’s own top-level and per-record keys through load → mutate → save', () => {
+    // `library.json` is the file the user is INVITED to hand-edit. A key coa does
+    // not own must survive a mutation coa performs; eating it would make every
+    // toggle a silent edit of someone else's document.
+    const path = tempStore();
+    const authored = {
+      version: 1,
+      $schema: 'https://example.invalid/library.schema.json',
+      note: 'hand-edited: the two skills below are pinned for onboarding',
+      records: [{ ...ref('commits'), comment: 'why this is linked', tags: ['onboarding'] }],
+    };
+    let written = '';
+    const io = {
+      readFile: () => JSON.stringify(authored),
+      writeFile: (_p: string, text: string) => {
+        written = text;
+      },
+      exists: () => true,
+      mkdir: () => {},
+      removeDir: () => {},
+    };
+
+    const loaded = loadStoreFile(path, 'project', io);
+    expect(loaded.diagnostics).toEqual([]);
+    const { file } = setRecordEnabled(loaded.file, 'skill', 'commits', false);
+    saveStoreFile(path, file, io);
+
+    const back: unknown = JSON.parse(written);
+    expect(back).toEqual({
+      version: 1,
+      $schema: 'https://example.invalid/library.schema.json',
+      note: 'hand-edited: the two skills below are pinned for onboarding',
+      records: [
+        { ...ref('commits'), enabled: false, comment: 'why this is linked', tags: ['onboarding'] },
+      ],
+    });
+  });
+
+  it('still refuses a record whose OWNED keys are invalid, unknown keys or not', () => {
+    // Round-tripping foreign keys must not loosen validation of the keys coa owns.
+    const io = {
+      readFile: () =>
+        JSON.stringify({
+          version: 1,
+          records: [{ ...ref('bad'), mode: 'copy', comment: 'kept?' }],
+        }),
+      writeFile: () => {},
+      exists: () => true,
+      mkdir: () => {},
+      removeDir: () => {},
+    };
+    const loaded = loadStoreFile('/fake/library.json', 'project', io);
+    expect(loaded.file.records).toEqual([]);
+    expect(loaded.diagnostics[0]?.problem).toBe('invalid');
+  });
+
   it('reports an in-file duplicate and keeps the first', () => {
     const text = JSON.stringify({ version: 1, records: [ref('twice'), ref('TWICE')] });
     const io = {

@@ -144,6 +144,12 @@ const EMPTY: LibraryStoreFile = { version: 1, records: [] };
  * empty floor PLUS a diagnostic (never a throw — a broken store must not take
  * the daemon down, and must not be silently treated as empty either). Records
  * are validated one by one so a single bad record costs itself, not the store.
+ *
+ * The loaded file carries the envelope's OWN keys through (`{ ...rest }`) rather
+ * than being rebuilt from `{ version, records }`: `library.json` is the user's
+ * document, and a `$schema` pointer or a hand-written note must survive the
+ * load → mutate → save round trip that every verb performs. Per-record keys ride
+ * through the (loose) record schema for the same reason.
  */
 export function loadStoreFile(
   path: string,
@@ -194,7 +200,8 @@ export function loadStoreFile(
     records.push(parsed.data);
   }
 
-  return { file: { version: 1, records }, diagnostics };
+  const { version: _version, records: _records, ...rest } = envelope;
+  return { file: { ...rest, version: 1, records }, diagnostics };
 }
 
 /** Write one store file — pretty-printed with a trailing newline (it is committed and diffed). */

@@ -100,9 +100,14 @@ export const LIBRARY_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
  * One record in a store file. Deliberately scope-free: the store's directory IS
  * the scope (the same posture as agent definitions — a record cannot disagree
  * with where it lives). `name` is the identity within (kind, store).
+ *
+ * LOOSE on purpose: `library.json` is a file the user is invited to hand-edit and
+ * commit, so a key coa does not model (a `$schema` pointer, a `comment`, a team's
+ * own tag) rides through a coa mutation verbatim instead of being eaten on the
+ * next toggle. The keys coa DOES own stay validated exactly as strictly.
  */
 export const libraryRecordSchema = z
-  .object({
+  .looseObject({
     name: z
       .string()
       .regex(LIBRARY_NAME_PATTERN, 'a library name must be a single safe path segment'),
@@ -129,8 +134,9 @@ export const libraryRecordSchema = z
   });
 export type LibraryRecord = z.infer<typeof libraryRecordSchema>;
 
-/** The on-disk store file (`.coa/library/library.json`), one per scope. */
-export const libraryStoreFileSchema = z.object({
+/** The on-disk store file (`.coa/library/library.json`), one per scope. Loose for the
+ *  same reason its records are: coa rewrites only the keys it owns. */
+export const libraryStoreFileSchema = z.looseObject({
   version: z.literal(1).default(1),
   records: z.array(libraryRecordSchema).default([]),
 });
