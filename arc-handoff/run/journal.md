@@ -2207,3 +2207,38 @@ is unreadable silently obliterates that whole store — even a no-op unlink) + m
 died at dispatch on the account session limit (reset 6:30am); the overnight wakeup chain broke on
 the same limit, so the gap was discovered at 10:38 when the maintainer checked in. Resumed the
 same run at 10:40 — six completed agents replay from cache, fix r2 + final verify r3 run live.
+
+## [F4 landed] — 2026-08-10
+
+The library build finished its full 3-round verify loop and PASSED. Across the loop it found **1
+Blocker + 4 Majors, every one fixed in-loop with proven-non-vacuous regression tests**: (r1) unlink
+path traversal that could recursively delete a directory outside the store; symlinked/junction
+skill dirs invisible to discovery (10 of 14 real skills on this machine); duplicate case-variant
+project keys in ~/.claude.json silently dropping MCP servers; the missing-skill advisory dropped on
+founding turns/spawned children; (r2) a mutation against a scope with an unreadable library.json
+silently obliterating the whole store — round 3 re-verified that fix with live probes against the
+shipped dist plus a revert-probe (4 pinned tests go red without the guard). Round 3's 51-check
+probe suite confirmed the ruled requirements end-to-end: reference live-sync, copy provenance +
+drift + re-sync convergence, project-shadows-personal, auto-push vs disclosure-pull, canonical-JSON
+MCP drift, traversal quarantine, and byte-correct interop against the real ~/.claude/skills (14/14
+parsed clean, read-only). The per-feature verify-finds-something-real streak holds — this one found
+five.
+
+Merged into `arc/stage3` clean (`b430059`), full gate green fresh post-merge (3604 tests, depcruise
+465/1401, docs-check 64), pushed. Left open by the capped loop: **4 Minors + Notes, all
+honesty/interop-shaped** (disclosure advertises a get_piece tool a role-restricted session may not
+have; UTF-8-BOM/empty front-matter rejected where Claude Code's gray-matter accepts both; a
+mutation strips a user's unknown keys from the declarative store file; a permanently failed
+listSkills read renders perpetual "Reading the library…" and skews the predictive drift banner).
+These sit squarely on the arc's no-fake-states/interop values — a bounded cleanup pass (fix +
+verify, 2 agents) is dispatched on `arc/f4-minors` rather than leaving them journaled-only. Notes
+(kernel-piece overwrite, per-turn degrade noise, reference-content-under-frozen-prompt blind spot)
+left as recorded observations.
+
+**Model-allocation correction (maintainer-caught, standing for the rest of the arc):** the F4 run
+inadvertently ran EVERY stage on Fable — workflow agents inherit the session model unless pinned,
+and this session's model IS Fable (the orchestrator ask), so "default model for core stages" 
+silently became Fable, contradicting the standing Fable-for-UX-only rule and burning the session
+limit twice (two mid-run interruptions at 1:30am and 6:30am resets, both resumed loss-free via
+run-ID resume + cached stages). Every subsequent workflow pins models explicitly: `opus` for
+core/verify/fix stages, `fable` pinned only for UI/design halves.
