@@ -4,6 +4,7 @@ import type { DaemonReport } from '../shared/methods.js';
 import { onAuthFailure, startConsole, type ConsoleController } from './console.js';
 import { reportActiveClaudeAuthFailure } from './panels/loginStore.js';
 import { publishConsoleState, useConsoleState } from './shell/consoleStore.js';
+import { resetProjectState } from './store/reset.js';
 import { DaemonGate } from './shell/DaemonGate.js';
 import { EditMenu } from './shell/EditMenu.js';
 import { FailureToast } from './shell/FailureToast.js';
@@ -83,6 +84,11 @@ export function App(): React.JSX.Element {
     let timer: ReturnType<typeof setInterval> | undefined;
     let unbindLayout: (() => void) | undefined;
     let disposed = false;
+    // The console's state lives in module-level slices, which outlive the controller this
+    // effect reboots — so the leaving project's sessions, transcripts and per-session
+    // notices are dropped HERE, before the new controller's first read lands. (A first
+    // mount finds them empty already; only a swap has anything to forget.)
+    resetProjectState();
     void (async () => {
       unbindLayout = await bindLayoutPersistence(window.coa);
       // The live-failure reporter registers before the push stream subscribes (inside

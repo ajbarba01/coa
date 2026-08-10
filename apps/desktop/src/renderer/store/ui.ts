@@ -131,6 +131,22 @@ export function evictUiSession(sessionId: string): void {
   });
 }
 
+/** The project-swap half of a reset: drop everything keyed to the project this window is
+ *  leaving — its sessions' notes/overrides/dismissals and the agent the editor had open
+ *  (a ref from one project names nothing in another). `settings` and `rawMode` are NOT
+ *  the project's: the settings are the user's (re-reading them would flash the theme
+ *  through a repaint) and raw is this window's display mode, so both ride the swap. */
+export function resetProjectUi(): void {
+  useConsoleUi.setState({
+    resolvedApprovals: {},
+    selectedAgentRef: undefined,
+    modelOverride: {},
+    dismissedDrift: {},
+    dismissedCache: {},
+    notesBySession: {},
+  });
+}
+
 /** Test seam. */
 export function resetConsoleUi(): void {
   useConsoleUi.setState({ ...EMPTY }, true);

@@ -9,6 +9,7 @@ import type { ConsoleBridge } from './bridge.js';
 import { startConsole, type ConsoleController } from './controller.js';
 import { detectAuthFailure, modelSwitchNoteText, onAuthFailure } from './notices.js';
 import { resetDaemonData, useDaemonData } from './data.js';
+import { resetProjectState } from './reset.js';
 import { resetSessions, useSessions } from './sessions.js';
 import { resetTranscripts, useTranscripts } from './transcripts.js';
 import { resetConsoleUi, useConsoleUi } from './ui.js';
@@ -1757,5 +1758,58 @@ describe('a write the daemon answered but did not carry out is said out loud', (
     consoleActions.steerSession('c1', 'actually, stop at the tests');
     await tick();
     expect(useNotices.getState().notice).toBeUndefined();
+  });
+});
+
+describe('a project swap leaves nothing of the old project behind', () => {
+  it('drops the sessions, transcripts and per-session state it held — and keeps the settings', async () => {
+    await mount();
+    consoleActions.setSessionModel('c1', { model: 'opus', provider: 'claude' });
+    consoleActions.onBannerAction('c1', 'cache', 'dismiss');
+    consoleActions.setSettings({ theme: 'light' });
+    await tick();
+    expect(sessions().activeSessionId).toBe('c1');
+    expect(transcriptOf('c1')?.status).toBe('ok');
+    expect(ui().modelOverride['c1']).toBeDefined();
+
+    resetProjectState();
+
+    expect(sessions().list).toEqual({ status: 'loading' });
+    expect(sessions().activeSessionId).toBeUndefined();
+    expect(sessions().runStatus).toEqual({});
+    expect(useTranscripts.getState().bySession).toEqual({});
+    expect(data().agents).toEqual({ status: 'loading' });
+    expect(ui().modelOverride).toEqual({});
+    expect(ui().dismissedCache).toEqual({});
+    // The user's own settings are not the project's — re-reading them would repaint the
+    // whole window (a theme flash) for a fact that did not change.
+    expect(ui().settings.theme).toBe('light');
+  });
+
+  it('keeps a run claim from surviving into the new project', async () => {
+    const { emit, bridge } = pushable();
+    await mount(bridge);
+    emit({ kind: 'status', sessionId: 'c1', worktree: 'w', state: 'running' });
+    expect(sessions().runStatus['c1']).toBeDefined();
+    resetProjectState();
+    expect(sessions().runStatus).toEqual({});
+  });
+
+  it('survives the shell clearing the tab strip before the controller reboots', async () => {
+    const { bridge } = await mount();
+    useShell.getState().openTab('c1');
+    const subscribes = (bridge.subscribeSession as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // `applyProjectSwitch` empties the tabs in the same write that bumps the epoch, so the
+    // OLD controller's tab subscription fires one last time — with nothing in it. Nothing
+    // may be materialized off that, and nothing may throw before the reboot disposes it.
+    useShell.getState().applyProjectSwitch({ name: 'other', root: '/other' });
+    expect(useShell.getState().tabs).toEqual([]);
+    expect((bridge.subscribeSession as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      subscribes,
+    );
+
+    resetProjectState();
+    expect(useTranscripts.getState().bySession).toEqual({});
   });
 });
