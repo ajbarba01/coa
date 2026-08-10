@@ -302,7 +302,13 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   set, auto vs on-demand delivery, honest "not in the library" mark), and the console's
   predictive drift compare folds in the resolvable skill slice (absent == empty, so pre-library
   sessions never spuriously drift). **Remaining:** Codex `config.toml` MCP parsing, still
-  parked (TOML dependency; skills dir is scanned, its MCP layer is not).
+  parked (TOML dependency; skills dir is scanned, its MCP layer is not); copy re-sync rebuilds
+  the record and drops a user's hand-added per-record keys (the load→save/add/remove/enable
+  paths round-trip them); a library skill Piece colliding with a curated/role Piece name
+  silently replaces it in the `get_piece` store; the pure-API MCP degrade notice re-emits every
+  turn and dual-layer config rows share one source identity; a reference-linked skill's CONTENT
+  edit never surfaces under a frozen prompt (by design — the drift key excludes skill bodies;
+  copy mode got a drift indicator, reference mode has none yet).
 
 ## Remaining work (keystones first)
 
@@ -440,6 +446,86 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   instances into `spawn.ts`'s `SpawnDeps` port and drive the actual shipped `spawn.ts`/
   `session-handlers.ts`/`live-registry.ts` — something no test in `adapter-claude-sdk` can do
   without a circular package dependency.
+
+## Next up (committed, in order)
+
+The 2026-08 improvement arc closed with two finished-but-unlanded workstreams that predate the
+feature work now on `main`. Both are committed next steps, in this order:
+
+1. **Console store port — push-fed slices + instant navigation.** A complete store rewrite exists
+   on branch `arc/c4-console` (tag `arc-close/c4-console`, draft PR #4): a push-fed slice store
+   (83 contract tests) with per-session materialized transcript hosts, replacing the whole-state
+   publish and the ~2s poll re-filed under Known issues below — measured on that branch at 15 tab
+   switches with zero crossing an animation-frame boundary and zero bridge calls per switch. It
+   was built against the pre-feature console and never merged; the feature work since (project
+   windows, permission chip, composer rework, orchestration docks, the library surface) landed on
+   the old store, so this is a **port, not a merge**: re-apply the store design against the
+   current renderer, carrying the invariants its contract tests pin. Acceptance is the standing
+   instant-navigation requirement: switching to any opened session paints its already-materialized
+   transcript within one frame; no navigation path awaits I/O; scrolling needs no loading.
+   **Folded in: the tab-memory charter** (maintainer-ruled 2026-08-09): open 20+ tabs, measure the
+   heap curve (the 8-tab/11-host baseline measured 12.3 MB used / 21.4 MB total), and settle an
+   LRU-style eviction policy over materialized transcript hosts past a tunable cap — not unbounded
+   keep-alive.
+2. **Docs consolidation re-run.** A complete, twice-verified doc consolidation exists on branch
+   `arc/docs` (tag `arc-close/docs`, draft PR #3): the design-era corpora retired (-32k lines
+   across 141 files) in favor of a living doc set (`ARCHITECTURE.md` + the retained authorities)
+   with AGENTS.md rewritten as the router over it. It describes the tree as of the architecture
+   stage and was never merged — everything landed since (ADRs 0035–0039, module-spec updates,
+   this file's growth) edits the doc world it deletes. Re-run the consolidation against current
+   `main`, using the branch as the structural template and re-homing every fact recorded since.
+   Sequence AFTER the store port, so the docs describe the final console.
+
+## Deferred features (fully specified, unscheduled)
+
+Three features from the same arc were deferred at close-out with their maintainer-ruled specs
+(2026-08-07) intact. The requirements below are binding when picked up; visual placement and
+layout are free.
+
+- **Viewer surface.** A new app-scoped **read-only** surface with VS-Code-style tabs. Tabs hold
+  files, system prompts (per agent, from the frozen compilation — needs a read verb;
+  `listSessions` already carries `promptConfig` for the drift banners), and tool outputs — from
+  any session. **Every "view" affordance in coa routes here**: clicking a file path, a truncated
+  tool card's "view more", or a session's "view system prompt" opens a tab and switches to the
+  Viewer, re-focusing an existing tab rather than duplicating. Tabs stay materialized (the
+  instant-navigation rule applies). Rendered with the transcript's existing code machinery
+  (`CodeBlock`, syntax theme); "Open in editor" stays the escape hatch. Library-injected skills
+  appear in prompt tabs (compile time / prompt version / injected-skills count / drift signal).
+  Ruled decisions: one RPC read verb returning frozen compilation text + metadata; file viewing
+  reads through the existing confinement path, never around it; no editing; tab state lives in
+  the console store. Tests: read-verb round-trip + drift metadata; routing per affordance kind;
+  the render path reuses transcript fixtures; confinement (the viewer cannot read outside the
+  worktree). Done means: from a transcript, a clicked path opens a file tab, a tool card's "view
+  more" opens an output tab, a child's system prompt opens a prompt tab with its drift signal —
+  all switches instant.
+- **Conversation naming + rename.** Auto-name: ONE off-critical-path model call after the first
+  exchange (a cheap model via the backend seam); `deriveTitle` (`session-handlers.ts`) stays the
+  deterministic fallback and the immediate title. Rename: inline edit in the session rail/browser
+  row. Auto-name replaces only auto-derived titles, never a user rename (reuse the existing guard
+  in `session-handlers.ts`); a failed naming call leaves the derived title silently. Reference:
+  big-AGI (MIT — auto-naming prompt + timing pattern). Tests: never-overwrite-user-rename;
+  model-failure fallback; rename verb round-trip + restart survival. Done means: the first
+  exchange auto-titles within seconds; a rename sticks and survives restart; a failed naming call
+  is invisible to the user.
+- **Light theme (sand-light).** A full re-tailored **sand-light** scale — warm paper-sand
+  grounds, brass accent identity, re-tuned state vocabulary — never an inverted variant (the
+  kit's contract: a theme is a whole file at equal quality). `themes/sand-light.css` mirrors
+  sand-dark's complete vocabulary (12-step scale, states, agent palette, series, syntax, diff,
+  scrim, shadows) with light-tuned values, every value re-validated: WCAG contrast per the file's
+  own documented gates, series/agent palettes re-checked for CVD separation on the light ground
+  (replicating the dark file's documented validation). Settings offers dark / light / system; the
+  existing `theme.ts` OS-follow listener drives system. References: Zed (study-only — light/dark
+  token discipline), VS Code (MIT — semantic token theming), Insomnia (Apache-2.0 —
+  themes-as-data). Tests: token parity (every custom property in sand-dark exists in sand-light);
+  scripted contrast assertions for text-band steps on grounds; a Showcase screenshot pass in both
+  themes. Done means: flipping Settings live-switches the whole console with zero unreadable or
+  clipped states; system mode follows the OS. Deliberately last of the deferred set — it needs
+  the final surface inventory.
+- **Parked verification gap: permission modes live smoke.** The four modes
+  (plan/manual/edits/bypass) are proven at the daemon level with adversarially-verified
+  regression tests; the end-to-end link — a real model's tool call reaching the ask/response gate
+  over a live backend — is the one unmeasured clause (parked 2026-08-09 rather than spending live
+  credits; the gap is narrow and named).
 
 ### Agent-hardening increment (phase dissolved; what shipped)
 
@@ -636,8 +722,6 @@ Captured from prior scratch notes; none of these are planned or sized yet:
 - **A density scale for the kit** *(surfaced by ADR-0025)* — the old density control only ever scaled the
   retired kit's type ramp, so it was removed rather than shipped as a visible no-op. Making density mean
   something again is a real feature and its own design question: which of the kit's members respond, and how.
-- **Conversation naming** — auto-name conversations instead of leaving them titled by their first
-  message.
 - **Constraint → flag authoring** — a lighter-weight authoring path for turning an observed
   constraint into an M3 flag, instead of hand-writing producer config.
 - **Semantic-connection "graphify"** — surface graph-like semantic connections between code/docs
@@ -730,4 +814,4 @@ credential vault) and §4 (rejected outright). Nothing in `OPEN.md` is a v1 buil
 
 ---
 
-_Last reviewed: 2026-08-09_
+_Last reviewed: 2026-08-10_
