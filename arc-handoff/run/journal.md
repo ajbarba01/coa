@@ -2179,3 +2179,15 @@ adversarial verify with capped fix rounds. Sequential in the shared main tree pe
 isolation rule — no `isolation: 'worktree'`. Reference use (Claude Code interop conventions, MCPM,
 Cline, VS Code, Insomnia/Hyper, Bruno) is baked into every agent brief with mandatory
 adaptation-journaling, closing the F3-era gap. Branch: `arc/f4-library` off `origin/arc/stage3`.
+
+## [F4 core landed; UI stage hit the session limit; resumed] — 2026-08-10
+
+The build's two core stages completed and pushed to `arc/f4-library` (5 commits, `391d910..e2eccb2`:
+wire schemas + per-agent skill delivery, discovery/stores with drift, daemon RPC verbs, session
+injection, MCP native-delivery-or-surfaced-degrade). The UI stage (Fable) then died on the
+account's 5-hour session limit ("resets 1:30am America/Denver") — the first limit hit of this
+continuation session, ~980k subagent tokens into the run. Resumed the SAME run
+(`wf_798c63b8-bd7`) at 02:05 local, past the reset: both core stages replayed from cache
+(verified by run ID reuse; no new commits expected from them), UI runs fresh, then the verify
+loop. The failure mode cost nothing but wall-clock — sequential stages + push-as-you-go meant
+zero lost work.
