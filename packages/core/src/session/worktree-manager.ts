@@ -186,7 +186,7 @@ export class WorktreeManager {
 
   /** Every isolated worktree this process currently knows about — the read side the
    *  Worktree dock's data (path, whether a session has its own worktree) reaches
-   *  through; the dock itself is the next phase's job. */
+   *  through, via the `listWorktrees` verb (worktree-handlers.ts). */
   list(): WorktreeRecord[] {
     return [...this.#records.values()];
   }
@@ -207,8 +207,8 @@ export class WorktreeManager {
    * nothing else ever removes an isolated worktree): `git worktree remove --force`,
    * falling back to `git worktree prune` + a plain directory removal if the
    * registered worktree's directory is already gone by hand. This is the callable
-   * seam a future RPC verb (the Worktree dock's floor action) calls; no such verb
-   * exists yet. `false` for a session with no isolated worktree to reap — the shared
+   * seam the `reapWorktree` verb (worktree-handlers.ts — the Worktree dock's reap
+   * action) calls. `false` for a session with no isolated worktree to reap — the shared
    * root is never removable through this method.
    */
   reap(sessionId: string): boolean {

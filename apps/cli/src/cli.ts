@@ -12,6 +12,7 @@ import {
   buildModelMetadataHandlers,
   buildRegistryHandlers,
   buildSessionHandlers,
+  buildWorktreeHandlers,
   classifyTool,
   connectClient,
   createConversationStore,
@@ -405,6 +406,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RpcServer> {
     ...registryHandlers,
     ...agentHandlers,
     ...conversationHandlers,
+    // The Worktree dock's read + reap seam. `isRunning` consults the live registry's
+    // own state (never client tracking) so a reap can't delete a working directory
+    // out from under an in-flight turn.
+    ...buildWorktreeHandlers({
+      worktrees,
+      isRunning: (sessionId) => registry.get(sessionId)?.state === 'running',
+    }),
     ...shutdownHandlers,
     ...buildSessionHandlers(sessions, connection, {
       // The provider→backend capability facts live beside the adapter factory (one

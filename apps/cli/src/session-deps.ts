@@ -67,9 +67,9 @@ export interface BuiltSession {
   models: ModelCache;
   /** The active account to fetch models from, per provider — the merged model list's sources. */
   modelAccounts: () => ModelCacheAccount[];
-  /** The real worktree binder `bindWorktree` is wired to — the callable seam a future
-   *  reap RPC verb (the Worktree dock's floor action) reaches through; the daemon host
-   *  also calls `sweepStale()` on this once, at startup. */
+  /** The real worktree binder `bindWorktree` is wired to — the callable seam the
+   *  `listWorktrees`/`reapWorktree` verbs (the Worktree dock's floor) reach through;
+   *  the daemon host also calls `sweepStale()` on this once, at startup. */
   worktrees: WorktreeManager;
 }
 
