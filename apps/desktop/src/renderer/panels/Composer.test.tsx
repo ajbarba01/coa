@@ -28,6 +28,7 @@ function baseProps(overrides: Partial<ComposerProps> = {}): ComposerProps {
     effortOptions: EFFORTS,
     effortValue: 'high',
     onPickEffort: vi.fn(),
+    skills: { status: 'loading' },
     onSend: vi.fn(),
     ...overrides,
   };
@@ -529,10 +530,13 @@ describe('Composer — attachments (capability-gated intake)', () => {
 });
 
 describe('Composer — the slash popover (skill invocation)', () => {
-  const SKILLS = [
-    { name: 'commits', description: 'Commit style', scope: 'project' as const },
-    { name: 'review', description: 'Review checklist', scope: 'personal' as const },
-  ];
+  const SKILLS = {
+    status: 'ok',
+    value: [
+      { name: 'commits', description: 'Commit style', scope: 'project' as const },
+      { name: 'review', description: 'Review checklist', scope: 'personal' as const },
+    ],
+  } as const;
 
   it('opens on a leading slash, filtered as the query grows', async () => {
     render(<Composer {...baseProps({ skills: SKILLS })} />);
@@ -599,12 +603,22 @@ describe('Composer — the slash popover (skill invocation)', () => {
     expect(screen.getByRole('listbox', { name: 'Invoke a skill' })).toBeInTheDocument();
   });
 
-  it('is honest when there is nothing to offer, and while the library has not loaded', async () => {
-    const { rerender } = render(<Composer {...baseProps({ skills: [] })} />);
+  it('is honest when there is nothing to offer, while loading, and when the read FAILED', async () => {
+    const { rerender } = render(
+      <Composer {...baseProps({ skills: { status: 'ok', value: [] } })} />,
+    );
     await userEvent.type(screen.getByRole('textbox'), '/');
     expect(screen.getByText('No skills in the library')).toBeInTheDocument();
-    rerender(<Composer {...baseProps()} />);
+    rerender(<Composer {...baseProps({ skills: { status: 'loading' } })} />);
     expect(screen.getByText('Reading the library…')).toBeInTheDocument();
+    // The regression: a read that failed for good used to keep saying "Reading the
+    // library…" forever. It names the failure, and never claims the library is empty.
+    rerender(
+      <Composer {...baseProps({ skills: { status: 'error', message: 'daemon unreachable' } })} />,
+    );
+    expect(screen.queryByText('Reading the library…')).toBeNull();
+    expect(screen.queryByText('No skills in the library')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('daemon unreachable');
   });
 
   it('a no-match Enter falls through to a normal send — a message starting with / is never caged', async () => {

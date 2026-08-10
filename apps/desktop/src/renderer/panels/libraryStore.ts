@@ -11,6 +11,7 @@ import {
   rpcUnlinkLibrary,
 } from '../console.js';
 import { reportFailure, surfaceWrite } from '../shell/failures.js';
+import type { Remote } from './state.js';
 
 /**
  * The Library surface's data, LIVE from the daemon. The stores on disk are the source
@@ -25,9 +26,10 @@ import { reportFailure, surfaceWrite } from '../shell/failures.js';
  * shift with every link/unlink, so the fresh read is what keeps the surface honest.
  *
  * `invocable` is the composer's and agent editor's feed (the daemon's `listSkills`
- * effective fold: enabled + resolvable, project shadowing personal). It stays
- * `undefined` until the first successful read — "not loaded" must never render as
- * "no skills".
+ * effective fold: enabled + resolvable, project shadowing personal). It is a
+ * `Remote` read like `read` above, so "not loaded" never renders as "no skills" AND
+ * a read that failed for good never renders as "still loading" — its consumers ship
+ * all three states.
  */
 
 /** The one read's UI state — same shape discipline as `Remote<T>` (panels/state.ts). */
@@ -44,8 +46,8 @@ export interface EntryRef {
 
 export interface LibraryState {
   read: LibraryRead;
-  /** The effective invocable skills; `undefined` until the first successful read. */
-  invocable: InvocableSkill[] | undefined;
+  /** The effective invocable skills, states-first (see the module doc). */
+  invocable: Remote<InvocableSkill[]>;
   /** First load (and any later re-read that should not flash the skeleton — the
    *  status only rewinds to `loading` from a cold start). Idempotent per mount. */
   hydrate: () => Promise<void>;
@@ -84,18 +86,26 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     await refreshSkills();
   }
 
-  /** The invocable feed degrades by keeping its previous value — advisory read. */
+  /** The invocable feed degrades exactly like `read` above: a COLD failure becomes the
+   *  error state (a read that will never arrive must not sit at "loading" forever —
+   *  its consumers would render "Reading the library…" as a permanent lie), a failure
+   *  after a good read keeps the last good rows. */
   async function refreshSkills(): Promise<void> {
+    const hadSkills = get().invocable.status === 'ok';
     try {
-      set({ invocable: (await rpcListSkills()).skills });
-    } catch {
-      // Keep whatever was last known; `undefined` still reads as "not loaded".
+      set({ invocable: { status: 'ok', value: (await rpcListSkills()).skills } });
+    } catch (e) {
+      if (!hadSkills) {
+        set({
+          invocable: { status: 'error', message: e instanceof Error ? e.message : String(e) },
+        });
+      }
     }
   }
 
   return {
     read: { status: 'loading' },
-    invocable: undefined,
+    invocable: { status: 'loading' },
 
     hydrate: async () => refresh(),
 

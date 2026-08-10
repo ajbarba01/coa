@@ -76,7 +76,7 @@ import {
 } from './resolvedSet.js';
 import { SkeletonLines, SurfaceEmpty, SurfaceError } from './surfaceStates.js';
 import { useNarrow } from './useNarrow.js';
-import type { ConsoleState } from './state.js';
+import type { ConsoleState, Remote } from './state.js';
 
 // The model-picking vocabulary lives with the picker itself now; re-exported here so the
 // surface stays the one import site for anything about an agent.
@@ -916,14 +916,16 @@ function SkillsSection({
   readOnly = false,
 }: {
   agent: AgentSummary;
-  /** The effective library set; `undefined` ⇒ the library read hasn't settled. */
-  invocable: InvocableSkill[] | undefined;
+  /** The effective library set, states-first: the footer says which unsettled state a
+   *  missing set is in, and only a SETTLED set may mark a configured skill absent. */
+  invocable: Remote<InvocableSkill[]>;
   onChange: (patch: Partial<Omit<AgentSummary, 'ref'>>) => void;
   /** A built-in agent ships in code — its skills are a fact, not a set to edit. */
   readOnly?: boolean;
 }): React.JSX.Element {
   const configured: AgentSkillConfig[] = agent.skills ?? [];
-  const byName = new Map((invocable ?? []).map((s) => [s.name.toLowerCase(), s]));
+  const rows = invocable.status === 'ok' ? invocable.value : [];
+  const byName = new Map(rows.map((s) => [s.name.toLowerCase(), s]));
 
   const toggle = (name: string): void => {
     if (readOnly) return;
@@ -945,9 +947,11 @@ function SkillsSection({
       label="Skills"
       count={configured.length > 0 ? configured.length : undefined}
       footer={
-        readOnly ? undefined : invocable === undefined ? (
+        readOnly ? undefined : invocable.status === 'loading' ? (
           <span className="px-1 font-mono text-meta text-s7">Reading the library…</span>
-        ) : invocable.length === 0 ? (
+        ) : invocable.status === 'error' ? (
+          <SurfaceError message={`Couldn't read the library — ${invocable.message}`} />
+        ) : rows.length === 0 ? (
           <span className="px-1 font-mono text-meta text-s7">
             No skills in the library — link one on the Library surface
           </span>
@@ -955,7 +959,7 @@ function SkillsSection({
           <AddPicker
             label="Add Skill"
             placeholder="Filter skills…"
-            items={invocable.map((s) => ({
+            items={rows.map((s) => ({
               id: s.name,
               name: s.name,
               membership: configured.some((c) => c.name.toLowerCase() === s.name.toLowerCase())
@@ -976,7 +980,9 @@ function SkillsSection({
         <div className="flex flex-col gap-0.5">
           {configured.map((s) => {
             const row = byName.get(s.name.toLowerCase());
-            const missing = invocable !== undefined && row === undefined;
+            // Only a SETTLED set can say a skill is gone; an unreadable library is
+            // not evidence of absence.
+            const missing = invocable.status === 'ok' && row === undefined;
             return (
               <div
                 key={s.name}

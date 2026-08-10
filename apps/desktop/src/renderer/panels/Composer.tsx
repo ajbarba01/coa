@@ -18,6 +18,8 @@ import { ModelPicker } from './ModelPicker.js';
 import { NoticeLine } from './NoticeLine.js';
 import { PermissionModeChip } from './PermissionModeChip.js';
 import { ReasoningChip } from './ReasoningPicker.js';
+import type { Remote } from './state.js';
+import { SurfaceError } from './surfaceStates.js';
 
 export interface QueuedMessage {
   id: string;
@@ -158,9 +160,10 @@ export interface ComposerProps {
    *  attachments unavailable (the control explains itself, never vanishes). */
   attach?: AttachControlVm | undefined;
   /** The invocable library skills the slash popover offers (`/name` — an explicit
-   *  one-turn load the daemon composes above the message). `undefined` ⇒ the library
-   *  read hasn't settled; the popover says so rather than claiming emptiness. */
-  skills?: InvocableSkill[] | undefined;
+   *  one-turn load the daemon composes above the message), states-first: the popover
+   *  says "reading" while it loads and shows the reason when the read failed, rather
+   *  than claiming emptiness for either. */
+  skills: Remote<InvocableSkill[]>;
   /** `attachments`/`invokeSkills` ride only a direct send — a queue/steer/redirect
    *  keeps staged attachments and attached invocations pinned in the composer rather
    *  than silently dropping them. */
@@ -355,13 +358,13 @@ export function Composer({
   };
 
   // The slash popover: offered while the WHOLE draft is `/`+partial-name (a space
-  // commits the draft to being prose), never over the approval gate. `skills`
-  // undefined means the library read hasn't settled — the popover says that rather
-  // than claiming there are no skills.
+  // commits the draft to being prose), never over the approval gate. An unsettled
+  // `skills` read has no rows to offer — the popover states WHICH unsettled state it
+  // is in rather than claiming there are no skills.
   const slashQuery = disabled || approval !== undefined ? undefined : slashQueryOf(text);
   const slashOpen = slashQuery !== undefined && !slashDismissed;
   const slashRows =
-    slashOpen && skills !== undefined ? filterSkills(skills, slashQuery, invoked) : [];
+    slashOpen && skills.status === 'ok' ? filterSkills(skills.value, slashQuery, invoked) : [];
   const slashAt = Math.min(slashCursor, Math.max(slashRows.length - 1, 0));
 
   /** Attach one invocation and clear the query — the draft WAS the query. */
@@ -483,11 +486,13 @@ export function Composer({
               'slip-enter py-1',
             )}
           >
-            {skills === undefined ? (
+            {skills.status === 'loading' ? (
               <div className="px-3.5 py-1.5 text-code text-s7">Reading the library…</div>
+            ) : skills.status === 'error' ? (
+              <SurfaceError message={`Couldn't read the library — ${skills.message}`} />
             ) : slashRows.length === 0 ? (
               <div className="px-3.5 py-1.5 text-code text-s7">
-                {skills.length === 0 ? 'No skills in the library' : 'No matching skill'}
+                {skills.value.length === 0 ? 'No skills in the library' : 'No matching skill'}
               </div>
             ) : (
               <div role="listbox" aria-label="Invoke a skill" className="max-h-64 overflow-y-auto">

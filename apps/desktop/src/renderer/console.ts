@@ -39,7 +39,12 @@ import type { ConsoleSettings } from '../shared/settings.js';
 import { modelLabel } from './panels/ModelPicker.js';
 import { resolveSelection } from './panels/selection.js';
 import { nextAgentIdentity } from './panels/agentIdentity.js';
-import { cacheKey, configKey, resolvableSkillSelection } from './panels/banners.js';
+import {
+  cacheKey,
+  configKey,
+  driftCompareConfig,
+  resolvableSkillSelection,
+} from './panels/banners.js';
 import {
   initialState,
   type ConsoleState,
@@ -310,10 +315,11 @@ export const rpcSetLibraryEnabled = (p: {
  *  registers its own invocable-list getter so the drift-dismissal key can fold in the
  *  SAME resolvable skill slice the chat banner compares — without this module importing
  *  the store, which imports these rpc wrappers (a static cycle the dependency ruleset
- *  forbids). `undefined` until the store's first successful `listSkills` read — the
- *  selection then passes through unfiltered, matching the banner side's posture. */
-let invocableSkillsSource: () => InvocableSkill[] | undefined = () => undefined;
-export const onInvocableSkills = (fn: () => InvocableSkill[] | undefined): void => {
+ *  forbids). It is the store's whole `Remote` read, not just its rows: the dismissal
+ *  key must drop the skill slice on an unsettled read exactly as the banner does, or a
+ *  dismissal would stop matching the banner it was meant to suppress. */
+let invocableSkillsSource: () => Remote<InvocableSkill[]> = () => ({ status: 'loading' });
+export const onInvocableSkills = (fn: () => Remote<InvocableSkill[]>): void => {
   invocableSkillsSource = fn;
 };
 
@@ -1025,12 +1031,18 @@ export async function startConsole(
       // (the key must match the banner's or dismissal would never suppress it).
       const session = sessions.find((s) => s.id === sessionId);
       const agent = session ? agents.find((a) => a.ref === session.agentRef) : undefined;
-      const key = configKey({
-        roles: agent?.roles,
-        packageIds: agent?.packageIds,
-        exclude: agent?.exclude,
-        skills: resolvableSkillSelection(agent?.skills, invocableSkillsSource()),
-      });
+      const skillsRead = invocableSkillsSource();
+      const key = configKey(
+        driftCompareConfig(
+          {
+            roles: agent?.roles,
+            packageIds: agent?.packageIds,
+            exclude: agent?.exclude,
+            skills: resolvableSkillSelection(agent?.skills, skillsRead),
+          },
+          skillsRead,
+        ),
+      );
       state = {
         ...state,
         ui: { ...state.ui, dismissedDrift: { ...state.ui.dismissedDrift, [sessionId]: key } },
