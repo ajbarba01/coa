@@ -124,6 +124,9 @@ export function createOpenAiCompatAdapter(
     input: init.input,
     onSettle: init.onSettle,
     ...(init.model !== undefined ? { model: init.model } : {}),
+    // No MCP runtime on a pure-API backend — the adapter surfaces the typed
+    // degrade itself (an error frame naming the unavailable servers).
+    ...(init.mcpServers !== undefined ? { mcpServers: init.mcpServers } : {}),
     ...(init.onTurn !== undefined ? { onTurn: init.onTurn } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.history !== undefined ? { history: init.history } : {}),
@@ -150,6 +153,8 @@ export function createClaudeAdapter(init: SessionAdapterInit): RuntimeAdapter {
     input: init.input,
     onSettle: init.onSettle,
     ...(init.model !== undefined ? { model: init.model } : {}),
+    // Native MCP: the SDK composes these alongside the in-process coa server.
+    ...(init.mcpServers !== undefined ? { mcpServers: init.mcpServers } : {}),
     ...(init.onTurn !== undefined ? { onTurn: init.onTurn } : {}),
     ...(init.locator !== undefined ? { locator: init.locator } : {}),
     ...(init.resume !== undefined ? { resume: init.resume } : {}),

@@ -281,11 +281,20 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   wired in `apps/cli`'s daemon composition with injected root/home. `agentFileSchema` gained an
   optional per-agent `skills` list (auto-inject vs progressive disclosure) and `skillToPiece`
   compiles a stored skill onto the Piece axes (`push`/`pull`) for coa-native injection on ALL
-  backends. **Remaining:** the injection wiring itself (library skills → `AgentSpec.skills` →
-  frozen compilation/drift key), MCP config handed to the backend seam (compose with the SDK's
-  native `mcpServers` where present; typed honest degrade elsewhere), composer slash invocation,
-  and the Library UI. Codex `config.toml` MCP parsing is parked (TOML dependency; skills dir is
-  scanned, its MCP layer is not).
+  backends. **Injection + resolution wired (2026-08-09):** an agent's configured skills resolve
+  per turn (fresh library read, project shadowing personal) into Pieces riding the existing
+  `AgentSpec.skills` seam — `auto` bodies compile into the prompt, `disclosure` skills get one
+  aggregated index Piece advertising name+description with the body registered in the kernel
+  piece store (pullable via the governed `get_piece` tool); the resolved selection joins the
+  drift key (`PromptConfig.skills`) + the stored compilation, so a library change under a frozen
+  prompt raises the banner. Slash invocation: `listSkills` verb + `createSession`'s
+  `invokeSkills` (an explicit one-turn body load, persisted as a `system` frame above the user
+  turn). MCP: enabled library entries are delivered per turn — the Claude SDK gets them on its
+  native `mcpServers` option beside the in-process `coa` server (which wins a name collision;
+  `strictMcpConfig` still blocks ambient config), pure-API backends surface a typed error-frame
+  degrade naming the unavailable servers. **Remaining:** the composer `/skill` UI + the Library
+  surface (renderer work), and Codex `config.toml` MCP parsing, still parked (TOML dependency;
+  skills dir is scanned, its MCP layer is not).
 
 ## Remaining work (keystones first)
 

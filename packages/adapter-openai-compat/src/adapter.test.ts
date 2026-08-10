@@ -269,6 +269,49 @@ describe('OpenAiCompatAdapter', () => {
     });
   });
 
+  it('surfaces configured MCP servers as an honest typed degrade — no MCP runtime here', async () => {
+    const frames: TurnFrame[] = [];
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'go',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch({}),
+      onTurn: (f) => frames.push(f),
+      mcpServers: {
+        gh: { transport: 'stdio', command: 'gh-mcp' },
+        docs: { transport: 'http', url: 'https://docs.example' },
+      },
+    });
+    wire(adapter);
+
+    await adapter.runLoop(SESSION);
+
+    const degrade = frames.find((f) => f.t === 'error');
+    expect(degrade).toMatchObject({
+      t: 'error',
+      origin: 'loop',
+      message: expect.stringContaining('no MCP support'),
+    });
+    expect((degrade as { message: string }).message).toContain('gh');
+    expect((degrade as { message: string }).message).toContain('docs');
+    // The loop still ran — a degrade is a fact on the stream, never a cage.
+    expect(frames).toContainEqual({ t: 'text', text: 'done' });
+  });
+
+  it('emits no degrade frame when no MCP servers were configured (byte-identical floor)', async () => {
+    const frames: TurnFrame[] = [];
+    const adapter = new OpenAiCompatAdapter(deepseekSpec, {
+      sessionId: 's1',
+      input: 'go',
+      env: { DEEPSEEK_API_KEY: 'sk-1' },
+      fetchImpl: textFetch({}),
+      onTurn: (f) => frames.push(f),
+    });
+    wire(adapter);
+    await adapter.runLoop(SESSION);
+    expect(frames.some((f) => f.t === 'error')).toBe(false);
+  });
+
   it('forwards a registered base tool (e.g. Read) onto the wire tools list', async () => {
     const captured: Captured = {};
     const readTool: RegisteredTool = {

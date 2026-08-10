@@ -2,6 +2,7 @@ import type {
   Attachment,
   BackendMessage,
   Locator,
+  McpServerEntry,
   ModelSelection,
   NeutralConfig,
   SessionConfig,
@@ -58,6 +59,15 @@ export interface OpenAiCompatAdapterInit {
   visionSupported?: boolean;
   /** The account's login pointer (an env-var/key-file pointer); absent ⇒ the spec's default key var. */
   locator?: Locator;
+  /**
+   * The library-resolved external MCP servers the session ASKED for. This backend
+   * has no MCP runtime (a pure chat API + coa's own governed tools), so it cannot
+   * honor them — the honest degrade is a typed error frame naming the unavailable
+   * servers at loop start (the session carries the fact; strict-superset — a
+   * feature this backend lacks is surfaced, never silently pretended). Absent or
+   * empty ⇒ byte-identical to before.
+   */
+  mcpServers?: Record<string, McpServerEntry>;
   /**
    * Record on-disk changes no governed tool made (the daemon's reconciler). Fired after
    * every tool call: coa executes its own tools, but a shell command can touch anything
@@ -141,6 +151,17 @@ export class OpenAiCompatAdapter implements RuntimeAdapter {
       throw new Error(
         `${this.#spec.id}: no API key — set ${this.#spec.apiKeyEnvVar} or add an env-var account`,
       );
+    }
+    // MCP degrade, surfaced BEFORE the loop runs: this backend has no MCP runtime,
+    // so a session that asked for external servers is told so on its own turn
+    // stream (recorded like any loop-origin advisory), never silently shorted.
+    const unavailableMcp = Object.keys(this.#init.mcpServers ?? {});
+    if (unavailableMcp.length > 0) {
+      this.#init.onTurn?.({
+        t: 'error',
+        origin: 'loop',
+        message: `the ${this.#spec.id} backend has no MCP support — configured server(s) unavailable this session: ${unavailableMcp.join(', ')}`,
+      });
     }
     const reasoning = this.#init.model?.reasoning;
     const complete = makeOpenAiCompatComplete(this.#spec, {
