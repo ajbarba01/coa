@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LibraryService } from './service.js';
 import { copiedSkillPath, libraryStoreDir } from './store.js';
@@ -178,6 +178,45 @@ describe('LibraryService.unlink / setEnabled', () => {
     expect(service.unlink({ kind: 'skill', scope: 'project', name: 'commits' })).toBe(false);
   });
 
+  it('never removes a directory outside the store for a crafted traversal record name', () => {
+    const { home, projectRoot, service } = fixture();
+    // A directory OUTSIDE the store that a traversal name would reach:
+    // join(storeDir, 'skills', '../../../victim') === join(projectRoot, 'victim').
+    const victimDir = join(projectRoot, 'victim');
+    mkdirSync(victimDir, { recursive: true });
+    writeFileSync(join(victimDir, 'precious.txt'), 'do not delete');
+
+    // Hand-write the project store the way a hostile repo clone would carry it.
+    const storeDir = libraryStoreDir(home, projectRoot, 'project');
+    mkdirSync(storeDir, { recursive: true });
+    writeFileSync(
+      join(storeDir, 'library.json'),
+      JSON.stringify({
+        version: 1,
+        records: [
+          {
+            name: '../../../victim',
+            kind: 'skill',
+            mode: 'copy',
+            enabled: true,
+            source: { path: join(projectRoot, 'victim', 'SKILL.md') },
+            provenance: { sourcePath: join(projectRoot, 'victim', 'SKILL.md'), contentHash: 'x' },
+          },
+        ],
+      }),
+    );
+
+    // The crafted record must never load as a live entry (only a diagnostic)…
+    const view = service.list();
+    expect(view.entries).toEqual([]);
+    expect(view.diagnostics.some((d) => d.problem === 'invalid')).toBe(true);
+    // …so unlink finds nothing, and the victim directory survives untouched.
+    expect(service.unlink({ kind: 'skill', scope: 'project', name: '../../../victim' })).toBe(
+      false,
+    );
+    expect(existsSync(join(victimDir, 'precious.txt'))).toBe(true);
+  });
+
   it('setEnabled flips the flag and throws for an unknown entry', () => {
     const { home, service } = fixture();
     const path = writeSkill(join(home, '.claude', 'skills'), 'commits');
@@ -190,6 +229,34 @@ describe('LibraryService.unlink / setEnabled', () => {
     expect(() =>
       service.setEnabled({ kind: 'skill', scope: 'personal', name: 'ghost' }, true),
     ).toThrow(/no skill entry/);
+  });
+});
+
+describe('LibraryService × duplicate ~/.claude.json project keys', () => {
+  it('resolves a server recorded under a LATER samePath-equal project key (Claude Code writes case-variant duplicates)', () => {
+    const { home, projectRoot, service } = fixture();
+    const configPath = join(home, '.claude.json');
+    // Two distinct JSON keys naming the same root — the real file on a Windows
+    // machine carries case-variant duplicates; a trailing separator is the
+    // portable equivalent (samePath-equal on every platform).
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        projects: {
+          [projectRoot]: { mcpServers: {} },
+          [`${projectRoot}${sep}`]: { mcpServers: { gh: { command: 'npx' } } },
+        },
+      }),
+    );
+    const summary = service.link({
+      kind: 'mcp',
+      scope: 'project',
+      source: { path: configPath, serverName: 'gh' },
+    });
+    expect(summary.record.name).toBe('gh');
+    const entry = service.list().entries.find((e) => e.record.kind === 'mcp');
+    expect(entry?.status).toBe('ok');
+    expect(entry?.mcp).toMatchObject({ transport: 'stdio', command: 'npx' });
   });
 });
 

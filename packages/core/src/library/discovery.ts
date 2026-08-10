@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type {
   DiscoveredMcpServer,
@@ -35,7 +35,19 @@ export const defaultLibraryScanIO: LibraryScanIO = {
   readDirNames: (dir) => {
     try {
       return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
+        .filter((entry) => {
+          // Skill managers install skills as symlinks/junctions, and Claude Code
+          // itself follows them — a Dirent that is not a directory may still NAME
+          // one, so follow with a stat instead of trusting `Dirent.isDirectory()`
+          // (which is false for every link). A dangling link is not a skill
+          // directory; it is skipped like any plain file, never a throw.
+          if (entry.isDirectory()) return true;
+          try {
+            return statSync(join(dir, entry.name)).isDirectory();
+          } catch {
+            return false;
+          }
+        })
         .map((entry) => entry.name);
     } catch {
       return [];
@@ -103,12 +115,13 @@ function samePath(a: string, b: string): boolean {
 
 function scanMcpServers(paths: LibraryPaths, io: LibraryScanIO, scan: LibraryScan): void {
   // Collected per layer first, then flattened in precedence order so shadowing
-  // is computable: a name claimed by an earlier (more local) layer marks every
+  // is computable: a name claimed by an earlier (more local) layer — or by an
+  // earlier entry in the SAME layer (duplicate project keys) — marks every
   // later occurrence with `shadowedBy` rather than dropping it (surfaced, honest).
   const layers: {
     layer: McpLayer;
     configPath: string;
-    servers: Record<string, NormalizedServer>;
+    servers: [string, NormalizedServer][];
   }[] = [];
 
   const claudeUserPath = join(paths.home, '.claude.json');
@@ -119,8 +132,24 @@ function scanMcpServers(paths: LibraryPaths, io: LibraryScanIO, scan: LibrarySca
         paths.projectRoot,
         samePath,
       );
-      layers.push({ layer: 'claude-local', configPath: claudeUserPath, servers: parsed.local });
-      layers.push({ layer: 'claude-user', configPath: claudeUserPath, servers: parsed.user });
+      layers.push({
+        layer: 'claude-local',
+        configPath: claudeUserPath,
+        // The merged winners first, then the duplicate-key losers: the claimed-map
+        // below turns each loser into a shadowed entry of this same layer.
+        servers: [
+          ...Object.entries(parsed.local),
+          ...parsed.localShadowed.map(({ name, server }): [string, NormalizedServer] => [
+            name,
+            server,
+          ]),
+        ],
+      });
+      layers.push({
+        layer: 'claude-user',
+        configPath: claudeUserPath,
+        servers: Object.entries(parsed.user),
+      });
     } catch (err) {
       scan.diagnostics.push({
         kind: 'mcp',
@@ -140,7 +169,7 @@ function scanMcpServers(paths: LibraryPaths, io: LibraryScanIO, scan: LibrarySca
       const entry = {
         layer: 'project-mcp' as const,
         configPath: projectMcpPath,
-        servers: parsed.servers,
+        servers: Object.entries(parsed.servers),
       };
       if (insertAt === -1) layers.push(entry);
       else layers.splice(insertAt, 0, entry);
@@ -156,9 +185,8 @@ function scanMcpServers(paths: LibraryPaths, io: LibraryScanIO, scan: LibrarySca
 
   const claimed = new Map<string, McpLayer>();
   for (const { layer, configPath, servers } of layers) {
-    for (const [name, normalized] of Object.entries(servers).sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
+    // A stable sort keeps a duplicate-key winner ahead of its same-name loser.
+    for (const [name, normalized] of [...servers].sort(([a], [b]) => a.localeCompare(b))) {
       if (!normalized.ok) {
         scan.diagnostics.push({
           kind: 'mcp',

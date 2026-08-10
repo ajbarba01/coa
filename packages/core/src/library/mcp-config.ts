@@ -106,13 +106,19 @@ export interface ParsedClaudeUserConfig {
   user: Record<string, NormalizedServer>;
   /** `projects[<root>].mcpServers` — the local (per-project) layer, highest precedence. */
   local: Record<string, NormalizedServer>;
+  /** Same-name entries from ADDITIONAL matching project keys, beaten by `local`'s
+   *  winner — surfaced (as shadowing) rather than dropped. */
+  localShadowed: { name: string; server: NormalizedServer }[];
 }
 
 /**
- * Parse `~/.claude.json`, resolving the project entry whose key names
+ * Parse `~/.claude.json`, resolving EVERY project entry whose key names
  * `projectRoot`. Project keys are compared through the injected `samePath`
  * (path-resolve equality) so separator/casing differences between what Claude
- * Code wrote and what the daemon was launched with never lose the local layer.
+ * Code wrote and what the daemon was launched with never lose the local layer —
+ * and because Claude Code itself writes duplicate case-variant keys for one
+ * root, ALL matching keys are merged (first key wins per server name; the
+ * losers surface in `localShadowed`), never just the first key found.
  */
 export function parseClaudeUserConfig(
   text: string,
@@ -121,11 +127,19 @@ export function parseClaudeUserConfig(
 ): ParsedClaudeUserConfig {
   const data = claudeUserConfigSchema.parse(JSON.parse(text));
   const projects = data.projects ?? {};
-  const localKey = Object.keys(projects).find((key) => samePath(key, projectRoot));
-  const local = localKey !== undefined ? (projects[localKey]?.mcpServers ?? {}) : {};
+  const local: Record<string, NormalizedServer> = {};
+  const localShadowed: { name: string; server: NormalizedServer }[] = [];
+  for (const key of Object.keys(projects).filter((k) => samePath(k, projectRoot))) {
+    for (const [name, value] of Object.entries(projects[key]?.mcpServers ?? {})) {
+      const server = normalizeMcpServer(value);
+      if (name in local) localShadowed.push({ name, server });
+      else local[name] = server;
+    }
+  }
   return {
     user: mapServers(data.mcpServers ?? {}),
-    local: mapServers(local),
+    local,
+    localShadowed,
   };
 }
 

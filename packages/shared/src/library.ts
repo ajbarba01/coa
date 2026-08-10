@@ -88,13 +88,24 @@ export const libraryProvenanceSchema = z.object({
 export type LibraryProvenance = z.infer<typeof libraryProvenanceSchema>;
 
 /**
+ * A library entry's name must be a single safe path segment: a copied skill's
+ * name becomes a directory under the store, and unlink removes that directory
+ * recursively. Enforced HERE, at the schema, so a crafted name (`../…`, drive
+ * letters, separators) in a store file — a committed, clone-carried artifact —
+ * never loads as a live record, not just refused at the link/copy API edge.
+ */
+export const LIBRARY_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
  * One record in a store file. Deliberately scope-free: the store's directory IS
  * the scope (the same posture as agent definitions — a record cannot disagree
  * with where it lives). `name` is the identity within (kind, store).
  */
 export const libraryRecordSchema = z
   .object({
-    name: z.string().min(1),
+    name: z
+      .string()
+      .regex(LIBRARY_NAME_PATTERN, 'a library name must be a single safe path segment'),
     kind: libraryKindSchema,
     mode: libraryLinkModeSchema,
     /** Off ⇒ excluded from injection/session wiring, still listed (a pass-through, never a cage). */

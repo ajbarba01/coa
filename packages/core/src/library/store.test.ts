@@ -113,6 +113,30 @@ describe('loadStoreFile / saveStoreFile', () => {
     expect(loaded.diagnostics).toHaveLength(1);
   });
 
+  it('refuses a path-traversal record name at load — it never becomes a live record', () => {
+    // A project store is a COMMITTED file: a cloned repo can carry a crafted
+    // record whose name climbs out of the store, so the name rule must hold at
+    // load, not only in the link/copy API path.
+    const crafted = {
+      name: '../../../victim',
+      kind: 'skill',
+      mode: 'copy',
+      enabled: true,
+      source: { path: '/src/victim/SKILL.md' },
+      provenance: { sourcePath: '/src/victim/SKILL.md', contentHash: 'abc' },
+    };
+    const io = {
+      readFile: () => JSON.stringify({ version: 1, records: [crafted] }),
+      writeFile: () => {},
+      exists: () => true,
+      mkdir: () => {},
+      removeDir: () => {},
+    };
+    const loaded = loadStoreFile('/fake/library.json', 'project', io);
+    expect(loaded.file.records).toEqual([]);
+    expect(loaded.diagnostics[0]?.problem).toBe('invalid');
+  });
+
   it('reports an in-file duplicate and keeps the first', () => {
     const text = JSON.stringify({ version: 1, records: [ref('twice'), ref('TWICE')] });
     const io = {

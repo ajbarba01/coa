@@ -79,6 +79,28 @@ describe('parseClaudeUserConfig', () => {
     const parsed = parseClaudeUserConfig(text, '/nowhere', samePath);
     expect(parsed.local).toEqual({});
   });
+
+  it('merges the servers of EVERY matching project key, first key winning per name', () => {
+    // Claude Code writes duplicate case-variant keys for the same root; a server
+    // recorded under a later duplicate must not silently vanish.
+    const dup = JSON.stringify({
+      projects: {
+        'C:\\repo': { mcpServers: { shared: { command: 'first' } } },
+        'c:\\repo': { mcpServers: { shared: { command: 'second' }, extra: { command: 'e' } } },
+      },
+    });
+    const parsed = parseClaudeUserConfig(dup, 'C:\\REPO', samePath);
+    expect(Object.keys(parsed.local).sort()).toEqual(['extra', 'shared']);
+    expect(parsed.local['shared']).toMatchObject({ ok: true, entry: { command: 'first' } });
+    expect(parsed.local['extra']).toMatchObject({ ok: true, entry: { command: 'e' } });
+    // The losing duplicate is surfaced, not dropped.
+    expect(parsed.localShadowed).toHaveLength(1);
+    expect(parsed.localShadowed[0]?.name).toBe('shared');
+    expect(parsed.localShadowed[0]?.server).toMatchObject({
+      ok: true,
+      entry: { command: 'second' },
+    });
+  });
 });
 
 describe('canonicalJson', () => {

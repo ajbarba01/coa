@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  LIBRARY_NAME_PATTERN,
   libraryStoreFileSchema,
   libraryRecordSchema,
   type LibraryDiagnostic,
@@ -34,16 +35,18 @@ export function libraryStoreFilePath(dir: string): string {
   return join(dir, 'library.json');
 }
 
-/** A copied skill's materialized SKILL.md inside a store directory. */
+/** A copied skill's materialized SKILL.md inside a store directory. The assert is
+ *  belt-and-braces below the schema's own name rule: every path built here must be
+ *  INSIDE the store, whatever future load path produced the record. */
 export function copiedSkillPath(dir: string, name: string): string {
+  assertSafeLibraryName(name);
   return join(dir, 'skills', name, 'SKILL.md');
 }
 
-/** A name must be a single path segment: a copied skill's name becomes a directory. */
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
+/** A name must be a single path segment ({@link LIBRARY_NAME_PATTERN} — enforced by
+ *  `libraryRecordSchema` at load; re-asserted here at the API edge for a clear refusal). */
 export function assertSafeLibraryName(name: string): void {
-  if (!SAFE_NAME.test(name)) throw new Error(`invalid library entry name: ${name}`);
+  if (!LIBRARY_NAME_PATTERN.test(name)) throw new Error(`invalid library entry name: ${name}`);
 }
 
 const key = (kind: LibraryKind, name: string): string => `${kind}:${name.toLowerCase()}`;
