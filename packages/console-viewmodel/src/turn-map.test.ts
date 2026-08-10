@@ -277,24 +277,34 @@ describe('mapping a governed deny', () => {
     ).toEqual([{ id: 's1:5', kind: 'deny', denyKind: 'close-gate', reason: 'open invariant' }]);
   });
 
-  it('reloads a persisted deny identically to the live push', () => {
+  it('reloads a persisted deny identically to the live push — same id, same frame', () => {
+    // The daemon pushes and persists a frame under the SAME seq (frame-recorder emitAt),
+    // so the reloaded view frame must carry the identical id the live push produced:
+    // that shared identity is what lets a rehydration merge dedupe by id instead of
+    // guessing by content.
     expect(
-      reloadToViewFrames({
-        turns: [
-          { seq: 7, frame: { t: 'deny', denyKind: 'close-gate', reason: 'blocked at close' } },
-        ],
-        skipped: 0,
-      }),
-    ).toEqual([{ id: 't7', kind: 'deny', denyKind: 'close-gate', reason: 'blocked at close' }]);
+      reloadToViewFrames(
+        {
+          turns: [
+            { seq: 7, frame: { t: 'deny', denyKind: 'close-gate', reason: 'blocked at close' } },
+          ],
+          skipped: 0,
+        },
+        's1',
+      ),
+    ).toEqual([{ id: 's1:7', kind: 'deny', denyKind: 'close-gate', reason: 'blocked at close' }]);
   });
 
   it('ends a transcript the store could not fully read with a notice saying so', () => {
     // Without this the readable remainder renders as if it were the whole conversation:
     // missing turns leave no gap, so a fragment and a complete record look identical.
-    const frames = reloadToViewFrames({
-      turns: [{ seq: 0, frame: { t: 'text', text: 'kept', role: 'user' } }],
-      skipped: 3,
-    });
+    const frames = reloadToViewFrames(
+      {
+        turns: [{ seq: 0, frame: { t: 'text', text: 'kept', role: 'user' } }],
+        skipped: 3,
+      },
+      's1',
+    );
     expect(frames).toHaveLength(2);
     expect(frames[1]).toMatchObject({ role: 'system', kind: 'text' });
     expect(frames[1]).toHaveProperty('text', expect.stringContaining('3 unreadable events'));
@@ -311,8 +321,8 @@ describe('mapping a governed deny', () => {
       turns: [{ seq: 0, frame: { t: 'text', text: 'from an older daemon', role: 'user' } }],
       skipped: 0,
     });
-    expect(reloadToViewFrames(parsed)).toEqual([
-      { id: 't0', role: 'you', kind: 'text', text: 'from an older daemon' },
+    expect(reloadToViewFrames(parsed, 's1')).toEqual([
+      { id: 's1:0', role: 'you', kind: 'text', text: 'from an older daemon' },
     ]);
     // An empty conversation is still the array shape, and still not an error.
     expect(reloadedConversationSchema.parse([])).toEqual({ turns: [], skipped: 0 });
@@ -325,11 +335,14 @@ describe('mapping a governed deny', () => {
 
   it('says nothing when the whole record read cleanly', () => {
     expect(
-      reloadToViewFrames({
-        turns: [{ seq: 0, frame: { t: 'text', text: 'kept', role: 'user' } }],
-        skipped: 0,
-      }),
-    ).toEqual([{ id: 't0', role: 'you', kind: 'text', text: 'kept' }]);
+      reloadToViewFrames(
+        {
+          turns: [{ seq: 0, frame: { t: 'text', text: 'kept', role: 'user' } }],
+          skipped: 0,
+        },
+        's1',
+      ),
+    ).toEqual([{ id: 's1:0', role: 'you', kind: 'text', text: 'kept' }]);
   });
 });
 
