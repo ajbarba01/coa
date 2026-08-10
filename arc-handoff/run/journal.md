@@ -2097,3 +2097,64 @@ sequential execution in the main tree, with each agent doing its own explicit gi
 one pattern that has worked without exception all night, incident or not. If a future session wants
 to try isolation again, treat it as an experiment to validate on something small and low-stakes
 first, not as the default for a multi-stage feature build.
+
+## [F1+F7 landed] — 2026-08-09
+
+Rerun (sequential, main tree) finished cleanly: Core-3 (A2A messaging, the biggest single item)
+built `send_message`/mesh addressing/live roster/a durable message log per the critiqued design doc
+(ADR-0039, with the critique's actual verdicts acted on — mesh-not-hierarchy held up against both
+Traycer and Roo Code's real implementations), plus the `subagent` TurnFrame producer for spawn/
+completion/A2A cards. UI (Fable) built the Subagents dock, Worktree dock, all three transcript
+block kinds, and confirmed the Cost floor degrades honestly (still "Not tracked yet" — the roll-up
+stayed parked, see below).
+
+**Verify ran the full 3-round loop and found one more real bug**, extending this arc's unbroken
+per-feature streak: round 2 caught a session's isolated worktree silently un-isolating after a
+daemon restart (the in-memory `WorktreeManager` record is lost on restart, so a resumed session's
+next turn fell back to the shared root without telling anyone). Fixed round 3: `bind()` now
+rehydrates from disk via `git worktree list` + directory mtime whenever it has no in-memory record,
+unconditional on the caller's `isolate` flag — matching the exact "reconcile from disk, never trust
+an in-memory index alone" reasoning the module's own header comment already credited to Bruno.
+Round 3 verify passed clean (6 independent throwaway adversarial probes against the real shipped
+class, all green) with only two non-blocking leftovers: a stale M8.md sentence still describing "no
+worktree manager exists yet" (flagged 3 rounds running, never fixed by the fix agents — fixed by the
+orchestrator directly post-merge, `6b0a988`, since it's a trivial one-line doc correction with zero
+functional risk) and thin reference-shortlist attribution (Bruno + Traycer credited, OpenHands/Roo
+Code named in the critique but never cited in code comments — Note-only, left alone).
+
+**Cost roll-up stayed parked, correctly** — the completion-delivery/discovery/cost agent
+investigated properly rather than taking the roadmap's "just wire an RPC" framing at face value:
+`LedgerRecord`'s allow-list has no session-identifying field at all (root is only attached when
+`session.parent !== undefined`, so a root session's own spend is untagged and every sibling child
+shares the same `root` value, indistinguishable from each other). This is a data-model gap, not a
+wiring task — documented in ROADMAP/OPEN/M8, left unbuilt rather than forced through.
+
+**Two operational incidents this build surfaced, both caught and fixed before real damage, both now
+standing lessons** (full detail in the two entries above this one): the node_modules-junction
+robocopy incident (605 tracked files deleted by a cleanup command, fully recovered via `git
+restore`, root cause was the junction-linking technique itself, now banned for this arc), and
+`isolation: 'worktree'` recurring after being reported fixed (reverted to sequential for the rest of
+the arc). A THIRD, smaller mistake happened during THIS merge: after the build finished, an
+attempted `git checkout arc/f1-f7-orchestration` in the main tree failed (another worktree already
+had it checked out) and the very next `git reset --hard` command landed on `arc/stage3` instead
+(since the failed checkout left HEAD where it was) — silently moving the local `arc/stage3` branch
+pointer to `arc/f1-f7-orchestration`'s tip and reverting the just-pushed `apps/cli` build-script fix
+in the working tree. Caught immediately via the harness's own "this file was modified, take it into
+account" reminder on the next edit attempt; fixed with a second `git reset --hard` against origin's
+`arc/stage3` (nothing was ever pushed in the broken state, so this was a zero-cost local-only
+mistake) — recorded as a reminder that **a failed `git checkout` does not mean nothing happened
+next**: always confirm the actual current branch before running `reset --hard`, don't assume a
+failed command left you exactly where you expected.
+
+Also cleaned up: a stray `coa-fix-backup-worktree-manager.ts` scratch file a fix-round agent left at
+the repo root (a `git stash`-denial workaround, matching the arc's known pattern — deleted, was a
+duplicate of the committed file, never tracked); a manually-created `f1-a2a-wt` worktree one agent
+made on its own initiative to route around the branch-already-checked-out conflict (verified zero
+external junctions, then removed the same safe way).
+
+Merged into `arc/stage3` clean, no conflicts beyond an auto-resolved `ROADMAP.md` (`20a0699`), plus
+the M8.md fix (`6b0a988`). Full gate green post-merge (3418 tests, depcruise 449/1337, docs-check
+64). Pushed.
+
+Next: F4 (Library — skills + MCP manager), before F8 since F8's viewer needs to show injected
+skills.
