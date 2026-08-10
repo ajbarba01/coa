@@ -238,7 +238,26 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   factored out so both share one sanitizer and one row cap), rather than a second registry. Granted
   by the Core package's `toolRefs` alongside `spawn_agent`, so anywhere a model may spawn it may
   also discover. The cost roll-up's RPC producer (below) is a separate, harder gap — parked, not
-  shipped with this.
+  shipped with this. **Agent-to-agent messaging now ships too** (`docs/adr/0039`): `send_message`
+  (kernel, non-blocking) and `list_agents` (on-demand, the LIVE roster — distinct from
+  `find_agent`'s registry read) let any two sessions sharing a family-tree root talk, hierarchy as
+  provenance only. A durable append-only message log lives per root under `.coa/local/messages/`,
+  deliberately not the change-event spine. Delivery realizes on the two mechanisms the session
+  layer already had: `Delivery`/`DeliveryQueue` for a receiver mid-turn, a freshly queued turn
+  ("wake", `SessionService.#wake`) for every other receiver state — idle, not-registered
+  (idle-evicted), and not-yet-started all collapse onto the SAME mechanism, since none can be
+  reached by a plain queue push (nothing is draining it outside an active turn). The roster is
+  relationship-relative (`self`/`parent`/`child`/`ancestor`/`descendant`/`other`), each row
+  liveness-graded with confidence (`'observed'` when currently registered or this process itself
+  watched the session end; `'advisory'` otherwise — never a fabricated signal). **Deviates from
+  the design doc's own "cost cap bounds it" claim**: `docs/adr/0035` had already archived the cap
+  three days earlier, so messaging inherits the same no-fan-out-bound acceptance `spawn_agent`
+  already lives under, not a second cap that no longer exists. Three new `TurnFrame` kinds
+  (`subagent-spawn`/`subagent-completion`/`subagent-message`) announce these events on the
+  daemon's live push stream for the console, added alongside (not replacing) the existing
+  zero-producer `subagent` kind — live-only, never persisted (a reload won't show one; the card
+  rendering itself is the next phase's job). See `docs/adr/0039` for the full design and its named
+  deviations.
 
 ## Remaining work (keystones first)
 
@@ -329,12 +348,16 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   since the predicate now reaches it via `PreToolUse`. The delegation deny probe is
   retired-by-success: the floor removes the tool, so the path is unreachable until P1c
   chooses to alias `Agent` onto a governed spawn.
-- **M. Subagent discovery — done. The cost roll-up's RPC producer — investigated, parked [S–M].**
-  Two gaps the subagent orchestration arc named but did not build (see the workstream entry above;
-  [ADR-0032](docs/adr/0032-the-cost-cap-bounds-fan-out.md)/[0033](docs/adr/0033-a-notice-is-not-a-message.md)/[0034](docs/adr/0034-a-subagent-is-a-session-with-a-parent-link.md)).
+- **M. Subagent discovery — done. Agent-to-agent messaging — done. The cost roll-up's RPC
+  producer — investigated, parked [S–M].** Gaps the subagent orchestration arc named but did not
+  build at the time (see the workstream entry above;
+  [ADR-0032](docs/adr/0032-the-cost-cap-bounds-fan-out.md)/[0033](docs/adr/0033-a-notice-is-not-a-message.md)/[0034](docs/adr/0034-a-subagent-is-a-session-with-a-parent-link.md)/[0039](docs/adr/0039-agent-to-agent-messaging-is-a-mesh-with-no-fan-out-bound.md)).
   **Discovery — done**: `find_agent` (on-demand, granted via Core alongside `spawn_agent`) searches
   the live roster by `ref`/`name`/`description`; see the workstream entry above for the full
-  wiring. **The cost roll-up's producer — investigated and PARKED, not a cheap RPC wire-up**: the
+  wiring. **Messaging — done**: `send_message`/`list_agents`, a durable per-root log, and three
+  live-only `TurnFrame` announcement kinds; see the workstream entry above and `docs/adr/0039` for
+  the full design and its deviations from the design doc (the cost-cap claim chief among them —
+  `docs/adr/0035` had already archived it). **The cost roll-up's producer — investigated and PARKED, not a cheap RPC wire-up**: the
   original framing (add `costUsd` to `listSessions`, join against the ledger) undersold the gap.
   The ledger's `LedgerRecord` allow-list (`packages/core/src/governance/ledger.ts`) has **no
   session-identifying field at all** — only `root` (the top-of-tree ancestor), and even that is

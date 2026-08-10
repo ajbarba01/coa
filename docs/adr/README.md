@@ -64,6 +64,7 @@ Decision history, not a rulebook. Each ADR captures one architecturally-signific
 - [0036](0036-model-metadata-catalog-and-attachment-wire-shape.md) — A merged model-metadata catalog, and attachments ride the existing message shape
 - [0037](0037-worktree-isolation-is-opt-in-bound-once-reaped-explicitly.md) — Worktree isolation is opt-in, bound once, and reaped explicitly
 - [0038](0038-a-completion-notice-may-quote-the-childs-own-result.md) — A completion notice may quote the child's own result (supersedes 0033's "never the child's output" clause)
+- [0039](0039-agent-to-agent-messaging-is-a-mesh-with-no-fan-out-bound.md) — Agent-to-agent messaging is a mesh, with no fan-out bound (deviates from 0032 as written, in agreement with 0035)
 
 ---
 
