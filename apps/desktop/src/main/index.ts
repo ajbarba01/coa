@@ -658,6 +658,10 @@ async function runMethod(
       return proxyDaemon(event, 'newSession', params);
     case 'listSessions':
       return proxyDaemon(event, 'listSessions');
+    case 'listWorktrees':
+      return proxyDaemon(event, 'listWorktrees');
+    case 'reapWorktree':
+      return proxyDaemon(event, 'reapWorktree', params);
     case 'reloadConversation':
       return proxyDaemon(event, 'reloadConversation', params);
     case 'deleteSession':

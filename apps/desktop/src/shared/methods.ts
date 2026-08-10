@@ -13,10 +13,12 @@ import {
   ModelMetadataViewSchema,
   PackageSummaryListSchema,
   permissionModeSchema,
+  ReapWorktreeResultSchema,
   ReasoningProfileSchema,
   RoleSummaryListSchema,
   SessionListSchema,
   TimelineSchema,
+  WorktreeListSchema,
   modelSelectionSchema,
   modelDescriptorSchema,
   reloadedConversationSchema,
@@ -268,6 +270,8 @@ export type MethodName =
   | 'startSession'
   | 'newSession'
   | 'listSessions'
+  | 'listWorktrees'
+  | 'reapWorktree'
   | 'reloadConversation'
   | 'deleteSession'
   | 'recompilePrompt'
@@ -361,6 +365,16 @@ export const METHODS: Record<MethodName, MethodSpec> = {
   startSession: { params: StartSessionParamsSchema, result: StartSessionResultSchema },
   newSession: { params: NewSessionParamsSchema, result: NewSessionResultSchema },
   listSessions: { result: SessionListSchema },
+  /** Every isolated session worktree (path + cheap dirty summary + liveness) — the
+   *  Worktree dock floor's read. Proxies the daemon `listWorktrees`. */
+  listWorktrees: { result: WorktreeListSchema },
+  /** The explicit reap (docs/adr/0037: nothing else ever removes an isolated
+   *  worktree). Proxies the daemon `reapWorktree`, which refuses a session whose
+   *  turn is running right now rather than deleting the directory under it. */
+  reapWorktree: {
+    params: z.object({ sessionId: z.string() }),
+    result: ReapWorktreeResultSchema,
+  },
   reloadConversation: { params: z.object({ id: z.string() }), result: reloadedConversationSchema },
   deleteSession: { params: z.object({ id: z.string() }), result: OkResultSchema },
   recompilePrompt: {

@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptFrame } from '@coa/console-transcript';
-import type { TurnFrame } from '@coa/console-viewmodel';
+import { pushSchema, pushToViewFrames, type TurnFrame } from '@coa/console-viewmodel';
 import {
   ChatSurface,
   composerMeasure,
@@ -1334,5 +1334,140 @@ describe('selectChatVm — per-model info (the ring, the attach gate, the hover-
     expect(vm.attach.image.enabled).toBe(false);
     expect(vm.attach.image.reason).toBe('Image support is unverified for this model');
     expect(vm.attach.text.enabled).toBe(true);
+  });
+});
+
+describe('subagent announcement cards — producer→renderer round trip', () => {
+  /** Validate a raw wire push exactly as the live console edge does, then map it
+   *  through the same two translations the shipped path uses (wire → view →
+   *  transcript frame) before rendering. Any drift between the daemon's schema
+   *  and the renderer's expectations fails HERE, not in production. */
+  const viewFramesFromWire = (rawPush: unknown): TurnFrame[] =>
+    pushToViewFrames(pushSchema.parse(rawPush));
+
+  const turnPush = (frame: unknown, seq = 0): unknown => ({
+    kind: 'turn',
+    sessionId: 's-audit-auth',
+    worktree: '/repo',
+    seq,
+    frame,
+  });
+
+  it('round-trips a subagent-spawn push to a rendered card with identity color + jump', async () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-spawn',
+        childSessionId: 's-ledger-tests',
+        childWorktree: '/repo/.coa/worktrees/s-ledger-tests',
+        agentRef: 'roles/reviewer',
+        description: 'review the ledger diff',
+        isolate: true,
+      }),
+    );
+    const selectSession = vi.fn();
+    const { container } = render(
+      <ChatSurface state={stateWith({ status: 'ok', value: frames }, {}, { selectSession })} />,
+    );
+    expect(screen.getByText('review the ledger diff')).toBeInTheDocument();
+    expect(screen.getByText('Spawned')).toBeInTheDocument();
+    // The identity color overlay resolves roles/reviewer → teal from the agents list.
+    expect(container.querySelector('.text-agent-teal')?.textContent).toBe('roles/reviewer');
+    await userEvent.click(screen.getByRole('button', { name: /open thread/i }));
+    expect(selectSession).toHaveBeenCalledWith('s-ledger-tests');
+  });
+
+  it('round-trips a subagent-completion push quoting the child’s own result verbatim', () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-completion',
+        childSessionId: 's-ledger-tests',
+        childWorktree: '/repo/.coa/worktrees/s-ledger-tests',
+        agentRef: 'roles/reviewer',
+        reason: 'completed',
+        result: 'Two findings, both minor.',
+      }),
+    );
+    render(<ChatSurface state={stateWith({ status: 'ok', value: frames })} />);
+    expect(screen.getByText('Done')).toBeInTheDocument();
+    expect(screen.getByText('Two findings, both minor.')).toBeInTheDocument();
+  });
+
+  it('an errored completion wears its own pill and the detail line', () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-completion',
+        childSessionId: 's-ledger-tests',
+        childWorktree: 'wt',
+        agentRef: 'roles/reviewer',
+        reason: 'errored',
+        detail: 'rate limited',
+      }),
+    );
+    render(<ChatSurface state={stateWith({ status: 'ok', value: frames })} />);
+    expect(screen.getByText('Errored')).toBeInTheDocument();
+    expect(screen.getByText('rate limited')).toBeInTheDocument();
+  });
+
+  it('round-trips a subagent-message push, resolving both session titles and jumping to the counterparty', async () => {
+    const frames = viewFramesFromWire(
+      turnPush({
+        t: 'subagent-message',
+        messageId: 'm1',
+        threadId: 'm1',
+        from: 's-audit-auth',
+        to: 's-ledger-tests',
+        direction: 'sent',
+        body: 'symbol map attached',
+      }),
+    );
+    const selectSession = vi.fn();
+    render(
+      <ChatSurface state={stateWith({ status: 'ok', value: frames }, {}, { selectSession })} />,
+    );
+    // The label overlay resolves both session ids to their rail titles.
+    expect(screen.getByText('audit auth flow')).toBeInTheDocument();
+    expect(screen.getByText('harden ledger tests')).toBeInTheDocument();
+    expect(screen.getByText('symbol map attached')).toBeInTheDocument();
+    expect(screen.getByText('Sent')).toBeInTheDocument();
+    // Sent ⇒ the counterparty is the recipient.
+    await userEvent.click(screen.getByRole('button', { name: /open thread/i }));
+    expect(selectSession).toHaveBeenCalledWith('s-ledger-tests');
+  });
+
+  it('raw mode projects all three announcement kinds as verbatim control lines', () => {
+    expect(
+      frameToRawLine({
+        id: '1',
+        kind: 'subagent-spawn',
+        childSessionId: 'c1',
+        childWorktree: 'wt',
+        agentRef: 'reviewer',
+        description: 'review',
+        isolate: false,
+      }),
+    ).toBe('> control: subagent spawn reviewer (c1) review');
+    expect(
+      frameToRawLine({
+        id: '2',
+        kind: 'subagent-completion',
+        childSessionId: 'c1',
+        childWorktree: 'wt',
+        agentRef: 'reviewer',
+        reason: 'completed',
+        result: 'ok',
+      }),
+    ).toBe('> control: subagent completed reviewer (c1) ok');
+    expect(
+      frameToRawLine({
+        id: '3',
+        kind: 'subagent-message',
+        messageId: 'm1',
+        threadId: 'm1',
+        from: 'a',
+        to: 'b',
+        direction: 'sent',
+        body: 'hello',
+      }),
+    ).toBe('> control: message sent a -> b hello');
   });
 });

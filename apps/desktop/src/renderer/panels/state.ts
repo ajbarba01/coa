@@ -15,6 +15,7 @@ import type {
   SessionUsage,
   ToolClass,
   TurnFrame,
+  WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
@@ -50,6 +51,9 @@ export interface ConsoleData {
    *  to the empty list. */
   agentDiagnostics: AgentDiagnostic[];
   sessions: Remote<SessionSummary[]>;
+  /** Every session running in its own isolated git worktree (the daemon's
+   *  `listWorktrees` read) — the Worktree dock floor's rows. */
+  worktrees: Remote<WorktreeView[]>;
   /** The active account's available models + per-model reasoning capabilities (live, cached). */
   models: Remote<ModelDescriptor[]>;
   /** The per-model info catalog (context window/pricing/modalities/reasoning) — the
@@ -140,6 +144,12 @@ export interface ConsoleUi {
    *  adapters' own settlement numbers; never invented locally). The context ring
    *  reads it against the active model's window. */
   usageBySession: Record<string, SessionUsage>;
+  /** Live child status keyed by CHILD session id, mirrored from the parent-stream
+   *  `subagent-spawn`/`subagent-completion` announcements (live-only frames — a
+   *  reload does not replay them, so an absent entry means "not observed", never
+   *  "idle"). The Subagents dock floor reads it beside `runStatus` (which only
+   *  covers sessions THIS console subscribed to). */
+  subagentStatus: Record<string, { state: 'running' | 'completed' | 'errored' | 'stopped' }>;
 }
 
 /** App-owned callbacks panels invoke to drive the console. */
@@ -199,6 +209,10 @@ export interface ConsoleActions {
    *  nothing (advisory — a user redirect, never a block). Fire-and-forget; the transcript updates
    *  from the daemon's own turn Push. Queue-mode follow-ups are held console-side by the panel. */
   steerSession: (sessionId: string, text: string) => void;
+  /** Reap a session's isolated worktree (the Worktree dock's explicit cleanup —
+   *  nothing else ever removes one). The daemon refuses while that session's turn
+   *  is running; a refusal surfaces as a notice, never a block. */
+  reapWorktree: (sessionId: string) => void;
 }
 
 /** The single object pushed into the engine via setDaemonState: data down,
@@ -220,6 +234,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       agents: { status: 'loading' },
       agentDiagnostics: [],
       sessions: { status: 'loading' },
+      worktrees: { status: 'loading' },
       models: { status: 'loading' },
       modelMetadata: { status: 'loading' },
       roles: { status: 'loading' },
@@ -238,6 +253,7 @@ export function initialState(actions: ConsoleActions): ConsoleState {
       modeBySession: {},
       pendingApprovalsBySession: {},
       usageBySession: {},
+      subagentStatus: {},
     },
     actions,
   };

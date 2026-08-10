@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import type { TurnFrame } from '@coa/console-viewmodel';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConsoleState } from '../panels/state.js';
 import { makeState } from '../testing/fixtures.js';
 import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
-import { Work } from './Work.js';
+import { childDotStatus, Work } from './Work.js';
 
 const initialShell = useShell.getState();
 
@@ -66,7 +67,9 @@ describe('Work', () => {
       }),
     );
     render(<Work />);
-    expect(screen.getByText('first child')).toBeTruthy();
+    // The title also appears as the Subagents floor's own row for this child, so
+    // assert presence, not uniqueness.
+    expect(screen.getAllByText('first child').length).toBeGreaterThan(0);
     expect(screen.getByText(/^subagent$/i)).toBeTruthy();
     expect(screen.queryByText(/^root$/i)).toBeNull();
   });
@@ -161,5 +164,193 @@ describe('Work', () => {
     );
     render(<Work />);
     expect(screen.getByText('$11.00')).toBeTruthy();
+  });
+
+  it('Cost degrades honestly to the floor while NOTHING in the tree carries a spend (roll-up producer parked)', () => {
+    const root = { ...SESSION };
+    const child = {
+      id: 'child1',
+      title: 'first child',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T01:00:00.000Z',
+      parent: 'c1',
+      root: 'c1',
+    };
+    publishConsoleState(
+      makeState({
+        data: { sessions: { status: 'ok', value: [root, child] } },
+        ui: { activeSessionId: 'c1' },
+      }),
+    );
+    render(<Work />);
+    // No fabricated number anywhere — the floor line stands in (Changes floors too,
+    // so at least one "not tracked yet" must be the Cost section's).
+    expect(screen.queryByText(/^\$/)).toBeNull();
+    expect(screen.getAllByText(/not tracked yet/i).length).toBeGreaterThan(1);
+  });
+});
+
+const CHILD = {
+  id: 'child1',
+  title: 'first child',
+  agentRef: 'roles/dev',
+  updatedAt: '2026-07-11T01:00:00.000Z',
+  parent: 'c1',
+  root: 'c1',
+};
+const GRANDCHILD = {
+  id: 'grandchild1',
+  title: 'grandchild task',
+  agentRef: 'roles/dev',
+  updatedAt: '2026-07-11T02:00:00.000Z',
+  parent: 'child1',
+  root: 'c1',
+};
+const DEV_AGENT = {
+  ref: 'roles/dev',
+  name: 'dev',
+  description: 'builds things',
+  icon: 'bot' as const,
+  color: 'teal' as const,
+  scope: 'project' as const,
+};
+
+describe('Work — Subagents floor', () => {
+  it('shows a childless tree as "no subagents yet", never the not-tracked floor', () => {
+    publish();
+    render(<Work />);
+    expect(screen.getByText(/no subagents yet/i)).toBeTruthy();
+  });
+
+  it('lists children depth-nested with the agent identity name and a jump-to-thread row', () => {
+    const selectSession = vi.fn();
+    publishConsoleState(
+      makeState({
+        data: {
+          sessions: { status: 'ok', value: [SESSION, CHILD, GRANDCHILD] },
+          agents: { status: 'ok', value: [DEV_AGENT] },
+        },
+        ui: { activeSessionId: 'c1' },
+        actions: { selectSession },
+      }),
+    );
+    render(<Work />);
+    const childRow = screen.getByRole('button', { name: 'Open first child' });
+    const grandchildRow = screen.getByRole('button', { name: 'Open grandchild task' });
+    // Depth nests via the row's own indent (one step per depth beyond a direct child).
+    expect(childRow.style.paddingLeft).toBe('14px');
+    expect(grandchildRow.style.paddingLeft).toBe('26px');
+    // The identity color marks the agent name.
+    expect(childRow.querySelector('.text-agent-teal')?.textContent).toBe('dev');
+    fireEvent.click(childRow);
+    expect(selectSession).toHaveBeenCalledWith('child1');
+  });
+
+  it('childDotStatus reads the console run map first, then the announcement mirror, then idle', () => {
+    const base = makeState({});
+    expect(childDotStatus('x', base)).toBe('idle');
+    expect(childDotStatus('x', makeState({ ui: { runStatus: { x: { since: 1 } } } }))).toBe(
+      'running',
+    );
+    expect(
+      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'running' } } } })),
+    ).toBe('running');
+    expect(
+      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'completed' } } } })),
+    ).toBe('done');
+    expect(
+      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'errored' } } } })),
+    ).toBe('critical');
+    expect(
+      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'stopped' } } } })),
+    ).toBe('idle');
+  });
+});
+
+describe('Work — Worktree floor', () => {
+  const WT = {
+    sessionId: 'child1',
+    path: '/repo/.coa/worktrees/child1',
+    createdAt: '2026-08-09T00:00:00.000Z',
+  };
+
+  function publishWorktrees(
+    worktrees: ConsoleState['data']['worktrees'],
+    reapWorktree = vi.fn(),
+  ): ReturnType<typeof vi.fn> {
+    publishConsoleState(
+      makeState({
+        data: {
+          sessions: { status: 'ok', value: [SESSION, CHILD] },
+          worktrees,
+        },
+        ui: { activeSessionId: 'c1' },
+        actions: { reapWorktree },
+      }),
+    );
+    return reapWorktree;
+  }
+
+  it('a failed read surfaces as a quiet alert line, never fake rows', () => {
+    publishWorktrees({ status: 'error', message: 'daemon unreachable' });
+    render(<Work />);
+    expect(screen.getByRole('alert').textContent).toContain('daemon unreachable');
+  });
+
+  it('no isolated worktrees reads as the honest shared-root line', () => {
+    publishWorktrees({ status: 'ok', value: [] });
+    render(<Work />);
+    expect(screen.getByText(/shared project root/i)).toBeTruthy();
+  });
+
+  it('a clean tree-member row shows its path tail + Clean and reaps on one click', () => {
+    const reap = publishWorktrees({
+      status: 'ok',
+      value: [{ ...WT, dirty: false, filesChanged: 0, running: false }],
+    });
+    render(<Work />);
+    expect(screen.getByText(/child1$/)).toBeTruthy();
+    expect(screen.getByText('Clean')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reap' }));
+    expect(reap).toHaveBeenCalledWith('child1');
+  });
+
+  it('a DIRTY row asks once more (arm → Discard Changes) before reaping', () => {
+    const reap = publishWorktrees({
+      status: 'ok',
+      value: [{ ...WT, dirty: true, filesChanged: 3, running: false }],
+    });
+    render(<Work />);
+    expect(screen.getByText('3 changed')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reap' }));
+    expect(reap).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }));
+    expect(reap).toHaveBeenCalledWith('child1');
+  });
+
+  it('a RUNNING session’s row withholds the reap control and says so', () => {
+    publishWorktrees({
+      status: 'ok',
+      value: [{ ...WT, dirty: false, filesChanged: 0, running: true }],
+    });
+    render(<Work />);
+    expect(screen.getByText('Running')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reap' })).toBeNull();
+  });
+
+  it('worktrees outside the active family tree fold to one quiet count line', () => {
+    publishWorktrees({
+      status: 'ok',
+      value: [
+        {
+          sessionId: 'elsewhere',
+          path: '/repo/.coa/worktrees/elsewhere',
+          createdAt: '2026-08-09T00:00:00.000Z',
+        },
+      ],
+    });
+    render(<Work />);
+    expect(screen.getByText(/shared project root/i)).toBeTruthy();
+    expect(screen.getByText('1 in other sessions')).toBeTruthy();
   });
 });

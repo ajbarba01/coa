@@ -212,8 +212,9 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   `git worktree add` checkout under the gitignored `.coa/worktrees/<sessionId>/`, confined at the
   Retrieve/Mutate/base-tool seam too (`catalogueFor`/`baseCatalogueFor` now take the session's own
   bound worktree, not just the daemon's static root). An isolated worktree survives its session
-  ending (results may need review); cleanup is an explicit `reap()` call (the callable seam a
-  future RPC verb uses — no such verb yet) or the daemon-start `sweepStale()` idle sweep. The
+  ending (results may need review); cleanup is an explicit reap — now a real RPC verb pair
+  (`listWorktrees`/`reapWorktree`, `worktree-handlers.ts`; reap refuses a session whose turn is
+  running) — or the daemon-start `sweepStale()` idle sweep. The
   `begin_fork`/`exit_fork` tool verbs that would expose this to a model are still unbuilt (item E).
   **The tree cost roll-up is implemented and unit-tested but has no producer**:
   `listSessions` maps the conversation store straight through with no `costUsd`, and the ledger's
@@ -255,9 +256,17 @@ pair. **Conversation persistence is now ONE append-only event log** (`docs/adr/0
   already lives under, not a second cap that no longer exists. Three new `TurnFrame` kinds
   (`subagent-spawn`/`subagent-completion`/`subagent-message`) announce these events on the
   daemon's live push stream for the console, added alongside (not replacing) the existing
-  zero-producer `subagent` kind — live-only, never persisted (a reload won't show one; the card
-  rendering itself is the next phase's job). See `docs/adr/0039` for the full design and its named
-  deviations.
+  zero-producer `subagent` kind — live-only, never persisted (a reload won't show one). See
+  `docs/adr/0039` for the full design and its named deviations. **The console surfaces now ship
+  too**: the three announcements render as first-class transcript cards
+  (`console-transcript`'s `SubagentCards` — agent identity color, status pill, jump-to-thread
+  via the session switcher); the Work column's Subagents floor lists the active family tree's
+  children depth-nested with live status (the console's own run map first, then the announcement
+  mirror, idle-ground when neither observed) and jump-to-thread rows; and the Worktree floor
+  reads the new `listWorktrees` verb (path, cheap dirty summary, liveness) with the explicit
+  reap wired to `reapWorktree` (a dirty tree confirms once more; a running session's reap is
+  withheld). Changes and the session-cost roll-up stay honestly floored (the cost producer is
+  parked, below).
 
 ## Remaining work (keystones first)
 
@@ -303,8 +312,8 @@ Everything else, grouped by area (size tags: `[S]` small, `[M]` medium, `[L]` la
   composition, with running-aware idle-timeout eviction, `onClose`-hooked checkpoint/worktree-release, and
   `registry.closeAll()` wired into shutdown) is DONE; interactive multi-turn REPL / streaming-input mode [M];
   the worktree manager is DONE (real `git worktree add`/`remove` under `.coa/worktrees/`, opt-in
-  isolation, idle-sweep on daemon start — a reap RPC verb for the Worktree dock's floor action is
-  the remaining gap, tracked with the dock itself under "Someday / ideas"); subagents (D122 depth-1
+  isolation, idle-sweep on daemon start, and the `listWorktrees`/`reapWorktree` verbs feeding the
+  Worktree dock floor); subagents (D122 depth-1
   fan-out) [L]; DACL/peer-cred hardening on the named-pipe transport [M].
 - **J. M1 graph hardening (GRF-*)** — calls/inherits/weight edges, an SCC model, temporal
   projection [L]; underpins M3 staleness and M4 health scoring.
@@ -488,7 +497,8 @@ everything else the new design overwrites.
   title strip). The right column now shows the session's real state — the root agent row and the agent's
   plan checklist (Claude-only seam: `plan` frames come from the SDK `TodoWrite` tool; a session without one
   shows a "no plan yet" line) — with subagents / changes / worktree / record / session-cost as honestly
-  labeled "not tracked yet" floors (their data is deferred, items E/I). The flags nav item keeps the app's
+  labeled "not tracked yet" floors (their data was deferred, items E/I; the Subagents and Worktree floors
+  have since gone live — see the subagent orchestration workstream). The flags nav item keeps the app's
   only red count. The nav HUD content (usage/account/flags mini-states) was deferred out of this arc — see
   "Someday / ideas".
 - **W4 — Orphan homes [M]. ✅ Done.** The redesigned **agents editor** (role/package picker, thinking
@@ -597,11 +607,6 @@ Captured from prior scratch notes; none of these are planned or sized yet:
   beyond the current structural (M1/M2) graph.
 - **Prompt-engineering surface** — a dedicated surface for iterating on and testing prompts/roles.
 - **Agent tools** — summarization and judgement-filtering tools for agents to call mid-session.
-- **Worktree dock** — the console surface for `WorktreeManager` (`packages/core/src/session/worktree-manager.ts`):
-  which sessions have their own isolated worktree, its path, and a dirty/changed-file indicator
-  (`WorktreeManager.status`), plus a floor action wired to a new `reap` RPC verb calling
-  `WorktreeManager.reap` (the manager's read/reap surface already exists; only the RPC verb + the
-  dock UI itself are unbuilt).
 - **Open design sub-questions** (surfaced during graduation; unsettled, each sits within an accepted ADR):
   where the baseline Piece set physically lives — a built-in package vs. a seeded `.coa/` bundle (the
   general built-in∪user merge mechanism is settled in `docs/adr/0003`; only this placement call is open);

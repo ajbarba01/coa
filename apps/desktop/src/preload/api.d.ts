@@ -17,8 +17,10 @@ import type {
   PermissionMode,
   ReloadedConversationWire,
   ReasoningProfile,
+  ReapWorktreeResult,
   RoleSummary,
   SessionSummary,
+  WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../shared/settings.js';
 import type { DaemonReport } from '../shared/methods.js';
@@ -81,6 +83,12 @@ declare global {
       }): Promise<{ sessionId: string; worktree: string }>;
       newSession(params: { agentRef: string; scope?: string }): Promise<{ id: string }>;
       listSessions(): Promise<SessionSummary[]>;
+      /** Every isolated session worktree (path + dirty summary + liveness) — the
+       *  Worktree dock's read. Proxies the daemon `listWorktrees`. */
+      listWorktrees(): Promise<{ worktrees: WorktreeView[] }>;
+      /** The explicit reap; the daemon refuses (`reaped: false`, `reason: 'running'`)
+       *  while the session's turn is in flight. Proxies the daemon `reapWorktree`. */
+      reapWorktree(params: { sessionId: string }): Promise<ReapWorktreeResult>;
       reloadConversation(params: { id: string }): Promise<ReloadedConversationWire>;
       deleteSession(params: { id: string }): Promise<{ ok: boolean }>;
       recompilePrompt(params: { sessionId: string }): Promise<{ recompiled: boolean }>;

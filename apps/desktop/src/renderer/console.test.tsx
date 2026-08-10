@@ -46,6 +46,8 @@ function fakeBridge(over: Partial<ConsoleBridge> = {}): ConsoleBridge {
     saveAgent: vi.fn().mockResolvedValue({ ok: true }),
     deleteAgent: vi.fn().mockResolvedValue({ removed: true }),
     listSessions: vi.fn().mockResolvedValue(FAKE_SESSIONS),
+    listWorktrees: vi.fn().mockResolvedValue({ worktrees: [] }),
+    reapWorktree: vi.fn().mockResolvedValue({ reaped: true }),
     newSession: vi.fn().mockResolvedValue({ id: 'c-new' }),
     reloadConversation: vi.fn().mockResolvedValue(reloaded()),
     deleteSession: vi.fn().mockResolvedValue({ ok: true }),
@@ -1772,5 +1774,83 @@ describe('F2 — permission modes', () => {
 
     expect(last().ui.modeBySession['c1']).toMatchObject({ mode: 'plan', effectiveMode: 'bypass' });
     expect(last().ui.modeBySession['c1']?.degraded).toBeDefined();
+  });
+});
+
+describe('subagent announcements — the parent-stream mirror', () => {
+  it('mirrors spawn→running and completion→reason into ui.subagentStatus, refreshing the session + worktree reads', async () => {
+    let emit: ((payload: unknown) => void) | undefined;
+    const bridge = fakeBridge({
+      onPush: vi.fn((listener: (payload: unknown) => void) => {
+        emit = listener;
+        return () => {};
+      }),
+    });
+    const { last } = await mount(bridge);
+    const listWorktrees = bridge.listWorktrees as ReturnType<typeof vi.fn>;
+    const listSessions = bridge.listSessions as ReturnType<typeof vi.fn>;
+    const worktreeReadsBefore = listWorktrees.mock.calls.length;
+    const sessionReadsBefore = listSessions.mock.calls.length;
+
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 5,
+      frame: {
+        t: 'subagent-spawn',
+        childSessionId: 'child-1',
+        childWorktree: '/repo/.coa/worktrees/child-1',
+        agentRef: 'roles/reviewer',
+        description: 'review the diff',
+        isolate: true,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.subagentStatus['child-1']).toEqual({ state: 'running' });
+    // A spawn is a new rail row and (isolated) a new worktree — both reads re-run.
+    expect(listSessions.mock.calls.length).toBeGreaterThan(sessionReadsBefore);
+    expect(listWorktrees.mock.calls.length).toBeGreaterThan(worktreeReadsBefore);
+
+    emit?.({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 6,
+      frame: {
+        t: 'subagent-completion',
+        childSessionId: 'child-1',
+        childWorktree: '/repo/.coa/worktrees/child-1',
+        agentRef: 'roles/reviewer',
+        reason: 'errored',
+        detail: 'rate limited',
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(last().ui.subagentStatus['child-1']).toEqual({ state: 'errored' });
+  });
+
+  it('reapWorktree surfaces a running refusal as a notice and re-reads on success', async () => {
+    const reap = vi
+      .fn()
+      .mockResolvedValueOnce({ reaped: false, reason: 'running' })
+      .mockResolvedValueOnce({ reaped: true });
+    const bridge = fakeBridge({ reapWorktree: reap });
+    const { last } = await mount(bridge);
+    const listWorktrees = bridge.listWorktrees as ReturnType<typeof vi.fn>;
+    const readsBefore = listWorktrees.mock.calls.length;
+
+    useNotices.getState().dismiss();
+    last().actions.reapWorktree('child-1');
+    await new Promise((r) => setTimeout(r, 0));
+    // Refused ⇒ no re-read, and the refusal is said out loud (a notice, never a block).
+    expect(listWorktrees.mock.calls.length).toBe(readsBefore);
+    expect(useNotices.getState().notice?.title).toBe('Nothing reaped');
+    expect(useNotices.getState().notice?.detail).toContain('still running');
+
+    last().actions.reapWorktree('child-1');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(listWorktrees.mock.calls.length).toBeGreaterThan(readsBefore);
+    expect(reap).toHaveBeenCalledTimes(2);
   });
 });

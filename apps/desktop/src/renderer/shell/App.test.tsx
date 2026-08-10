@@ -27,6 +27,7 @@ function stubCoa(
     listPackages: vi.fn().mockResolvedValue([]),
     listAgents: vi.fn().mockResolvedValue([]),
     listSessions: vi.fn().mockResolvedValue([]),
+    listWorktrees: vi.fn().mockResolvedValue({ worktrees: [] }),
     getSettings: () => Promise.resolve(DEFAULT_SETTINGS),
     saveSettings: () => Promise.resolve(),
     getLayout: () => Promise.resolve(undefined),
