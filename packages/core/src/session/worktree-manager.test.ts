@@ -205,6 +205,49 @@ describe('WorktreeManager (lifecycle, against a real fixture git repo)', () => {
     expect(manager.reap('never-bound')).toBe(false);
   });
 
+  it("bind({isolate:true}) on a fresh process reuses a prior process's on-disk worktree instead of re-adding (or falling back to the shared root)", () => {
+    // Simulate a daemon restart mid-isolation: a first manager creates the isolated
+    // worktree and something writes an uncommitted change into it, then the process
+    // is discarded WITHOUT reaping — exactly what a resumed isolated child's
+    // worktree looks like the moment a fresh daemon process comes up.
+    const priorRun = new WorktreeManager({ repoRoot: repo });
+    const firstPath = priorRun.bind('child-1', 'src', { isolate: true });
+    writeFileSync(join(firstPath, 'uncommitted.ts'), 'export const x = 1;\n');
+
+    const warnings: string[] = [];
+    const freshRun = new WorktreeManager({ repoRoot: repo, onWarn: (m) => warnings.push(m) });
+    const secondPath = freshRun.bind('child-1', 'src', { isolate: true });
+
+    // The regression this pins: without disk reconciliation, `bind()` would try
+    // `git worktree add` into a path that already exists, fail, warn, and silently
+    // hand back the shared root — orphaning `uncommitted.ts` on disk unreferenced.
+    expect(secondPath).toBe(firstPath);
+    expect(existsSync(join(secondPath, 'uncommitted.ts'))).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
+  it('list() surfaces an isolated worktree a PRIOR process created, before this process has bound anything itself', () => {
+    const priorRun = new WorktreeManager({ repoRoot: repo });
+    const orphanPath = priorRun.bind('child-1', 'src', { isolate: true });
+
+    // A brand-new manager, standing in for a fresh daemon process — its own
+    // `#records` starts empty, exactly like a real restart's `WorktreeManager`.
+    const freshRun = new WorktreeManager({ repoRoot: repo });
+    const records = freshRun.list();
+    expect(records.map((r) => r.sessionId)).toEqual(['child-1']);
+    expect(records[0]?.path).toBe(orphanPath);
+    expect(records[0]?.isolated).toBe(true);
+  });
+
+  it('reap() removes a worktree this process never bound itself, discovered on disk', () => {
+    const priorRun = new WorktreeManager({ repoRoot: repo });
+    const orphanPath = priorRun.bind('child-1', 'src', { isolate: true });
+
+    const freshRun = new WorktreeManager({ repoRoot: repo });
+    expect(freshRun.reap('child-1')).toBe(true);
+    expect(existsSync(orphanPath)).toBe(false);
+  });
+
   it('sweepStale() reaps a worktree left behind by a prior process once past staleAfterMs', () => {
     // Simulate the prior (crashed) daemon run: a first manager creates an isolated
     // worktree and is then discarded WITHOUT reaping it — exactly what a crash leaves

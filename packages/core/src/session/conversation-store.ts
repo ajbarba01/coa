@@ -107,6 +107,13 @@ const metaSchema = z.object({
   /** The root of this session's family tree — itself, for a root. Stored rather than
    *  walked: a parent chain can cycle, and a stored root is constant-time and cannot. */
   root: z.string().optional(),
+  /** Whether this session was spawned with its own isolated git worktree
+   *  (`StartChildRequest.isolate`). Persisted (unlike `WorktreeManager`'s own
+   *  in-memory record, which does not survive a daemon restart) so a later turn —
+   *  e.g. `SessionService#wake` answering an inbound message after a restart — can
+   *  still ask `bindWorktree` to rebind the session's own worktree instead of
+   *  silently falling back to the shared root. */
+  isolated: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   backendSessionId: z.string().optional(),
@@ -179,6 +186,8 @@ export interface ConversationStore {
     scope: string;
     parent?: string;
     root?: string;
+    /** See {@link SessionMeta.isolated}. */
+    isolate?: boolean;
   }): SessionMeta;
   /** Every session, most-recently-active first. Corrupt entries are skipped. */
   list(): SessionMeta[];
@@ -294,7 +303,7 @@ export function createConversationStore(
   };
 
   return {
-    create({ id, agentRef, title, scope, parent, root }) {
+    create({ id, agentRef, title, scope, parent, root, isolate }) {
       const ts = now();
       const meta: SessionMeta = {
         id,
@@ -305,6 +314,7 @@ export function createConversationStore(
         updatedAt: ts,
         ...(parent !== undefined ? { parent } : {}),
         ...(root !== undefined ? { root } : {}),
+        ...(isolate === true ? { isolated: true } : {}),
       };
       writeMeta(meta);
       return meta;

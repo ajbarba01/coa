@@ -188,6 +188,83 @@ describe('inter-agent messaging — wired end to end', () => {
     expect(adapters[0]?.configsSeen.length).toBeGreaterThan(0);
   });
 
+  it('re-supplies isolate:true on a woken child’s continuation turn after a simulated daemon restart', async () => {
+    // `bindWorktree` here is a bare recorder (not the real `WorktreeManager`) — this
+    // pins the SessionService/SessionMeta half of the fix: the persisted
+    // `isolated` flag actually reaches a woken continuation turn's `bindWorktree`
+    // call, across two otherwise-unrelated `SessionService`/`LiveSessionRegistry`
+    // instances sharing only the durable `store` — exactly what a daemon restart
+    // leaves in common.
+    const binds: Array<{ id: string; isolate: boolean | undefined }> = [];
+    let n = 0;
+    const makeDeps = (): SessionDeps => ({
+      newSessionId: () => `sess-${++n}`,
+      bindWorktree: (id, _scope, opts) => {
+        binds.push({ id, isolate: opts?.isolate });
+        return `/wt/${id}`;
+      },
+      releaseWorktree: () => {},
+      assemblePieces: () => ({ pieces: [], frame: { allow: [], deny: [] } }),
+      compile: () => NEUTRAL,
+      sandboxPolicy: () => SANDBOX,
+      charge: () => {},
+      perToolDeny: () => undefined,
+      gate: () => ({ allow: true }),
+      catalogue: [],
+      baseCatalogue: [],
+      checkpoint: () => {},
+      observeChanges: () => {},
+      createAdapter: (init) => new TestAdapter(init, false),
+    });
+
+    // First daemon lifetime: spawn an isolated child and let its founding turn finish.
+    const registry1 = new LiveSessionRegistry();
+    const service1 = new SessionService({
+      deps: makeDeps(),
+      registry: registry1,
+      store,
+      listAgents: () => AGENTS,
+      messageLog,
+    });
+    registry1.getOrCreate('sender-1');
+    store.create({ id: 'sender-1', agentRef: 'explorer', title: 't', scope: '' });
+    const spawn = service1.spawnFor('sender-1');
+    if (spawn === undefined) throw new Error('spawn unavailable');
+    const { sessionId: childId } = spawn.startChild({
+      agentRef: 'explorer',
+      description: 'go look',
+      prompt: 'x',
+      isolate: true,
+    });
+    await flush();
+    expect(binds).toEqual([{ id: childId, isolate: true }]);
+    binds.length = 0; // only the wake's own rebind is under test below
+
+    // Simulate a daemon restart: a brand-new registry AND a brand-new service — the
+    // in-memory `WorktreeManager` the real `bindWorktree` would close over is gone
+    // too. Nothing survives except what `store` persisted to disk.
+    const registry2 = new LiveSessionRegistry();
+    const service2 = new SessionService({
+      deps: makeDeps(),
+      registry: registry2,
+      store,
+      listAgents: () => AGENTS,
+      messageLog,
+    });
+    expect(registry2.get(childId)).toBeUndefined();
+
+    const messaging = service2.messagingFor('sender-1');
+    if (messaging === undefined) throw new Error('messaging unavailable');
+    const outcome = messaging.send({ to: childId, body: 'still there?' });
+    expect(outcome).toMatchObject({ applied: true, plan: { kind: 'wake' } });
+    await flush();
+
+    // The regression this pins: without persisting `isolated` on `SessionMeta` and
+    // re-supplying it in `#wake`, this bind call would carry `isolate: undefined`,
+    // silently rebinding the resumed child to the shared root.
+    expect(binds).toEqual([{ id: childId, isolate: true }]);
+  });
+
   it('refuses a send across family trees even when both ids are otherwise known', async () => {
     const service = buildService();
     registry.getOrCreate('sender-1');

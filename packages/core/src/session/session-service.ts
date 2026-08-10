@@ -424,6 +424,10 @@ export class SessionService {
       scope,
       parent: parentId,
       root,
+      // Persisted (not just carried on this founding turn's QueuedTurn) so a later
+      // daemon restart can still tell `#wake` this child owns its own worktree —
+      // see `SessionMeta.isolated`'s doc.
+      isolate: req.isolate === true,
     });
 
     const turn: QueuedTurn = {
@@ -699,8 +703,12 @@ export class SessionService {
    * record of it) or joins the queue an already-registered one is parked on. `to` is
    * assumed already validated by `dispatchMessage` (an unknown id never reaches here);
    * a `store.getMeta` miss is defensive-only. Mirrors `#startChild`'s own
-   * agent-definition → role/model/roles/packageIds/exclude derivation, since a woken
-   * session's next turn needs the exact same facts a spawn's founding turn does.
+   * agent-definition-to-role/model/roles/packageIds/exclude derivation, since a woken
+   * session's next turn needs the exact same facts a spawn's founding turn does —
+   * INCLUDING `isolate`: `meta.isolated` is what `#startChild` persisted at spawn
+   * time, and re-supplying it here is what lets a woken turn rebind its own worktree
+   * after a daemon restart, when `WorktreeManager`'s in-memory record of the
+   * session's prior isolation decision no longer exists (docs/adr/0037).
    */
   #wake(to: string, store: ConversationStore, input: string): void {
     const meta = store.getMeta(to);
@@ -738,6 +746,10 @@ export class SessionService {
       ...(agent?.roles !== undefined ? { roles: agent.roles } : {}),
       ...(agent?.packageIds !== undefined ? { packageIds: agent.packageIds } : {}),
       ...(agent?.exclude !== undefined ? { exclude: agent.exclude } : {}),
+      // Re-supply the session's isolation decision from persisted `SessionMeta` —
+      // see this method's doc — rather than trusting `WorktreeManager` to still
+      // remember it, which it will not across a daemon restart.
+      ...(meta.isolated === true ? { isolate: true } : {}),
     };
     session.enqueue(turn);
     this.#registry.touch(to);

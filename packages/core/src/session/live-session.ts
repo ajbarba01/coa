@@ -109,11 +109,16 @@ export interface QueuedTurn extends TurnRequest {
    *  pending answer with the worktree as soon as the turn starts. */
   onReady?: (started: StartedHandle) => void;
   /**
-   * Set only on a spawned child's FOUNDING turn (`SessionService#startChild`, from
+   * Set on a spawned child's FOUNDING turn (`SessionService#startChild`, from
    * `StartChildRequest.isolate`) — an ordinary `send()` never sets this, so a
    * top-level session is never isolated. `bindWorktree` is idempotent per session
    * (see `WorktreeManager`), so a later turn on the same child omitting this is
-   * fine: the session's isolation decision was already made on its first turn.
+   * normally fine: the session's isolation decision was already made on its first
+   * turn, and `WorktreeManager` still remembers it in-process. That memory does NOT
+   * survive a daemon restart, though — `SessionService#wake` (waking an idle child
+   * to deliver an inbound message) re-sets this field from the persisted
+   * `SessionMeta.isolated` flag specifically to cover that case, so a resumed
+   * session's worktree binding never silently degrades to the shared root.
    */
   isolate?: boolean;
 }

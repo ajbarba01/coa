@@ -146,7 +146,12 @@ export class WorktreeManager {
    * separate git worktree; it is honored only against a git-backed `repoRoot` and
    * only degrades (never throws) when it is not, or when the underlying `git
    * worktree add` itself fails — a session's isolation request is an enhancement,
-   * never a precondition for the session to start.
+   * never a precondition for the session to start. Before attempting a fresh
+   * `git worktree add`, an isolate decision with no in-memory record is first
+   * reconciled against disk (see {@link #rehydrate}) — a daemon restart empties
+   * `#records`, but a PRIOR process's real worktree (and whatever it wrote,
+   * possibly uncommitted) is still registered with git; adding again into that
+   * same path would simply fail and silently un-isolate the session.
    */
   bind(sessionId: string, _scope: string, opts?: { isolate?: boolean }): string {
     const action = decideBind({
@@ -158,6 +163,8 @@ export class WorktreeManager {
       existingPath: this.#records.get(sessionId)?.path,
     });
     if (action.kind !== 'isolate') return action.path;
+    const rehydrated = this.#rehydrate(sessionId);
+    if (rehydrated !== undefined) return rehydrated.path;
     try {
       // `action.path`'s own parent — already the coa-managed directory, already
       // normalized by `decideBind` — rather than re-deriving it from `repoRoot`.
@@ -178,24 +185,34 @@ export class WorktreeManager {
     return action.path;
   }
 
-  /** This process's record for `sessionId`; `undefined` when it was never bound, was
-   *  bound to the shared root, or has since been reaped. */
+  /** This process's record for `sessionId` — reconciled against disk first (see
+   *  {@link #rehydrate}) when THIS process has never bound it itself, so a session a
+   *  PRIOR process isolated still resolves correctly across a daemon restart.
+   *  `undefined` when the session was never isolated, is bound to the shared root,
+   *  or has since been reaped. */
   get(sessionId: string): WorktreeRecord | undefined {
-    return this.#records.get(sessionId);
+    return this.#records.get(sessionId) ?? this.#rehydrate(sessionId);
   }
 
   /** Every isolated worktree this process currently knows about — the read side the
    *  Worktree dock's data (path, whether a session has its own worktree) reaches
-   *  through, via the `listWorktrees` verb (worktree-handlers.ts). */
+   *  through, via the `listWorktrees` verb (worktree-handlers.ts). Reconciled against
+   *  `git worktree list --porcelain` first (see {@link #reconcileFromDisk}): a daemon
+   *  restart always starts with an empty `#records`, so without reconciling, the dock
+   *  would honestly-but-wrongly report "no isolated worktrees" while a prior process's
+   *  real ones still sit on disk. */
   list(): WorktreeRecord[] {
+    this.#reconcileFromDisk();
     return [...this.#records.values()];
   }
 
   /** A cheap dirty/changed-file-count read for an isolated session's worktree — one
    *  `git status --porcelain` call, no diff computed. `undefined` for a session with
-   *  no isolated worktree. */
+   *  no isolated worktree. Falls back to a disk lookup (see {@link #rehydrate}) like
+   *  {@link get}/{@link reap}, so this reads correctly for a session this process
+   *  never itself bound. */
   status(sessionId: string): WorktreeStatus | undefined {
-    const record = this.#records.get(sessionId);
+    const record = this.#records.get(sessionId) ?? this.#rehydrate(sessionId);
     if (record === undefined) return undefined;
     const output = git(['status', '--porcelain', '--untracked-files=all'], record.path);
     const lines = output.split('\n').filter((line) => line.length > 0);
@@ -209,10 +226,13 @@ export class WorktreeManager {
    * registered worktree's directory is already gone by hand. This is the callable
    * seam the `reapWorktree` verb (worktree-handlers.ts — the Worktree dock's reap
    * action) calls. `false` for a session with no isolated worktree to reap — the shared
-   * root is never removable through this method.
+   * root is never removable through this method. Falls back to a disk lookup (see
+   * {@link #rehydrate}) exactly like {@link get}, so a session THIS process never
+   * bound — e.g. reaped straight after a restart, before anything else has called
+   * {@link list} — can still be reaped correctly rather than reading as unknown.
    */
   reap(sessionId: string): boolean {
-    const record = this.#records.get(sessionId);
+    const record = this.#records.get(sessionId) ?? this.#rehydrate(sessionId);
     if (record === undefined) return false;
     this.#removeWorktree(record.path);
     this.#records.delete(sessionId);
@@ -270,6 +290,52 @@ export class WorktreeManager {
       found.push({ sessionId: path.posix.basename(worktreePath), worktreePath });
     }
     return found;
+  }
+
+  /** Look up `sessionId`'s worktree directly via git (one `git worktree list
+   *  --porcelain` call — see {@link #listCoaWorktrees}) and, if git already has it
+   *  registered, adopt it into `#records`. This is the bridge across a daemon
+   *  restart: `#records` is always empty on a fresh process, but a PRIOR process's
+   *  real `git worktree add` — and whatever it wrote there, possibly uncommitted —
+   *  is still on disk and still registered with git, which this process can
+   *  rediscover exactly the way {@link sweepStale} already does. `undefined` when
+   *  git has no coa-managed worktree for this session (never isolated, already
+   *  reaped, or outside a git repo). */
+  #rehydrate(sessionId: string): WorktreeRecord | undefined {
+    if (!this.#isGitRepo()) return undefined;
+    const match = this.#listCoaWorktrees().find((w) => w.sessionId === sessionId);
+    if (match === undefined) return undefined;
+    const record = this.#recordFromDisk(match);
+    this.#records.set(sessionId, record);
+    return record;
+  }
+
+  /** Adopt every coa-managed git worktree this process has not yet bound into
+   *  `#records`, so a read like {@link list} reflects the real disk/git state
+   *  rather than only what THIS process happens to remember — one `git worktree
+   *  list --porcelain` call, shared across every session discovered this way
+   *  (unlike {@link #rehydrate}, which looks up one session at a time). */
+  #reconcileFromDisk(): void {
+    if (!this.#isGitRepo()) return;
+    for (const entry of this.#listCoaWorktrees()) {
+      if (!this.#records.has(entry.sessionId)) {
+        this.#records.set(entry.sessionId, this.#recordFromDisk(entry));
+      }
+    }
+  }
+
+  /** A {@link WorktreeRecord} for a worktree this process discovered on disk rather
+   *  than created itself — `createdAt` is the best fact available for one of those:
+   *  the directory's own mtime, or `now()` when even that cannot be read (registered
+   *  with git but the path itself is gone). */
+  #recordFromDisk(entry: { sessionId: string; worktreePath: string }): WorktreeRecord {
+    let createdAt: string;
+    try {
+      createdAt = new Date(statSync(entry.worktreePath).mtimeMs).toISOString();
+    } catch {
+      createdAt = new Date(this.#now()).toISOString();
+    }
+    return { sessionId: entry.sessionId, path: entry.worktreePath, isolated: true, createdAt };
   }
 
   /** How long ago the worktree directory was last modified, or `+Infinity`
