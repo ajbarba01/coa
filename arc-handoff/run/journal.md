@@ -2158,3 +2158,24 @@ the M8.md fix (`6b0a988`). Full gate green post-merge (3418 tests, depcruise 449
 
 Next: F4 (Library — skills + MCP manager), before F8 since F8's viewer needs to show injected
 skills.
+
+## [continuation session opens — F4 launched] — 2026-08-09
+
+New Fable-orchestrated session (id `bde57b69-2e91-4947-bcaf-c13e87b750a7`) picked up the arc per
+`CONTINUATION-HANDOFF.md`. Context restored (state/journal/questions/feature-plans read), watchdog
+`$sessionId` updated to this session, heartbeat marker touched.
+
+Grounded F4 in the current tree before writing the build: the composition seam ALREADY carries
+`AgentSpec.skills?: Piece[]` (assemble-agent.ts) and emits `mcpServers: string[]` as bare names
+with NOTHING resolving them to real configs — so F4's core work is the library substrate
+(stores/discovery/link/copy/drift), the injection wiring (composition + prompt-freeze drift key +
+slash invocation), MCP name→config resolution into the Claude SDK adapter's native seam (honest
+degrade elsewhere), and the Library UI. Piece axes (push/pull + manualOnly) already model
+auto-inject vs progressive disclosure — the build brief tells agents to use them, not invent a
+parallel mechanism.
+
+Launched `f4-library-build` (run `wf_798c63b8-bd7`): Substrate → Injection → UI (Fable) → 3-round
+adversarial verify with capped fix rounds. Sequential in the shared main tree per the standing
+isolation rule — no `isolation: 'worktree'`. Reference use (Claude Code interop conventions, MCPM,
+Cline, VS Code, Insomnia/Hyper, Bruno) is baked into every agent brief with mandatory
+adaptation-journaling, closing the F3-era gap. Branch: `arc/f4-library` off `origin/arc/stage3`.
