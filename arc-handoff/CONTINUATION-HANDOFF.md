@@ -1,24 +1,24 @@
 # Arc continuation handoff — Stage 3 orchestrator session, Fable-primary
 
-Last rewritten 2026-08-09 (mid-overnight, handing off from a Sonnet-orchestrated session to a
-fresh Fable-orchestrated one — the maintainer's own call, since the remaining Stage 3 features are
-heavily UX-weighted). **This is the arc's single continuation handoff**; `run/journal.md` and
-`run/state.md` carry the detailed record, this file is the orientation layer on top.
+Last rewritten 2026-08-09 (later mid-overnight, mid-context handoff — the maintainer's own call to
+start a fresh session before this one's context grew unmanageable, not because of any failure).
+**This is the arc's single continuation handoff**; `run/journal.md` and `run/state.md` carry the
+detailed record, this file is the orientation layer on top.
 
-**Where the arc stands: Stage 3 is well underway, not "just started."** Q11, Q14, F11, and F2 are
-all DONE (built, adversarially verified, merged into `arc/stage3`, gate green, pushed). F3 is
-core+UI complete and gate-green but its verify step died on a transient network error mid-session
-— NOT a real finding, just needs a clean retry. F1+F7, F4, F8, F9, F5 have not been started. Q15
-(F10's unmeasured "done means" clauses) is still open, sized to run once F1/F7/F8 add more
-materialized-tab surface.
+**Where the arc stands: Stage 3 is well past halfway.** Q11, Q14, F11, F2, F3, and now **F1+F7**
+are all DONE — built, adversarially verified (every single one surfaced at least one real bug,
+no exceptions), merged into `arc/stage3`, gate green, pushed (tip `6b0a988`: 3418 tests, depcruise
+449/1337, docs-check 64 docs). **F4, F8, F9, F5 have not been started.** Q15 (F10's unmeasured
+"done means" clauses) is still open, sized to run now that F1/F7 have added real materialized-tab
+surface (F8 will add more before Q15 is worth actually running).
 
 ## Model allocation — Fable is primary for this continuation
 
-The maintainer is on the Max plan; Fable is available and is now the ask for the ORCHESTRATOR
-itself (not just UX-sensitive subagents, which is how the prior session used it). The remaining
-Stage 3 features (F4 library manager, F8 viewer, F9 naming, F5 light theme) skew UX-heavy, which is
-the given reason for this handoff. Keep using `model: 'fable'` for UI-half subagents within each
-feature's build (see the pattern below) regardless of which model is orchestrating.
+The maintainer is on the Max plan; Fable is available and is the ask for the ORCHESTRATOR itself.
+The remaining Stage 3 features (F4 library manager, F8 viewer, F9 naming, F5 light theme) skew
+UX-heavy — the given reason for staying Fable-orchestrated across this handoff too. Keep using
+`model: 'fable'` for UI-half subagents within each feature's build (see the pattern below)
+regardless of which model is orchestrating.
 
 ## Restore context first
 
@@ -34,17 +34,20 @@ Then read, in order:
 
 1. `arc-handoff/run/state.md` — branches, tips, stage status. **This is the most current
    file; trust it over this handoff on any numeric/tip conflict.**
-2. `arc-handoff/run/journal.md` — read from the "**Stage 3 orchestrator session opens**" entry
-   (2026-08-09) onward — that's tonight's entire session, in order: the four questions' rulings,
-   F11's grilling and build, the `isolation:'worktree'` bug discovery and workaround, F2's build
-   and its three caught bugs, F3's build. Everything before that entry is prior-session history,
-   already fully captured in `state.md`'s summary form.
-3. `arc-handoff/run/questions.md` — **Q10 ruled (operational discipline, not a charter), Q11 done,
-   Q14 done, Q15 open (size after F1/F7/F8), Q16 is F11's addition (built), Q17 is F2's parked
-   live-smoke gap.**
-4. `feature-plans.md` (this folder) — F1–F9 + **F11** (a maintainer-added feature this session,
-   NOT F10 — F10 is the cross-cutting instant-navigation criterion from the architecture stage,
-   already done). F11's full spec/ruling is a new section near the end of this file.
+2. `arc-handoff/run/journal.md` — read from the "**Fable-orchestrated continuation session opens**"
+   entry (2026-08-09) onward — that's the whole session this handoff closes out, in order: F3's
+   verify retry (4 real bugs found across 3 rounds), the worktree-isolation-bug debugging session
+   and its "RESOLVED" report, F1+F7's build (2 more real bugs, PLUS two real operational incidents
+   — a 605-file working-tree deletion fully recovered, and isolation recurring after being reported
+   fixed), and the merge. Everything before that entry is prior-session history, already fully
+   captured in `state.md`'s summary form — you do not need to re-read it.
+3. `arc-handoff/run/questions.md` — **Q10 ruled (operational discipline, not a charter), Q11/Q14
+   done, Q15 open (size now — F1/F7 landed real materialized-tab surface), Q16 is F11's addition
+   (built), Q17 is F2's parked live-smoke gap.**
+4. `feature-plans.md` (this folder) — F1–F9 + **F11** (a maintainer-added feature, NOT F10 — F10
+   is the cross-cutting instant-navigation criterion from the architecture stage, already done).
+   F11's full spec/ruling is a section near the end of this file. **F1, F2, F3, F7, F11 are all
+   built now — only F4, F8, F9, F5 remain unread-as-"still to do."**
 
 For the UX work (most of what's left):
 
@@ -63,36 +66,31 @@ For the UX work (most of what's left):
 | `arc/architecture` | `5c232df` | Stage 2 done, draft PR #2 |
 | `arc/docs` | `14b55ac` | Stage 4 done + verified, draft PR #3 |
 | `arc/c4-console` | `48e863f` | C4 done, draft PR #4 |
-| `arc/stage3` | `7a1e6c3` | **Stage 3's rolling integration branch, off `arc/architecture`.** Q11, Q14, the 4 UX-polish clusters, F11, and F2 all merged and gate-green (3117 tests, depcruise 429/1258, docs-check 60 as of this tip). **F3 is NOT yet merged** — see below. |
-| `arc/f3-model-info-attachments` | pushed, not yet merged | Core (model-metadata catalog + attachment wire format) and UI (context ring, capability-gated attach, model-picker hover card) both done and gate-green. Verify died on `ENOTFOUND` (transient network, not a real finding) before completing even one real pass — **retry this first.** |
+| `arc/stage3` | `6b0a988` | **Stage 3's rolling integration branch, off `arc/architecture`.** Q11, Q14, the 4 UX-polish clusters, F11, F2, F3, and now F1+F7 all merged and gate-green (3418 tests, depcruise 449/1337, docs-check 64 as of this tip). |
 | `arc/handoff` | — | this transport branch, never merged |
 
 `arc/stage3` is NOT yet a draft PR against `arc/architecture` — open one once the stage is
-substantially further along, matching PR #1–#4's stacked shape.
+substantially further along, matching PR #1–#4's stacked shape. Getting close: 5 of 9 features
+(counting F11) plus F6/F10 from earlier stages are done; F4/F8/F9/F5 remain.
 
 ## What to actually do, in order
 
-1. ~~Retry F3's verify.~~ **DONE.** Three rounds (the arc's standard cap) found FOUR real bugs —
-   context-ring cache-token double-counting, session-unscoped composer attachments, resent-history
-   images breaking later plain-text turns on a non-vision model, and a malformed-200 metadata fetch
-   silently wiping a good disk cache (this last one hit the round cap before a fix landed; verified
-   the finding by hand, then closed it with one focused fix+verify pair rather than restarting the
-   loop — see the journal). All four fixed, gate green throughout.
-2. ~~Merge F3 into `arc/stage3`, gate-check, push.~~ **DONE** (`cf117c7`, 3252 tests, depcruise
-   441/1299, docs-check 61).
-3. **F1 + F7** (spawn-with-isolation option; F7's worktree manager) — **NEXT.** Sequenced together
-   per the plan (F7 rides F1's spawn option). `isolation: 'worktree'` is usable again as of
-   2026-08-09 (see the journal's "RESOLVED" entry and the standing-facts section below) — use it
-   for this build's mutating stages, per the new operational rules (sweep leftovers first, cap
-   fan-out ≤4).
-4. **F4** (Library: skills + MCP manager) — before F8, since F8's viewer needs to show injected
-   skills.
-5. **F8** (Viewer surface).
-6. **F9** (Conversation naming + rename).
-7. **F5** (Light theme) — deliberately last, since it needs the final surface set from everything
+1. ~~Retry F3's verify.~~ ~~Merge F3.~~ ~~Build F1+F7.~~ ~~Merge F1+F7.~~ **ALL DONE** — see the
+   journal for the full account of each (F3: 4 bugs across 3 rounds; F1+F7: 2 more bugs, plus two
+   real operational incidents, both resolved, both now standing lessons below).
+2. **F4** (Library: skills + MCP manager) — **NEXT.** Before F8, since F8's viewer needs to show
+   injected skills. Reference-shortlist for this one specifically: Claude Code docs (interop spec,
+   study-only), VS Code (extension lifecycle, MIT), Cline (MCP server management UX, Apache-2.0),
+   MCPM (cross-client config data-model, MIT), Insomnia/Hyper (user-dir plugin discovery,
+   Apache-2.0/MIT) — actually use and journal these, per the standing instruction below.
+3. **F8** (Viewer surface).
+4. **F9** (Conversation naming + rename).
+5. **F5** (Light theme) — deliberately last, since it needs the final surface set from everything
    above.
-8. **Q15** — size once F1/F7/F8 have landed more materialized-tab surface: open 20+ tabs, measure
-   the heap curve, settle an eviction/cap policy for materialized transcript hosts.
+6. **Q15** — size now: F1/F7 landed real materialized-tab surface (Subagents dock, Worktree dock,
+   transcript block cards) — open 20+ tabs, measure the heap curve, settle an eviction/cap policy
+   for materialized transcript hosts. F8 will add more surface still, so this could also wait until
+   right after F8 if that reads as the more representative measurement point — orchestrator's call.
 
 ## The build pattern that has worked all night — reuse it
 
@@ -174,11 +172,20 @@ docs describe intent, not always exact file:line, since the tree moves under you
   coa-stage3-heartbeat.marker` has gone stale (>90 min unwritten); if so, it runs `claude -r
   <session-id> -p "<recovery prompt>"` as a harness-independent fallback resume.
   **IMPORTANT: `C:\Users\Zander\.claude\coa-stage3-watchdog.ps1`'s `$sessionId` variable currently
-  points at the PRIOR (Sonnet) session's ID, which is ending with this handoff.** Update that
-  variable to the new session's own ID early on (find it the same way it's always found — session-
-  scoped scratchpad/transcript paths embed it), and keep touching the marker file (`(Get-Item
+  points at THIS handoff's session, which is ending here.** Update that variable to your own new
+  session's ID early on (find it the same way it's always found — session-scoped scratchpad/
+  transcript paths embed it), and keep touching the marker file (`(Get-Item
   ...).LastWriteTime = Get-Date`, or recreate it) roughly every 50 min or whenever real progress
-  lands, the way the prior session did — otherwise this safety net is aimed at a dead session.
+  lands, the way every session has so far — otherwise this safety net is aimed at a dead session.
+- **`apps/cli` now has a real `build` script** (fixed 2026-08-09, `890ce91` — `tsdown.config.ts` +
+  `"build": "tsdown"`, matching every library package's own pattern). Previously `apps/cli` had
+  ONLY `typecheck`, so `pnpm build`/`pnpm -r build` never produced `apps/cli/dist/bin.js` — which
+  the desktop app's daemon-manager needs to auto-spawn a daemon. If the desktop app ever reports
+  "daemon is not running" again, first check whether `apps/cli/dist/` and every OTHER package's
+  `dist/` actually exist (`pnpm build` at the repo root) before assuming a new bug — this exact gap
+  was mistaken for "daemon broken" once already tonight and was really just "nothing had ever been
+  built." Electron's own binary still needs the documented one-time `install.js` run + root junction
+  each fresh machine/profile (see the preserved section at the bottom) — that part didn't change.
 - **Run the test suite UNSANDBOXED** — sandboxed shells falsely time out the claude-sdk control
   probes.
 - **`git stash` is DENIED in this harness** — a denied call means adapt (copy files aside), not
