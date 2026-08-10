@@ -2191,3 +2191,19 @@ continuation session, ~980k subagent tokens into the run. Resumed the SAME run
 (verified by run ID reuse; no new commits expected from them), UI runs fresh, then the verify
 loop. The failure mode cost nothing but wall-clock — sequential stages + push-as-you-go meant
 zero lost work.
+
+## [F4 UI + verify rounds 1-2 done; second limit hit; resumed] — 2026-08-10
+
+The resumed run completed the UI stage (Fable: Library surface, console bridge, composer slash
+invocation + per-agent skill config — `151c0af`/`ab6fa19`/`7e3a624`) and ran the verify loop's
+first two rounds. **The adversarial pass is again earning its keep — round 1 found a genuine
+Blocker**: unlink of a crafted store record could recursively delete a directory OUTSIDE the
+store (path traversal), plus 3 Majors (symlinked/junction skill dirs invisible to discovery — 10
+of 14 real skills on this machine missed; duplicate case-variant project keys in ~/.claude.json
+silently dropping MCP servers; the missing-skill advisory dropped on founding turns/spawned
+children). All four fixed in fix round 1 (`2d48457`, `93a3982`) with proven-non-vacuous
+regression tests. Round 2 then found 1 new Major (a mutation against a scope whose library.json
+is unreadable silently obliterates that whole store — even a no-op unlink) + minors. Fix round 2
+died at dispatch on the account session limit (reset 6:30am); the overnight wakeup chain broke on
+the same limit, so the gap was discovered at 10:38 when the maintainer checked in. Resumed the
+same run at 10:40 — six completed agents replay from cache, fix r2 + final verify r3 run live.
