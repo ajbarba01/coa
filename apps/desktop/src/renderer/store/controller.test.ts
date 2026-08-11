@@ -1944,4 +1944,71 @@ describe('a project swap leaves nothing of the old project behind', () => {
     resetProjectState();
     expect(useTranscripts.getState().bySession).toEqual({});
   });
+
+  it("never lets the old controller's in-flight reads land in the project that replaced it", async () => {
+    let answerList!: (value: typeof FAKE_SESSIONS) => void;
+    let answerReload!: (value: ReturnType<typeof reloaded>) => void;
+    const bridge = fakeBridge({
+      listSessions: vi
+        .fn()
+        .mockReturnValue(new Promise<typeof FAKE_SESSIONS>((r) => (answerList = r))),
+      reloadConversation: vi
+        .fn()
+        .mockReturnValue(new Promise<ReturnType<typeof reloaded>>((r) => (answerReload = r))),
+    });
+    const { controller } = await mount(bridge);
+    // An open tab puts a transcript hydration in flight alongside the boot rail read —
+    // the two reads that are genuinely out whenever someone swaps project mid-use.
+    useShell.getState().openTab('old-1');
+    await tick();
+
+    // The swap itself: the old controller is torn down and the slices are cleared for the
+    // project taking its place, while both reads are still unanswered.
+    controller.dispose();
+    resetProjectState();
+    expect(sessions().list).toEqual({ status: 'loading' });
+    expect(useTranscripts.getState().bySession).toEqual({});
+
+    answerList([
+      {
+        id: 'old-1',
+        agentRef: 'roles/reviewer',
+        title: 'a thread of the old project',
+        updatedAt: '2026-07-02T00:00:00Z',
+      },
+    ]);
+    answerReload(reloaded());
+    await tick();
+
+    // Landing them would put the leaving project's rows back in the rail, make one of its
+    // sessions the active conversation (which opens a foreign tab and persists it), and
+    // re-materialize a transcript the new project's daemon does not hold.
+    expect(sessions().activeSessionId).toBeUndefined();
+    expect(sessions().list).toEqual({ status: 'loading' });
+    expect(useTranscripts.getState().bySession).toEqual({});
+  });
+
+  it('drops the slow reads it had out too — the poll tick and the agent registry', async () => {
+    let answerCap!: (value: { remaining: number; capHit: boolean }) => void;
+    let answerAgents!: (value: unknown) => void;
+    const bridge = fakeBridge({
+      capState: vi
+        .fn()
+        .mockReturnValue(
+          new Promise<{ remaining: number; capHit: boolean }>((r) => (answerCap = r)),
+        ),
+      listAgents: vi.fn().mockReturnValue(new Promise<unknown>((r) => (answerAgents = r))),
+    });
+    const { controller } = await mount(bridge);
+    void controller.refresh();
+    controller.dispose();
+    resetProjectState();
+
+    answerCap({ remaining: 9, capHit: false });
+    answerAgents({ agents: MOCK_AGENTS, diagnostics: [] });
+    await tick();
+
+    expect(data().agents).toEqual({ status: 'loading' });
+    expect(data().cap).toEqual({ status: 'loading' });
+  });
 });

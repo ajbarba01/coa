@@ -14,6 +14,10 @@ import { setSelectedAgent, useConsoleUi } from './ui.js';
 
 export interface AgentCtx {
   bridge: ConsoleBridge;
+  /** Whether the owning controller is still live — see `SessionCtx.live`. An agent read
+   *  that outlives a project swap would refill the reset registry with the other
+   *  project's agents. */
+  live: boolean;
 }
 
 const NEW_AGENT_DESCRIPTION = 'What this agent is for.';
@@ -42,6 +46,7 @@ interface AgentUndo {
  *  "No agents yet" empty state, never a mock, and no phantom diagnostics. */
 export async function initAgents(ctx: AgentCtx): Promise<void> {
   const loaded = await settle(async () => parseAgentsResult(await ctx.bridge.listAgents()));
+  if (!ctx.live) return;
   if (loaded.status === 'ok') setAgents(loaded.value.agents, loaded.value.diagnostics);
   else setAgents(agentsValue());
 }
@@ -55,7 +60,7 @@ export async function initAgents(ctx: AgentCtx): Promise<void> {
  *  successful read/mount reconciles it. */
 async function refreshAgents(ctx: AgentCtx): Promise<void> {
   const loaded = await settle(async () => parseAgentsResult(await ctx.bridge.listAgents()));
-  if (loaded.status !== 'ok') return;
+  if (loaded.status !== 'ok' || !ctx.live) return;
   setAgents(loaded.value.agents, loaded.value.diagnostics);
 }
 
@@ -77,6 +82,7 @@ function commitAgentWrite(
 ): void {
   void write
     .catch((error: unknown) => {
+      if (!ctx.live) return;
       reportFailure(action, error);
       setAgents(undo.agents);
       const selection = undo.selection;

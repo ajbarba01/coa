@@ -69,7 +69,14 @@ export async function startConsole(
   applySettings(settings);
   setUiSettings(settings);
 
-  const ctx: SessionCtx & agentOps.AgentCtx = { bridge, attached: new Set(), youSeq: { n: 0 } };
+  // `live` is what keeps a disposed controller's unfinished work out of the slices — see
+  // `SessionCtx.live`. Every read below lands its result only while it still holds.
+  const ctx: SessionCtx & agentOps.AgentCtx = {
+    bridge,
+    attached: new Set(),
+    youSeq: { n: 0 },
+    live: true,
+  };
 
   async function refresh(): Promise<void> {
     const [cap, flags, timeline] = await Promise.all([
@@ -77,6 +84,7 @@ export async function startConsole(
       settle(() => bridge.flagsForUser()),
       settle(() => bridge.listTimeline()),
     ]);
+    if (!ctx.live) return;
     // Unchanged keys keep their references inside the slice, so a quiet 2s poll tick
     // re-renders nothing — and never touches the transcript or session slices at all.
     setSlowData({ cap, flags, timeline });
@@ -84,15 +92,21 @@ export async function startConsole(
 
   async function loadAccounts(): Promise<void> {
     // listAccounts carries the per-provider active map too, so one read suffices.
-    setAccounts(await settle(() => bridge.listAccounts()));
+    const accounts = await settle(() => bridge.listAccounts());
+    if (!ctx.live) return;
+    setAccounts(accounts);
   }
 
   async function loadModels(): Promise<void> {
-    setModels(await settle(() => bridge.listModels()));
+    const models = await settle(() => bridge.listModels());
+    if (!ctx.live) return;
+    setModels(models);
   }
 
   async function loadModelMetadata(): Promise<void> {
-    setModelMetadata(await settle(async () => (await bridge.modelMetadata()).entries));
+    const entries = await settle(async () => (await bridge.modelMetadata()).entries);
+    if (!ctx.live) return;
+    setModelMetadata(entries);
   }
 
   async function loadCatalogue(): Promise<void> {
@@ -100,6 +114,7 @@ export async function startConsole(
       settle(() => bridge.listRoles()),
       settle(() => bridge.listPackages()),
     ]);
+    if (!ctx.live) return;
     setCatalogue(roles, packages);
   }
 
@@ -265,6 +280,7 @@ export async function startConsole(
   // which an evicted session must leave or `ensureMaterialized` would early-return on it
   // forever and the tab would render permanently empty.
   const syncWorkingSet = (tabs: string[]): void => {
+    if (!ctx.live) return;
     for (const id of tabs) sessionOps.ensureMaterialized(ctx, id);
     const active = useSessions.getState().activeSessionId;
     const mounted = active === undefined ? tabs : [...tabs, active];
@@ -277,6 +293,7 @@ export async function startConsole(
   /** On launch, load the project's sessions and open the most recent one. */
   async function initSessions(): Promise<void> {
     await sessionOps.refreshSessionList(ctx);
+    if (!ctx.live) return;
     const newest = useSessions.getState().list;
     const first = newest.status === 'ok' ? newest.value[0] : undefined;
     if (first) sessionOps.activateSession(ctx, first.id);
@@ -366,6 +383,7 @@ export async function startConsole(
       agentOps.initAgents(ctx),
       sessionOps.loadWorktrees(ctx),
     ]);
+    if (!ctx.live) return;
     if (freshConnection) ctx.attached.clear();
     const sessions = useSessions.getState();
     if (sessions.list.status !== 'ok' || sessions.activeSessionId === undefined) {
@@ -382,6 +400,11 @@ export async function startConsole(
     clearRunState: clearAllRunStatus,
     toggleRaw: toggleRawMode,
     dispose: () => {
+      // Unsubscribing only stops what has not arrived yet. Everything already in flight —
+      // the boot reads, a poll tick, a cold open's reload — still resolves, and on a
+      // project swap it resolves after the slices were reset for the new project. Marking
+      // the ctx dead is what makes those continuations land nowhere.
+      ctx.live = false;
       unsubscribePush();
       unsubscribeTabs();
     },

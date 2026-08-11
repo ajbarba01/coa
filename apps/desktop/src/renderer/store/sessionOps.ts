@@ -60,11 +60,25 @@ export interface SessionCtx {
   bridge: ConsoleBridge;
   attached: Set<string>;
   youSeq: { n: number };
+  /**
+   * Whether the controller that owns this ctx is still the live one — cleared by its
+   * `dispose`.
+   *
+   * The slices are module singletons, so a disposed controller's UNFINISHED reads are not
+   * merely wasted: a project swap resets the slices synchronously and then reboots, so a
+   * `listSessions`/`reloadConversation` still in flight from the leaving project resolves
+   * AFTER the reset and writes that project's rail rows, active conversation and
+   * transcripts straight back into the new project's window. Every continuation below
+   * that writes a slice checks this first — there is no single funnel to guard, since each
+   * op lands in the slice it owns.
+   */
+  live: boolean;
 }
 
 /** Refresh the rail's session list (title/recency) without touching any transcript. */
 export async function refreshSessionList(ctx: SessionCtx): Promise<void> {
   const loaded = await settle(() => ctx.bridge.listSessions());
+  if (!ctx.live) return;
   setSessionList(loaded);
 }
 
@@ -72,7 +86,9 @@ export async function refreshSessionList(ctx: SessionCtx): Promise<void> {
  *  daemon side (one status read per isolated worktree), so it re-runs on the events that
  *  can change the set: a spawn, a child ending, a reap. */
 export async function loadWorktrees(ctx: SessionCtx): Promise<void> {
-  setWorktrees(await settle(async () => (await ctx.bridge.listWorktrees()).worktrees));
+  const loaded = await settle(async () => (await ctx.bridge.listWorktrees()).worktrees);
+  if (!ctx.live) return;
+  setWorktrees(loaded);
 }
 
 /** Reap a session's isolated worktree (the dock's explicit cleanup). A refusal is a fact
@@ -80,7 +96,7 @@ export async function loadWorktrees(ctx: SessionCtx): Promise<void> {
  *  an in-flight turn; a bare `false` means there was nothing to reap. */
 export function reapWorktree(ctx: SessionCtx, sessionId: string): void {
   void surfaceWrite('reap that worktree', ctx.bridge.reapWorktree({ sessionId })).then((result) => {
-    if (result === undefined) return;
+    if (result === undefined || !ctx.live) return;
     if (!result.reaped) {
       reportNotice(
         'Nothing reaped',
@@ -102,7 +118,7 @@ export function reapWorktree(ctx: SessionCtx, sessionId: string): void {
  * Reload is a cold-hydration/reattach path, never a switch path.
  */
 export function ensureMaterialized(ctx: SessionCtx, id: string): void {
-  if (ctx.attached.has(id)) return;
+  if (!ctx.live || ctx.attached.has(id)) return;
   ctx.attached.add(id);
   beginHydration(id);
   // A reattach the daemon REFUSES is the reattach that matters: `subscribed: false`
@@ -117,7 +133,7 @@ export function ensureMaterialized(ctx: SessionCtx, id: string): void {
   void ctx.bridge
     .subscribeSession({ id })
     .then((result) => {
-      if (result.subscribed) return;
+      if (result.subscribed || !ctx.live) return;
       if (useSessions.getState().sendNonce[id] !== sendsAtSubscribe) return;
       clearRunStatus(id);
     })
@@ -129,6 +145,7 @@ export function ensureMaterialized(ctx: SessionCtx, id: string): void {
   // hydrates above — a fresh mount must show the daemon's own current state.
   void hydrateMode(ctx, id);
   void settle(() => ctx.bridge.reloadConversation({ id })).then((loaded) => {
+    if (!ctx.live) return;
     if (loaded.status === 'ok') {
       applyReload(id, reloadToViewFrames(loaded.value, id));
     } else {
@@ -153,7 +170,7 @@ export function ensureMaterialized(ctx: SessionCtx, id: string): void {
  */
 async function hydrateMode(ctx: SessionCtx, id: string): Promise<void> {
   const snap = await ctx.bridge.sessionMode({ id }).catch(() => ({ found: false as const }));
-  if (!snap.found) return;
+  if (!snap.found || !ctx.live) return;
   const degraded = snap.mode !== snap.effectiveMode ? { degraded: NO_APPROVAL_SEAM_REASON } : {};
   setSessionMode(id, { mode: snap.mode, effectiveMode: snap.effectiveMode, ...degraded });
   setPendingApprovals(
@@ -188,7 +205,7 @@ export function newSession(ctx: SessionCtx, agentRef: string): void {
       'start that conversation',
       ctx.bridge.newSession({ agentRef }),
     );
-    if (created === undefined) return;
+    if (created === undefined || !ctx.live) return;
     await refreshSessionList(ctx);
     activateSession(ctx, created.id);
   })();
@@ -201,7 +218,7 @@ export function deleteSession(ctx: SessionCtx, id: string): void {
       ctx.bridge.deleteSession({ id }),
     );
     // Nothing was removed and the user has been told — the rail still shows the truth.
-    if (deleted === undefined) return;
+    if (deleted === undefined || !ctx.live) return;
     const wasActive = useSessions.getState().activeSessionId === id;
     // The session is gone, so every per-session record goes with it: frames, the run
     // claim, the send nonce, the permission mode, pending asks, usage, this session's own
@@ -367,6 +384,7 @@ export function sendMessage(
     // The first send auto-titles the session server-side; reflect it in the rail.
     .then(() => refreshSessionList(ctx))
     .catch((e: unknown) => {
+      if (!ctx.live) return;
       // A failed dispatch never streams a turn back — clear the pill here so it
       // doesn't run forever.
       clearRunStatus(id);
@@ -392,7 +410,7 @@ export function sendMessage(
 export function interruptSession(ctx: SessionCtx, sessionId: string): void {
   void surfaceWrite('stop that turn', ctx.bridge.interruptSession({ id: sessionId })).then(
     (result) => {
-      if (result === undefined || result.interrupted) return;
+      if (result === undefined || result.interrupted || !ctx.live) return;
       clearRunStatus(sessionId);
       reportNotice('Nothing to stop', 'that turn had already finished.');
     },
@@ -458,7 +476,7 @@ export function onBannerAction(
     // still describing a prompt that never recompiled.
     void surfaceWrite('recompile that prompt', ctx.bridge.recompilePrompt({ sessionId })).then(
       async (result) => {
-        if (result === undefined) return;
+        if (result === undefined || !ctx.live) return;
         if (!result.recompiled) {
           reportNotice('Nothing to recompile', 'this conversation has no compiled prompt to drop.');
           return;

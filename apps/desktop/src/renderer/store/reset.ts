@@ -11,7 +11,9 @@ import { resetProjectUi } from './ui.js';
  * one's sessions, transcripts, run claims and per-session notices, and a session id from
  * one project names nothing in another. Runs on the swap boundary itself (the composition
  * root's controller-boot effect), before the fresh controller's first read lands, so the
- * new project starts from the same loading ground a brand new window does.
+ * new project starts from the same loading ground a brand new window does. Clearing is
+ * only half of it: the old controller's reads are still in flight and settle after this
+ * runs, so they are dropped rather than written back (see `SessionCtx.live`).
  *
  * What survives is what was never the project's: the console's own settings and the raw
  * toggle (see `resetProjectUi`).
