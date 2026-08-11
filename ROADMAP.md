@@ -783,9 +783,10 @@ Surfaced during this refactor; not fixed here — flagged for the later architec
     cure — a push-based store instead of a poll-and-replace one — is its own phase of work and is
     **not** built here; re-filed below.
   - **`React.memo`/`useCallback` coverage — documented, not widened.** Current exact set: `memo`
-    wraps `Freeze` (`shell/deferredMount.tsx`), `CompletedBlock`
-    (`console-transcript/src/dense/StreamingMarkdown.tsx`), and `MemoRow`
-    (`console-transcript/src/dense/Transcript.tsx`); `useCallback` appears in `ChatPanel.tsx` and
+    wraps `CompletedBlock` (`console-transcript/src/dense/StreamingMarkdown.tsx`) and `MemoRow`
+    (`console-transcript/src/dense/Transcript.tsx`) — the store port deleted the third,
+    `shell/deferredMount.tsx`'s `Freeze`, along with the frozen hidden tabs it existed to hold
+    still; `useCallback` appears in `ChatPanel.tsx` and
     `console-kit/src/overlay/PaneOverlay.tsx`. No measured hot path beyond the transcript justifies
     widening this pre-emptively; re-filed under "Someday / ideas" if a future profile finds one.
   - **Layout persistence debounce — already fixed, closed by inspection.** `layoutPersistence.ts`
