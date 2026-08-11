@@ -75,4 +75,20 @@ describe('runLiveSession', () => {
       expect.objectContaining({ kind: 'turn', frame: expect.objectContaining({ t: 'error' }) }),
     );
   });
+
+  it('marks the loop-failure error push live-only, so its id never collides with a reloaded frame', async () => {
+    const s = new LiveSession('c1');
+    const pushes: { live?: boolean; frame?: { t?: string } }[] = [];
+    s.subscribe((p) => pushes.push(p as (typeof pushes)[number]));
+    const runTurn = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    s.enqueue({ input: 'bad' });
+    const done = runLiveSession(s, runTurn);
+    await vi.waitFor(() => expect(runTurn).toHaveBeenCalledTimes(1));
+    s.close();
+    await done;
+    const errorPush = pushes.find((p) => p.frame?.t === 'error');
+    expect(errorPush?.live).toBe(true);
+  });
 });

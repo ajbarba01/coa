@@ -16,6 +16,9 @@ export type RunTurn = (turn: QueuedTurn, session: LiveSession) => Promise<void>;
  * session, so the loop always continues to the next queued turn.
  */
 export async function runLiveSession(session: LiveSession, runTurn: RunTurn): Promise<void> {
+  // Live-only counter: these error frames never reach the durable log, so this
+  // sequence is independent of the frame recorder's persisted one — every push
+  // it stamps MUST carry `live: true`, or its ids collide with reloaded frames.
   let seq = 0;
   let turn: QueuedTurn | undefined;
   while ((turn = await session.nextTurn()) !== undefined) {
@@ -27,6 +30,7 @@ export async function runLiveSession(session: LiveSession, runTurn: RunTurn): Pr
         sessionId: session.id,
         worktree: session.worktree ?? '',
         seq: seq++,
+        live: true,
         frame: { t: 'error', message: describeLoopFailure(e), origin: 'loop' },
       });
     }

@@ -136,7 +136,10 @@ export function ensureMaterialized(
   const running = ctx.attached.get(id);
   if (running !== undefined) return running;
   beginHydration(id);
-  const hydration = after === undefined ? attach(ctx, id) : after.then(() => attach(ctx, id));
+  // A rejected predecessor must not strand the rest of the stagger chain in
+  // permanent `loading` — attach() is self-contained, so just swallow and go.
+  const hydration =
+    after === undefined ? attach(ctx, id) : after.catch(() => {}).then(() => attach(ctx, id));
   ctx.attached.set(id, hydration);
   return hydration;
 }
