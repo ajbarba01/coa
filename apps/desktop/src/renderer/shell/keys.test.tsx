@@ -3,9 +3,8 @@ import { fireEvent, render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDismissLayer } from '@coa/console-kit';
 import { DEFAULT_SETTINGS } from '../../shared/settings.js';
-import { makeState } from '../testing/fixtures.js';
+import { makeState, resetStores, seedState } from '../testing/fixtures.js';
 import { useAgentsUi } from '../panels/agentsUi.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { DEFAULT_KEYBINDS } from './keybinds.js';
 import { closeOtherTabs, closeTabsRight, COMMANDS, useGlobalKeys } from './keys.js';
 import { useShell } from './store.js';
@@ -24,7 +23,7 @@ function OpenLayer(): null {
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
 describe('useGlobalKeys', () => {
@@ -41,7 +40,7 @@ describe('useGlobalKeys', () => {
 
   it('Escape with no open layer stops the running turn (advisory)', () => {
     const interruptSession = vi.fn();
-    publishConsoleState(
+    seedState(
       makeState({
         ui: { activeSessionId: 'c1', runStatus: { c1: { since: 1 } } },
         actions: { interruptSession },
@@ -54,7 +53,7 @@ describe('useGlobalKeys', () => {
 
   it('Escape defers to an open dismiss layer and never double-fires', () => {
     const interruptSession = vi.fn();
-    publishConsoleState(
+    seedState(
       makeState({
         ui: { activeSessionId: 'c1', runStatus: { c1: { since: 1 } } },
         actions: { interruptSession },
@@ -72,7 +71,7 @@ describe('useGlobalKeys', () => {
 
   it('Escape while idle is a no-op', () => {
     const interruptSession = vi.fn();
-    publishConsoleState(makeState({ actions: { interruptSession } }));
+    seedState(makeState({ actions: { interruptSession } }));
     render(<Keys />);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(interruptSession).not.toHaveBeenCalled();
@@ -80,7 +79,7 @@ describe('useGlobalKeys', () => {
 
   it('Escape on another surface walks home to chat — never straight to the stop', () => {
     const interruptSession = vi.fn();
-    publishConsoleState(
+    seedState(
       makeState({
         ui: { activeSessionId: 'c1', runStatus: { c1: { since: 1 } } },
         actions: { interruptSession },
@@ -149,7 +148,7 @@ describe('useGlobalKeys', () => {
 
   it('alt+r toggles raw mode on the chat surface', () => {
     const toggleRaw = vi.fn();
-    publishConsoleState(makeState({ ui: { activeSessionId: 'c1' }, actions: { toggleRaw } }));
+    seedState(makeState({ ui: { activeSessionId: 'c1' }, actions: { toggleRaw } }));
     render(<Keys />);
     fireEvent.keyDown(window, { key: 'r', altKey: true });
     expect(toggleRaw).toHaveBeenCalledTimes(1);
@@ -157,7 +156,7 @@ describe('useGlobalKeys', () => {
 
   it('alt+r does nothing with a dialog over the chat surface (out of scope)', () => {
     const toggleRaw = vi.fn();
-    publishConsoleState(makeState({ ui: { activeSessionId: 'c1' }, actions: { toggleRaw } }));
+    seedState(makeState({ ui: { activeSessionId: 'c1' }, actions: { toggleRaw } }));
     render(<Keys />);
     useShell.getState().setSettingsOpen(true);
     fireEvent.keyDown(window, { key: 'r', altKey: true });
@@ -165,7 +164,7 @@ describe('useGlobalKeys', () => {
   });
 
   it('dispatches a REBOUND chord, and the default it replaced goes dead', () => {
-    publishConsoleState(
+    seedState(
       makeState({
         ui: { settings: { ...DEFAULT_SETTINGS, keybinds: { 'toggle-dock': ['ctrl', 'j'] } } },
       }),
@@ -186,7 +185,7 @@ describe('tab commands', () => {
     tabs = ['a', 'b', 'c'],
   ): ReturnType<typeof vi.fn> => {
     const selectSession = vi.fn();
-    publishConsoleState(
+    seedState(
       makeState({
         data: {
           sessions: {
@@ -251,7 +250,7 @@ describe('tab commands', () => {
   });
 
   it('ctrl+w with no tabs open is a no-op — it never closes the window', () => {
-    publishConsoleState(makeState({ ui: {} }));
+    seedState(makeState({ ui: {} }));
     useShell.setState({ tabs: [] });
     render(<Keys />);
     fireEvent.keyDown(window, { key: 'w', ctrlKey: true });
@@ -347,7 +346,7 @@ describe('tab commands', () => {
   });
 
   it('opening a session hands the caret to the composer', () => {
-    publishConsoleState(makeState({ ui: { activeSessionId: 'a' } }));
+    seedState(makeState({ ui: { activeSessionId: 'a' } }));
     const before = useShell.getState().composerFocus;
     useShell.getState().openTab('a');
     expect(useShell.getState().composerFocus).toBe(before + 1);

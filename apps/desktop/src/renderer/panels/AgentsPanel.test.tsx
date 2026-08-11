@@ -15,10 +15,9 @@ import {
 } from './AgentsPanel.js';
 import { useAgentsUi } from './agentsUi.js';
 import { useLibraryStore } from './libraryStore.js';
-import { makeState, type StateOverrides } from '../testing/fixtures.js';
+import { makeState, resetStores, seedState, type StateOverrides } from '../testing/fixtures.js';
 import { MOCK_AGENTS } from '../testing/mockAgents.js';
 import { PKGS } from './resolvedSet.test.js';
-import { publishConsoleState, useConsoleState } from '../shell/consoleStore.js';
 import type {
   AgentDiagnostic,
   AgentSummary,
@@ -40,7 +39,7 @@ const AGENTS_UI_SEED = useAgentsUi.getState();
 beforeEach(() => {
   measuredNarrow = false;
   useAgentsUi.setState(AGENTS_UI_SEED, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
 });
 
 /** The live SDK model list shape (aliases + version-in-description), per `supportedModels()`. */
@@ -267,15 +266,23 @@ describe('matchesAgent', () => {
 });
 
 describe('AgentsSurface', () => {
-  it('skeletons while loading and shows errors inline', () => {
-    const { container } = render(<AgentsSurface state={stateWith({ status: 'loading' })} />);
+  // One surface per test: every mounted surface reads the same slice, so seeding a second
+  // state inside one test would repaint the first render too and double every match.
+  it('skeletons while loading', () => {
+    seedState(stateWith({ status: 'loading' }));
+    const { container } = render(<AgentsSurface />);
     expect(container.querySelector('.animate-pulse')).not.toBeNull();
-    render(<AgentsSurface state={stateWith({ status: 'error', message: 'daemon down' })} />);
+  });
+
+  it('shows a read error inline', () => {
+    seedState(stateWith({ status: 'error', message: 'daemon down' }));
+    render(<AgentsSurface />);
     expect(screen.getByRole('alert')).toHaveTextContent('daemon down');
   });
 
   it('lists every agent beside the detail on a wide pane', () => {
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     // Scoped to the list: the selected agent's name ALSO shows in the detail heading
     // beside it, so a global query would find two matches for that one agent.
     const list = screen.getByRole('list', { name: 'Agents' });
@@ -283,28 +290,22 @@ describe('AgentsSurface', () => {
   });
 
   it('teaches the surface when there are no agents', () => {
-    render(<AgentsSurface state={makeState({ data: { agents: { status: 'ok', value: [] } } })} />);
+    seedState(makeState({ data: { agents: { status: 'ok', value: [] } } }));
+    render(<AgentsSurface />);
     expect(screen.getByText('No agents yet')).toBeInTheDocument();
   });
 
   it('surfaces a read failure as an alert', () => {
-    render(
-      <AgentsSurface
-        state={makeState({ data: { agents: { status: 'error', message: 'daemon is down' } } })}
-      />,
-    );
+    seedState(makeState({ data: { agents: { status: 'error', message: 'daemon is down' } } }));
+    render(<AgentsSurface />);
     expect(screen.getByRole('alert')).toHaveTextContent('daemon is down');
   });
 
   it('filters the list from the strip query', async () => {
     useAgentsUi.setState({ query: '' });
     const user = userEvent.setup();
-    render(
-      <>
-        <AgentsStrip />
-        <AgentsSurface state={readyState()} />
-      </>,
-    );
+    seedState(readyState());
+    render(<AgentsSurface />);
     await user.type(screen.getByRole('searchbox', { name: 'Filter agents' }), MOCK_AGENTS[0]!.name);
     // Scoped to the list for the same reason as above: the matched agent is also the
     // selected one, so its name shows a second time in the detail heading.
@@ -315,21 +316,24 @@ describe('AgentsSurface', () => {
 
   it('empty state offers creation', async () => {
     const createAgent = vi.fn();
-    render(<AgentsSurface state={stateWith({ status: 'ok', value: [] }, {}, { createAgent })} />);
+    seedState(stateWith({ status: 'ok', value: [] }, {}, { createAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: /^new agent$/i }));
     expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
   });
 
   it('selects an agent from the list', async () => {
     const selectAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { selectAgent })} />);
+    seedState(readyState({}, { selectAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'tdd-implementer' }));
     expect(selectAgent).toHaveBeenCalledExactlyOnceWith('roles/tdd-implementer');
   });
 
   it('renames in place through the identity header', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    seedState(readyState({}, { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: /Rename Agent name/ }));
     const input = screen.getByRole('textbox', { name: 'Agent name' });
     await userEvent.clear(input);
@@ -341,7 +345,8 @@ describe('AgentsSurface', () => {
 
   it('commits a rename on blur too, not only Enter — clicking away must not silently discard it', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    seedState(readyState({}, { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: /Rename Agent name/ }));
     const input = screen.getByRole('textbox', { name: 'Agent name' });
     await userEvent.clear(input);
@@ -355,21 +360,24 @@ describe('AgentsSurface', () => {
 
   it('changes the identity color through the chip popover', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    seedState(readyState({}, { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: /change icon and color/ }));
     await userEvent.click(await screen.findByRole('button', { name: 'coral' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', { color: 'coral' });
   });
 
   it('shows the scope badge and ref path', () => {
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     expect(screen.getByText('Project')).toBeTruthy();
     expect(screen.getByText('roles/reviewer')).toBeTruthy();
   });
 
   it('deleting a project agent requires typing its name', async () => {
     const deleteAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { deleteAgent })} />);
+    seedState(readyState({}, { deleteAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Delete…' }));
     const confirm = await screen.findByRole('button', { name: /^delete agent$/i });
@@ -382,7 +390,8 @@ describe('AgentsSurface', () => {
 
   it('pins from the overflow menu', async () => {
     const togglePinAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { togglePinAgent })} />);
+    seedState(readyState({}, { togglePinAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Pin' }));
     expect(togglePinAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer');
@@ -404,7 +413,8 @@ describe('AgentsSurface', () => {
     });
 
   it('lists the agent’s selected roles and the resolved package set, each showing how it got there', () => {
-    render(<AgentsSurface state={withCatalogueState(MOCK_AGENTS)} />);
+    seedState(withCatalogueState(MOCK_AGENTS));
+    render(<AgentsSurface />);
     expect(screen.getByText('Roles')).toBeTruthy();
     // reviewer runs as the researcher role — it shows inline as added; swe isn't
     // selected, so — per the redesign — it has no row here at all (only the picker).
@@ -445,7 +455,8 @@ describe('AgentsSurface', () => {
       packageIds: ['core'],
       exclude: ['coding'],
     };
-    render(<AgentsSurface state={withCatalogueState([agent])} />);
+    seedState(withCatalogueState([agent]));
+    render(<AgentsSurface />);
     const names = screen.getAllByRole('checkbox').map((el) => el.getAttribute('aria-label'));
     expect(names).toEqual(['coa orientation', 'Core', 'Coding']);
   });
@@ -460,7 +471,8 @@ describe('AgentsSurface', () => {
       scope: 'project',
       roles: ['swe', 'researcher'],
     };
-    render(<AgentsSurface state={withCatalogueState([agent])} />);
+    seedState(withCatalogueState([agent]));
+    render(<AgentsSurface />);
     expect(screen.getByRole('checkbox', { name: 'Software Engineer' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -491,7 +503,8 @@ describe('AgentsSurface', () => {
       scope: 'project',
       roles: ['swe'],
     };
-    render(<AgentsSurface state={withCatalogueState([agent], { updateAgent })} />);
+    seedState(withCatalogueState([agent], { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Add Role' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Researcher' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', {
@@ -510,7 +523,8 @@ describe('AgentsSurface', () => {
       scope: 'project',
       roles: ['swe'],
     };
-    render(<AgentsSurface state={withCatalogueState([agent], { updateAgent })} />);
+    seedState(withCatalogueState([agent], { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Software Engineer' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/x', { roles: [] });
     expect(screen.queryByText(/None/i)).toBeNull();
@@ -519,7 +533,8 @@ describe('AgentsSurface', () => {
 
   it('toggles an off package on through the Add Context picker (adds a user opt-in)', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={withCatalogueState(MOCK_AGENTS, { updateAgent })} />);
+    seedState(withCatalogueState(MOCK_AGENTS, { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Add Context' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Coding' }));
     expect(updateAgent).toHaveBeenCalledExactlyOnceWith('roles/reviewer', {
@@ -529,18 +544,17 @@ describe('AgentsSurface', () => {
 
   it('keeps an excluded package visible in the agent rather than hiding it', () => {
     const agents = [{ ...MOCK_AGENTS[0]!, exclude: ['core'] }];
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: {
-            agents: { status: 'ok', value: agents },
-            packages: { status: 'ok', value: PKGS },
-            roles: { status: 'ok', value: [] },
-          },
-          ui: { selectedAgentRef: agents[0]!.ref },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: agents },
+          packages: { status: 'ok', value: PKGS },
+          roles: { status: 'ok', value: [] },
+        },
+        ui: { selectedAgentRef: agents[0]!.ref },
+      }),
     );
+    render(<AgentsSurface />);
     expect(screen.getByRole('checkbox', { name: 'Core' })).toHaveAttribute('aria-checked', 'false');
   });
 
@@ -555,7 +569,8 @@ describe('AgentsSurface', () => {
       roles: ['researcher'],
       exclude: ['core'],
     };
-    const { container } = render(<AgentsSurface state={withCatalogueState([agent])} />);
+    seedState(withCatalogueState([agent]));
+    const { container } = render(<AgentsSurface />);
     expect(container.textContent).toContain('Recommended: Core');
   });
 
@@ -572,17 +587,16 @@ describe('AgentsSurface', () => {
       scope: 'project',
       roles: [],
     };
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: {
-            agents: { status: 'ok', value: [agent] },
-            packages: { status: 'ok', value: PKGS },
-            roles: { status: 'ok', value: [] },
-          },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: [agent] },
+          packages: { status: 'ok', value: PKGS },
+          roles: { status: 'ok', value: [] },
+        },
+      }),
     );
+    render(<AgentsSurface />);
     const reach = screen.getByRole('region', { name: 'Reach' });
     expect(
       within(reach).getByText('This agent reaches every tool the backend offers.'),
@@ -606,17 +620,16 @@ describe('AgentsSurface', () => {
       scope: 'project',
       roles: ['swe'],
     };
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: {
-            agents: { status: 'ok', value: [agent] },
-            packages: { status: 'ok', value: PKGS },
-            roles: { status: 'ok', value: roles },
-          },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: [agent] },
+          packages: { status: 'ok', value: PKGS },
+          roles: { status: 'ok', value: roles },
+        },
+      }),
     );
+    render(<AgentsSurface />);
     const reach = screen.getByRole('region', { name: 'Reach' });
     // core (default) contributes Read; coding (via the selected role) contributes Edit.
     // No package here declares mcpServers, and the count is tools-only regardless (the
@@ -650,30 +663,31 @@ describe('AgentsSurface', () => {
       scope: 'project',
       roles: ['swe'],
     };
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: {
-            agents: { status: 'ok', value: [agent] },
-            packages: { status: 'ok', value: pkgsWithMcp },
-            roles: { status: 'ok', value: roles },
-          },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: [agent] },
+          packages: { status: 'ok', value: pkgsWithMcp },
+          roles: { status: 'ok', value: roles },
+        },
+      }),
     );
+    render(<AgentsSurface />);
     const reach = screen.getByRole('region', { name: 'Reach' });
     expect(within(reach).queryByText(/MCP/)).not.toBeInTheDocument();
     expect(within(reach).getByText('2 tools')).toBeInTheDocument();
   });
 
   it('wears the reasoning ladder rather than a separate on/off control', () => {
-    render(<AgentsSurface state={readyStateWithModels()} />);
+    seedState(readyStateWithModels());
+    render(<AgentsSurface />);
     expect(screen.getByRole('slider', { name: 'Reasoning effort' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Reasoning' })).not.toBeInTheDocument();
   });
 
   it('offers the model list through one searchable control', () => {
-    render(<AgentsSurface state={readyStateWithModels()} />);
+    seedState(readyStateWithModels());
+    render(<AgentsSurface />);
     expect(screen.getByRole('combobox', { name: 'Model' })).toBeInTheDocument();
   });
 
@@ -693,16 +707,15 @@ describe('AgentsSurface', () => {
       scope: 'project',
       model: 'opus-claude',
     };
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: {
-            agents: { status: 'ok', value: [agent] },
-            models: { status: 'ok', value: [claudeModel] },
-          },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: [agent] },
+          models: { status: 'ok', value: [claudeModel] },
+        },
+      }),
     );
+    render(<AgentsSurface />);
     // Two different questions, both answered by Claude's logo here: the HARNESS mark
     // beside the field (what runs it), and the BACKEND mark on the picker's trigger
     // (where the model comes from).
@@ -722,16 +735,15 @@ describe('AgentsSurface', () => {
       model: LONGCAT.id,
       provider: 'longcat',
     };
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: {
-            agents: { status: 'ok', value: [agent] },
-            models: { status: 'ok', value: [LONGCAT] },
-          },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: {
+          agents: { status: 'ok', value: [agent] },
+          models: { status: 'ok', value: [LONGCAT] },
+        },
+      }),
     );
+    render(<AgentsSurface />);
     expect(screen.getByRole('img', { name: 'coa' })).toBeInTheDocument();
   });
 });
@@ -749,7 +761,8 @@ describe('AgentsSurface — a built-in agent is read-only', () => {
   };
 
   it('shows the Built-in badge and renders the name with no rename affordance', () => {
-    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    seedState(stateWith({ status: 'ok', value: [BUILTIN_AGENT] }));
+    render(<AgentsSurface />);
     expect(screen.getByText('Built-in')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Rename Agent name/ })).not.toBeInTheDocument();
     // Shows in both its list row and the (only) editor's heading — never zero.
@@ -757,12 +770,14 @@ describe('AgentsSurface — a built-in agent is read-only', () => {
   });
 
   it('omits the icon/color popover trigger', () => {
-    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    seedState(stateWith({ status: 'ok', value: [BUILTIN_AGENT] }));
+    render(<AgentsSurface />);
     expect(screen.queryByRole('button', { name: /change icon and color/ })).not.toBeInTheDocument();
   });
 
   it('omits the Delete and Move menu items', async () => {
-    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    seedState(stateWith({ status: 'ok', value: [BUILTIN_AGENT] }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     expect(screen.queryByRole('button', { name: 'Delete…' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Move to/ })).not.toBeInTheDocument();
@@ -770,18 +785,16 @@ describe('AgentsSurface — a built-in agent is read-only', () => {
 
   it('duplicating a built-in seeds a project agent, not a "builtin"-scoped one', async () => {
     const createAgent = vi.fn();
-    render(
-      <AgentsSurface
-        state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] }, {}, { createAgent })}
-      />,
-    );
+    seedState(stateWith({ status: 'ok', value: [BUILTIN_AGENT] }, {}, { createAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Agent actions' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Duplicate' }));
     expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
   });
 
   it('renders the description as plain text, with no edit affordance', () => {
-    render(<AgentsSurface state={stateWith({ status: 'ok', value: [BUILTIN_AGENT] })} />);
+    seedState(stateWith({ status: 'ok', value: [BUILTIN_AGENT] }));
+    render(<AgentsSurface />);
     expect(screen.getByText('A general worker.')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /Edit agent description/ }),
@@ -795,15 +808,10 @@ describe('AgentsSurface — a built-in agent is read-only', () => {
   // `agents[0]`, the editor's arbitrary fallback) — this one seeds a MIXED list.
   it('shows up in its own group alongside project/personal agents, and stays selectable', async () => {
     const selectAgent = vi.fn();
-    render(
-      <AgentsSurface
-        state={stateWith(
-          { status: 'ok', value: [MOCK_AGENTS[0]!, BUILTIN_AGENT] },
-          {},
-          { selectAgent },
-        )}
-      />,
+    seedState(
+      stateWith({ status: 'ok', value: [MOCK_AGENTS[0]!, BUILTIN_AGENT] }, {}, { selectAgent }),
     );
+    render(<AgentsSurface />);
     expect(screen.getByRole('group', { name: 'Built-in agents' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Project agents' })).toBeInTheDocument();
     const list = screen.getByRole('list', { name: 'Agents' });
@@ -816,13 +824,15 @@ describe('AgentsSurface — a built-in agent is read-only', () => {
 
 describe('AgentsSurface — the description field', () => {
   it('renders the current description', () => {
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     expect(screen.getByText(MOCK_AGENTS[0]!.description)).toBeInTheDocument();
   });
 
   it('edits in place, committing on Enter', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    seedState(readyState({}, { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: /Edit agent description/ }));
     const input = screen.getByRole('textbox', { name: 'Agent description' });
     await userEvent.clear(input);
@@ -834,7 +844,8 @@ describe('AgentsSurface — the description field', () => {
 
   it('degrades an emptied draft by reverting instead of saving — the schema requires a non-empty description', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={readyState({}, { updateAgent })} />);
+    seedState(readyState({}, { updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: /Edit agent description/ }));
     const input = screen.getByRole('textbox', { name: 'Agent description' });
     await userEvent.clear(input);
@@ -854,54 +865,52 @@ describe('AgentsSurface — load diagnostics', () => {
       problem: 'invalid',
       detail: 'missing required field: description',
     };
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: { agents: { status: 'ok', value: MOCK_AGENTS }, agentDiagnostics: [diagnostic] },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: { agents: { status: 'ok', value: MOCK_AGENTS }, agentDiagnostics: [diagnostic] },
+      }),
     );
+    render(<AgentsSurface />);
     expect(screen.getByText(/broken-agent/)).toBeInTheDocument();
     expect(screen.getByText(/invalid file/)).toBeInTheDocument();
     expect(screen.getByText(/missing required field: description/)).toBeInTheDocument();
   });
 
   it('renders nothing when there are no diagnostics', () => {
-    render(
-      <AgentsSurface
-        state={makeState({
-          data: { agents: { status: 'ok', value: MOCK_AGENTS }, agentDiagnostics: [] },
-        })}
-      />,
+    seedState(
+      makeState({
+        data: { agents: { status: 'ok', value: MOCK_AGENTS }, agentDiagnostics: [] },
+      }),
     );
+    render(<AgentsSurface />);
     expect(screen.queryByText(/invalid file/)).not.toBeInTheDocument();
   });
 });
 
 describe('AgentsStrip', () => {
   it('names the surface and counts the agents', () => {
-    publishConsoleState(readyState());
+    seedState(readyState());
     render(<AgentsStrip />);
     expect(screen.getByText('Agents')).toBeInTheDocument();
     expect(screen.getByText(`${MOCK_AGENTS.length} agents`)).toBeInTheDocument();
   });
 
   it('leaves the filter to the list it filters, keeping the strip to surface chrome', () => {
-    publishConsoleState(readyState());
+    seedState(readyState());
     render(<AgentsStrip />);
     expect(screen.queryByRole('searchbox', { name: 'Filter agents' })).not.toBeInTheDocument();
   });
 
   it('carries a New Agent action wired to the real create action', async () => {
     const createAgent = vi.fn();
-    publishConsoleState(readyState({}, { createAgent }));
+    seedState(readyState({}, { createAgent }));
     render(<AgentsStrip />);
     await userEvent.click(screen.getByRole('button', { name: /new agent/i }));
     expect(createAgent).toHaveBeenCalledExactlyOnceWith('project');
   });
 
   it('shows the back control and the open agent’s name once a narrow drill-down is open', () => {
-    publishConsoleState(readyState({ selectedAgentRef: 'roles/tdd-implementer' }));
+    seedState(readyState({ selectedAgentRef: 'roles/tdd-implementer' }));
     useAgentsUi.setState({ narrow: true, open: true });
     render(<AgentsStrip />);
     expect(screen.getByRole('button', { name: /‹ agents/i })).toBeInTheDocument();
@@ -909,7 +918,7 @@ describe('AgentsStrip', () => {
   });
 
   it('keeps New Agent reachable from inside the drill-down — it acts on the surface', () => {
-    publishConsoleState(readyState({ selectedAgentRef: 'roles/tdd-implementer' }));
+    seedState(readyState({ selectedAgentRef: 'roles/tdd-implementer' }));
     useAgentsUi.setState({ narrow: true, open: true });
     render(<AgentsStrip />);
     expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
@@ -918,12 +927,14 @@ describe('AgentsStrip', () => {
 
 describe('AgentsSurface — the filter', () => {
   it('renders the filter on the list as a searchbox named Filter agents', () => {
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     expect(screen.getByRole('searchbox', { name: 'Filter agents' })).toBeInTheDocument();
   });
 
   it('bumping filterFocus (ctrl+f, via keys.tsx) moves DOM focus into the filter', () => {
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     const input = screen.getByRole('searchbox', { name: 'Filter agents' });
     expect(input).not.toHaveFocus();
     act(() => useAgentsUi.getState().focusFilter());
@@ -932,7 +943,8 @@ describe('AgentsSurface — the filter', () => {
 
   it('drops the filter in the drill-down, where there is no list to filter', async () => {
     measuredNarrow = true;
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     // Becoming narrow lands on the list, so the filter is still there…
     expect(screen.getByRole('searchbox', { name: 'Filter agents' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'reviewer' }));
@@ -945,7 +957,8 @@ describe('AgentsSurface — the filter', () => {
 
   it('centers and caps the filter once the list has the whole pane', () => {
     measuredNarrow = true;
-    render(<AgentsSurface state={readyState()} />);
+    seedState(readyState());
+    render(<AgentsSurface />);
     const field = screen.getByRole('searchbox', { name: 'Filter agents' });
     expect(field.parentElement?.className).toContain('max-w-80');
   });
@@ -968,21 +981,24 @@ describe('AgentsSurface — containment and shape', () => {
     });
 
   it('contains each concern in its own named region', () => {
-    render(<AgentsSurface state={catalogueState()} />);
+    seedState(catalogueState());
+    render(<AgentsSurface />);
     for (const name of ['Runs on', 'Roles', 'Context', 'Reach']) {
       expect(screen.getByRole('region', { name })).toBeInTheDocument();
     }
   });
 
   it('lays the row list out to fill the width it is given', () => {
-    const { container } = render(<AgentsSurface state={catalogueState()} />);
+    seedState(catalogueState());
+    const { container } = render(<AgentsSurface />);
     const grid = container.querySelector('[data-row-grid]');
     expect(grid?.className).toContain('auto-fit');
   });
 
   it('renames in the same face it displays', async () => {
     const user = userEvent.setup();
-    render(<AgentsSurface state={catalogueState()} />);
+    seedState(catalogueState());
+    render(<AgentsSurface />);
     const display = screen.getByRole('button', { name: /^Rename Agent name/ });
     expect(display.className).toContain('text-body');
     expect(display.className).toContain('font-semibold');
@@ -998,14 +1014,10 @@ describe('AgentsSurface — containment and shape', () => {
   it('offers the pin as a pressed control rather than a bare marker', async () => {
     const user = userEvent.setup();
     const togglePinAgent = vi.fn();
-    render(
-      <AgentsSurface
-        state={catalogueState(
-          { settings: { pinnedAgents: ['roles/reviewer'] } },
-          { togglePinAgent },
-        )}
-      />,
+    seedState(
+      catalogueState({ settings: { pinnedAgents: ['roles/reviewer'] } }, { togglePinAgent }),
     );
+    render(<AgentsSurface />);
     const pin = screen.getByRole('button', { name: 'Unpin agent' });
     expect(pin).toHaveAttribute('aria-pressed', 'true');
     await user.click(pin);
@@ -1015,7 +1027,8 @@ describe('AgentsSurface — containment and shape', () => {
   });
 
   it('still offers the control when the agent is not pinned', () => {
-    render(<AgentsSurface state={catalogueState({ settings: { pinnedAgents: [] } })} />);
+    seedState(catalogueState({ settings: { pinnedAgents: [] } }));
+    render(<AgentsSurface />);
     expect(screen.getByRole('button', { name: 'Pin agent' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -1055,7 +1068,8 @@ describe('AgentEditor — the skills section', () => {
     stateWith({ status: 'ok', value: [skillAgent] }, {}, actions);
 
   it('lists configured skills with delivery, marking one the library no longer serves', () => {
-    render(<AgentsSurface state={skillState()} />);
+    seedState(skillState());
+    render(<AgentsSurface />);
     const section = screen.getByRole('region', { name: 'Skills' });
     const commits = within(section).getByRole('listitem', { name: 'commits' });
     expect(within(commits).getByText('Commit style')).toBeInTheDocument();
@@ -1071,7 +1085,8 @@ describe('AgentEditor — the skills section', () => {
 
   it('flips a skill delivery through updateAgent', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={skillState({ updateAgent })} />);
+    seedState(skillState({ updateAgent }));
+    render(<AgentsSurface />);
     const commits = within(screen.getByRole('region', { name: 'Skills' })).getByRole('listitem', {
       name: 'commits',
     });
@@ -1086,7 +1101,8 @@ describe('AgentEditor — the skills section', () => {
 
   it('adds a skill from the library picker (auto delivery is the default)', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={skillState({ updateAgent })} />);
+    seedState(skillState({ updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Add Skill' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'review' }));
     expect(updateAgent).toHaveBeenCalledWith('roles/writer', {
@@ -1100,7 +1116,8 @@ describe('AgentEditor — the skills section', () => {
 
   it('removes a configured skill', async () => {
     const updateAgent = vi.fn();
-    render(<AgentsSurface state={skillState({ updateAgent })} />);
+    seedState(skillState({ updateAgent }));
+    render(<AgentsSurface />);
     await userEvent.click(screen.getByRole('button', { name: 'Remove skill: ghost' }));
     expect(updateAgent).toHaveBeenCalledWith('roles/writer', {
       skills: [{ name: 'commits', delivery: 'auto' }],
@@ -1109,7 +1126,8 @@ describe('AgentEditor — the skills section', () => {
 
   it('states an empty library instead of offering an empty picker', () => {
     useLibraryStore.setState({ invocable: { status: 'ok', value: [] } });
-    render(<AgentsSurface state={skillState()} />);
+    seedState(skillState());
+    render(<AgentsSurface />);
     expect(
       screen.getByText('No skills in the library — link one on the Library surface'),
     ).toBeInTheDocument();
@@ -1120,7 +1138,8 @@ describe('AgentEditor — the skills section', () => {
     // The regression: an unreadable library left the footer on "Reading the library…"
     // forever AND is no evidence that a configured skill is gone.
     useLibraryStore.setState({ invocable: { status: 'error', message: 'daemon unreachable' } });
-    render(<AgentsSurface state={skillState()} />);
+    seedState(skillState());
+    render(<AgentsSurface />);
     expect(screen.queryByText('Reading the library…')).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('daemon unreachable');
     expect(screen.queryByText('Not in the library')).toBeNull();
@@ -1128,14 +1147,16 @@ describe('AgentEditor — the skills section', () => {
 
   it('says the library is still being read while the read is in flight', () => {
     useLibraryStore.setState({ invocable: { status: 'loading' } });
-    render(<AgentsSurface state={skillState()} />);
+    seedState(skillState());
+    render(<AgentsSurface />);
     expect(screen.getByText('Reading the library…')).toBeInTheDocument();
     expect(screen.queryByText('Not in the library')).toBeNull();
   });
 
   it('renders a built-in agent read-only: no picker, delivery inert, no remove', () => {
     const builtin: AgentSummary = { ...skillAgent, ref: 'builtin/writer', scope: 'builtin' };
-    render(<AgentsSurface state={stateWith({ status: 'ok', value: [builtin] })} />);
+    seedState(stateWith({ status: 'ok', value: [builtin] }));
+    render(<AgentsSurface />);
     expect(screen.queryByRole('button', { name: 'Add Skill' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Remove skill/ })).toBeNull();
     const commits = within(screen.getByRole('region', { name: 'Skills' })).getByRole('listitem', {

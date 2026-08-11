@@ -7,7 +7,7 @@ import type { LibraryView } from '@coa/console-viewmodel';
 // The surface reaches the daemon only through the store; the store module itself pulls
 // the rpc wrappers in, so the wrapper module is mocked bare — every test drives the
 // store's STATE directly and asserts on the spy ACTIONS it installs.
-vi.mock('../console.js', () => ({
+vi.mock('./rpc.js', () => ({
   rpcListLibrary: vi.fn(),
   rpcRescanLibrary: vi.fn(),
   rpcListSkills: vi.fn(),

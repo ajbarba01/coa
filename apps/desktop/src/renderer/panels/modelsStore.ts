@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import type { ModelCatalogView, ModelEntry, ReasoningProfile } from '@coa/console-viewmodel';
+import { notifyModelsChanged } from '../store/notices.js';
 import {
-  notifyModelsChanged,
   rpcAddCustomModel,
   rpcAddModels,
   rpcEditModel,
   rpcModelCatalog,
   rpcRemoveModel,
   rpcSetModelHidden,
-} from '../console.js';
+} from './rpc.js';
 
 /**
  * The model editor's data, LIVE from the daemon (the authStore pattern): hydrate

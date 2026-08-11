@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useShell } from '../shell/store.js';
 
-// The dialog reaches the daemon only through the console.ts rpc wrappers — stubbed here so
+// The dialog reaches the daemon only through the rpc wrappers — stubbed here so
 // every flow action resolves a crafted `LoginSnapshot` instead of a real IPC round trip.
 // (The daemon's own suite pins what the verbs DO; this file pins what the dialog SHOWS.)
 const rpc = vi.hoisted(() => ({
@@ -15,7 +15,7 @@ const rpc = vi.hoisted(() => ({
   rpcProbeHealth: vi.fn(),
   rpcReportAuthFailure: vi.fn(),
 }));
-vi.mock('../console.js', () => rpc);
+vi.mock('./rpc.js', () => rpc);
 // Same stub-store shape as `hydrate` was (loginStore's `apply` calls it on every finalize),
 // widened to also carry the isolated-browser-session read the pre-step now projects — a
 // minimal double, not the real daemon-backed store.

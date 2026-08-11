@@ -14,7 +14,7 @@ const rpc = vi.hoisted(() => ({
   rpcSetLibraryEnabled: vi.fn(),
   onInvocableSkills: vi.fn(),
 }));
-vi.mock('../console.js', () => rpc);
+vi.mock('./rpc.js', () => rpc);
 
 import { useNotices } from '../shell/failures.js';
 import { useLibraryStore } from './libraryStore.js';

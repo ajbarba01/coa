@@ -8,7 +8,8 @@ import {
 import { useState } from 'react';
 import { Center } from './Center.js';
 import { LoginDialog } from '../panels/LoginFlow.js';
-import { useConsoleState } from './consoleStore.js';
+import { consoleActions } from '../store/actions.js';
+import { useConsoleUi } from '../store/ui.js';
 import { chordFromEvent, conflictFor, isBindable, rebind } from './keybinds.js';
 import { useGlobalKeys, useKeybinds } from './keys.js';
 import { Nav } from './Nav.js';
@@ -108,13 +109,11 @@ export function Workbench(): React.JSX.Element {
 /** The editor's seam into the app: the kit captures chords, this decides what they mean
  *  and persists them. Overrides ride the existing settings path (main writes settings.json),
  *  so a rebinding survives a restart with no new storage. */
-function useKeybindEditing(): KeybindEditing | undefined {
-  const state = useConsoleState((s) => s);
+function useKeybindEditing(): KeybindEditing {
+  const overrides = useConsoleUi((s) => s.settings.keybinds);
   const keybinds = useKeybinds();
-  if (state === undefined) return undefined;
-  const overrides = state.ui.settings.keybinds;
   const save = (next: Record<string, string[]>): void =>
-    state.actions.setSettings({ keybinds: next });
+    consoleActions.setSettings({ keybinds: next });
 
   return {
     chordFromEvent,

@@ -18,7 +18,6 @@ import type {
   WorktreeView,
 } from '@coa/console-viewmodel';
 import type { ConsoleSettings } from '../../shared/settings.js';
-import { DEFAULT_SETTINGS } from '../../shared/settings.js';
 
 /** A single async read's UI state — carries loading/error/value through the
  *  pure selectors so panels can render states-first. */
@@ -86,6 +85,28 @@ export interface SessionModeState {
   effectiveMode: PermissionMode;
   degraded?: string;
 }
+
+/** F2 — the honest reason surfaced when a session's enforcement degrades to bypass.
+ *  Mirrors the daemon's own `mode`-push wording, so the reattach-hydrated read and the
+ *  live push read as one voice rather than two accounts of the same fact. */
+export const NO_APPROVAL_SEAM_REASON =
+  'the active backend has no approval seam — enforcement degrades to bypass';
+
+/** F2 — the daemon's answer to the `sessionMode` reattach read: a session's current
+ *  permission-mode state, or `{found:false}` for an unknown id. */
+export type SessionModeSnapshot =
+  | { found: false }
+  | {
+      found: true;
+      mode: PermissionMode;
+      effectiveMode: PermissionMode;
+      pending: Array<{
+        requestId: string;
+        tool: string;
+        summary: string;
+        input: Record<string, unknown>;
+      }>;
+    };
 
 /** Local view state (not daemon data). */
 export interface ConsoleUi {
@@ -221,46 +242,14 @@ export interface ConsoleActions {
   reapWorktree: (sessionId: string) => void;
 }
 
-/** The single object pushed into the engine via setDaemonState: data down,
- *  actions up. Every panel's pure selectVm reads only what it needs. */
+/** The console's view-input vocabulary: `data` down, `actions` up. No single object of
+ *  this whole shape exists at runtime anymore — state lives in the slice stores
+ *  (`renderer/store/`), and each surface assembles the SUBSET of this shape its pure
+ *  `selectVm` reads (`data.turns` is always the ACTIVE session's transcript there).
+ *  The full type remains the shared reference the per-surface subsets `Pick` from, and
+ *  the one shape test fixtures build. */
 export interface ConsoleState {
   data: ConsoleData;
   ui: ConsoleUi;
   actions: ConsoleActions;
-}
-
-export function initialState(actions: ConsoleActions): ConsoleState {
-  return {
-    data: {
-      cap: { status: 'loading' },
-      flags: { status: 'loading' },
-      timeline: { status: 'loading' },
-      accounts: { status: 'loading' },
-      turns: { status: 'loading' },
-      agents: { status: 'loading' },
-      agentDiagnostics: [],
-      sessions: { status: 'loading' },
-      worktrees: { status: 'loading' },
-      models: { status: 'loading' },
-      modelMetadata: { status: 'loading' },
-      roles: { status: 'loading' },
-      packages: { status: 'loading' },
-    },
-    ui: {
-      settings: DEFAULT_SETTINGS,
-      rawMode: false,
-      resolvedApprovals: {},
-      modelOverride: {},
-      dismissedDrift: {},
-      dismissedCache: {},
-      runStatus: {},
-      sendNonce: {},
-      notesBySession: {},
-      modeBySession: {},
-      pendingApprovalsBySession: {},
-      usageBySession: {},
-      subagentStatus: {},
-    },
-    actions,
-  };
 }

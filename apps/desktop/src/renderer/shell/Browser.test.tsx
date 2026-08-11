@@ -2,7 +2,7 @@
 import type { SessionSummary } from '@coa/console-viewmodel';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { arrangeSessions, Browser } from './Browser.js';
 import { useShell } from './store.js';
 
@@ -29,23 +29,21 @@ const AGENTS = [
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
+  resetStores();
 });
 
 function mount(
   selectSession = vi.fn(),
   deleteSession = vi.fn(),
 ): { selectSession: ReturnType<typeof vi.fn>; deleteSession: ReturnType<typeof vi.fn> } {
-  render(
-    <Browser
-      state={makeState({
-        data: {
-          sessions: { status: 'ok', value: SESSIONS },
-          agents: { status: 'ok', value: AGENTS },
-        },
-        actions: { selectSession, deleteSession },
-      })}
-    />,
-  );
+  seedStores({
+    data: {
+      sessions: { status: 'ok', value: SESSIONS },
+      agents: { status: 'ok', value: AGENTS },
+    },
+    actions: { selectSession, deleteSession },
+  });
+  render(<Browser />);
   return { selectSession, deleteSession };
 }
 
@@ -189,16 +187,13 @@ describe('Browser', () => {
       agentRef: 'roles/dev',
       updatedAt: '2026-07-11T00:00:00.000Z',
     };
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, child1, child2, otherRoot] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, child1, child2, otherRoot] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     const r = rows();
     // Both children render nested under their root, in tree order — never as flat
     // peers of the unrelated root, and the unrelated root is never absorbed into it.
@@ -237,16 +232,13 @@ describe('Browser', () => {
       parent: 'child',
       root: 'root',
     };
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, child, grandchild] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, child, grandchild] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     const r = rows();
     expect(r.map((el) => el.dataset.sessionId)).toEqual(['root', 'child', 'grandchild']);
     expect(r.find((el) => el.dataset.sessionId === 'grandchild')?.dataset.depth).toBe('2');
@@ -275,16 +267,13 @@ describe('Browser', () => {
     };
     useShell.getState().openSearch();
     useShell.getState().setQuery('wire');
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, child] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, child] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     // Only the child matched "wire" — but its real parent is pulled in for
     // context rather than the child rendering as an apparent, unrelated root.
     expect(screen.getByText('1 sessions')).toBeTruthy();
@@ -321,16 +310,13 @@ describe('Browser', () => {
     };
     useShell.getState().openSearch();
     useShell.getState().setQuery('polish');
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, child, grandchild] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, child, grandchild] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     expect(screen.getByText('1 sessions')).toBeTruthy();
     const r = rows();
     // Neither 'root' nor 'child' matched "polish", yet both are pulled in so the
@@ -361,16 +347,13 @@ describe('Browser', () => {
     };
     useShell.getState().openSearch();
     useShell.getState().setQuery('nonexistent-term');
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, child] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, child] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     expect(rows()).toHaveLength(0);
   });
 
@@ -395,16 +378,13 @@ describe('Browser', () => {
     };
     useShell.getState().openSearch();
     useShell.getState().setQuery('polish');
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, grandchild] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, grandchild] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     const r = rows();
     // The broken parent link alone can't find 'root' — only the stored `.root`
     // fallback can. Without it this renders as a single 'grandchild' row at
@@ -437,16 +417,13 @@ describe('Browser', () => {
     };
     useShell.getState().openSearch();
     useShell.getState().setQuery('audit');
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [rootA, rootB, childB] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [rootA, rootB, childB] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     const r = rows();
     // rootB's tree is newer than rootA even though rootB itself is only pulled
     // in for context — Sort: Recent must still put it first.
@@ -474,33 +451,27 @@ describe('Browser', () => {
       agentRef: 'roles/dev',
       updatedAt: '2026-07-11T00:00:00.000Z',
     };
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: [root, child1, otherRoot] },
-            agents: { status: 'ok', value: AGENTS },
-          },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: [root, child1, otherRoot] },
+        agents: { status: 'ok', value: AGENTS },
+      },
+    });
+    render(<Browser />);
     // No search at all — nothing is pulled, so this is exactly the pre-existing
     // recency order: newest tree first, unaffected by the ordering fix.
     expect(rows().map((el) => el.dataset.sessionId)).toEqual(['root', 'child1', 'other']);
   });
 
   it('picking group: status from the toolbar renders a header per run state', () => {
-    render(
-      <Browser
-        state={makeState({
-          data: {
-            sessions: { status: 'ok', value: SESSIONS },
-            agents: { status: 'ok', value: AGENTS },
-          },
-          ui: { runStatus: { c1: { since: 0 } } },
-        })}
-      />,
-    );
+    seedStores({
+      data: {
+        sessions: { status: 'ok', value: SESSIONS },
+        agents: { status: 'ok', value: AGENTS },
+      },
+      ui: { runStatus: { c1: { since: 0 } } },
+    });
+    render(<Browser />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Group sessions by' }));
     const option = screen.getByRole('option', { name: /^status$/i });
     fireEvent.pointerDown(option);

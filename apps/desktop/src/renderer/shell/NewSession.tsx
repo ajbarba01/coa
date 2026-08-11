@@ -1,6 +1,7 @@
 import { useModalLayer } from '@coa/console-kit';
 import { Command } from 'cmdk';
-import { useConsoleState } from './consoleStore.js';
+import { consoleActions } from '../store/actions.js';
+import { useDaemonData } from '../store/data.js';
 import { useShell } from './store.js';
 
 /** The agent picker: the ONE way a session starts (the tab strip's + and ctrl+t both open
@@ -12,13 +13,13 @@ export function NewSessionDialog(): React.JSX.Element | null {
   // Same modal ground as the palette: ctrl+t summons it with no pointer press, so
   // superseding whatever menu was open has to be this surface's own doing.
   useModalLayer(open, () => setOpen(false));
-  const state = useConsoleState((s) => s);
+  const agentsRemote = useDaemonData((s) => s.agents);
 
-  if (!open || state === undefined) return null;
-  const agents = state.data.agents.status === 'ok' ? state.data.agents.value : [];
+  if (!open) return null;
+  const agents = agentsRemote.status === 'ok' ? agentsRemote.value : [];
 
   const start = (ref: string): void => {
-    state.actions.newSession(ref);
+    consoleActions.newSession(ref);
     setOpen(false);
   };
 

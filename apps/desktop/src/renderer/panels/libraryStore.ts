@@ -9,7 +9,7 @@ import {
   rpcRescanLibrary,
   rpcSetLibraryEnabled,
   rpcUnlinkLibrary,
-} from '../console.js';
+} from './rpc.js';
 import { reportFailure, surfaceWrite } from '../shell/failures.js';
 import type { Remote } from './state.js';
 
@@ -153,5 +153,5 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
 
 // The drift-dismissal key folds in the same resolvable skill slice the chat banner
 // compares — registered here (the store is the invocable list's one owner) so the
-// controller never imports this module (see `onInvocableSkills` in console.ts).
+// controller never imports this module (see `onInvocableSkills` in rpc.ts).
 onInvocableSkills(() => useLibraryStore.getState().invocable);

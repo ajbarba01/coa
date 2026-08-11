@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
+import { makeState, resetStores, seedState } from '../testing/fixtures.js';
 import { ProjectButton, shouldConfirmSwap } from './ProjectSwitcher.js';
 import { useShell } from './store.js';
 
@@ -25,7 +24,7 @@ function stubCoa(overrides: Partial<Record<string, unknown>> = {}): void {
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
   stubCoa();
 });
 
@@ -96,7 +95,7 @@ describe('ProjectButton', () => {
 
   it('opens the picked folder in a NEW window without ever asking, even mid-turn', async () => {
     useShell.setState({ workspace: { name: 'here', root: 'C:/dev/here' } });
-    publishConsoleState(makeState({ ui: { runStatus: { s1: { since: Date.now() } } } }));
+    seedState(makeState({ ui: { runStatus: { s1: { since: Date.now() } } } }));
     const openProject = vi
       .fn()
       .mockResolvedValue({ opened: 'new', workspace: { name: 'picked', root: 'C:/dev/picked' } });
@@ -118,7 +117,7 @@ describe('ProjectButton', () => {
 
   it('confirms before swapping THIS window while a turn is running, then proceeds on confirm', async () => {
     useShell.setState({ workspace: { name: 'here', root: 'C:/dev/here' } });
-    publishConsoleState(makeState({ ui: { runStatus: { s1: { since: Date.now() } } } }));
+    seedState(makeState({ ui: { runStatus: { s1: { since: Date.now() } } } }));
     const openProject = vi.fn().mockResolvedValue({
       opened: 'current',
       workspace: { name: 'picked', root: 'C:/dev/picked' },
@@ -143,7 +142,7 @@ describe('ProjectButton', () => {
 
   it('cancelling the confirm leaves the current project untouched', async () => {
     useShell.setState({ workspace: { name: 'here', root: 'C:/dev/here' } });
-    publishConsoleState(makeState({ ui: { runStatus: { s1: { since: Date.now() } } } }));
+    seedState(makeState({ ui: { runStatus: { s1: { since: Date.now() } } } }));
     const openProject = vi.fn();
     stubCoa({ pickDirectory: vi.fn().mockResolvedValue({ path: 'C:/dev/picked' }), openProject });
     render(<ProjectButton />);

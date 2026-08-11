@@ -3,22 +3,24 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelEntry } from '@coa/console-viewmodel';
 
-// The editor's store talks to the daemon through these console.ts callers — mocked so every
+// The editor's store talks to the daemon through these preload callers — mocked so every
 // write resolves a crafted view instead of a real IPC round trip. Daemon-owned semantics
 // (seeding, materialise-then-mutate, remove-vs-hide) live in the core suites, not here: this
 // file asserts the surface renders the store and routes each act to the right action.
-vi.mock('../console.js', () => ({
+vi.mock('./rpc.js', () => ({
   rpcModelCatalog: vi.fn(),
   rpcAddModels: vi.fn(),
   rpcAddCustomModel: vi.fn(),
   rpcEditModel: vi.fn(),
   rpcRemoveModel: vi.fn(),
   rpcSetModelHidden: vi.fn(),
+}));
+vi.mock('../store/notices.js', () => ({
   notifyModelsChanged: vi.fn().mockResolvedValue(undefined),
   onModelsChanged: vi.fn(),
 }));
 
-import { rpcAddModels, rpcModelCatalog, rpcRemoveModel, rpcSetModelHidden } from '../console.js';
+import { rpcAddModels, rpcModelCatalog, rpcRemoveModel, rpcSetModelHidden } from './rpc.js';
 import { useModels } from './modelsStore.js';
 import { ModelsSection } from './ModelEditor.js';
 import { PROVIDERS } from './providers.js';

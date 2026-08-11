@@ -1,7 +1,7 @@
 import { Icon, MenuItem, PopoverCard, StatusDot, Tooltip, cx } from '@coa/console-kit';
 import type { AgentColor, AgentIcon, AgentSummary } from '@coa/console-viewmodel';
 import { AnimatePresence, motion } from 'motion/react';
-import { startTransition, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AgentsStrip, AgentsSurface } from '../panels/AgentsPanel.js';
 import { AuthStrip, AuthSurface } from '../panels/AuthPanel.js';
 import { ChatSurface } from '../panels/ChatPanel.js';
@@ -10,11 +10,12 @@ import { LibraryStrip, LibrarySurface } from '../panels/LibraryPanel.js';
 import { ShowcaseSurface } from '../panels/ShowcasePanel.js';
 import { TimelineSurface } from '../panels/TimelinePanel.js';
 import { UsageStrip, UsageSurface } from '../panels/UsagePanel.js';
-import type { ConsoleState } from '../panels/state.js';
+import { consoleActions } from '../store/actions.js';
+import { useSessions } from '../store/sessions.js';
+import { useConsoleUi } from '../store/ui.js';
 import { DRAG, NO_DRAG } from './appRegion.js';
 import { Browser } from './Browser.js';
-import { useConsoleState } from './consoleStore.js';
-import { DeferredCanvas, Freeze } from './deferredMount.js';
+import { DeferredCanvas } from './deferredMount.js';
 import { bindFor, closeOtherTabs, closeTab, closeTabsRight, reopenLastTab } from './keys.js';
 import { SURFACES } from './Nav.js';
 import { useShell } from './store.js';
@@ -57,20 +58,14 @@ function EmptySurface({ name }: { name: string }): React.JSX.Element {
   );
 }
 
-function SurfaceHost({
-  surface,
-  state,
-}: {
-  surface: string;
-  state: ConsoleState;
-}): React.JSX.Element {
+function SurfaceHost({ surface }: { surface: string }): React.JSX.Element {
   switch (surface) {
     case 'chat':
-      return <ChatSurface state={state} />;
+      return <ChatSurface />;
     case 'flags':
-      return <FlagsSurface state={state} />;
+      return <FlagsSurface />;
     case 'timeline':
-      return <TimelineSurface state={state} />;
+      return <TimelineSurface />;
     // Auth renders from the live daemon-fed store (authStore.ts); Usage is still
     // deliberately mock-fed (roadmap-tracked). Both own their data, so no ConsoleState.
     case 'auth':
@@ -78,7 +73,7 @@ function SurfaceHost({
     case 'usage':
       return <UsageSurface />;
     case 'agents':
-      return <AgentsSurface state={state} />;
+      return <AgentsSurface />;
     // The library owns its data via its own daemon-fed store (libraryStore.ts), so
     // no ConsoleState — the auth-surface precedent.
     case 'library':
@@ -97,14 +92,14 @@ function SurfaceHost({
  *  (or leaving/entering search) is a display swap, never a rebuild. A surface's
  *  first visit mounts through a transition (DeferredCanvas) so the nav flip
  *  paints before the panel's rows do. `chatHidden` hides (never unmounts) the
- *  chat canvas while the session browser overlays it in search mode. */
+ *  chat canvas while the session browser overlays it in search mode. Surfaces
+ *  subscribe to their own slices, so a hidden canvas re-renders only when the
+ *  data IT draws moves — no freeze machinery needed. */
 function SurfaceCanvas({
   surface,
-  state,
   chatHidden,
 }: {
   surface: string;
-  state: ConsoleState;
   chatHidden: boolean;
 }): React.JSX.Element {
   const [visited, setVisited] = useState<string[]>([]);
@@ -122,15 +117,9 @@ function SurfaceCanvas({
             data-canvas={id}
             className={shown ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
           >
-            {/* Frozen while hidden: live publishes must not re-render every
-                visited surface (that cost is the switching slowdown). The chat
-                canvas stays THAWED during search so the transcript keeps
-                streaming under the browser overlay. */}
-            <Freeze frozen={id !== surface}>
-              <DeferredCanvas id={id}>
-                <SurfaceHost surface={id} state={state} />
-              </DeferredCanvas>
-            </Freeze>
+            <DeferredCanvas id={id}>
+              <SurfaceHost surface={id} />
+            </DeferredCanvas>
           </div>
         );
       })}
@@ -145,7 +134,6 @@ export function Center(): React.JSX.Element {
   const surface = useShell((s) => s.surface);
   const mode = useShell((s) => s.mode);
   const workOpen = useShell((s) => s.workOpen);
-  const state = useConsoleState((s) => s);
   const searching = surface === 'chat' && mode === 'search';
 
   return (
@@ -176,7 +164,7 @@ export function Center(): React.JSX.Element {
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.18, ease: [0.19, 1, 0.22, 1] }}
                 >
-                  <TabStrip state={state} />
+                  <TabStrip />
                 </motion.div>
               ) : (
                 <motion.div
@@ -225,37 +213,32 @@ export function Center(): React.JSX.Element {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {state === undefined ? null : (
-          <>
-            <SurfaceCanvas surface={surface} state={state} chatHidden={searching} />
-            {searching && (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <Browser state={state} />
-              </div>
-            )}
-          </>
+        <SurfaceCanvas surface={surface} chatHidden={searching} />
+        {searching && (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Browser />
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Element {
+function TabStrip(): React.JSX.Element {
   const tabs = useShell((s) => s.tabs);
   const openSearch = useShell((s) => s.openSearch);
   const setNewSessionOpen = useShell((s) => s.setNewSessionOpen);
   const reorderTabs = useShell((s) => s.reorderTabs);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sessions = state?.data.sessions.status === 'ok' ? state.data.sessions.value : [];
-  const activeId = state?.ui.activeSessionId;
-  const rawMode = state?.ui.rawMode === true;
-  // Optimistic selection: opening a session re-renders the whole canvas (transcript
-  // swap, scroll restore), and until that commit lands the strip still paints the OLD
-  // tab as selected. `pending` moves the marker on the click itself and the open runs
-  // as a transition, so the strip answers first and the content follows.
-  const [pending, setPending] = useState<string>();
-  const selected = pending ?? activeId;
-  useEffect(() => setPending(undefined), [activeId]);
+  const list = useSessions((s) => s.list);
+  const sessions = list.status === 'ok' ? list.value : [];
+  const activeId = useSessions((s) => s.activeSessionId);
+  const runStatus = useSessions((s) => s.runStatus);
+  const rawMode = useConsoleUi((s) => s.rawMode);
+  // Selection is synchronous now: activation flips the active id in the session slice and
+  // the already-mounted tab shows in the same frame — no optimistic marker, no transition
+  // (the `pending` machinery existed to hide a rebuild that no longer happens).
+  const selected = activeId;
 
   // The selected tab must be VISIBLE, whoever moved the selection — a keyboard cycle, the
   // browser, the palette. Centre it where the strip has room to; at either end the scroller
@@ -266,10 +249,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
     activeRef.current?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
   }, [selected, tabs.length]);
 
-  const select = (id: string): void => {
-    setPending(id);
-    startTransition(() => state?.actions.selectSession(id));
-  };
+  const select = (id: string): void => consoleActions.selectSession(id);
   /** Middle-click closes a tab — the same command ctrl+w runs (working-set removal only:
    *  the session survives, and ctrl+shift+t brings the tab back). */
   const close = closeTab;
@@ -355,14 +335,20 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
         <div className="flex h-[calc(var(--titlebar-h)-4px)] items-stretch">
           {tabs.map((tid, visualIndex) => {
             const t = sessions.find((s) => s.id === tid);
-            if (!t) return undefined;
+            // A restored tab is dropped only once the list has ANSWERED and does not name
+            // it (the working set is per-project; the strip on disk is not). While the
+            // read is still in flight there is no evidence either way, and hiding every
+            // restored tab until it lands makes the strip appear from nothing a moment
+            // after boot. It renders with its title still pending instead.
+            if (!t && list.status !== 'loading') return undefined;
+            const title = t?.title ?? '…';
             const isDragged = di === visualIndex;
             const on = tid === selected;
-            const running = state?.ui.runStatus[tid] !== undefined;
+            const running = runStatus[tid] !== undefined;
             const showBar = dragBar !== null && !isDragged && dragBar.visual === visualIndex;
             return (
               // The tooltip carries the FULL session title — the w-30 tabs truncate.
-              <Tooltip key={tid} label={t.title} side="bottom">
+              <Tooltip key={tid} label={title} side="bottom">
                 <button
                   ref={on ? activeRef : undefined}
                   type="button"
@@ -404,7 +390,7 @@ function TabStrip({ state }: { state: ConsoleState | undefined }): React.JSX.Ele
                     />
                   )}
                   <StatusDot status={running ? 'running' : 'idle'} />
-                  <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">{title}</span>
                   {on && <span className="absolute right-3 bottom-0 left-3 h-0.5 bg-s9" />}
                   <span
                     data-divider

@@ -3,8 +3,8 @@ import type { TurnFrame } from '@coa/console-viewmodel';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConsoleState } from '../panels/state.js';
-import { makeState } from '../testing/fixtures.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
+import { makeState, resetStores, seedState } from '../testing/fixtures.js';
+import { useTranscripts } from '../store/transcripts.js';
 import { useShell } from './store.js';
 import { childDotStatus, Work } from './Work.js';
 
@@ -18,7 +18,7 @@ const SESSION = {
 };
 
 function publish(runStatus: Record<string, { since: number }> = {}): void {
-  publishConsoleState(
+  seedState(
     makeState({
       data: { sessions: { status: 'ok', value: [SESSION] } },
       ui: { activeSessionId: 'c1', runStatus },
@@ -27,7 +27,7 @@ function publish(runStatus: Record<string, { since: number }> = {}): void {
 }
 
 function renderWorkWithTurns(turns: TurnFrame[]): void {
-  publishConsoleState(
+  seedState(
     makeState({
       data: { sessions: { status: 'ok', value: [SESSION] }, turns: { status: 'ok', value: turns } },
       ui: { activeSessionId: 'c1' },
@@ -38,7 +38,7 @@ function renderWorkWithTurns(turns: TurnFrame[]): void {
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
   (window as unknown as { coa: unknown }).coa = { platform: 'win32' };
 });
 
@@ -60,7 +60,7 @@ describe('Work', () => {
       parent: 'c1',
       root: 'c1',
     };
-    publishConsoleState(
+    seedState(
       makeState({
         data: { sessions: { status: 'ok', value: [root, child] } },
         ui: { activeSessionId: 'child1' },
@@ -75,7 +75,7 @@ describe('Work', () => {
   });
 
   it('falls to the quiet empty line with no active session', () => {
-    publishConsoleState(makeState({ data: { sessions: { status: 'ok', value: [] } } }));
+    seedState(makeState({ data: { sessions: { status: 'ok', value: [] } } }));
     render(<Work />);
     expect(screen.getByText(/^no session$/i)).toBeTruthy();
   });
@@ -109,6 +109,55 @@ describe('Work', () => {
     expect(screen.getByText('read the spec')).toBeTruthy();
   });
 
+  it('previews the HOVERED session’s own plan, not the active conversation’s', () => {
+    const other = {
+      id: 'c2',
+      title: 'the other thread',
+      agentRef: 'roles/dev',
+      updatedAt: '2026-07-11T02:00:00.000Z',
+    };
+    seedState(
+      makeState({
+        data: {
+          sessions: { status: 'ok', value: [SESSION, other] },
+          turns: {
+            status: 'ok',
+            value: [
+              {
+                id: 'p1',
+                role: 'agent',
+                kind: 'plan',
+                items: [{ text: 'active plan', status: 'pending' }],
+              },
+            ],
+          },
+        },
+        ui: { activeSessionId: 'c1' },
+      }),
+    );
+    // Each session owns its transcript, so the previewed one draws from its own entry.
+    useTranscripts.setState((t) => ({
+      bySession: {
+        ...t.bySession,
+        c2: {
+          status: 'ok',
+          value: [
+            {
+              id: 'p2',
+              role: 'agent',
+              kind: 'plan',
+              items: [{ text: 'previewed plan', status: 'pending' }],
+            },
+          ],
+        },
+      },
+    }));
+    useShell.setState({ previewId: 'c2' });
+    render(<Work />);
+    expect(screen.getByText('previewed plan')).toBeTruthy();
+    expect(screen.queryByText('active plan')).toBeNull();
+  });
+
   it('labels the un-backed sections as floors, not fake data', () => {
     renderWorkWithTurns([]);
     expect(screen.getAllByText(/not tracked yet/i).length).toBeGreaterThan(0);
@@ -134,7 +183,7 @@ describe('Work', () => {
       root: 'c1',
       costUsd: 5,
     };
-    publishConsoleState(
+    seedState(
       makeState({
         data: { sessions: { status: 'ok', value: [root, child1, child2] } },
         ui: { activeSessionId: 'c1' },
@@ -156,7 +205,7 @@ describe('Work', () => {
       root: 'c1',
       costUsd: 10,
     };
-    publishConsoleState(
+    seedState(
       makeState({
         data: { sessions: { status: 'ok', value: [root, child] } },
         ui: { activeSessionId: 'child1' }, // viewing the CHILD's own tab
@@ -176,7 +225,7 @@ describe('Work', () => {
       parent: 'c1',
       root: 'c1',
     };
-    publishConsoleState(
+    seedState(
       makeState({
         data: { sessions: { status: 'ok', value: [root, child] } },
         ui: { activeSessionId: 'c1' },
@@ -224,7 +273,7 @@ describe('Work — Subagents floor', () => {
 
   it('lists children depth-nested with the agent identity name and a jump-to-thread row', () => {
     const selectSession = vi.fn();
-    publishConsoleState(
+    seedState(
       makeState({
         data: {
           sessions: { status: 'ok', value: [SESSION, CHILD, GRANDCHILD] },
@@ -247,23 +296,12 @@ describe('Work — Subagents floor', () => {
   });
 
   it('childDotStatus reads the console run map first, then the announcement mirror, then idle', () => {
-    const base = makeState({});
-    expect(childDotStatus('x', base)).toBe('idle');
-    expect(childDotStatus('x', makeState({ ui: { runStatus: { x: { since: 1 } } } }))).toBe(
-      'running',
-    );
-    expect(
-      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'running' } } } })),
-    ).toBe('running');
-    expect(
-      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'completed' } } } })),
-    ).toBe('done');
-    expect(
-      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'errored' } } } })),
-    ).toBe('critical');
-    expect(
-      childDotStatus('x', makeState({ ui: { subagentStatus: { x: { state: 'stopped' } } } })),
-    ).toBe('idle');
+    expect(childDotStatus('x', {}, {})).toBe('idle');
+    expect(childDotStatus('x', { x: { since: 1 } }, {})).toBe('running');
+    expect(childDotStatus('x', {}, { x: { state: 'running' } })).toBe('running');
+    expect(childDotStatus('x', {}, { x: { state: 'completed' } })).toBe('done');
+    expect(childDotStatus('x', {}, { x: { state: 'errored' } })).toBe('critical');
+    expect(childDotStatus('x', {}, { x: { state: 'stopped' } })).toBe('idle');
   });
 });
 
@@ -278,7 +316,7 @@ describe('Work — Worktree floor', () => {
     worktrees: ConsoleState['data']['worktrees'],
     reapWorktree = vi.fn(),
   ): ReturnType<typeof vi.fn> {
-    publishConsoleState(
+    seedState(
       makeState({
         data: {
           sessions: { status: 'ok', value: [SESSION, CHILD] },

@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useShell } from './store.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
-import type { ConsoleState } from '../panels/state.js';
 
 describe('useShell', () => {
   beforeEach(() => {
@@ -149,21 +147,5 @@ describe('useShell', () => {
     useShell.getState().setConfirmSwapProject(undefined);
     s = useShell.getState();
     expect(s.confirmSwapProject).toBeUndefined();
-  });
-});
-
-describe('useConsoleState', () => {
-  beforeEach(() => {
-    useConsoleState.setState(undefined, true);
-  });
-
-  it('starts undefined', () => {
-    expect(useConsoleState.getState()).toBeUndefined();
-  });
-
-  it('publishConsoleState replaces the held state', () => {
-    const state = { data: {}, ui: {}, actions: {} } as unknown as ConsoleState;
-    publishConsoleState(state);
-    expect(useConsoleState.getState()).toBe(state);
   });
 });

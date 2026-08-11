@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { makeState } from '../testing/fixtures.js';
+import { resetStores, seedStores } from '../testing/fixtures.js';
 import { useAuthStore } from '../panels/authStore.js';
-import { publishConsoleState, useConsoleState } from './consoleStore.js';
 import { useShell } from './store.js';
 import { CENTER, clampNav, clampWork, NAV, WORK, Workbench } from './Workbench.js';
 
@@ -12,7 +11,7 @@ const initialAuth = useAuthStore.getState();
 
 beforeEach(() => {
   useShell.setState(initialShell, true);
-  useConsoleState.setState(undefined, true);
+  resetStores();
   useAuthStore.setState(initialAuth, true);
   (window as unknown as { coa: unknown }).coa = { platform: 'win32' };
 });
@@ -52,21 +51,24 @@ describe('Workbench', () => {
     expect(screen.getAllByRole('separator', { name: /^resize panel$/i })).toHaveLength(1);
   });
 
-  it('hosts the store-selected surface in the center once state is published', () => {
-    publishConsoleState(makeState());
+  it('hosts the store-selected surface in the center', () => {
+    seedStores();
     useShell.getState().setSurface('graph');
     render(<Workbench />);
     expect(screen.getByText(/graph is not designed yet/i)).toBeTruthy();
   });
 
-  it('renders no surface before the first console-state publish', () => {
+  it('renders its surface with no seeding at all — slices carry their own defaults', () => {
+    // The old whole-state store held `undefined` until the first publish and the center
+    // rendered nothing until then. Slices are always readable, so a surface paints on the
+    // first frame; that gap is what instant navigation removes.
     useShell.getState().setSurface('graph');
     render(<Workbench />);
-    expect(screen.queryByText(/graph is not designed yet/i)).toBeNull();
+    expect(screen.getByText(/graph is not designed yet/i)).toBeTruthy();
   });
 
   it('routes the auth surface to its pane — credentials outgrew the ◐ foot popover', async () => {
-    publishConsoleState(makeState());
+    seedStores();
     useShell.getState().setSurface('auth');
     // The auth store is empty until its mount-time `hydrate()` resolves (the live
     // daemon reads land later); this file's `window.coa` stub carries no `authView`, so that read

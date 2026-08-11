@@ -1,39 +1,7 @@
 // @vitest-environment jsdom
 import { act, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { DeferredCanvas, Freeze } from './deferredMount.js';
-
-describe('Freeze', () => {
-  it('skips re-rendering its subtree while frozen and catches up on thaw', () => {
-    const renders = vi.fn();
-    function Probe({ label }: { label: string }): React.JSX.Element {
-      renders(label);
-      return <div data-testid="probe">{label}</div>;
-    }
-    const { rerender } = render(
-      <Freeze frozen={false}>
-        <Probe label="v1" />
-      </Freeze>,
-    );
-    expect(screen.getByTestId('probe')).toHaveTextContent('v1');
-
-    rerender(
-      <Freeze frozen>
-        <Probe label="v2" />
-      </Freeze>,
-    );
-    // frozen: the hidden canvas must NOT pay for this update
-    expect(screen.getByTestId('probe')).toHaveTextContent('v1');
-    expect(renders).toHaveBeenCalledTimes(1);
-
-    rerender(
-      <Freeze frozen={false}>
-        <Probe label="v3" />
-      </Freeze>,
-    );
-    expect(screen.getByTestId('probe')).toHaveTextContent('v3');
-  });
-});
+import { describe, expect, it } from 'vitest';
+import { DeferredCanvas } from './deferredMount.js';
 
 describe('DeferredCanvas', () => {
   it('paints the loading circle first and mounts content when the transition lands', () => {
