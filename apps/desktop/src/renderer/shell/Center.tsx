@@ -335,14 +335,20 @@ function TabStrip(): React.JSX.Element {
         <div className="flex h-[calc(var(--titlebar-h)-4px)] items-stretch">
           {tabs.map((tid, visualIndex) => {
             const t = sessions.find((s) => s.id === tid);
-            if (!t) return undefined;
+            // A restored tab is dropped only once the list has ANSWERED and does not name
+            // it (the working set is per-project; the strip on disk is not). While the
+            // read is still in flight there is no evidence either way, and hiding every
+            // restored tab until it lands makes the strip appear from nothing a moment
+            // after boot. It renders with its title still pending instead.
+            if (!t && list.status !== 'loading') return undefined;
+            const title = t?.title ?? '…';
             const isDragged = di === visualIndex;
             const on = tid === selected;
             const running = runStatus[tid] !== undefined;
             const showBar = dragBar !== null && !isDragged && dragBar.visual === visualIndex;
             return (
               // The tooltip carries the FULL session title — the w-30 tabs truncate.
-              <Tooltip key={tid} label={t.title} side="bottom">
+              <Tooltip key={tid} label={title} side="bottom">
                 <button
                   ref={on ? activeRef : undefined}
                   type="button"
@@ -384,7 +390,7 @@ function TabStrip(): React.JSX.Element {
                     />
                   )}
                   <StatusDot status={running ? 'running' : 'idle'} />
-                  <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">{title}</span>
                   {on && <span className="absolute right-3 bottom-0 left-3 h-0.5 bg-s9" />}
                   <span
                     data-divider

@@ -46,6 +46,26 @@ describe('Center tabs', () => {
     expect(selectSession).toHaveBeenCalledWith('c2');
   });
 
+  it('keeps restored tabs on screen while the session list is still loading', () => {
+    // The strip is restored from disk before the list has answered. Dropping every tab
+    // it names until then makes the whole strip appear out of nothing a moment into
+    // boot — a tab is only STALE once a list that loaded fails to name it.
+    publish({ data: { sessions: { status: 'loading' } }, ui: { activeSessionId: undefined } });
+    useShell.getState().openTab('c1');
+    useShell.getState().openTab('c2');
+    render(<Center />);
+    expect(screen.getAllByRole('button', { name: '…' })).toHaveLength(2);
+  });
+
+  it('drops a tab the loaded list does not name — that one really is gone', () => {
+    publish();
+    useShell.getState().openTab('c1');
+    useShell.getState().openTab('from-another-project');
+    render(<Center />);
+    expect(screen.getByRole('button', { name: /wire the dock/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '…' })).toBeNull();
+  });
+
   it('gives every session tab the same fixed width (titles truncate inside)', () => {
     publish();
     useShell.getState().openTab('c1');

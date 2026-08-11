@@ -1066,14 +1066,21 @@ function ChatView({
               expanding a deeply-scrolled row covers the transcript region only, never the
               window, and the floating composer stays over its bottom edge. */}
           <PaneOverlayProvider className="flex-1 bg-s1">
-            {/* No conversation selected: teach the register (there is nothing to subscribe to). */}
-            {activeSessionId === undefined && (
-              <EmptyConversation
-                agent={readyVm?.agentName ?? 'agent'}
-                model={currentModelLabel}
-                effort={currentEffortLabel}
-              />
-            )}
+            {/* No conversation selected. Only once the vm is READY is that a fact rather
+                than a boot window that has not heard back yet — until then this says so
+                instead of teaching the register for a state nobody is in. */}
+            {activeSessionId === undefined &&
+              (readyVm === undefined ? (
+                <div className="flex h-full flex-1 items-center justify-center">
+                  <Spinner label="Loading conversations" />
+                </div>
+              ) : (
+                <EmptyConversation
+                  agent={readyVm.agentName ?? 'agent'}
+                  model={currentModelLabel}
+                  effort={currentEffortLabel}
+                />
+              ))}
             {openTabs.map((tid) => {
               const isActive = tid === activeTabId;
               return (
@@ -1162,15 +1169,23 @@ const TURNS_LOADING: ConsoleData['turns'] = { status: 'loading' };
  *  vm-input shape's contract; every other open tab draws its own entry directly). */
 function useChatVmState(): ChatVmState {
   const activeSessionId = useSessions((s) => s.activeSessionId);
+  const sessions = useSessions((s) => s.list);
+  // No active session while the list is still LOADING is not "no conversation" — it is
+  // boot, before anything could have been selected. Reading it as an empty conversation
+  // renders the ready surface (a full composer over a "nothing here yet" canvas) for a
+  // window in which the console has no idea what it has, and the answer that lands a
+  // moment later routinely contradicts it.
+  const booting = activeSessionId === undefined && sessions.status === 'loading';
   const turns = useTranscripts((s) =>
     activeSessionId === undefined
-      ? NO_SESSION_TURNS
+      ? booting
+        ? TURNS_LOADING
+        : NO_SESSION_TURNS
       : (s.bySession[activeSessionId] ?? TURNS_LOADING),
   );
   const agents = useDaemonData((s) => s.agents);
   const models = useDaemonData((s) => s.models);
   const modelMetadata = useDaemonData((s) => s.modelMetadata);
-  const sessions = useSessions((s) => s.list);
   const rawMode = useConsoleUi((s) => s.rawMode);
   const resolvedApprovals = useConsoleUi((s) => s.resolvedApprovals);
   const modelOverride = useConsoleUi((s) => s.modelOverride);

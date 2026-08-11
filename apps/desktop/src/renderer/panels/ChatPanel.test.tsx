@@ -17,7 +17,13 @@ import {
 import { useShell } from '../shell/store.js';
 import { setActiveSession } from '../store/sessions.js';
 import { appendFrames, useTranscripts } from '../store/transcripts.js';
-import { makeState, resetStores, seedState, type StateOverrides } from '../testing/fixtures.js';
+import {
+  makeState,
+  resetStores,
+  seedState,
+  seedStores,
+  type StateOverrides,
+} from '../testing/fixtures.js';
 import { MOCK_AGENTS, MOCK_SESSIONS } from '../testing/mockAgents.js';
 import type { ConsoleState } from './state.js';
 
@@ -819,6 +825,27 @@ describe('ChatSurface states-first', () => {
     expect(screen.getByText('send')).toBeTruthy();
     expect(screen.getByText('newline')).toBeTruthy();
     expect(screen.getByText('commands')).toBeTruthy();
+  });
+
+  it('boot is not an empty conversation — a still-loading session list says so instead', () => {
+    // Nothing is active yet because nothing has been READ yet. Rendering the ready
+    // surface here promises a conversation-less console a moment before the list lands
+    // and says otherwise.
+    seedStores({ data: { sessions: { status: 'loading' } }, ui: { activeSessionId: undefined } });
+    render(<ChatSurface />);
+    expect(screen.queryByText(/is ready/i)).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByRole('status', { name: /^loading conversations$/i })).toBeTruthy();
+  });
+
+  it('a session list that answered with nothing IS an empty conversation', () => {
+    seedStores({
+      data: { sessions: { status: 'ok', value: [] }, agents: { status: 'ok', value: MOCK_AGENTS } },
+      ui: { activeSessionId: undefined },
+    });
+    render(<ChatSurface />);
+    expect(screen.getByText(/is ready/i)).toBeTruthy();
+    expect(screen.getByRole('textbox')).toBeTruthy();
   });
 
   it('renders the transcript log when there are frames', () => {
