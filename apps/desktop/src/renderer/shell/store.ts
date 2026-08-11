@@ -90,6 +90,9 @@ export interface ShellState {
   reorderTabs: (fromId: string, toIndex: number) => void;
   /** A deleted session can't be reopened — drop it from the stack (and the working set). */
   forgetTab: (sessionId: string) => void;
+  /** Forget several at once. One write, so a subscriber watching the working set never
+   *  sees a half-pruned strip — the tabs it reacts to are the ones that survived. */
+  forgetTabs: (sessionIds: readonly string[]) => void;
   setPreview: (id?: string) => void;
   setMode: (mode: 'work' | 'search') => void;
   openSearch: () => void;
@@ -201,11 +204,15 @@ export const useShell = create<ShellState>((set, get) => ({
     });
     return id;
   },
-  forgetTab: (sessionId: string) =>
-    set((s) => ({
-      tabs: s.tabs.filter((t) => t !== sessionId),
-      closedTabs: s.closedTabs.filter((t) => t !== sessionId),
-    })),
+  forgetTab: (sessionId: string) => get().forgetTabs([sessionId]),
+  forgetTabs: (sessionIds) =>
+    set((s) => {
+      const drop = new Set(sessionIds);
+      return {
+        tabs: s.tabs.filter((t) => !drop.has(t)),
+        closedTabs: s.closedTabs.filter((t) => !drop.has(t)),
+      };
+    }),
   reorderTabs: (fromId, toIndex) =>
     set((s) => {
       const tabs = s.tabs.filter((id) => id !== fromId);

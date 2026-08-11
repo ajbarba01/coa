@@ -1988,6 +1988,33 @@ describe('a project swap leaves nothing of the old project behind', () => {
     expect(useTranscripts.getState().bySession).toEqual({});
   });
 
+  it('forgets the tabs layout persistence restored from the project it left', async () => {
+    // layout.json is per-user, not per-project, and the `tabs: []` of a swap never reaches
+    // disk (the debounced save is cancelled by the same teardown) — so the reboot's
+    // `bindLayoutPersistence` puts the LEAVING project's strip back before the new
+    // controller has read a thing. This is that strip: two foreign ids and one real one.
+    useShell.setState({ tabs: ['a1', 'c1', 'a2'], closedTabs: ['a3'] });
+    const bridge = fakeBridge();
+    await mount(bridge);
+
+    expect(useShell.getState().tabs).toEqual(['c1']);
+    expect(useShell.getState().closedTabs).toEqual([]);
+    for (const id of ['a1', 'a2', 'a3']) {
+      expect(bridge.subscribeSession).not.toHaveBeenCalledWith({ id });
+      expect(bridge.reloadConversation).not.toHaveBeenCalledWith({ id });
+      expect(bridge.sessionMode).not.toHaveBeenCalledWith({ id });
+      expect(transcriptOf(id)).toBeUndefined();
+    }
+    // The real tab is materialized as always — pruning is not a licence to skip the work.
+    expect(bridge.reloadConversation).toHaveBeenCalledWith({ id: 'c1' });
+  });
+
+  it('keeps a restored tab it cannot check — a session list that failed to load is not evidence', async () => {
+    useShell.setState({ tabs: ['c1', 'c9'], closedTabs: [] });
+    await mount(fakeBridge({ listSessions: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')) }));
+    expect(useShell.getState().tabs).toEqual(['c1', 'c9']);
+  });
+
   it('drops the slow reads it had out too — the poll tick and the agent registry', async () => {
     let answerCap!: (value: { remaining: number; capHit: boolean }) => void;
     let answerAgents!: (value: unknown) => void;

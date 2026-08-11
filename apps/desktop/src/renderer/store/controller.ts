@@ -295,6 +295,24 @@ export async function startConsole(
     await sessionOps.refreshSessionList(ctx);
     if (!ctx.live) return;
     const newest = useSessions.getState().list;
+    // The working set is per-project; layout.json is not. A window that swaps projects —
+    // and any launch that opens a different project than the one last persisted — gets a
+    // strip restored from disk naming conversations THIS daemon has never heard of. Drop
+    // them against the list just read, BEFORE the first activation opens a tab and the
+    // subscription starts materializing: an id nobody can see would otherwise cost three
+    // cross-project round trips, hold an error entry, and — sitting in `tabs` — be
+    // protected from eviction ahead of a transcript the user actually has.
+    //
+    // Only when the read succeeded: a list that failed to load is not evidence that a tab
+    // is stale. Same "not in the session list ⇒ not a real tab" rule the strip applies.
+    if (newest.status === 'ok') {
+      const known = new Set(newest.value.map((s) => s.id));
+      const shell = useShell.getState();
+      // `closedTabs` too: a reopen would walk the same foreign id straight back in. Dropped
+      // in ONE write — forgetting them one at a time would fire the working-set
+      // subscription on each half-pruned strip and materialize the ids not yet reached.
+      shell.forgetTabs([...shell.tabs, ...shell.closedTabs].filter((id) => !known.has(id)));
+    }
     const first = newest.status === 'ok' ? newest.value[0] : undefined;
     if (first) sessionOps.activateSession(ctx, first.id);
     else sessionOps.clearActiveSession();

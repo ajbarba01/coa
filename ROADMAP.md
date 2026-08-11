@@ -564,7 +564,8 @@ subagent and worktree docks, attachments and skill invocations).
 
 Two things the branch never had, added here: a **project-swap reset**, because module-singleton
 slices outlive the controller a window swap reboots (settings and the raw toggle survive — neither
-is the project's); and the **tab-memory policy** — an LRU cap over materialized transcripts, driven
+is the project's) and the restored tab strip is pruned to the project's own sessions on boot (the
+working set is per-project; `layout.json` is per-user); and the **tab-memory policy** — an LRU cap over materialized transcripts, driven
 by the controller (the only place that knows both the mounted set and the attachments), where the
 shell's open tabs and the active session are never evictable at any cap. Session delete now drops
 every per-session record the console holds; a deleted parent's children keep theirs, since the
