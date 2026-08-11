@@ -20,7 +20,7 @@ import {
   setSessionUsage,
   useSessions,
 } from './sessions.js';
-import { appendFrames, evictColdest, flushFrames } from './transcripts.js';
+import { appendFrames, evictColdest, flushFrames, useTranscripts } from './transcripts.js';
 import {
   mergeModelOverride,
   setSelectedAgent,
@@ -34,9 +34,12 @@ import {
  *
  * Not a setting: it is a memory bound, not a preference — there is nothing a person
  * would want to say about it that this number doesn't already say, and a wrong value
- * only ever costs a reload. Sized at twice the ~20-tab working set the instant-navigation
- * acceptance targets, so eviction only ever reaches transcripts whose tabs have been
- * closed for a while — a tab a user still has open is protected at any cap anyway.
+ * only ever costs a reload. PROVISIONAL: twice the ~20-tab working set the
+ * instant-navigation acceptance targets, chosen so eviction only ever reaches
+ * transcripts whose tabs have been closed for a while (a tab a user still has open is
+ * protected at any cap anyway). Nobody has yet measured what a 20-tab window actually
+ * holds in the running app, so this is a placeholder awaiting that number, not a
+ * settled policy.
  */
 export const TRANSCRIPT_CAP = 40;
 
@@ -73,7 +76,7 @@ export async function startConsole(
   // `SessionCtx.live`. Every read below lands its result only while it still holds.
   const ctx: SessionCtx & agentOps.AgentCtx = {
     bridge,
-    attached: new Set(),
+    attached: new Map(),
     youSeq: { n: 0 },
     live: true,
   };
@@ -279,15 +282,37 @@ export async function startConsole(
   // the shell's open tabs (never evictable: each is a mounted host) and the attached set,
   // which an evicted session must leave or `ensureMaterialized` would early-return on it
   // forever and the tab would render permanently empty.
-  const syncWorkingSet = (tabs: string[]): void => {
-    if (!ctx.live) return;
-    for (const id of tabs) sessionOps.ensureMaterialized(ctx, id);
+  const enforceCap = (): void => {
     const active = useSessions.getState().activeSessionId;
+    const tabs = useShell.getState().tabs;
     const mounted = active === undefined ? tabs : [...tabs, active];
     for (const evicted of evictColdest(mounted, TRANSCRIPT_CAP)) ctx.attached.delete(evicted);
   };
+
+  const syncWorkingSet = (tabs: string[]): void => {
+    if (!ctx.live) return;
+    const active = useSessions.getState().activeSessionId;
+    // The conversation ON SCREEN goes first, and the hidden tabs then go one at a time,
+    // each waiting on the one before it. A restored strip is materialized in a single
+    // pass, and every session in it costs three round trips plus a whole transcript
+    // reload — firing twenty of those into one tick buries the reload the user is
+    // actually waiting on under sixty requests for conversations nobody is looking at.
+    const ordered =
+      active !== undefined && tabs.includes(active)
+        ? [active, ...tabs.filter((id) => id !== active)]
+        : tabs;
+    let after: Promise<unknown> | undefined;
+    for (const id of ordered) after = sessionOps.ensureMaterialized(ctx, id, after);
+    enforceCap();
+  };
   const unsubscribeTabs = useShell.subscribe((s, prev) => {
     if (s.tabs !== prev.tabs) syncWorkingSet(s.tabs);
+  });
+  // Pushes materialize transcripts too — a background session streaming into the store
+  // grows it just as an opened tab does. Checking the cap only when the tab strip moves
+  // let the store float above it indefinitely in a window nobody is clicking around.
+  const unsubscribeTranscripts = useTranscripts.subscribe((s, prev) => {
+    if (Object.keys(s.bySession).length > Object.keys(prev.bySession).length) enforceCap();
   });
 
   /** On launch, load the project's sessions and open the most recent one. */
@@ -407,7 +432,7 @@ export async function startConsole(
     if (sessions.list.status !== 'ok' || sessions.activeSessionId === undefined) {
       await initSessions();
     } else if (freshConnection) {
-      sessionOps.ensureMaterialized(ctx, sessions.activeSessionId);
+      void sessionOps.ensureMaterialized(ctx, sessions.activeSessionId);
       syncWorkingSet(useShell.getState().tabs);
     }
   }
@@ -425,6 +450,7 @@ export async function startConsole(
       ctx.live = false;
       unsubscribePush();
       unsubscribeTabs();
+      unsubscribeTranscripts();
     },
   };
 }

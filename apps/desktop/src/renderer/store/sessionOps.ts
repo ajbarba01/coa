@@ -58,7 +58,10 @@ import {
  *  connection, and the monotonic id source for locally-rendered `you` turns. */
 export interface SessionCtx {
   bridge: ConsoleBridge;
-  attached: Set<string>;
+  /** Attached sessions → their hydration. Holding the promise rather than the bare id
+   *  is what lets a second pass over the working set chain BEHIND a hydration already
+   *  running, instead of reading "attached" as "finished" and starting on top of it. */
+  attached: Map<string, Promise<void>>;
   youSeq: { n: number };
   /**
    * Whether the controller that owns this ctx is still the live one — cleared by its
@@ -116,11 +119,30 @@ export function reapWorktree(ctx: SessionCtx, sessionId: string): void {
  * session is already authoritative through the push stream, so re-selecting it touches
  * no I/O at all — activation is a pure display swap (the instant-navigation rule).
  * Reload is a cold-hydration/reattach path, never a switch path.
+ *
+ * `after` holds the round trips back until it settles, so a caller with a whole working
+ * set to materialize can put them in an order instead of firing every session's three
+ * requests and full transcript reload into the same tick. The CLAIM still happens
+ * synchronously — the session counts as attached and shows its loading state at once —
+ * so a second pass over the same working set can never queue it twice. Resolves when
+ * this session's own hydration has settled, which is what the caller chains on.
  */
-export function ensureMaterialized(ctx: SessionCtx, id: string): void {
-  if (!ctx.live || ctx.attached.has(id)) return;
-  ctx.attached.add(id);
+export function ensureMaterialized(
+  ctx: SessionCtx,
+  id: string,
+  after?: Promise<unknown>,
+): Promise<void> {
+  if (!ctx.live) return Promise.resolve();
+  const running = ctx.attached.get(id);
+  if (running !== undefined) return running;
   beginHydration(id);
+  const hydration = after === undefined ? attach(ctx, id) : after.then(() => attach(ctx, id));
+  ctx.attached.set(id, hydration);
+  return hydration;
+}
+
+async function attach(ctx: SessionCtx, id: string): Promise<void> {
+  if (!ctx.live) return;
   // A reattach the daemon REFUSES is the reattach that matters: `subscribed: false`
   // means it holds no live session for this conversation, so nothing can be running and
   // no hydrating status push is coming. Ignoring that answer is what left a session
@@ -130,31 +152,33 @@ export function ensureMaterialized(ctx: SessionCtx, id: string): void {
   // Read the send counter first and only act if it hasn't moved: a send issued while
   // this round trip was in flight is newer news than the answer coming back.
   const sendsAtSubscribe = useSessions.getState().sendNonce[id];
-  void ctx.bridge
-    .subscribeSession({ id })
-    .then((result) => {
-      if (result.subscribed || !ctx.live) return;
-      if (useSessions.getState().sendNonce[id] !== sendsAtSubscribe) return;
-      clearRunStatus(id);
-    })
-    .catch(() => {
-      // A failed reattach says nothing about liveness — the daemon being unreachable is
-      // already the gate's story, and guessing here would be the same lie inverted.
-    });
-  // Hydrate this session's permission-mode state the same way the run-status pill
-  // hydrates above — a fresh mount must show the daemon's own current state.
-  void hydrateMode(ctx, id);
-  void settle(() => ctx.bridge.reloadConversation({ id })).then((loaded) => {
-    if (!ctx.live) return;
-    if (loaded.status === 'ok') {
-      applyReload(id, reloadToViewFrames(loaded.value, id));
-    } else {
-      // Cold opens surface the error; a warm cache keeps showing (hydrationFailed is a
-      // no-op there). Either way the next activation retries the hydration.
-      hydrationFailed(id, loaded.message);
-      ctx.attached.delete(id);
-    }
-  });
+  await Promise.all([
+    ctx.bridge
+      .subscribeSession({ id })
+      .then((result) => {
+        if (result.subscribed || !ctx.live) return;
+        if (useSessions.getState().sendNonce[id] !== sendsAtSubscribe) return;
+        clearRunStatus(id);
+      })
+      .catch(() => {
+        // A failed reattach says nothing about liveness — the daemon being unreachable is
+        // already the gate's story, and guessing here would be the same lie inverted.
+      }),
+    // Hydrate this session's permission-mode state the same way the run-status pill
+    // hydrates above — a fresh mount must show the daemon's own current state.
+    hydrateMode(ctx, id),
+    settle(() => ctx.bridge.reloadConversation({ id })).then((loaded) => {
+      if (!ctx.live) return;
+      if (loaded.status === 'ok') {
+        applyReload(id, reloadToViewFrames(loaded.value, id));
+      } else {
+        // Cold opens surface the error; a warm cache keeps showing (hydrationFailed is a
+        // no-op there). Either way the next activation retries the hydration.
+        hydrationFailed(id, loaded.message);
+        ctx.attached.delete(id);
+      }
+    }),
+  ]);
 }
 
 /**
@@ -191,7 +215,7 @@ export function activateSession(ctx: SessionCtx, id: string): void {
   // just had open outranks a noisy background one when the memory cap starts evicting.
   touchTranscript(id);
   setActiveSession(id);
-  ensureMaterialized(ctx, id);
+  void ensureMaterialized(ctx, id);
 }
 
 /** Clear the active selection when no session remains. */

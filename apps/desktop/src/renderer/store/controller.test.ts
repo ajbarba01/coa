@@ -826,6 +826,17 @@ describe('tab memory — the cap over materialized transcripts', () => {
     expect(JSON.stringify(transcriptOf('c2'))).toContain('still here');
   });
 
+  it('holds the store to the cap as pushes materialize transcripts, with no tab moving', async () => {
+    await mount(fakeBridge({ listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS) }));
+    // A window nobody is clicking around in: background sessions stream in and the store
+    // grows on the flush path alone. Checking the cap only when the tab strip moved let
+    // it float above the bound for as long as that went on.
+    seedClosedConversations(TRANSCRIPT_CAP + 5);
+    expect(held().length).toBeLessThanOrEqual(TRANSCRIPT_CAP);
+    // The active conversation is a mounted host — the eviction reached past it.
+    expect(transcriptOf('c1')?.status).toBe('ok');
+  });
+
   it('never evicts an open tab, even with a working set larger than the cap', async () => {
     const tabs = Array.from({ length: TRANSCRIPT_CAP + 5 }, (_, i) => `tab-${i}`);
     await mount(fakeBridge({ listSessions: vi.fn().mockResolvedValue(TWO_SESSIONS) }));
@@ -837,6 +848,67 @@ describe('tab memory — the cap over materialized transcripts', () => {
     // the working set simply exceeds the cap (which bounds what is kept BEYOND it).
     for (const id of tabs) expect(transcriptOf(id)?.status).toBe('ok');
     expect(held()).toHaveLength(tabs.length + 1); // + the active session
+  });
+});
+
+describe('boot hydration order over a restored strip', () => {
+  const RESTORED = ['c1', 't-1', 't-2', 't-3'];
+  const SESSIONS = RESTORED.map((id) => ({
+    id,
+    agentRef: 'roles/reviewer',
+    title: id,
+    updatedAt: '2026-07-02T00:00:00Z',
+  }));
+
+  /** A bridge whose conversation reloads hang until the test releases them, so what is
+   *  IN FLIGHT at a given moment is observable rather than inferred from call counts. */
+  function heldReloads() {
+    const started: string[] = [];
+    const release: (() => void)[] = [];
+    const bridge = fakeBridge({
+      listSessions: vi.fn().mockResolvedValue(SESSIONS),
+      reloadConversation: vi.fn(({ id }: { id: string }) => {
+        started.push(id);
+        return new Promise((resolve) => release.push(() => resolve(reloaded([]))));
+      }),
+    });
+    return { bridge, started, releaseNext: () => release.shift()?.() };
+  }
+
+  it('hydrates the conversation on screen alone, then the hidden tabs one at a time', async () => {
+    const { bridge, started, releaseNext } = heldReloads();
+    useShell.setState({ tabs: RESTORED, closedTabs: [] });
+
+    await mount(bridge);
+
+    // The strip's other three tabs are hidden. Firing their hydrations into the same
+    // tick puts three round trips each on the wire ahead of nothing and behind the one
+    // reload the user is actually waiting on.
+    expect(started).toEqual(['c1']);
+    // Every restored tab still shows its loading state at once — the ORDER is staggered,
+    // the claim is not (a second pass must not queue any of them twice).
+    for (const id of RESTORED) expect(transcriptOf(id)?.status).toBe('loading');
+
+    releaseNext();
+    await tick();
+    expect(started).toEqual(['c1', 't-1']);
+    releaseNext();
+    await tick();
+    expect(started).toEqual(['c1', 't-1', 't-2']);
+  });
+
+  it('a tab that arrives while the strip is still hydrating is queued once, not twice', async () => {
+    const { bridge, started, releaseNext } = heldReloads();
+    useShell.setState({ tabs: RESTORED, closedTabs: [] });
+    await mount(bridge);
+
+    // A reorder republishes the same working set — nothing in it may hydrate again.
+    useShell.setState({ tabs: [...RESTORED].reverse() });
+    await tick();
+    releaseNext();
+    await tick();
+
+    expect(started).toEqual(['c1', 't-1']);
   });
 });
 
