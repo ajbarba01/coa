@@ -129,12 +129,19 @@ export function hydrationFailed(sessionId: string, message: string): void {
 
 /** The seq a view frame's id carries when it names a persisted record of this session
  *  (`${sessionId}:${seq}` — pushes and reloads share the scheme by construction), or
- *  undefined for a console-local frame (an optimistic `you:` echo, a note). */
+ *  undefined for a frame the durable log does not cover (an optimistic `you:` echo, a
+ *  note, a live-only announcement). */
 function seqOf(sessionId: string, frameId: string): number | undefined {
   const prefix = `${sessionId}:`;
   if (!frameId.startsWith(prefix)) return undefined;
   const n = Number(frameId.slice(prefix.length));
   return Number.isInteger(n) ? n : undefined;
+}
+
+/** A live-only announcement (a child spawn/ending, a library advisory): the daemon
+ *  streams it and never writes it down, so no reload can ever restate it. */
+function isLiveOnly(sessionId: string, frameId: string): boolean {
+  return frameId.startsWith(`live:${sessionId}:`);
 }
 
 /**
@@ -145,6 +152,10 @@ function seqOf(sessionId: string, frameId: string): number | undefined {
  * back on top (frames pushed while the reload was in flight — the mid-run race that
  * used to be dropped outright). Console-local frames (optimistic `you:` echoes) yield
  * to the log: a reload only lands here when the daemon's record is the truer story.
+ *
+ * Live-only announcements are the exception that must survive: the daemon never wrote
+ * them down, so yielding to the log would erase them for good rather than replace them
+ * with a truer version.
  */
 export function applyReload(sessionId: string, reloadedFrames: TurnFrame[]): void {
   // Fold any buffered live frames first so the merge sees the full live state.
@@ -162,6 +173,7 @@ export function applyReload(sessionId: string, reloadedFrames: TurnFrame[]): voi
       if (n !== undefined && n > maxSeq) maxSeq = n;
     }
     const newer = prev.value.filter((f) => {
+      if (isLiveOnly(sessionId, f.id)) return true;
       const n = seqOf(sessionId, f.id);
       return n !== undefined && n > maxSeq;
     });

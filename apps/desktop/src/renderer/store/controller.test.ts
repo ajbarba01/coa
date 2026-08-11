@@ -1326,6 +1326,43 @@ describe('subagent announcements — the parent-stream mirror', () => {
     expect(sessions().subagentStatus['child-1']).toEqual({ state: 'errored' });
   });
 
+  it('an announcement never lands on a hydrated turn’s id, however the two are numbered', async () => {
+    // The session host numbers live-only announcements on a counter of their own, which
+    // starts at 0 — the very number this conversation's first persisted turn already
+    // holds. Two frames under one id means two React rows keyed the same.
+    const { bridge, emit } = pushable({
+      reloadConversation: vi.fn().mockResolvedValue(
+        reloaded([
+          { seq: 0, frame: { t: 'text', text: 'spawn a reviewer', role: 'user' } },
+          { seq: 1, frame: { t: 'text', text: 'on it' } },
+          { seq: 2, frame: { t: 'text', text: 'done' } },
+        ]),
+      ),
+    });
+    await mount(bridge);
+
+    emit({
+      kind: 'turn',
+      sessionId: 'c1',
+      worktree: 'w',
+      seq: 0,
+      live: true,
+      frame: {
+        t: 'subagent-spawn',
+        childSessionId: 'child-1',
+        childWorktree: '/repo/.coa/worktrees/child-1',
+        agentRef: 'roles/reviewer',
+        description: 'review the diff',
+        isolate: false,
+      },
+    });
+    flushFrames();
+
+    const ids = activeFrames().map((f) => f.id);
+    expect(ids).toEqual(['c1:0', 'c1:1', 'c1:2', 'live:c1:0']);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('an ordinary turn frame re-reads nothing — only announcements invalidate the rail', async () => {
     const { bridge, emit } = pushable();
     await mount(bridge);

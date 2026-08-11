@@ -440,6 +440,7 @@ export class SessionService {
         kind: 'turn',
         sessionId,
         worktree: session.worktree ?? '',
+        live: true,
         seq: this.#nextLiveSeq(sessionId),
         frame: {
           t: 'error',
@@ -699,11 +700,14 @@ export class SessionService {
       kind: 'turn',
       sessionId,
       worktree: session.worktree ?? '',
+      live: true,
       seq: this.#nextLiveSeq(sessionId),
       frame,
     });
   }
 
+  /** The live-only numbering space. Every push numbered here MUST carry `live: true` —
+   *  it is what tells a consumer these seqs are not the persisted log's (see `push.ts`). */
   #nextLiveSeq(sessionId: string): number {
     const n = this.#liveSeq.get(sessionId) ?? 0;
     this.#liveSeq.set(sessionId, n + 1);

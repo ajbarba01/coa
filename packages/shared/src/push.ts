@@ -209,6 +209,19 @@ export const pushSchema = z.discriminatedUnion('kind', [
     sessionId: z.string(),
     worktree: z.string(),
     seq: z.number(),
+    /**
+     * Marks a LIVE-ONLY turn — one the session host announces straight onto the stream
+     * and never appends to the durable log (the `subagent-*` announcements and the
+     * missing-skill advisory). Those ride their own per-session counter, so their `seq`
+     * shares a numbering space with nothing: a live `seq` 0 and a persisted `seq` 0 are
+     * two different turns. Without this flag they are indistinguishable on the wire, and
+     * a console that identifies frames by `sessionId:seq` collides them — duplicate row
+     * keys, and a reattach merge that erases the announcement and hands its identity to
+     * an unrelated persisted frame.
+     *
+     * Optional and additive: an unmarked push is a persisted turn, exactly as before.
+     */
+    live: z.boolean().optional(),
     parentTurn: z.object({ sessionId: z.string(), seq: z.number() }).optional(),
     frame: turnFrameSchema,
   }),

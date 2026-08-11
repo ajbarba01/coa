@@ -23,6 +23,15 @@ describe('pushToViewFrames — daemon CON-PUSH → console TurnFrame', () => {
     ]);
   });
 
+  it('keeps a live-only turn out of the persisted id space it shares a seq with', () => {
+    // The session host numbers live-only announcements on their own counter, so a live
+    // `seq` 0 and the durable log's `seq` 0 are two different turns that would otherwise
+    // claim the same frame id.
+    const frame: WireTurnFrame = { t: 'text', text: 'a library skill did not resolve' };
+    expect(pushToViewFrames({ ...turn(frame, 0), live: true })[0]?.id).toBe('live:s:0');
+    expect(pushToViewFrames(turn(frame, 0))[0]?.id).toBe('s:0');
+  });
+
   it("maps a `system` delivery notice into its own lane — never the person's ('you') and never the agent's own claim", () => {
     expect(
       pushToViewFrames(

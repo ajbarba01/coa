@@ -121,6 +121,30 @@ describe('the transcript slice owns per-session frames', () => {
     expect(frames('a').map((f) => f.id)).toEqual(['a:0', 'a:1']);
   });
 
+  it('a live-only announcement survives a reload — no stored turn can take its place', async () => {
+    // The daemon numbers live-only announcements on their own counter, so this spawn card
+    // is seq 0 while the durable log's first turn is seq 0 too. Reading the two as one
+    // numbering space erased the card and handed its id to an unrelated stored frame.
+    const spawn: TurnFrame = {
+      id: 'live:a:0',
+      kind: 'subagent-spawn',
+      childSessionId: 'child-1',
+      childWorktree: '/wt/child-1',
+      agentRef: 'roles/reviewer',
+      description: 'review the diff',
+      isolate: false,
+    };
+    appendFrames('a', [text('a:0', 'go', 'you'), spawn]);
+    await flushRaf();
+    applyReload('a', [text('a:0', 'go', 'you'), text('a:1', 'on it')]);
+
+    const ids = frames('a').map((f) => f.id);
+    expect(ids).toContain('live:a:0');
+    // Nothing the log restated took the announcement's identity, and no row is drawn twice.
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(frames('a').find((f) => f.id === 'live:a:0')).toEqual(spawn);
+  });
+
   it('a streaming partial newer than the log survives a reload merge as the open block', async () => {
     appendFrames('a', [
       text('a:0', 'settled'),

@@ -88,7 +88,12 @@ function skippedNotice(skipped: number): TurnFrame {
  */
 export function pushToViewFrames(push: Push): TurnFrame[] {
   if (push.kind !== 'turn') return [];
-  const id = `${push.sessionId}:${push.seq}`;
+  // A live-only turn (`push.live`) is numbered in its own space, not the durable log's —
+  // its seq 0 and the log's seq 0 are different turns. Namespacing the id keeps the two
+  // from ever naming the same row, and marks the frame as one no reload will ever
+  // restate, which is what the transcript's reload merge needs to know about it.
+  const id =
+    push.live === true ? `live:${push.sessionId}:${push.seq}` : `${push.sessionId}:${push.seq}`;
   const depth = push.parentTurn ? 1 : undefined;
   const frame = mapFrame(push.frame, id, depth);
   return frame === undefined ? [] : [frame];

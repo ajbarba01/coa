@@ -374,6 +374,32 @@ describe('subagent announcement frames — live push, never persisted', () => {
     expect(spawnFrame).toBeDefined();
   });
 
+  it('marks an announcement live on the wire — its seq is not the event log’s', async () => {
+    const service = buildService();
+    const { session: parent } = registry.getOrCreate('root-1');
+    store.create({ id: 'root-1', agentRef: 'explorer', title: 't', scope: '' });
+    const pushes: unknown[] = [];
+    parent.subscribe((p) => pushes.push(p));
+
+    const spawn = service.spawnFor('root-1');
+    if (spawn === undefined) throw new Error('spawn unavailable');
+    spawn.startChild({ agentRef: 'explorer', description: 'go look', prompt: 'x' });
+    await flush();
+
+    // Live-only announcements ride their own per-session counter, so this seq 0 names a
+    // different turn than the persisted log's seq 0. Unmarked, the two are
+    // indistinguishable to anyone keying frames on `sessionId:seq`.
+    const announcement = pushes.find(
+      (p): p is { kind: 'turn'; seq: number; live?: boolean; frame: { t: string } } =>
+        typeof p === 'object' &&
+        p !== null &&
+        (p as { kind?: string }).kind === 'turn' &&
+        (p as { frame?: { t?: string } }).frame?.t === 'subagent-spawn',
+    );
+    expect(announcement?.live).toBe(true);
+    expect(announcement?.seq).toBe(0);
+  });
+
   it('announces subagent-completion on the parent once the child finishes', async () => {
     const service = buildService();
     const { session: parent } = registry.getOrCreate('root-1');
