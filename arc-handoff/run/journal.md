@@ -2288,3 +2288,34 @@ workstreams; 16 remote + ~20 local branches deleted after per-branch `merge-base
 verification (the sweep that caught the lost fix); `backup/c4-swap-wip` deleted per its recorded
 condition; `backup/f1-f7-core1-wip` and `backup/pre-squash` kept. state.md rewritten as the
 final record. Next: the console store port, per the maintainer's "very next order of business."
+
+## [console store port LANDED on main] — 2026-08-11
+
+The port's verify loop closed at its 3-round cap with 1 Major + 2 Minors left; per the arc's
+cap-exhausted precedent, one focused fix+verify pair ran: the Major (reload-minted ids colliding
+with the daemon's live-only push ids — duplicate React keys + an announcement card erased with
+its id taken over on reattach, both probe-demonstrated) was fixed AT THE WIRE (additive `live`
+marker on the turn push, set by the live-only emitters; `pushToViewFrames` namespaces marked
+frames `live:<sessionId>:<seq>`, keeping `applyReload`'s merge well-founded), plus the two boot
+Minors (states-first loading render; active-first staggered hydration — was 60 concurrent RPCs
+at 20 restored tabs) and the cheap eviction notes. The independent verifier re-ran the collision
+probes through the real pipeline end-to-end, revert-proved both halves, confirmed the unmarked-
+push degrade is byte-identical — and REFUSED the round over a THIRD live-only emitter the fix's
+enumeration missed (`run-live-session.ts`'s loop-failure error frame, its own function-local
+counter, same collision + the error card permanently erased on reattach). That last one-liner
+was fixed by the orchestrator directly (`live: true` + binding comment + regression test,
+revert-proven red), gate green: **3679 passed / 30 skipped, depcruise 475/1480, docs-check 64**
+(`f35fbb4`).
+
+Maintainer approved the squash landing: `main` `37acd87..362ce6e`, one squash commit, tree
+byte-identical to the gated branch tip (verified by tree hash; the gate result transfers).
+Housekeeping: tag `post-arc/store-port` (`f35fbb4`) preserves the port's full history; PR #4
+closed as delivered; `arc/c4-console` + `console-store-port` branches deleted (remote + local).
+Deleting the local c4 branch surfaced a stale prior-session worktree whose `node_modules` held
+**39 junctions into the main tree** — the exact 605-file-incident configuration; removed safely
+per the standing rule (junction entries `rmdir`'d individually, zero reparse points re-verified,
+THEN `git worktree remove`; main tree spot-checked intact).
+
+Parked honestly, tracked in ROADMAP: the attended live pass (20-tab heap curve — the cap ships
+as provisional 40 — and the in-app instant-nav timing). Next and last: the docs consolidation
+re-run, handed to a fresh session via the new `DOCS-RERUN-HANDOFF.md` in this folder.

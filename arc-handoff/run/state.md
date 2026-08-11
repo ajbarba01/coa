@@ -55,3 +55,14 @@ window management), F2 (permission modes), F3 (per-model info / context ring / g
   stages, `fable` for UI/design halves (the F4 build accidentally ran everything on Fable).
 - The OS watchdog (`coa-stage3-watchdog` scheduled task) still points at session
   `bde57b69-2e91-4947-bcaf-c13e87b750a7`; retire it when the post-arc work ends.
+
+## Post-arc update — 2026-08-11
+
+- **Console store port LANDED**: `main` `37acd87..362ce6e` (one squash commit, tree == verified
+  branch tip `f35fbb4`, gate 3679/475/64). Tag `post-arc/store-port` keeps the history; PR #4
+  closed; `arc/c4-console` + `console-store-port` branches deleted. The attended live pass
+  (20-tab heap, instant-nav timing, provisional cap=40) is parked in ROADMAP.
+- **Remaining committed work: the docs consolidation re-run only** — handed off via
+  `DOCS-RERUN-HANDOFF.md` (this folder) to a fresh session. PR #3 stays open as its thread.
+- The OS watchdog currently points at session `dcaf519a-95c3-462e-b4be-157b36480884`; the docs
+  session must re-aim it (instructions in the handoff).
