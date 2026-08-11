@@ -13,13 +13,15 @@ surface built from it.
 
 It depends on the kit (tokens, `cx`, `Icon`, `PaneOverlay`) and never the other way round.
 
-Everything here renders on the kit's sand scale. There is no second palette — the retired
-`@coa/console-ui` and its runtime-injected forge tokens are gone; see
-[`docs/adr/0025`](../../docs/adr/0025-retire-the-legacy-console-kit.md).
+Everything here renders on the kit's sand scale. There is no second palette: the earlier console kit
+injected its own tokens at runtime, so two themes could disagree about the same surface and a
+component's appearance depended on which shell had mounted it. One scale, resolved at build time,
+removes that whole class of drift — and the retired kit is gone.
 
-Its own rules are unchanged by the move: the transcript is **re-skinned, never rebuilt**
-([`docs/adr/0014`](../../docs/adr/0014-workbench-design-system.md)).
+Its own rule is unchanged by the move: the transcript is **re-skinned, never rebuilt**. It is the
+surface a user reads for hours, so its layout and interaction model are treated as settled; a visual
+refresh changes tokens, never structure.
 
 ---
 
-_Last reviewed: 2026-08-02_
+_Last reviewed: 2026-08-08_

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Local-first, single-user governance/audit layer over a rented Claude Agent SDK loop.",
+  "description": "A local-first workbench for harness-independent agentic development: it drives a rented model loop and owns everything around it.",
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.9.0",
   "engines": {

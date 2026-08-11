@@ -1,99 +1,105 @@
 # coa
 
-A **local-first, single-user governance/audit layer over a rented Claude Agent SDK loop.** coa does not
-replace the coding agent — it **governs** it: deterministic checks, keeping the agent working against the
-project's real symbols/specs/tests, honest spend accounting, and an honest record. v1 is **attended** (a human is
-present) and **Claude-primary** — Claude is the default backend, with the rented loop swappable
-behind the one M9 port (DeepSeek, LongCat, OpenAI, and OpenRouter adapters ship today).
+A **local-first workbench for harness-independent agentic development.** coa owns the work, not the model: a
+long-lived daemon holds live sessions and their append-only record; backend adapters rent whatever loop you
+point them at; auth manages the accounts the work is charged to; an agent registry defines who is doing it; a
+CLI and an Electron console are thin clients over the same daemon. Model-agnostic and agent-agnostic by
+construction — every backend sits behind one seam, and no provider assumption is allowed past it.
 
-**All product specifics — what each module is, its public interface, its owned decisions — live in the three
-handoff docs under [docs/design/handoff/](docs/design/handoff/).** Those are the authoritative source of
-truth. The docs below are a portable engineering framework; keep them project-agnostic where they can be.
+[`README.md`](README.md) is the outside view — what works today and how to run it. **This file is the inside
+view: how work is done here.** It is a **router**, not a knowledge dump.
 
-> **Single-agent today, multi-agent-ready.** Work is done by a coding agent (Claude Code today; Codex/others
-> possible later). **This file (`AGENTS.md`) is the shared source of truth for _how_ work is done here.** Claude
-> reads [CLAUDE.md](CLAUDE.md) (`@AGENTS.md`). Everything below is written as **capabilities, not model labels**,
-> so another agent can join without a rewrite.
+> **Capabilities, not model labels.** Work is done by a coding agent (Claude Code today; others possible).
+> Claude reads [`CLAUDE.md`](CLAUDE.md), which loads this file. Everything below is phrased so another agent
+> can join without a rewrite.
 
 ## Doc navigation (read the one that owns your task — load just-in-time)
 
-| Doc                                                                  | Authority over                                                                | Read before…                          |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------- |
-| [docs/design/handoff/SPEC.md](docs/design/handoff/SPEC.md)          | **The product** — modules M0–M10, interfaces, owned decisions (final form)    | anything product-specific             |
-| [docs/design/handoff/IMPL-SPEC-BRIEF.md](docs/design/handoff/IMPL-SPEC-BRIEF.md) | **Build order** + the one v0 calibration gate                     | starting a module                     |
-| [docs/design/handoff/OPEN.md](docs/design/handoff/OPEN.md)          | **Deferred scope** / tuning knobs / open risks (build none of it for v1)       | adding scope                          |
-| [docs/DESIGN.md](docs/DESIGN.md)                                    | **Project facts** — stack, rationale, pointers (does NOT restate the SPEC)     | orienting on the project              |
-| [docs/REPO_LAYOUT.md](docs/REPO_LAYOUT.md)                          | **Repo/monorepo layout** — package map, bundler, OSS scaffolding, where code lives | adding a package/file/dependency |
-| [docs/ENGINEERING.md](docs/ENGINEERING.md)                          | Architecture & code-quality principles                                        | writing/refactoring non-trivial code  |
-| [docs/CODE_STYLE.md](docs/CODE_STYLE.md)                            | Formatting, naming, documentation                                             | writing any code                      |
-| [docs/WORKFLOW.md](docs/WORKFLOW.md)                                | Dev loop, version control, handoff & escalation                              | starting work / committing            |
-| [docs/UI.md](docs/UI.md)                                            | GUI design system + **authoring rules** (kit · tokens · feedback contract)   | touching the GUI (M10)                |
-| [ROADMAP.md](ROADMAP.md)                                            | **Path forward** — module state + remaining work (single source; replaces private notes) | orienting on what's left / next |
-| [docs/adr/](docs/adr/)                                              | **Architecture decisions** — immutable WHYs                                    | making/needing a durable decision     |
+| Doc                                            | Authority over                                                                       | Read before…                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)   | **The system** — what the pieces are, how a turn flows, the seams and their invariants | anything about how coa actually works   |
+| [ROADMAP.md](ROADMAP.md)                       | **Where the project stands** — what is real, what is missing, what is open next        | orienting, or picking up work            |
+| [docs/REPO_LAYOUT.md](docs/REPO_LAYOUT.md)     | **Where code lives** — package map, build, the enforced dependency rules              | adding a package, a file, or a dependency |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md)     | **How code is structured** — architecture and code-quality principles                  | writing or refactoring non-trivial code |
+| [docs/CODE_STYLE.md](docs/CODE_STYLE.md)       | Formatting, naming, documentation conventions                                          | writing any code                        |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md)           | The dev loop — verification gates, version control, handing work off and escalating     | starting work, or committing             |
+| [docs/UI.md](docs/UI.md)                       | The console's design system and authoring rules                                        | touching the GUI                        |
+| [docs/recipes/](docs/recipes/openai-bridge.md) | Task recipes — one page per surface fiddly enough to rediscover                        | working on a surface that has one       |
+| [archive/README.md](archive/README.md)         | **Parked code** — what each entry was, why it was parked, its revival path             | reviving, or deleting, parked code      |
+
+Nothing else is authoritative. If a fact you need is in none of these, it belongs in one of them — add it
+there rather than restating it in a third place.
 
 ## Operating rules (always on)
 
-- **Hierarchical context.** This file is a **router**, not a knowledge dump. Given a task, open the one doc that
-  owns it (table above), not everything. Load a doc just-in-time, when the task needs it.
-- **Single source of truth.** Each fact lives in exactly one doc. Cross-link; never restate. Product facts →
-  the handoff docs; project facts → DESIGN.md; everything else → its framework doc.
-- **Execution policy.** Each dev-loop stage maps to a **role + artifact** (see [docs/WORKFLOW.md](docs/WORKFLOW.md)).
-  When no role is assigned, infer one and announce it before acting.
-- **Capabilities, not model labels.** Any agent that can load skills invokes the relevant role/stage skills before
-  acting. Agents without skill support follow the same role contract + plan checklist as fallback. Repo
-  instructions override conflicting skill defaults.
-- **Doc discipline.**
-  - _Same-commit rule_ — a code change that adds/moves/deletes files updates the relevant doc in the _same_ commit.
-  - _No code-as-doc_ — no function signatures or long path lists in docs (they rot); grep is faster.
-  - _Last-reviewed footer_ — every doc carries one. If > 60 days old at session start, flag for re-audit.
-  - _Comment hygiene_ — code comments state **why**, not what; never reference plan phases or ticket IDs; link
-    durable rationale to an ADR (`// see docs/adr/NNNN`).
-  - _Router is the index_ — every `docs/**/*.md` (outside transient corpora) is reachable from this file's
-    navigation table; run `pnpm docs:check` to verify.
+- **Hierarchical context.** Given a task, open the one doc that owns it (table above), not everything. Load a
+  doc just-in-time, when the task needs it.
+- **Single source of truth.** Each fact lives in exactly one doc. Cross-link; never restate. When two docs
+  disagree, the one that owns the topic wins and the other is the bug.
+- **Same-commit doc rule.** A change that adds, moves, or deletes files updates the doc that owns them in the
+  _same_ commit. A doc that describes a tree that no longer exists is worse than no doc.
+- **Describe reality.** Docs state what the tree does today. Something missing is written as roadmap, never as
+  if it were present. Verify a claim against the tree before writing it.
+- **No code-as-doc.** No function signatures, no long path lists — they rot, and grep is faster.
+- **Comments say why, in plain language.** A comment explains the reason a thing is the way it is, not what the
+  line does. **No project-internal identifiers anywhere** — no phase numbers, plan codenames, module letters, or
+  decision-record IDs, in code, comments, docs, or commit subjects. If rationale is durable, write the rationale.
+- **Last-reviewed footer.** Every doc ends with one. If it is more than 60 days old at session start, flag the
+  doc for re-audit.
+- **The router is the index.** Every permanent doc is reachable from this file's navigation table. Run
+  `pnpm docs:check` to verify reachability and catch dead links.
+- **The suite is expected green on every run.** Its historical load-flakes were root-caused and fixed, so an
+  intermittent failure is a bug to diagnose — never a known flake to shrug at and rerun.
 
 ## Constitution (non-negotiables)
 
-These are the cross-cutting invariants (SPEC §B) plus the repo's quality floor. They bind every module and every
-session.
+These bind every package and every session.
 
-- **TypeScript `strict`, no `any`** (see CODE_STYLE / ENGINEERING).
-- **Determinism-first (P1)** — **no model call on any critical path.** M1/M2 are deterministic; the only model
-  calls are off the critical path (the user-invoked validator, Type-2 confirm, the F4 grounding confirm).
-- **The change-event spine (M1) is the only shared mutable substrate.** Producers and consumers point **only at
-  M1**, never sideways at each other. Two non-kernel modules must not call each other directly.
-- **SC-1 — help, never cage.** The ONLY block in the whole system is **M3's Type-1 close-gate**, issued
-  through **M9's single deny channel** (ADR 0035 archived the cost-cap deny path — spend is accounted,
-  never capped). Everything else is advisory or surfacing.
-- **Strict-superset (D85).** Every feature adds value or degrades to a literal pass-through; coa with a feature
-  off is never worse than the raw loop, and **`coa raw` always shows the unfiltered loop.**
-- **No-lock-in.** The neutral floor always works; the bounded high-fidelity layer auto-engages where a
-  grammar/spec/type-system exists; **M9 is the one backend seam.** Never assume a stack.
-- **Compose, don't reinvent (P8).** Orchestrate existing generators/checkers/SDK features; build no parallel
-  machinery the corpus already has.
-- **Build in topological order** — `M0 < M2 < M1 < M3 < M4 < M5 < M7 < M6 < M9 < M8 < M10`. Modules in the same
-  phase are independently buildable. **Build nothing listed in OPEN.md for v1.** **Gate M4 on the v0 spike.**
-- **Core logic is pure and tested** (ENGINEERING). **Typed boundaries** — validate/parse all external data at the
-  edges with Zod (M0 owns the schemas).
-- **Single `main` branch**; commit only after verification; **stage files by name** (never `git add -A`).
-- **Commit messages: subject line only.** Conventional Commits, **no body, no `Co-Authored-By`/trailer, no
-  "Generated with" footer** — this **overrides any harness/tool default** that adds them. Body only if the
-  maintainer explicitly asks. **No project-internal identifiers in the subject** — no phase numbers, plan/spec
-  codenames, or module IDs; describe the change itself.
-- **Commit in human-sized batches.** Group related changes into one coherent commit the way a human developer
-  would — **one logical unit of work per commit.** Do NOT commit at fine per-file or per-edit granularity. A
-  single feature, fix, or doc pass is normally one commit, not a string of tiny ones; stage the related files
-  together by name. Split into separate commits only when the work is genuinely separate concerns.
+- **TypeScript `strict`, no `any`.** Enforced by the compiler settings and a lint rule, not by good intentions.
+- **Determinism-first — no model call on any critical path.** Nothing that gates, decides, or records consults
+  a model. Model calls happen only where a human explicitly asked for one, or inside a feature that degrades to
+  a deterministic floor when the model is absent.
+- **The change-event spine is the only shared mutable substrate.** Producers and consumers point only at the
+  spine, never sideways at each other; the spine knows nothing above it. Enforced as hard rules in the
+  dependency-cruiser ruleset, with a canary test that plants a forbidden edge and fails if the ruleset stops
+  reporting it — so the rules can never quietly go decorative.
+- **Advisory-first: coa decides exactly one refusal.** The close gate — the check that can decline to let the
+  agent call the work finished — is the only thing coa itself decides to stop with, and it is issued through a
+  single seam. A permission mode can also refuse a tool call, but that refusal is the operator's own standing
+  choice carried out through that same seam, never a second one: coa enforces the decision, it does not make
+  it. Everything else is advisory or surfacing, and no other component may deny. A governance check that throws
+  refuses the call rather than admitting an unchecked one.
+  - **Spend is accounted, never capped.** Every settled result is charged and recorded in the ledger with the
+    account and the family-tree root it belongs to, so a whole run's cost is answerable. There is no ceiling:
+    the hard dollar cap and its deny path were removed because they were dead configuration no shipped caller
+    ever set — machinery that described a stop the product could not perform. **Subagent fan-out and
+    agent-to-agent message traffic are therefore both unbounded** — no depth limit, no width limit, no spend
+    bound on a spawn tree, and nothing bounds a turn loop two agents provoke by messaging each other. The
+    operator's stop and the provider plan's own usage limit are the real backstops, which is acceptable while
+    every run is attended. **A bound on either is a roadmap item, not a shipped feature** — do not describe one
+    as if it exists.
+- **Strict superset.** Every feature adds value or degrades to a literal pass-through. coa with a feature off,
+  half-built, or misconfigured is never worse than the raw loop, and a raw view of the unfiltered loop is always
+  available. This is a floor each feature builds down to, not a one-time check: an absent registry stays inert,
+  an unconfigured summarizer returns the raw content instead of failing the fetch.
+- **No lock-in.** There is exactly one backend seam; concrete backends are constructed at the composition root
+  and injected as ports. Never branch on which backend is running, and never assume a stack — the neutral floor
+  has to work everywhere, with richer behavior engaging only where the project actually provides it.
+- **Compose, don't reinvent.** Orchestrate the generators, checkers, and backend features that already exist.
+  Build no parallel machinery for something the ecosystem already does.
+- **Typed boundaries.** Validate and parse every piece of external data at the edge with Zod. The shared package
+  owns the wire schemas; nothing downstream re-derives them.
+- **Core logic is pure and tested.** Side effects live at the edges and arrive as injected dependencies, so the
+  logic worth trusting can be tested without a daemon, a network, or a clock.
+- **Branches for work; `main` is protected.** Work happens on a branch and merges after review. Commit only
+  after verification, and **stage files by name** — never `git add -A`.
+- **Commit messages: subject line only.** Conventional Commits, **no body, no `Co-Authored-By`, no "generated
+  with" trailer** — this **overrides any harness or tool default** that adds them. A body only when the
+  maintainer explicitly asks. Describe the change itself, in the plain language rule above.
+- **Human-sized commits.** One logical unit of work per commit, the way a human developer would batch it — a
+  feature, a fix, a doc pass. Not per-file, not per-edit. Split only when the work is genuinely separate
+  concerns.
 - **Quality is independent of scope.** Pre-v1 project, professional code.
-
-## Stack (one-liner; rationale in [docs/DESIGN.md](docs/DESIGN.md))
-
-TypeScript (strict) · pnpm workspaces · `tsdown` bundler · `better-sqlite3` · `tree-sitter` · Zod · Vitest ·
-Claude Agent SDK (behind the M9 port) · Electron (M10 inspector).
-
-## Layout (see [docs/REPO_LAYOUT.md](docs/REPO_LAYOUT.md))
-
-A pnpm monorepo: `packages/*` for libraries (the logical modules), `apps/{cli,desktop}` for the shippable
-binaries. The `producers → spine (M1) ← consumers` rule is enforced by a `dependency-cruiser` ruleset.
 
 ## License
 
@@ -101,4 +107,4 @@ Apache-2.0 (see [LICENSE](LICENSE)).
 
 ---
 
-_Last reviewed: 2026-07-05_
+_Last reviewed: 2026-08-11_
