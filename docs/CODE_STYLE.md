@@ -76,4 +76,4 @@ export function canonicalize(artifact: Uint8Array, profile: TierProfile): Canoni
 
 ---
 
-_Last reviewed: 2026-08-08_
+_Last reviewed: 2026-08-11_

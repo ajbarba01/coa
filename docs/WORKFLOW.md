@@ -48,7 +48,8 @@ it to find the next move, and update it in the same commit as the work that chan
 4. **Build** — implement against the plan. **Test-first for non-trivial logic** (the pure core especially).
 5. **Verify** — a _fresh_ pass grades the work: `pnpm check`, `/code-review`, then exercise the running daemon,
    CLI, or console. The author never grades itself.
-6. **Ship** — conventional commit on `main`, with the docs the change touches updated in the same commit.
+6. **Ship** — conventional commit on the branch, with the docs the change touches updated in the same commit,
+   then land it once it is verified and authorized.
 
 ## Skill workflow (execution policy)
 
@@ -129,8 +130,10 @@ from the code.
 
 ## Version control & quality gates
 
-- **Single `main` branch**, commit as you go. No PRs, worktrees, or branch ceremony yet — revisit when the repo
-  opens to outside contributors (the eventual PR flow is sketched in [REPO_LAYOUT.md](REPO_LAYOUT.md)).
+- **Work happens on a branch; `main` is protected.** Branch off `main`, build and gate there, and land only
+  once the work is verified and the maintainer has said so. `main` is never pushed to on a whim — every landing
+  this project has made was explicitly authorized. Outside contributors will bring a full PR flow (sketched in
+  [REPO_LAYOUT.md](REPO_LAYOUT.md)); the branch-and-gate discipline is already the shape of it.
 - **Commit only after verification.** Assume the tree is broken until verified; no broken commits.
 - **Stage files by name** (never `git add -A` or `.`) — it avoids accidental secret or binary inclusion.
 - **Conventional Commits; imperative subject; a new commit, not an amend** (unless asked).
@@ -156,8 +159,8 @@ loop, because a governed view that cannot be turned off is not a superset of the
 
 Tests green → types, lint, and format clean → dependency rules clean → `/code-review` clean (a fresh pass, not
 the author) → the running daemon, CLI, or console exercised by hand → docs touched by the change updated →
-conventional commit on `main`.
+conventional commit on the branch, landed once authorized.
 
 ---
 
-_Last reviewed: 2026-08-08_
+_Last reviewed: 2026-08-11_

@@ -181,4 +181,4 @@ These govern how an AI agent works in this repo.
 
 ---
 
-_Last reviewed: 2026-08-08_
+_Last reviewed: 2026-08-11_

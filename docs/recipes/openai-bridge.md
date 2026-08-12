@@ -101,4 +101,4 @@ Everything else is unchanged: the session is the daemon's, the conversation is t
 log, the tool surface and the gate are coa's. Spend is priced from the table above and recorded
 against the account you selected — coa accounts spend, it does not cap it.
 
-_Last reviewed: 2026-08-08_
+_Last reviewed: 2026-08-11_
