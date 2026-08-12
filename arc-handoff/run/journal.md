@@ -2452,3 +2452,23 @@ smuggled into a docs commit.
 
 Gate green on the fix round (3,679 / 30 skipped, depcruise 475/1480, docs-check 11). Ten commits on
 `docs-rerun`, pushed. **`main` still untouched — the maintainer gate is the only thing left.**
+
+## [docs consolidation re-run LANDED on main — POST-ARC WORK COMPLETE] — 2026-08-12
+
+Maintainer authorized the landing. `main` `362ce6e..09347f4`, one squash commit, built with
+`git commit-tree` over `origin/main` from the branch tip's tree object rather than `merge --squash`
+— the arc's standing lesson, since the naive route silently resurrected superseded hunks once
+before. Tree verified byte-identical to the gated branch tip `e1f1d0b` by tree hash, so the gate
+result (3,679 passed / 30 skipped, depcruise 475/1480, docs-check 11) transfers by construction.
+
+Housekeeping: tag `post-arc/docs-rerun` preserves the branch's full ten-commit history; the
+`docs-rerun` branch is deleted local and remote. The OS watchdog scheduled task is **disabled** —
+its purpose is served and it had been waking a finished session hourly. PR #3 is still open and
+should be closed with a pointer comment to `09347f4`.
+
+**This closes the post-arc work.** The arc's three stages, the console store port, and the docs
+consolidation re-run are all on `main`. What remains is in ROADMAP.md, forward-only, where it
+belongs: the deferred features with their binding specs, the attended live pass (20-tab heap,
+instant-nav timing, the provisional transcript cap), and the newly recorded items the re-run's
+verification surfaced — chief among them the dead comment pointers, sixty-eight citations into
+corpora that no longer exist.
