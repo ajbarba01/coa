@@ -2405,3 +2405,50 @@ docs**. Nine commits on `docs-rerun`, pushed. **Nothing has touched `main`.**
 Still owed: an INDEPENDENT verification pass — everything above is the author grading their own work,
 which this project's own workflow doc says is not verification. The workflow is queued and resumable
 (`resumeFromRunId: wf_fe3d1afd-9fe`) and needs the usage window.
+
+### The independent pass landed, and it earned its keep — 2026-08-12
+
+Two opus lenses (architecture; framework docs + roadmap) finally ran clean after three false starts —
+two usage-limit deaths and one killed by an interrupt. **17 findings, 3 critical.** All applied.
+
+**The refusal invariant was wrong a third time, and this is the one to read.** There is a THIRD
+refusal channel, live on every subscription session, and coa — not the operator — authors it:
+`sandboxPolicy` returns `denyRules: ['Bash(coa *)']` plus an eight-glob `denyRead` set over the
+credential homes (`~/.ssh`, `~/.aws`, `~/.claude/**`, and the rest), and the adapter unions all of it
+into the SDK's own disallow list. It never touches the per-tool predicate. Verified first-hand through
+the whole chain before the doc was changed. The set now says: the close gate is the one refusal coa
+**judges** (per turn), a permission mode is the operator's standing choice layered onto the per-tool
+predicate, and the fixed sandbox posture is decided once at construction and handed to the backend
+natively. The lens also caught the corollary — "no production path registers a per-tool deny rule" was
+true only of the flag pipeline's registration path and was silently generalized to the whole system.
+
+**AGENTS.md contradicted my own last commit.** It still said the suite's load-flakes "were root-caused
+and fixed" while the architecture doc, updated an hour earlier, recorded the flake as live. The router
+is the first thing every agent reads, so an agent hitting the failure would have chased it as its own
+regression. Fixed — and the flake reproduced twice more since, so the debt entry now records five full
+runs: three green at 3,679, two with a single desktop-panel failure, the composer panel passing 51/51
+alone. A single green run is explicitly not evidence it is gone.
+
+**A doc invented a capability outright**: the Claude adapter's README and its barrel comment both
+advertised a "TS-LSP capability backend". There is no language server anywhere in the tree and the
+backend port has no method that could carry one. Removed from both.
+
+The rest were real drift the earlier passes had left: `@coa/shared` documented four times as
+behavior-free while exporting an error class, three functions and two constants; four docs still
+describing ROADMAP as "what is done" after it was made forward-only; REPO_LAYOUT still asserting the
+single-`main` flow the previous commit had just retired everywhere else; the key file described as
+"never read back" when the adapter reads it every session; the console described as five stores when
+there are about fifteen, with a real project-swap gap (the library store is project-scoped and is not
+reset); two "see ROADMAP" pointers to items ROADMAP did not record; and the tool partition described
+as live when nothing pulls on demand.
+
+**Two fixes went beyond prose, deliberately.** The dependency ruleset did not cover the new library
+ring at all — it was absent from both intra-core alternations, so the doc claimed mechanical
+enforcement that did not exist. Added to both rules; depcruise still green at 475/1480. And
+`docs-check` still ignored three directories this branch deleted. The one finding left as prose-only
+is the code-comment sweep: 68 comment citations still point at the retired corpora and ~105 more carry
+module letters. That is a real change of its own shape, so it is now a roadmap item rather than
+smuggled into a docs commit.
+
+Gate green on the fix round (3,679 / 30 skipped, depcruise 475/1480, docs-check 11). Ten commits on
+`docs-rerun`, pushed. **`main` still untouched — the maintainer gate is the only thing left.**
