@@ -190,6 +190,12 @@ read the transcript itself — and the full-fidelity path is never removed: anyt
 reachable by reading the child's log directly. Leaving the gap open had cost more than expected, since a parent
 with several children re-derived per caller a read the daemon had already done once.
 
+Teardown has exactly one path. Idle eviction, the explicit close verb, and daemon shutdown all route through the
+same registry close, which is where the spine checkpoint and the worktree release happen — once, never twice —
+and idle eviction is running-aware and never fires on a live turn.
+
+### Agent-to-agent messaging
+
 **Agents in one family tree can message each other.** Membership is a **mesh**, not a hierarchy: any member may
 address any other, and the parent link is provenance, never a routing or permission boundary. Sender and target
 must share a root; a target in another tree, or one wholly unknown, comes back as an ordinary unapplied tool
@@ -229,6 +235,8 @@ conversational traffic between agents is not a fact about what changed in the co
 its own thread; a reply resolves the thread it joins from that log, falling back to naming itself rather than
 throwing over a stale reference.
 
+### Worktrees
+
 **A session's worktree is the shared repository root unless its founding turn asked for isolation**, in which
 case it gets a real separate checkout under a gitignored directory named for the session. Isolation is opt-in
 per spawn rather than the default, because most children only read and would otherwise pay a real checkout's
@@ -260,10 +268,6 @@ session is running, and a cheap dirty and changed-file count; a row whose status
 without those fields. The reap verb refuses a session with a turn in flight, judged from the daemon's own live
 registry — a safety interlock on a person's own cleanup control, not a third thing that can refuse an agent,
 since the agent is never the caller.
-
-Teardown has exactly one path. Idle eviction, the explicit close verb, and daemon shutdown all route through the
-same registry close, which is where the spine checkpoint and the worktree release happen — once, never twice —
-and idle eviction is running-aware and never fires on a live turn.
 
 ---
 
