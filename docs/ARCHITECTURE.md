@@ -368,7 +368,8 @@ from the configured one, the session pushes the degrade with its reason attached
 The refusals are real, and worth naming plainly against the one-block invariant: read-only mode refuses a write
 or a command outright with a reason, and a person's denial of an ask returns a deny to the model. Neither is a
 governance block in the close gate's sense — both are the **operator's** own standing choice, exercised through
-the same seam rather than a second one — but the surface they bind is wider than the close gate's, covering
+the one per-tool predicate above rather than a second channel — but the surface they bind is wider than the
+close gate's, covering
 every catalogued tool plus every external server's tools. Two consequences are honest gaps rather than design:
 a mode refusal produces no governed-stop frame, because the frame vocabulary carries exactly one kind of stop,
 so in read-only mode a refusal reaches the person only through whatever the model then says about it; and the
@@ -1022,7 +1023,8 @@ the value: settlement, the counter, and the ledger.
 
 Three consequences follow, stated plainly. **The close gate is the only thing coa itself decides to refuse with**
 — "exactly two blocks" became exactly one, and the only other refusal in the system is the operator's own
-permission mode, carried out through that same seam. **Fan-out and message traffic are both unbounded**: there
+permission mode, layered onto the per-tool check rather than standing beside it. **Fan-out and message traffic
+are both unbounded**: there
 is no depth limit, width limit, or spend bound on a spawn tree, and nothing bounds a turn loop provoked by
 agents messaging each other either — a pathological pair that keeps messaging will keep running turns. Either
 runs until its work ends, the operator stops it, or the provider's own plan limit does (a depth check that
