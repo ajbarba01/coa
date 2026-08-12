@@ -31,9 +31,11 @@
 - **Catalogue-only, byte-faithful.** The GUI is a second _client_ of the daemon's verb catalogue, not a second
   source of truth. The artifacts it renders (graph, diffs, ledger) are byte-stable and diffable — it presents
   them, it does not recompute or re-interpret them.
-- **The only "no" is the daemon's.** The system has exactly one deliberate block — the close gate that refuses
-  "done" while an unresolved blocking flag stands — and it arrives through the single deny channel. Spend is
-  accounted, never capped. The UI _renders_ a denial; it never invents one.
+- **The only "no" is the daemon's.** coa itself decides exactly one refusal — the close gate that declines
+  "done" while an unresolved blocking flag stands — and it arrives through the single deny channel. A session's
+  permission mode can refuse a tool call too, but that is the operator's own standing choice, enforced by the
+  daemon on the one per-tool check every call already passes. Spend is accounted, never capped. The UI _renders_
+  a denial and _asks_ on the daemon's behalf; it never invents either, and it never decides a mode itself.
 - **Accessibility floor.** Semantic structure, sufficient contrast, visible focus, full keyboard navigation —
   non-negotiable, re-verified per surface.
 - **Honest surfacing.** The user sees **everything**, via progressive disclosure: the critical and high expanded,

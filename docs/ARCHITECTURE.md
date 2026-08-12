@@ -322,10 +322,11 @@ emits (the self-heal), and runs one convergence sweep at wiring so state already
 even with no change events. Per-producer tracking keeps the diff scoped. With no producers configured the
 pipeline is inert: the gate allows and nothing fires.
 
-**The close gate is the only block in the system.** It fires at turn end when unresolved high-severity,
+**The close gate is the only block coa itself decides on.** It fires at turn end when unresolved high-severity,
 may-block concerns exist, and it does not stop the agent — it keeps the loop open and feeds its reason back so
 the agent keeps working. It is issued through a single seam alongside the per-tool check, so auditing "can coa
-ever stop me" is a one-line answer instead of a system-wide search. The per-tool advisory-to-deny rules ride
+ever stop me" is a one-line answer instead of a system-wide search. (The operator's own permission mode can
+refuse a call too; it layers onto that per-tool check rather than standing beside it — see below.) The per-tool advisory-to-deny rules ride
 the same seam but are explicitly demotable pipeline policy, not a second standing block: the predicate is
 first-deny-wins and **fails closed** on a throw, refusing rather than admitting an unchecked call. Backends
 hold no policy — they only run the predicate the core assembles. Today no production path registers a per-tool
