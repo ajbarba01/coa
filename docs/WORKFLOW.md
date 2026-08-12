@@ -17,8 +17,9 @@ There is no separate build order to consult. Work is ordered by the **dependency
 once everything it points at exists, and the graph is acyclic by rule ([ENGINEERING.md](ENGINEERING.md) #1). Two
 pieces with no edge between them are independently buildable and can run in parallel.
 
-What is done, what is partial, and what is deliberately deferred all live in [ROADMAP.md](../ROADMAP.md) — read
-it to find the next move, and update it in the same commit as the work that changes its state.
+What is **not** built — next, later, someday — lives in [ROADMAP.md](../ROADMAP.md); what the system already
+**is** lives in [ARCHITECTURE.md](ARCHITECTURE.md). Read the roadmap to find the next move, and update it in
+the same commit as the work that changes its state.
 
 ---
 

@@ -18,7 +18,7 @@ view: how work is done here.** It is a **router**, not a knowledge dump.
 | Doc                                            | Authority over                                                                       | Read before…                            |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)   | **The system** — what the pieces are, how a turn flows, the seams and their invariants | anything about how coa actually works   |
-| [ROADMAP.md](ROADMAP.md)                       | **Where the project stands** — what is real, what is missing, what is open next        | orienting, or picking up work            |
+| [ROADMAP.md](ROADMAP.md)                       | **What is not built** — everything open, and roughly when. Forward-only                | picking up work, or deferring some       |
 | [docs/REPO_LAYOUT.md](docs/REPO_LAYOUT.md)     | **Where code lives** — package map, build, the enforced dependency rules              | adding a package, a file, or a dependency |
 | [docs/ENGINEERING.md](docs/ENGINEERING.md)     | **How code is structured** — architecture and code-quality principles                  | writing or refactoring non-trivial code |
 | [docs/CODE_STYLE.md](docs/CODE_STYLE.md)       | Formatting, naming, documentation conventions                                          | writing any code                        |
@@ -46,10 +46,13 @@ there rather than restating it in a third place.
   decision-record IDs, in code, comments, docs, or commit subjects. If rationale is durable, write the rationale.
 - **Last-reviewed footer.** Every doc ends with one. If it is more than 60 days old at session start, flag the
   doc for re-audit.
-- **The router is the index.** Every permanent doc is reachable from this file's navigation table. Run
-  `pnpm docs:check` to verify reachability and catch dead links.
-- **The suite is expected green on every run.** Its historical load-flakes were root-caused and fixed, so an
-  intermittent failure is a bug to diagnose — never a known flake to shrug at and rerun.
+- **The router is the index.** Every root-level doc and everything under `docs/` is reachable from this file's
+  navigation table; `pnpm docs:check` verifies reachability and catches dead links. A package's own README is
+  scoped to that package and is deliberately outside the index — it is not a place to put a fact the rest of
+  the repo relies on.
+- **The suite is expected green on every run.** One desktop panel suite still fails intermittently under
+  parallel load and is not root-caused — it is recorded in the architecture doc's known debt, not excused.
+  Every other intermittent failure is a bug to diagnose, never a known flake to shrug at and rerun.
 
 ## Constitution (non-negotiables)
 
@@ -63,14 +66,16 @@ These bind every package and every session.
   spine, never sideways at each other; the spine knows nothing above it. Enforced as hard rules in the
   dependency-cruiser ruleset, with a canary test that plants a forbidden edge and fails if the ruleset stops
   reporting it — so the rules can never quietly go decorative.
-- **Advisory-first: coa decides exactly one refusal.** The close gate — the check that can decline to let the
-  agent call the work finished — is the only thing coa itself decides to stop with. A session's permission mode
-  can refuse a tool call too, but that refusal is the operator's own standing choice, and it is **layered onto**
-  the single per-tool predicate the deny rules already run through, never a second parallel channel: coa
-  enforces the decision, it does not make it. Both predicates are assembled by the session layer and merely run
-  by the backend, which holds no policy of its own — so "what here can stop me" stays a two-line answer instead
-  of a system-wide search. Everything else is advisory or surfacing, and no other component may deny. A
-  governance check that throws refuses the call rather than admitting an unchecked one.
+- **Advisory-first: exactly three things refuse, and coa judges only one of them.** The **close gate** — the
+  check that can decline to let the agent call the work finished — is the one refusal coa decides dynamically,
+  and it is the system's only deliberate block. A session's **permission mode** can refuse a tool call, but
+  that is the operator's own standing choice, **layered onto** the single per-tool predicate the deny rules
+  already run through rather than a second parallel channel: coa enforces the decision, it does not make it.
+  And every session carries a small **fixed sandbox posture** coa authors itself — the coa binary denied to the
+  shell tool, plus a read-deny set over the credential and secret directories — resolved once at construction
+  and handed to the backend as native deny rules, the one refusal that does not pass through that predicate.
+  Everything else is advisory or surfacing, and no other component may deny. A governance check that throws
+  refuses the call rather than admitting an unchecked one.
   - **Spend is accounted, never capped.** Every settled result is charged and recorded in the ledger with the
     account and the family-tree root it belongs to, so a whole run's cost is answerable. There is no ceiling:
     the hard dollar cap and its deny path were removed because they were dead configuration no shipped caller
@@ -90,7 +95,9 @@ These bind every package and every session.
 - **Compose, don't reinvent.** Orchestrate the generators, checkers, and backend features that already exist.
   Build no parallel machinery for something the ecosystem already does.
 - **Typed boundaries.** Validate and parse every piece of external data at the edge with Zod. The shared package
-  owns the wire schemas; nothing downstream re-derives them.
+  owns every schema that crosses the daemon's own wire, and nothing re-declares one it could import. Shapes the
+  core owns are still hand-mirrored at the console edge, because the renderer may not import the core — that
+  mirroring is a named roadmap item, not a licence for a second copy of a schema that already exists.
 - **Core logic is pure and tested.** Side effects live at the edges and arrive as injected dependencies, so the
   logic worth trusting can be tested without a daemon, a network, or a clock.
 - **Branches for work; `main` is protected.** Work happens on a branch and merges after review. Commit only

@@ -5,7 +5,7 @@ export const stepSliderIntent: ComponentIntent = assertIntent({
   family: 'Inputs',
   intent:
     'A discrete slider over a small ordered set of named levels, with a boxy thumb and per-stop ticks.',
-  useWhen: ['Choosing one of a few ordered named levels (reasoning effort, density).'],
+  useWhen: ['Choosing one of a few ordered named levels (reasoning effort).'],
   dontUseWhen: [
     'Two states — Toggle.',
     'Unordered choices — Select.',

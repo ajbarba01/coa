@@ -155,8 +155,8 @@ imported by nothing, so a parked feature cannot quietly become load-bearing.
   in-memory mirror rebuilt by replaying the log, so it is reconstructible rather than durable and never needs its
   own flush discipline.
 - **Idle precompute is the reason the daemon stays resident.** The kernel exposes a priority-ordered idle
-  scheduler for exactly this; registering the heavier regeneration and detection sweeps on it is still ahead
-  (see [ROADMAP.md](../ROADMAP.md)).
+  scheduler for exactly this, and nothing registers on it yet — an open roadmap item, so the heavier
+  regeneration and detection sweeps still run inline or not at all.
 
 ---
 

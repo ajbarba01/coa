@@ -187,6 +187,10 @@ are free.
   surfaces only when something happens to read it.
 - **Own compaction explicitly** — its moment can be chosen and observed but never vetoed, so the
   transcript should mark the seam and list what survived.
+- **Cut the dead pointers out of the comments** — sixty-eight comment citations still point at the
+  retired design corpora, and roughly a hundred more carry module letters and phase codes. Every one
+  is a reference a reader cannot follow. Each should become the rationale it was standing in for, or a
+  pointer to the architecture section that now owns it.
 
 ### The console
 
@@ -205,6 +209,11 @@ are free.
 
 ### Platform
 
+- **Run the gates automatically** — every gate is run by hand before a commit; nothing runs them on a
+  push, and the dependency-audit step over the committed lockfile has no home until something does.
+- **Put the idle scheduler to work** — the kernel exposes a priority-ordered idle scheduler and nothing
+  registers on it, so the heavier regeneration and detection sweeps run inline or not at all. Idle
+  precompute is the reason the daemon stays resident.
 - **Derive RPC types from the method registry** — a verb's request and response shapes are
   hand-mirrored on both ends of the wire and re-validated by hand.
 - **A conformance suite for the backend port** — a new adapter is reviewed by eye rather than proven

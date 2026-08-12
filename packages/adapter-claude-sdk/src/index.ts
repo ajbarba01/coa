@@ -1,7 +1,7 @@
 /**
  * @coa/adapter-claude-sdk — the one backend implementation of the runtime port: the
- * neutral→native renderer, the TS-LSP backend, and the SDK loop with its two
- * hooks. The ONLY package permitted to import the Claude Agent SDK
+ * neutral→native renderer and the SDK loop with its two hooks. The ONLY package
+ * permitted to import the Claude Agent SDK
  * (backend-isolation). The core never imports this package — the daemon injects it at
  * session construction, keeping the adapter a swappable leaf.
  *

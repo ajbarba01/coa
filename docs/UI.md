@@ -34,8 +34,10 @@
 - **The only "no" is the daemon's.** coa itself decides exactly one refusal — the close gate that declines
   "done" while an unresolved blocking flag stands — and it arrives through the single deny channel. A session's
   permission mode can refuse a tool call too, but that is the operator's own standing choice, enforced by the
-  daemon on the one per-tool check every call already passes. Spend is accounted, never capped. The UI _renders_
-  a denial and _asks_ on the daemon's behalf; it never invents either, and it never decides a mode itself.
+  daemon on the one per-tool check every call already passes; and a fixed per-session sandbox posture denies the
+  coa binary to the shell and read-denies the credential directories, resolved once at construction. Spend is
+  accounted, never capped. The UI _renders_ a denial and _asks_ on the daemon's behalf; it never invents either,
+  and it never decides a mode itself.
 - **Accessibility floor.** Semantic structure, sufficient contrast, visible focus, full keyboard navigation —
   non-negotiable, re-verified per surface.
 - **Honest surfacing.** The user sees **everything**, via progressive disclosure: the critical and high expanded,
@@ -127,8 +129,9 @@
   nothing fits, add a member **to the kit** with its lint-enforced intent block (Intent / Use-it-when /
   Don't-use-it-when / Anatomy / Variants & States / Accessibility / Related); do not inline a bespoke component
   inside a panel. A panel is kit composition plus a pure selector, with no styling of its own.
-- **Take the interaction library for mechanics, not for management.** The kit adopts it exactly where
-  hand-rolling goes badly — focus traps and anchored positioning. It deliberately does _not_ use that library's
+- **Take the interaction library for mechanics, not for management.** The kit adopts it where hand-rolling
+  goes badly — focus traps, anchored positioning, and the input primitives whose keyboard and ARIA behavior is
+  not worth rewriting (switch, slider, select). It deliberately does _not_ use that library's
   toast: that one is manager-driven (an imperative queue you add into), while the console's only toast is a fully
   controlled error surface whose caller owns `open`. Syncing controlled state into a manager would buy stacking,
   queueing, and swipe the console never uses, and invite duplicate-add bugs. The hand-rolled toast is the

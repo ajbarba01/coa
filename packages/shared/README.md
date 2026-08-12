@@ -1,6 +1,8 @@
 # @coa/shared
 
-The cross-package type and Zod schema set. Types and schemas only; no runtime behavior.
+The cross-package type and Zod schema set, plus the handful of pure helpers that belong to a shared shape
+rather than to any one consumer — a capability predicate over model metadata, the content-atom render, the
+shared error type. No IO, no state, no dependency on another workspace package.
 
 - **Public interface:** `src/index.ts`.
 

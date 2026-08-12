@@ -16,7 +16,8 @@ and consumers point only at it, never sideways ([ENGINEERING.md](ENGINEERING.md)
 ```
 coa/
   packages/                  libraries — the units the daemon and the apps compose
-    shared/                  @coa/shared             types + Zod schemas only; no behavior, imports nothing
+    shared/                  @coa/shared             the cross-package types and Zod schemas, plus a few pure
+                                                     helpers belonging to a shared shape; imports nothing
     code-intel/              @coa/code-intel         bytes → structure via tree-sitter; ships a second runnable
                                                      entry so the parser can run as an isolated child process
     core/                    @coa/core               the daemon: the spine plus every ring around it (below)
@@ -50,7 +51,7 @@ coa/
                              recipes/ — the how-to guides for working on specific surfaces
   test/                      repo-level tooling tests (the dependency-rule canary)
   archive/                   parked feature code — compiled by nothing, imported by nothing
-  ROADMAP.md                 what is done, what is partial, what is deliberately deferred
+  ROADMAP.md                 everything open, and roughly when (forward-only)
   AGENTS.md  CLAUDE.md       how work is done (the router, plus the Claude-specific shim)
   README.md  LICENSE         the front door; Apache-2.0
   package.json               workspace root (private; scripts + devDependencies only)
@@ -91,8 +92,7 @@ dependency ruleset below — not by package splits.
 **The intra-`core` rule** (mechanically enforced): only the spine — the root-level files plus `graph/`, `wal/`,
 `reconcile/`, and `scope/` — is shared mutable substrate. Every other ring imports **the spine and
 `@coa/shared`**, never a sibling ring sideways. Two hubs are exempt because composing rings is their job:
-`session/` (it wires the rings into a daemon) and `rpc/` (it exposes them over JSON-RPC). `compiler/` reads what
-`context/` produces, never the reverse. `workbench/` is a producer — it writes through the spine and reads
+`session/` (it wires the rings into a daemon) and `rpc/` (it exposes them over JSON-RPC). `workbench/` is a producer — it writes through the spine and reads
 `flags/`, `context/`, and `governance/` only.
 
 ## Dependency rules (enforced by `dependency-cruiser`)
@@ -161,10 +161,10 @@ packages/<name>/
   own postinstalls are pinned off, since they only fetch runtime binaries that typechecking and bundling do not
   need. Install-time scripts run _before_ any sandbox exists, which makes this the highest-leverage
   supply-chain control in the repo.
-- **Gates** — `pnpm check` runs typecheck, lint, format, tests, and the dependency ruleset locally.
-  Automated CI, and the dependency-audit step that belongs in it, is still ahead (see
-  [ROADMAP.md](../ROADMAP.md)); until it lands, the gate is run by hand before every commit
-  ([WORKFLOW.md](WORKFLOW.md)).
+- **Gates** — `pnpm check` runs typecheck, lint, format, tests, and the dependency ruleset locally, plus
+  `pnpm docs:check` for the doc index. Running them automatically on a push, and the dependency-audit step
+  that belongs beside them, are open roadmap items; until they land, the gate is run by hand before every
+  commit ([WORKFLOW.md](WORKFLOW.md)).
 
 ## Open-source scaffolding
 
@@ -186,8 +186,9 @@ CHANGELOG.md             Keep-a-Changelog, fed by the Conventional Commit histor
 
 - **Conventional Commits are the changelog substrate** — another reason the subject-line discipline
   ([AGENTS.md](../AGENTS.md)) matters.
-- **PR flow arrives with outside contributors.** Today it is a single `main` and commit-as-you-go
-  ([WORKFLOW.md](WORKFLOW.md)); the dependency rules and gates above are exactly what a PR check would enforce.
+- **PR flow arrives with outside contributors.** Today work happens on a branch and lands on `main` once
+  verified and authorized ([WORKFLOW.md](WORKFLOW.md)); the dependency rules and gates above are exactly what a
+  PR check would enforce.
 - **Apache-2.0 specifics** — per-file license headers are optional; LICENSE plus a NOTICE covers attribution.
   The patent grant is why Apache-2.0 was chosen over MIT.
 

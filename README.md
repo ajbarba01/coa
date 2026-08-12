@@ -55,8 +55,9 @@ switching providers mid-project changes the model and nothing else.
   it into the project so it can be committed, with drift against the source checked on demand. A skill
   reaches the model as ordinary prompt material, so it works on every backend rather than only the one
   whose format it was written for.
-- **Accounts are pointers, never secrets.** Any number of accounts per provider; the account list
-  stores an environment-variable name or the path to a key file coa wrote with owner-only permissions.
+- **The account list stores pointers, never secrets.** Any number of accounts per provider; the list
+  holds an environment-variable name, or the path to a key file coa wrote with owner-only permissions —
+  the one secret coa puts on disk, read only by the backend when a session starts and never shown back.
   `coa auth` manages them from the terminal. For a Claude subscription the console can drive the login
   itself, signing each account into its own browser profile so the account you picked is the one that
   gets used.
@@ -75,9 +76,10 @@ switching providers mid-project changes the model and nothing else.
   command reaches the record alongside the ones coa performed itself.
 - **Inspector reads from the terminal**: `coa flags`, `coa timeline`.
 
-coa itself refuses exactly one thing: a session declaring itself finished while a blocking flag
-stands. A permission mode refuses too, but that is your own standing choice being carried out — layered
-onto the one per-tool check every call already passes, not a second gate, and never coa's judgment.
+coa itself judges exactly one refusal: a session declaring itself finished while a blocking flag stands.
+A permission mode refuses too, but that is your own standing choice being carried out — layered onto the
+one per-tool check every call already passes, not a second gate. And every session ships a small fixed
+sandbox: the `coa` binary is kept away from the shell tool, and the credential directories are read-denied.
 Everything else surfaces and advises.
 
 ## Not there yet
@@ -123,7 +125,7 @@ typechecking and bundling do not need it. Set it to `true` and re-run `pnpm inst
 ## Docs
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the pieces fit together.
-- [`ROADMAP.md`](ROADMAP.md) — what is real, what is missing, what is next.
+- [`ROADMAP.md`](ROADMAP.md) — what is not built: everything open, and roughly when.
 - [`docs/recipes/`](docs/recipes/) — task recipes, including pointing the OpenAI-compatible adapter at
   a local subscription bridge.
 

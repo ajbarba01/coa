@@ -1,7 +1,7 @@
 # @coa/adapter-claude-sdk
 
-The fat Claude backend: a neutral→native prompt render layered on the `claude_code` preset, the TS-LSP
-capability backend, and the SDK-owned loop. The only package permitted to import a backend SDK.
+The fat Claude backend: a neutral→native prompt render layered on the harness's own preset, and the SDK-owned
+loop with its two hooks. The only package permitted to import a backend SDK.
 
 - **Public interface:** `src/index.ts`.
 

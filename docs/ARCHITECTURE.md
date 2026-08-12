@@ -44,12 +44,17 @@ Three structural rules hold the graph together, all machine-checked (the ruleset
   leaves the flag pipeline inert, an unconfigured summarizer degrades the fetch tool to raw markdown, no
   registered accounts means byte-identical ambient auth, and the console's raw mode reprojects the daemon's
   frames verbatim.
-- **coa decides exactly one refusal.** The close gate — a governed "you're not done yet" at turn end — is
-  the only thing coa itself decides to stop the agent with. A session's permission mode can refuse a tool
-  call too, but that refusal is the operator's own standing choice, and it is **layered onto** the single
-  per-tool predicate the deny rules already run through, never a second parallel channel: coa enforces the
-  decision, it does not make it. Both predicates are assembled by the session layer and merely run by the
-  backend, which holds no policy of its own. Nothing else in the system refuses anything.
+- **Three things can refuse, and only one of them is a judgment coa makes per turn.** The **close gate** —
+  a governed "you're not done yet" at turn end — is the only refusal coa decides dynamically, and it is the
+  system's one deliberate block. A session's **permission mode** can refuse a tool call, but that is the
+  operator's own standing choice, **layered onto** the single per-tool predicate the deny rules already run
+  through rather than a second parallel channel: coa enforces the decision, it does not make it. And every
+  session is constructed with a small **fixed sandbox posture** coa authors itself — the coa binary denied
+  to the shell tool, plus a read-deny set over the credential and secret directories — handed to the backend
+  as native deny rules instead of routed through that predicate. It is defense-in-depth against an agent
+  reaching a human-only verb or a credential store through the shell, decided once at construction from the
+  session's trust context, never per call and never per model; it is the one place the "one predicate"
+  answer does not hold, and it is deliberately not general-purpose. Nothing else refuses anything.
 - **The core never names a backend.** It asks capability questions with defined null-fallbacks; it never
   branches on which backend is running.
 - **No model call on a critical path.** Every governance decision — the gate, the per-tool check, path
@@ -329,9 +334,11 @@ ever stop me" is a one-line answer instead of a system-wide search. (The operato
 refuse a call too; it layers onto that per-tool check rather than standing beside it — see below.) The per-tool advisory-to-deny rules ride
 the same seam but are explicitly demotable pipeline policy, not a second standing block: the predicate is
 first-deny-wins and **fails closed** on a throw, refusing rather than admitting an unchecked call. Backends
-hold no policy — they only run the predicate the core assembles. Today no production path registers a per-tool
-deny rule, so that channel is wired end to end and never fires; the deny machinery exists for the rules a later
-governance pass would add.
+hold no policy — they only run the predicate the core assembles. Today no production path registers a rule
+into *this* channel, so it is wired end to end and never fires; the machinery exists for the rules a later
+governance pass would add. That is a statement about the pipeline's registration path only — the fixed
+sandbox posture described under the backend seam is a separate, always-on deny set that never passes through
+here.
 
 ### Permission modes
 
@@ -394,8 +401,11 @@ blocking check it cannot prove.
 The workbench is both a producer (it writes through the spine) and the outer-ring tool surface. Its catalogue
 is a manifest partitioned by schema cost: a small always-loaded kernel set (the localized diff edit, the
 whole-file patch escape, the subagent spawn, and the inter-agent send — the send is kernel because an agent that
-can spawn must be able to reach what it spawned without a discovery round trip first) and an on-demand set
-discovered and pulled in when needed, which now also carries agent discovery and the live family-tree roster.
+can spawn must be able to reach what it spawned without a discovery round trip first) and a set marked
+on-demand, which now also carries agent discovery and the live family-tree roster. **The partition expresses
+intent only**: today every catalogued tool is registered up front, so an on-demand tool's schema costs the same
+standing context a kernel one does. What would make the distinction real is described under the dormant
+substrate below.
 The symbol-reading verbs are implemented but deliberately **unregistered** — the index they read has no
 producer feeding it, so they could only return empty results; they rejoin the catalogue when that layer is fed.
 
@@ -550,6 +560,18 @@ are handed over. coa manages configuration and surfacing; the SDK owns the serve
 rather than reimplementation. A pure-API backend has no such runtime and says so, emitting a typed error frame
 naming the servers it cannot provide before the loop runs rather than proceeding silently without them.
 
+**Every session carries a fixed sandbox posture, and it is the one refusal that skips the per-tool
+predicate.** Governance resolves it once per session from the session's trust context, and the adapter unions
+it into the SDK's own disallow list: the coa binary denied to the shell tool, so an agent-spawned `coa` cannot
+reach a human-only verb over the same-user socket, plus a read-deny set over the credential and secret
+directories — coa's own secrets, the SSH, cloud, GPG, Kubernetes and container config homes, and the vendor's
+own credential home, which a stress test caught as the original omission. An imported rather than locally
+authored session additionally runs in the backend's own sandboxed permission mode until it is promoted.
+Two things make this a genuinely separate control rather than a second governance channel: it is decided at
+construction and never consulted again, and it covers the built-in and shell tools the deny globs name — coa's
+own in-process tools are not covered by it at all, which is why path confinement exists and why the two are
+documented as distinct controls rather than one.
+
 **coa borrows the harness; it never modifies it.** The vendor harness is a compiled binary behind a thin
 wrapper — forking the public repository buys none of the behavior anyone would want to change, and patching the
 binary fails on release cadence, checksum and signature integrity, and licensing. The ruling is: configure the
@@ -571,7 +593,9 @@ roughly twenty-seven releases a month, so these are tripwires, not trivia.
   nothing; dropping the list made the same calls reach it). Granting through it silently disables per-call
   governance, so the adapter keeps it permanently empty. The three levers split cleanly: the tool list is what
   is advertised (empty genuinely empties the built-in set), the auto-approve list removes nothing, and the
-  disallow list removes a tool from the model's context.
+  disallow list removes a tool from the model's context. A disallow entry carrying a *specifier* — the shape
+  the sandbox posture uses, a shell pattern or a read glob — cannot be removing the tool, since the shell and
+  read tools are both in the advertised floor; those entries are refusing matching calls at call time.
 - A permission-callback allow result must echo the tool input back — a bare allow typechecks but the real CLI
   treats it as a permission error for every tool, and nothing executes.
 - The permission callback is **not** a universal seam: it is never consulted for a native delegation call (live)
@@ -665,9 +689,11 @@ around a native child cannot block its spawn (only a pre-tool deny of the delega
 
 ## Auth and browser profiles
 
-coa stores **pointers, never secrets**. A user-global accounts file maps a label to a login — for the
+The accounts file stores **pointers, never secrets**. This user-global file maps a label to a login — for the
 subscription backend, a config-directory path holding a completed vendor login that coa never opens, parses, or
-copies; for API-key providers, a stable mode-0600 key file written once and never read back. The active account
+copies; for API-key providers, a path to a mode-0600 key file. That key file is the one place coa writes a
+secret to disk, and only the backend adapter ever reads it, at session construction, to authenticate — no
+management or display surface reads it back, so a stored key can be replaced or deleted but never re-shown. The active account
 is tracked **per provider**, so switching one backend's login never disturbs another; a missing file is the
 pass-through case (every provider ambient, empty list). Account ids are random rather than derived from an
 email or label, since a derived id inherits their collisions and dies on a rename, and per-account side state
@@ -882,16 +908,19 @@ the root agent row, the session's plan checklist when it has emitted one, the fa
 isolated worktrees with the explicit reap, its spend roll-up, and a quiet "not tracked yet" line for things that
 genuinely have no backing data.
 
-**The console draws from push-fed slices, not one republished state object.** Five stores hold everything, and
-nothing is published wholesale: a write lands in the one store whose subscribers actually draw it. **The shell
-store** owns chrome only — the selected surface, work-versus-search mode, the tab working set and its reopen
+**The console draws from push-fed slices, not one republished state object.** Five slices carry the push-fed
+core, and nothing is published wholesale: a write lands in the one slice whose subscribers actually draw it.
+**The shell store** owns chrome only — the selected surface, work-versus-search mode, the tab working set and its reopen
 stack, column widths and dock visibility, the daemon status badge, and the dialog set, with modal overlays
 mutually exclusive by construction through a single shared close-all. Four more hold console state, split by
 change cadence: slow **daemon data**, **session**-domain facts, per-session **transcripts**, and local **view**
 state. Splitting by cadence is the point — it is what lets a streamed token touch exactly one session's
 transcript entry while a poll tick returning unchanged data touches nothing at all. Reads settle into an
 explicit loading/ok/error value that never throws, and the data store compares each polled key structurally so
-an unchanged key keeps its reference.
+an unchanged key keeps its reference. Those five are the push-fed core, not the whole renderer: each product
+surface — auth, models, the library, login, the usage readout — keeps its own store beside them, hydrated from
+its own daemon read rather than from the push stream, which is why the renderer holds roughly fifteen stores
+in all.
 
 A single **controller** is the composition root over those stores: it binds the injected bridge, owns push
 routing and the boot sequence, and installs the action implementations, but holds no state of its own beyond a
@@ -947,12 +976,16 @@ value is provisional**: it is set to twice the roughly twenty-tab working set th
 targets, and nobody has yet measured what a twenty-tab window actually holds in the running app, so it is a
 placeholder awaiting that number rather than a settled policy.
 
-A **project swap** resets the console stores at the boundary and reboots the controller, and every read that
+A **project swap** resets the five core slices at the boundary and reboots the controller, and every read that
 outlives its controller lands nowhere: the controller carries a liveness flag its own teardown clears, and every
 continuation that writes a store checks it first. Clearing alone would only be half of it — a session list or
 transcript reload still in flight from the leaving project would settle afterwards and write that project's rows
-into the new project's window. What survives a swap is what was never the project's: the user's settings and
-this window's raw-output toggle. On boot the restored tab strip is pruned against the session list just read,
+into the new project's window. What survives a swap is the user's settings, this window's raw-output toggle,
+and — **today, as a known gap** — the surface-local stores, which the reset does not cover. Most of those hold
+user-global data and are right to survive; the library store is not, since it carries project-scoped records
+and hydrates from a mount-once effect, so a swap made while sitting away from the library surface can leave the
+previous project's entries feeding the composer until that surface remounts and re-reads. On boot the restored
+tab strip is pruned against the session list just read,
 because the working set is per-project while the persisted layout is per-user, and a foreign id would otherwise
 cost cross-project round trips, hold an error entry, and — sitting in the tab set — be protected from eviction
 ahead of a transcript the user actually has. Deleting a session drops every per-session record the console
@@ -1153,10 +1186,11 @@ change can land up to two seconds late. Push is the intended replacement, and th
 drift push kinds that nothing emits.
 
 **A desktop panel suite still fails intermittently under parallel load, and it is not root-caused.** The
-console store port rewrote the suites this was first recorded against, but the behaviour survived the rewrite:
-on 2026-08-11 two full runs of the same tree gave 3,679 passing and then one composer-panel failure, and that
-suite passes on its own. So it is a real, live, unexplained interaction with parallel load rather than
-something the port carried away. The rule it is recorded under stands and is not softened by the isolation
+console store port rewrote the suites this was first recorded against, but the behaviour survived the rewrite
+and reproduces readily: across five full runs of the same tree on 2026-08-11 and 2026-08-12, three came back
+at 3,679 passing and two came back with a single desktop-panel failure — one of them the composer panel, which
+then passed on its own, fifty-one of fifty-one. So it is a real, live, unexplained interaction with parallel
+load rather than something the port carried away, and a single green run is not evidence it is gone. The rule it is recorded under stands and is not softened by the isolation
 result: an intermittent failure is a bug until proven otherwise, never permission to wave a red test through. A
 failure of exactly this shape was chased once before and turned out to be a real defect, not a flake.
 

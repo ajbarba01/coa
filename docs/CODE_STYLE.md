@@ -37,7 +37,9 @@ Sourced from the [Google TypeScript Style Guide](https://google.github.io/styleg
 - **One primary export per file; the file is named for it.** A file exporting `canonicalize` is `canonicalize.ts`.
 - Tests sit next to the unit as `*.test.ts` (Vitest). Cross-module integration tests live in a `test/` directory.
   (See [REPO_LAYOUT.md](REPO_LAYOUT.md) for the per-package anatomy.)
-- Type-only modules — notably `@coa/shared` — export types and schemas and **no runtime behavior**.
+- `@coa/shared` is types and Zod schemas plus the handful of **pure** helpers that belong to a shared shape
+  rather than to any one consumer. No IO, no state, no workspace dependency — and nothing that has a natural
+  owner elsewhere.
 
 ## Imports
 
