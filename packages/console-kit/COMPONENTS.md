@@ -174,7 +174,7 @@ Pick one value from a set too long to scan: a trigger chip that grows a searchab
 
 Pick one value from a flat list: a quiet mono chip that grows a positioned option popup.
 
-- **Use it when:** Settings rows and toolbars choosing one of a few named values (theme, density).
+- **Use it when:** Settings rows and toolbars choosing one of a few named values (a provider, a permission mode).
 - **Don't use it when:** Rich option rows with glyphs or descriptions — PopoverCard + MenuItem. Two states — Toggle. Free text — a text input.
 - **Anatomy:** Controlled Base UI Select (Root/Trigger/Value/Portal/Positioner/Popup/Item); the popup wears menuSurface below the trigger; the selected item carries the `Current` marker. An option is a bare string, or a {value,label} pair when the displayed word must not be the stored value.
 - **Variants & states:** closed, open (trigger border steps up), item hover/highlighted, item selected (tint + Current), focus-visible (global interior ring)
@@ -185,7 +185,7 @@ Pick one value from a flat list: a quiet mono chip that grows a positioned optio
 
 A discrete slider over a small ordered set of named levels, with a boxy thumb and per-stop ticks.
 
-- **Use it when:** Choosing one of a few ordered named levels (reasoning effort, density).
+- **Use it when:** Choosing one of a few ordered named levels (reasoning effort).
 - **Don't use it when:** Two states — Toggle. Unordered choices — Select. Continuous numeric ranges — this is stops-only by design.
 - **Anatomy:** Base UI Slider (value = stop index) inside the kit rail: 4px-inset track, filled indicator, one tick per stop, 7×13 boxy thumb.
 - **Variants & states:** per-stop positions, drag/click (Base UI pointer mechanics), keyboard arrows/Home/End (native range input), focus-visible (global interior ring)

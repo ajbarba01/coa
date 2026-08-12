@@ -61,12 +61,12 @@ module.exports = {
       name: 'core-consumer-rings-no-sideways',
       severity: 'error',
       comment:
-        'Inside core, only the spine (the root-level kernel/event/projection/checkpoint/idle files plus graph/, reconcile/, scope/ and wal/) is shared mutable substrate. Every other ring imports the spine + shared, never a sibling ring sideways (REPO_LAYOUT intra-core rule). Two deliberate exemptions, not listed in `from`: session/ (M8 composition — it wires the rings into a daemon) and rpc/ (M8 transport — it exposes them over JSON-RPC) are hubs that legitimately reach into many rings. workbench/ has its own narrower rule below. A genuinely new sanctioned edge changes the SPEC map AND an explicit allowance here in the same commit.',
+        'Inside core, only the spine (the root-level kernel/event/projection/checkpoint/idle files plus graph/, reconcile/, scope/ and wal/) is shared mutable substrate. Every other ring imports the spine + shared, never a sibling ring sideways (REPO_LAYOUT intra-core rule). Two deliberate exemptions, not listed in `from`: session/ (it wires the rings into a daemon) and rpc/ (it exposes them over JSON-RPC) are hubs that legitimately reach into many rings. workbench/ has its own narrower rule below. A genuinely new sanctioned edge changes the architecture doc AND an explicit allowance here in the same commit.',
       from: {
-        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|graph|models|reconcile|scope|wal)/',
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|graph|library|models|reconcile|scope|wal)/',
       },
       to: {
-        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|models|rpc|session|workbench)/',
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|library|models|rpc|session|workbench)/',
         pathNot: '^packages/core/src/$1/',
       },
     },
@@ -88,7 +88,7 @@ module.exports = {
         pathNot: '^packages/core/src/index\\.ts$',
       },
       to: {
-        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|models|rpc|session|workbench)/',
+        path: '^packages/core/src/(auth|compiler|console|context|flags|governance|library|models|rpc|session|workbench)/',
       },
     },
     {

@@ -1,11 +1,17 @@
 # @coa/loop-driver
 
-M9 — the coa-owned governed ReAct loop for pure-API backends: the `complete()` primitive plus
-`runGovernedLoop`. Neutral; pulls in no backend SDK.
+The coa-owned governed agent loop the pure-API backends share: the single-round-trip `complete()` primitive
+plus the loop that drives it. Neutral — it pulls in no backend SDK, and the dependency ruleset forbids it
+importing an adapter back.
 
-- **Module:** M9 Runtime Adapter — see [`spec/M9.md`](../../docs/design/handoff/spec/M9.md).
 - **Public interface:** `src/index.ts`.
-- **Rationale:** [`0002`](../../docs/adr/0002-multi-backend-architecture.md).
 
-The thin adapters (DeepSeek, LongCat) each supply a `complete()` and reuse this one audited loop, so the
-governance-critical loop lives in exactly one place.
+The thin adapter supplies a `complete()` and reuses this one audited loop, so the governance-critical
+dispatch path — the per-tool check before execution, the close gate before the turn may end, neither of
+which ever throws — exists in exactly one place. The loop also carries a hard iteration bound and a
+defense-in-depth cap on any single tool result entering the resent transcript; both are explained in
+[ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
+---
+
+_Last reviewed: 2026-08-08_

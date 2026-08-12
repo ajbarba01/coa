@@ -5,7 +5,9 @@ export const selectIntent: ComponentIntent = assertIntent({
   family: 'Inputs',
   intent:
     'Pick one value from a flat list: a quiet mono chip that grows a positioned option popup.',
-  useWhen: ['Settings rows and toolbars choosing one of a few named values (theme, density).'],
+  useWhen: [
+    'Settings rows and toolbars choosing one of a few named values (a provider, a permission mode).',
+  ],
   dontUseWhen: [
     'Rich option rows with glyphs or descriptions — PopoverCard + MenuItem.',
     'Two states — Toggle.',

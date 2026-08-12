@@ -1,9 +1,18 @@
 # @coa/adapter-openai-compat
 
-M9 — the thin pure-API backends over one OpenAI-compatible code path: `complete()` over HTTP (fetch only, no
-backend SDK) driven by the shared `@coa/loop-driver`, parameterized by a `ProviderSpec`. DeepSeek, LongCat,
-OpenAI (chat completions; the Responses API is deferred), and OpenRouter ship as spec objects.
+One thin backend over any OpenAI-compatible HTTP API: `complete()` over `fetch` (no backend SDK) driven by
+the shared [`@coa/loop-driver`](../loop-driver), parameterized by a data-only provider spec. DeepSeek,
+LongCat, OpenAI (chat completions — the Responses API is not built) and OpenRouter ship as spec objects
+over the one code path.
 
-- **Module:** M9 Runtime Adapter — see [`spec/M9.md`](../../docs/design/handoff/spec/M9.md).
 - **Public interface:** `src/index.ts`.
-- **Rationale:** [`0002`](../../docs/adr/0002-multi-backend-architecture.md).
+
+Every per-provider difference that is real on the wire lives in the spec: endpoints, default model,
+credential and pricing pointers, the reasoning-field mapping, and how to pull neutral token counts out of
+that provider's usage shape. Adding another compatible provider is a new spec and a new row in the backend
+factory's map — not a new package, and not a branch on which provider is running. See
+[ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
+---
+
+_Last reviewed: 2026-08-08_

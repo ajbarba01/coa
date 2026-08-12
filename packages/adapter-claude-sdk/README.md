@@ -1,9 +1,17 @@
 # @coa/adapter-claude-sdk
 
-M9 — the fat Claude backend: neutral→native prompt render layered on the `claude_code` preset, the TS-LSP
-capability backend, and the SDK-owned loop. The only package permitted to import a backend SDK.
+The fat Claude backend: a neutral→native prompt render layered on the harness's own preset, and the SDK-owned
+loop with its two hooks. The only package permitted to import a backend SDK.
 
-- **Module:** M9 Runtime Adapter — see [`spec/M9.md`](../../docs/design/handoff/spec/M9.md).
 - **Public interface:** `src/index.ts`.
-- **Rationale:** [`0002`](../../docs/adr/0002-multi-backend-architecture.md),
-  [`0004`](../../docs/adr/0004-layer-on-native-never-branch-on-backend.md).
+
+Two constraints shape this package. Backends stay swappable, so everything provider-specific is confined
+behind one seam rather than leaking into the daemon — which is why this is the sole package allowed to
+depend on a vendor SDK, a rule the dependency ruleset enforces. And composition never branches on which
+backend is in use: coa layers its own material on top of whatever the native harness already provides
+instead of forking or reimplementing it, so a capability the SDK ships is borrowed, not rebuilt. What
+that costs and what it buys is in [ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
+---
+
+_Last reviewed: 2026-08-08_
