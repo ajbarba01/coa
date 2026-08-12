@@ -2365,3 +2365,43 @@ references or retired doc paths in the living set; zero employer references in t
 
 Two-lens adversarial verification (prose-vs-tree × 2, rationale-survival × 2, all opus) and the full
 unsandboxed gate are running now. Nothing has touched `main`; the maintainer gate is next.
+
+### Verification and the fix rounds — same day
+
+The four-agent verification workflow died on session usage limits **twice** (once with a 19:30 reset,
+once with a midnight one), ~7 minutes and ~780k tokens in each time. Nothing was lost: the branch was
+committed and pushed before it ran, exactly the push-as-you-go discipline the handoff prescribes.
+
+**The rationale-survival lens was then done by hand, in full**: all 39 records swept mechanically for
+exception-shaped clauses, 14 core decisions checked by distinctive-term grep across the whole living
+set, plus the earlier survey's independent 8-record spot-check. **Prose-vs-tree was completed by hand
+too** — roughly thirty concrete claims verified first-hand (endpoint hash and case-folding, the
+notice's 2000-character cap and completed-only population, the pending-approval map and its teardown
+abandon, the ledger allow-list's exact field set, library layer shadowing, the fresh-versus-cached
+subtraction), plus `permission.ts` read end to end.
+
+**Eight findings, all fixed.** The three rationale losses are recorded above. The other five:
+
+- The corrected refusal invariant was itself imprecise on first writing — the close gate rides the
+  turn-end predicate while a permission mode layers onto the **per-tool** predicate, so "the same
+  seam" was wrong. Fixed in five places across three docs.
+- UI.md still asserted "exactly one deliberate block", contradicting the corrected AGENTS and
+  ARCHITECTURE text — the set disagreed with itself for a few commits.
+- WORKFLOW.md said "single `main`, commit as you go, no PRs or branch ceremony" while the constitution
+  said work happens on a branch and `main` is protected. Reality is branch-and-gate; WORKFLOW was the
+  bug. (This one predates the re-run — the template shipped with the contradiction.)
+- README told the reader `pnpm typecheck` emits the command-line bundle; that package has had a real
+  build script since the feature stage.
+- The package overview omitted the library ring.
+
+**A measured fact worth keeping**: the parallel-load suite failure **outlived the console store port**.
+Three full gate runs on the same tree gave 3,679 passing, then one composer-panel failure, then 3,679
+passing again; the suite passes 51/51 alone. The doc had said the port's rewrite left this unverified —
+it is now verified as still live, and recorded as such rather than quietly dropped.
+
+Final gate on the branch tip: **3,679 passed / 30 skipped, depcruise 475/1480 clean, docs-check 11
+docs**. Nine commits on `docs-rerun`, pushed. **Nothing has touched `main`.**
+
+Still owed: an INDEPENDENT verification pass — everything above is the author grading their own work,
+which this project's own workflow doc says is not verification. The workflow is queued and resumable
+(`resumeFromRunId: wf_fe3d1afd-9fe`) and needs the usage window.
