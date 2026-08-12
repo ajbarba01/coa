@@ -1152,11 +1152,13 @@ tick that moves one key leaves the other two reference-identical — but neither
 change can land up to two seconds late. Push is the intended replacement, and the wire already defines flag and
 drift push kinds that nothing emits.
 
-**Three desktop panel suites had been seen failing intermittently under parallel load and were never
-root-caused.** All three were rewritten by the console store port, so whether the behaviour survives is
-unverified — re-derive it rather than carrying it forward on trust. The rule it was recorded under stands
-regardless: an intermittent failure is a bug until proven otherwise, never permission to wave a red test
-through. A failure of exactly this shape was chased once before and turned out to be a real defect, not a flake.
+**A desktop panel suite still fails intermittently under parallel load, and it is not root-caused.** The
+console store port rewrote the suites this was first recorded against, but the behaviour survived the rewrite:
+on 2026-08-11 two full runs of the same tree gave 3,679 passing and then one composer-panel failure, and that
+suite passes on its own. So it is a real, live, unexplained interaction with parallel load rather than
+something the port carried away. The rule it is recorded under stands and is not softened by the isolation
+result: an intermittent failure is a bug until proven otherwise, never permission to wave a red test through. A
+failure of exactly this shape was chased once before and turned out to be a real defect, not a flake.
 
 **The endpoint has no peer authentication.** The daemon binds with default socket and named-pipe security.
 Unix peer-credential rejection and a Windows custom DACL are unreachable through Node's networking layer and
