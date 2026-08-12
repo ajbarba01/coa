@@ -2319,3 +2319,49 @@ THEN `git worktree remove`; main tree spot-checked intact).
 Parked honestly, tracked in ROADMAP: the attended live pass (20-tab heap curve — the cap ships
 as provisional 40 — and the in-app instant-nav timing). Next and last: the docs consolidation
 re-run, handed to a fresh session via the new `DOCS-RERUN-HANDOFF.md` in this folder.
+
+## [docs consolidation re-run — built, verifying] — 2026-08-11
+
+Fresh session picked up `DOCS-RERUN-HANDOFF.md`. Re-ran the consolidation against `main` `362ce6e`
+on branch `docs-rerun` (`e85e5f4`, pushed): **-32,851 lines across 114 files**, retiring
+`docs/design/**`, `docs/superpowers/**`, `docs/adr/**`, `docs/DESIGN.md` and `DEV-NOTES.md` for the
+living set the `arc/docs` template defined. docs-check: 11 docs, all reachable, no dead links.
+
+**The template's own snapshot base mattered more than expected.** It was built on `e223f13`, whose
+tree is NOT identical to main's architecture squash `47839e3` — the turn-lifecycle state machine
+landed in between — so the template was stale from its own base, not just from the feature stage.
+
+Four read-only opus lenses (decisions / features / console / doc-delta) produced ~120
+evidence-traced findings before a word was written. What they caught, worth recording:
+
+- **The one-block invariant is false as written.** Permission modes shipped a second thing that can
+  refuse a tool call: read-only mode refuses a write or command outright, and a person's denial of an
+  ask returns a deny. Both ride the SAME seam as the close gate, and both are the operator's own
+  standing choice rather than coa's judgment — so the honest form is "coa decides exactly one
+  refusal", not "the close gate is the only block". Rewritten identically in AGENTS.md's Constitution,
+  the architecture doc's invariants, README's closing line and the spend section. **This is the one
+  sentence in the set most worth the maintainer's own eye.**
+- **Two template claims were reversed by the tree, not merely stale**: a completion notice now quotes
+  a bounded excerpt of the child's own result, and agent-to-agent messaging is built as a mesh. The
+  template asserted the opposite of each in the present tense.
+- **A template error that predated the template**: it credited the transcript's cheapness to
+  content-visibility paint containment, which the transcript explicitly does not use (it clips the
+  tool card's deliberate bleed) — and UI.md said so correctly on the same branch, so the set
+  contradicted itself. The original run's two-lens pass missed it.
+- **Six known-debt items were fixed by the two commits since the snapshot** — the debt section was the
+  single most stale part of the template, because those commits were precisely the fixes it described.
+- **Two named exceptions never survived into the template at all** (the rationale-survival class the
+  handoff warned about): that the density control was REMOVED rather than deferred, and the kit's
+  deliberate refusal of the interaction library's own toast. Both re-homed in UI.md.
+- The provisional transcript cap of 40 and its unmeasured 20-tab heap question survived only in a code
+  comment once ROADMAP folded the charter into a closed arc. Now a ROADMAP item.
+
+ROADMAP reshaped 826 → 321 lines, forward-only, with the three deferred feature specs carried in FULL
+binding detail (ruled decisions, prior-art references and licences, test expectations, definitions of
+done) — de-jargoned, not condensed. No pointer into a retired file survives anywhere.
+
+Grep-clean: zero module letters, phase codes, decision-record numbers, item letters, branch/tag/PR
+references or retired doc paths in the living set; zero employer references in the diff.
+
+Two-lens adversarial verification (prose-vs-tree × 2, rationale-survival × 2, all opus) and the full
+unsandboxed gate are running now. Nothing has touched `main`; the maintainer gate is next.
