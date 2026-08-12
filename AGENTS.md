@@ -64,11 +64,13 @@ These bind every package and every session.
   dependency-cruiser ruleset, with a canary test that plants a forbidden edge and fails if the ruleset stops
   reporting it — so the rules can never quietly go decorative.
 - **Advisory-first: coa decides exactly one refusal.** The close gate — the check that can decline to let the
-  agent call the work finished — is the only thing coa itself decides to stop with, and it is issued through a
-  single seam. A permission mode can also refuse a tool call, but that refusal is the operator's own standing
-  choice carried out through that same seam, never a second one: coa enforces the decision, it does not make
-  it. Everything else is advisory or surfacing, and no other component may deny. A governance check that throws
-  refuses the call rather than admitting an unchecked one.
+  agent call the work finished — is the only thing coa itself decides to stop with. A session's permission mode
+  can refuse a tool call too, but that refusal is the operator's own standing choice, and it is **layered onto**
+  the single per-tool predicate the deny rules already run through, never a second parallel channel: coa
+  enforces the decision, it does not make it. Both predicates are assembled by the session layer and merely run
+  by the backend, which holds no policy of its own — so "what here can stop me" stays a two-line answer instead
+  of a system-wide search. Everything else is advisory or surfacing, and no other component may deny. A
+  governance check that throws refuses the call rather than admitting an unchecked one.
   - **Spend is accounted, never capped.** Every settled result is charged and recorded in the ledger with the
     account and the family-tree root it belongs to, so a whole run's cost is answerable. There is no ceiling:
     the hard dollar cap and its deny path were removed because they were dead configuration no shipped caller

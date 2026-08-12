@@ -44,10 +44,11 @@ Three structural rules hold the graph together, all machine-checked (the ruleset
   registered accounts means byte-identical ambient auth, and the console's raw mode reprojects the daemon's
   frames verbatim.
 - **coa decides exactly one refusal.** The close gate — a governed "you're not done yet" at turn end — is
-  the only thing coa itself decides to stop the agent with, and it is issued through a single seam. A
-  session's permission mode can also refuse a tool call, but that refusal is the operator's own standing
-  choice carried out through that same seam, never a second one: coa enforces the decision, it does not
-  make it. Nothing else in the system refuses anything.
+  the only thing coa itself decides to stop the agent with. A session's permission mode can refuse a tool
+  call too, but that refusal is the operator's own standing choice, and it is **layered onto** the single
+  per-tool predicate the deny rules already run through, never a second parallel channel: coa enforces the
+  decision, it does not make it. Both predicates are assembled by the session layer and merely run by the
+  backend, which holds no policy of its own. Nothing else in the system refuses anything.
 - **The core never names a backend.** It asks capability questions with defined null-fallbacks; it never
   branches on which backend is running.
 - **No model call on a critical path.** Every governance decision — the gate, the per-tool check, path
@@ -681,7 +682,9 @@ cached per daemon run and refreshed on view, refresh, or a live failure — no b
 manager probes a baseline concurrently with the CLI spawn and finalizes only from that baseline. A directory
 that was already authenticated ends in a distinct "pre-existing" decision naming who it holds — use it or
 cancel — instead of being reported as a successful login that never happened (closing the browser tab without
-authorizing used to "succeed"). A baseline that cannot be established is treated as clean, so probe failure
+authorizing used to "succeed"). "Try again" is deliberately *not* one of the choices: it would only land the
+same credentials again, and signing that directory out is the user's own action rather than coa's. A baseline
+that cannot be established is treated as clean, so probe failure
 degrades to the old behavior, and the verdict is enforced at the one completion funnel every probe-driven path
 passes through. **Removal then deletes the login coa created, and only that**: the ownership test is a
 path-containment check under coa's own logins root, failing toward *kept* because a config directory the user

@@ -76,8 +76,9 @@ switching providers mid-project changes the model and nothing else.
 - **Inspector reads from the terminal**: `coa flags`, `coa timeline`.
 
 coa itself refuses exactly one thing: a session declaring itself finished while a blocking flag
-stands. A permission mode refuses too, but that is your own standing choice being carried out through
-the same seam, not coa's judgment. Everything else surfaces and advises.
+stands. A permission mode refuses too, but that is your own standing choice being carried out — layered
+onto the one per-tool check every call already passes, not a second gate, and never coa's judgment.
+Everything else surfaces and advises.
 
 ## Not there yet
 
