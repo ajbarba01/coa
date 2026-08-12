@@ -98,8 +98,8 @@ specific shell binary on any platform).
 
 ```sh
 pnpm install
-pnpm build      # bundles the workspace packages
-pnpm typecheck  # also emits apps/cli/dist, where the coa binary lives
+pnpm build      # bundles the workspace packages, including apps/cli/dist where the coa binary lives
+pnpm typecheck
 ```
 
 Drive it from the terminal — one process serving, another sending:
