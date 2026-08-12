@@ -15,7 +15,8 @@ console — is a thin, reattachable viewer over a JSON-RPC endpoint.
 ## The shape of it
 
 `packages/core` **is** the daemon — the change-event spine plus the rings around it (flags, context, the config
-compiler, the workbench, governance, models, auth, sessions, JSON-RPC). `packages/shared` holds the types and
+compiler, the workbench, governance, models, the skills and tool-server library, auth, sessions, JSON-RPC).
+`packages/shared` holds the types and
 schemas everything validates against and imports nothing itself. `packages/spi` holds the backend port types
 with no implementations; `packages/loop-driver` and the two adapter packages sit behind them.
 `packages/code-intel` turns bytes into structure. Three console packages (view model, kit, transcript) are pure
